@@ -1,24 +1,291 @@
 package io.github.changeimpact.analyze.cli;
 
+import io.github.changeimpact.analyze.diagnostic.DiagnosticCollector;
+import io.github.changeimpact.analyze.diagnostic.DiagnosticLevel;
 import org.junit.jupiter.api.Test;
-import picocli.CommandLine;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.PrintStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * Tests for {@link ChangeImpactAnalyzeCli}.
+ */
 class ChangeImpactAnalyzeCliTest {
 
     @Test
     void helpOptionReturnsZero() {
         final int code =
-                new CommandLine(new ChangeImpactAnalyzeCli())
+                ChangeImpactAnalyzeCli.newCommandLine(
+                        new ChangeImpactAnalyzeCli())
                         .execute("--help");
         assertThat(code).isZero();
     }
 
     @Test
-    void noArgsReturnsZero() {
+    void noArgsReturnsNonZero() {
         final int code =
-                new CommandLine(new ChangeImpactAnalyzeCli()).execute();
+                ChangeImpactAnalyzeCli.newCommandLine(
+                        new ChangeImpactAnalyzeCli())
+                        .execute();
+        assertThat(code).isNotZero();
+    }
+
+    @Test
+    void missingProjectReturnsNonZero(
+            @TempDir final Path temp) {
+        final int code = runCli(temp,
+                "--baseline", "main",
+                "--output",
+                temp.resolve("out.html").toString());
+        assertThat(code).isNotZero();
+    }
+
+    @Test
+    void missingBaselineReturnsNonZero(
+            @TempDir final Path temp) {
+        final int code = runCli(temp,
+                "--project", temp.toString(),
+                "--output",
+                temp.resolve("out.html").toString());
+        assertThat(code).isNotZero();
+    }
+
+    @Test
+    void missingOutputReturnsNonZero(
+            @TempDir final Path temp) {
+        final int code = runCli(temp,
+                "--project", temp.toString(),
+                "--baseline", "main");
+        assertThat(code).isNotZero();
+    }
+
+    @Test
+    void invalidFormatReturnsNonZero(
+            @TempDir final Path temp) {
+        final int code = runCli(temp,
+                "--project", temp.toString(),
+                "--baseline", "main",
+                "--output",
+                temp.resolve("out.xml").toString(),
+                "--format", "xml");
+        assertThat(code).isNotZero();
+    }
+
+    @Test
+    void projectNotExistsReturnsNonZero(
+            @TempDir final Path temp) {
+        final int code = runCli(temp,
+                "--project",
+                temp.resolve("nope").toString(),
+                "--baseline", "main",
+                "--output",
+                temp.resolve("out.html").toString());
+        assertThat(code).isNotZero();
+    }
+
+    @Test
+    void projectNotDirectoryReturnsNonZero(
+            @TempDir final Path temp)
+            throws IOException {
+        final Path file =
+                temp.resolve("afile.txt");
+        Files.writeString(file, "x");
+        final int code = runCli(temp,
+                "--project", file.toString(),
+                "--baseline", "main",
+                "--output",
+                temp.resolve("out.html").toString());
+        assertThat(code).isNotZero();
+    }
+
+    @Test
+    void outputParentNotExistsReturnsNonZero(
+            @TempDir final Path temp) {
+        final int code = runCli(temp,
+                "--project", temp.toString(),
+                "--baseline", "main",
+                "--output",
+                temp.resolve("no/deep/out.html")
+                        .toString());
+        assertThat(code).isNotZero();
+    }
+
+    @Test
+    void validParamsReturnZero(
+            @TempDir final Path temp) {
+        final int code = runCli(temp,
+                "--project", temp.toString(),
+                "--baseline", "main",
+                "--output",
+                temp.resolve("out.html").toString());
         assertThat(code).isZero();
+    }
+
+    @Test
+    void defaultFormatIsHtml(
+            @TempDir final Path temp) {
+        final DiagnosticCollector collector =
+                new DiagnosticCollector();
+        final ChangeImpactAnalyzeCli cli =
+                new ChangeImpactAnalyzeCli(collector);
+        ChangeImpactAnalyzeCli.newCommandLine(cli)
+                .execute(
+                        "--project", temp.toString(),
+                        "--baseline", "main",
+                        "--output",
+                        temp.resolve("out.html")
+                                .toString());
+        assertThat(collector.getEvents())
+                .anyMatch(e ->
+                        e.getLevel()
+                                == DiagnosticLevel.INFO);
+    }
+
+    @Test
+    void validParamsEmitNotImplemented(
+            @TempDir final Path temp) {
+        final DiagnosticCollector collector =
+                new DiagnosticCollector();
+        final ChangeImpactAnalyzeCli cli =
+                new ChangeImpactAnalyzeCli(collector);
+        ChangeImpactAnalyzeCli.newCommandLine(cli)
+                .execute(
+                        "--project", temp.toString(),
+                        "--baseline", "main",
+                        "--output",
+                        temp.resolve("out.html")
+                                .toString());
+        assertThat(collector.getEvents())
+                .anyMatch(e ->
+                        "analysis".equals(e.getStage())
+                        && e.getLevel()
+                                == DiagnosticLevel.INFO
+                        && e.getMessage().contains(
+                                "not yet implemented"));
+    }
+
+    @Test
+    void validParamsEmitStageEvents(
+            @TempDir final Path temp) {
+        final DiagnosticCollector collector =
+                new DiagnosticCollector();
+        final ChangeImpactAnalyzeCli cli =
+                new ChangeImpactAnalyzeCli(collector);
+        ChangeImpactAnalyzeCli.newCommandLine(cli)
+                .execute(
+                        "--project", temp.toString(),
+                        "--baseline", "main",
+                        "--output",
+                        temp.resolve("out.html")
+                                .toString());
+        assertThat(collector.getEvents())
+                .anyMatch(e ->
+                        "validation".equals(
+                                e.getStage())
+                        && e.getMessage().contains(
+                                "started"))
+                .anyMatch(e ->
+                        "validation".equals(
+                                e.getStage())
+                        && e.getMessage().contains(
+                                "ended"))
+                .anyMatch(e ->
+                        "analysis".equals(
+                                e.getStage())
+                        && e.getMessage().contains(
+                                "started"))
+                .anyMatch(e ->
+                        "analysis".equals(
+                                e.getStage())
+                        && e.getMessage().contains(
+                                "ended"));
+    }
+
+    @Test
+    void lowercaseFormatIsAccepted(
+            @TempDir final Path temp) {
+        final int code = runCli(temp,
+                "--project", temp.toString(),
+                "--baseline", "main",
+                "--output",
+                temp.resolve("out.html").toString(),
+                "--format", "html");
+        assertThat(code).isZero();
+    }
+
+    @Test
+    void mixedCaseFormatIsAccepted(
+            @TempDir final Path temp) {
+        final int code = runCli(temp,
+                "--project", temp.toString(),
+                "--baseline", "main",
+                "--output",
+                temp.resolve("out.html").toString(),
+                "--format", "Html");
+        assertThat(code).isZero();
+    }
+
+    @Test
+    void diagnosticInfoPrintedToStdout(
+            @TempDir final Path temp) {
+        final ByteArrayOutputStream buf =
+                new ByteArrayOutputStream();
+        final DiagnosticCollector collector =
+                new DiagnosticCollector(
+                        new PrintStream(buf),
+                        new PrintStream(
+                                new ByteArrayOutputStream()));
+        final ChangeImpactAnalyzeCli cli =
+                new ChangeImpactAnalyzeCli(collector);
+        ChangeImpactAnalyzeCli.newCommandLine(cli)
+                .execute(
+                        "--project", temp.toString(),
+                        "--baseline", "main",
+                        "--output",
+                        temp.resolve("out.html")
+                                .toString());
+        final String output = buf.toString();
+        assertThat(output).contains(
+                "not yet implemented");
+    }
+
+    @Test
+    void diagnosticErrorPrintedToStderr(
+            @TempDir final Path temp)
+            throws IOException {
+        final Path file =
+                temp.resolve("afile.txt");
+        Files.writeString(file, "x");
+        final ByteArrayOutputStream errBuf =
+                new ByteArrayOutputStream();
+        final DiagnosticCollector collector =
+                new DiagnosticCollector(
+                        new PrintStream(
+                                new ByteArrayOutputStream()),
+                        new PrintStream(errBuf));
+        final ChangeImpactAnalyzeCli cli =
+                new ChangeImpactAnalyzeCli(collector);
+        ChangeImpactAnalyzeCli.newCommandLine(cli)
+                .execute(
+                        "--project", file.toString(),
+                        "--baseline", "main",
+                        "--output",
+                        temp.resolve("out.html")
+                                .toString());
+        assertThat(errBuf.toString()).contains(
+                "not a directory");
+    }
+
+    private int runCli(final Path temp,
+                       final String... args) {
+        return ChangeImpactAnalyzeCli.newCommandLine(
+                new ChangeImpactAnalyzeCli())
+                .execute(args);
     }
 }
