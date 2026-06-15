@@ -2,6 +2,11 @@
 
 ## Project
 
+### [Project Overview](project/project-overview.md)
+- Summary: Maven Java 17 变更影响分析命令行工具，picocli CLI 框架。
+- Code: `pom.xml`, `src/main/java/io/github/changeimpact/analyze/cli/ChangeImpactAnalyzeCli.java`
+- Related: [Build, Test, Package](runbooks/build-test-package.md)
+
 ## Architecture
 
 ## Features
@@ -14,5 +19,10 @@
 - Related: 无
 
 ## Runbooks
+
+### [Build, Test, Package](runbooks/build-test-package.md)
+- Summary: Maven 编译、测试、checkstyle、打包和运行操作手册。
+- Code: `pom.xml`
+- Related: [Project Overview](project/project-overview.md)
 
 ## Glossary
