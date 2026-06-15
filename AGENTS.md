@@ -16,6 +16,10 @@ Telegraph style.
 - `tmp-files/`：临时文件/中间产物，不提交 git
 
 
+## User Interaction
+
+- 向用户提问时，每次仅提出一个问题，待用户回答后再继续下一个。**禁止** 批量提问。
+
 ## Documentation Language Style
 
 - 文档默认使用中文表达；专业技术术语、名称、标识符和代码相关内容保持原文。
