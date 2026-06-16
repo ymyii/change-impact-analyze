@@ -68,6 +68,12 @@
             <artifactId>asm-util</artifactId>
             <version>${asm.version}</version>
         </dependency>
+
+        <dependency>
+            <groupId>com.ibm.wala</groupId>
+            <artifactId>com.ibm.wala.core</artifactId>
+            <version>1.6.13</version>
+        </dependency>
     </dependencies>
 
     <build>
