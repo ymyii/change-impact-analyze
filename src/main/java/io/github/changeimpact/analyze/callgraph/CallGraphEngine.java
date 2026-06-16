@@ -149,6 +149,14 @@ public final class CallGraphEngine {
                         cha, modMap);
         addAllAppMethods(
                 cha, modMap, methods);
+        new ServiceLoaderEnricher(
+                diagnostics).enrich(
+                result.getOutputs(),
+                methods, edges, ovr);
+        new ReflectionEnricher(
+                diagnostics).enrich(
+                result.getOutputs(),
+                methods, edges);
         final long elapsed =
                 System.currentTimeMillis()
                         - t0;

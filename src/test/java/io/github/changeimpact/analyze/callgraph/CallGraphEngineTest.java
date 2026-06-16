@@ -27,6 +27,9 @@ import static org.assertj.core.api.Assertions
  */
 class CallGraphEngineTest {
 
+    /** Proxy method max stack size. */
+    private static final int PROXY_MAX_STACK = 3;
+
     /** Temp directory for classes. */
     @TempDir
     private Path tempDir;
@@ -252,6 +255,189 @@ class CallGraphEngineTest {
                                 "com/FooTest"));
     }
 
+    @Test
+    void serviceLoaderCreatesServiceEdge()
+            throws Exception {
+        final Path classesDir =
+                tempDir.resolve("svc");
+        Files.createDirectories(classesDir);
+        writeInterface(classesDir,
+                "com/api/Plugin",
+                "execute", "()V");
+        writeClassWithInterface(
+                classesDir,
+                "com/impl/MyPlugin",
+                "com/api/Plugin",
+                "execute", "()V");
+        final Path svcDir =
+                classesDir.resolve(
+                        "META-INF/services");
+        Files.createDirectories(svcDir);
+        Files.writeString(
+                svcDir.resolve(
+                        "com.api.Plugin"),
+                "com.impl.MyPlugin\n");
+        final CallGraph cg =
+                buildForDir(classesDir);
+        assertThat(cg.getEdges())
+                .extracting(CallEdge::getEdgeKind)
+                .contains(EdgeKind.SERVICE);
+        final CallEdge svcEdge =
+                cg.getEdges().stream()
+                        .filter(e -> e.getEdgeKind()
+                                == EdgeKind.SERVICE)
+                        .findFirst()
+                        .orElseThrow();
+        assertThat(svcEdge.getCaller().name())
+                .isEqualTo("<service-loader>");
+        assertThat(svcEdge.getCallee().name())
+                .isEqualTo("<init>");
+        assertThat(svcEdge.getCallee().owner())
+                .isEqualTo("com/impl/MyPlugin");
+        assertThat(svcEdge.getEvidence())
+                .contains("META-INF/services");
+    }
+
+    @Test
+    void serviceLoaderOverrideEnriched()
+            throws Exception {
+        final Path classesDir =
+                tempDir.resolve("svcovr");
+        Files.createDirectories(classesDir);
+        writeInterface(classesDir,
+                "com/api/Plugin",
+                "execute", "()V");
+        writeClassWithInterface(
+                classesDir,
+                "com/impl/MyPlugin",
+                "com/api/Plugin",
+                "execute", "()V");
+        final Path svcDir =
+                classesDir.resolve(
+                        "META-INF/services");
+        Files.createDirectories(svcDir);
+        Files.writeString(
+                svcDir.resolve(
+                        "com.api.Plugin"),
+                "com.impl.MyPlugin\n");
+        final CallGraph cg =
+                buildForDir(classesDir);
+        final MethodId ifaceMethod =
+                new MethodId(
+                        "com/api/Plugin",
+                        "execute", "()V",
+                        "",
+                        "com/api/Plugin.class");
+        assertThat(cg.getOverrides(ifaceMethod))
+                .extracting(MethodId::owner)
+                .contains("com/impl/MyPlugin");
+    }
+
+    @Test
+    void providerNotInScopeEmitsInfo()
+            throws Exception {
+        final Path classesDir =
+                tempDir.resolve("noscope");
+        Files.createDirectories(classesDir);
+        writeInterface(classesDir,
+                "com/api/Plugin",
+                "execute", "()V");
+        writeClass(classesDir,
+                "com/app/Dummy",
+                null,
+                "run", "()V",
+                false, true);
+        final Path svcDir =
+                classesDir.resolve(
+                        "META-INF/services");
+        Files.createDirectories(svcDir);
+        Files.writeString(
+                svcDir.resolve(
+                        "com.api.Plugin"),
+                "com.external.Missing\n");
+        buildForDir(classesDir);
+        assertThat(diag.getEvents())
+                .extracting(
+                        e -> e.getLevel().name()
+                                + ":" + e.getMessage())
+                .anyMatch(s -> s.contains(
+                        "not in scope"));
+    }
+
+    @Test
+    void literalClassForNameCreatesEdge()
+            throws Exception {
+        final Path classesDir =
+                tempDir.resolve("reflect");
+        Files.createDirectories(classesDir);
+        writeClass(classesDir,
+                "com/target/Target",
+                null,
+                "run", "()V",
+                false, true);
+        writeClassWithForName(
+                classesDir,
+                "com/loader/Loader",
+                "com.target.Target");
+        final CallGraph cg =
+                buildForDir(classesDir);
+        assertThat(cg.getEdges())
+                .extracting(CallEdge::getEdgeKind)
+                .contains(
+                        EdgeKind.REFLECTION_LITERAL);
+        final CallEdge refEdge =
+                cg.getEdges().stream()
+                        .filter(e -> e.getEdgeKind()
+                                == EdgeKind
+                                .REFLECTION_LITERAL)
+                        .findFirst()
+                        .orElseThrow();
+        assertThat(refEdge.getCallee().owner())
+                .isEqualTo("com/target/Target");
+        assertThat(refEdge.getCallee().name())
+                .isEqualTo("<clinit>");
+        assertThat(refEdge.getEvidence())
+                .contains("Class.forName");
+    }
+
+    @Test
+    void nonLiteralClassForNameWarns()
+            throws Exception {
+        final Path classesDir =
+                tempDir.resolve("nonlit");
+        Files.createDirectories(classesDir);
+        writeClassWithDynamicForName(
+                classesDir,
+                "com/loader/DynLoader");
+        buildForDir(classesDir);
+        assertThat(diag.getEvents())
+                .extracting(
+                        e -> e.getLevel().name()
+                                + ":" + e.getMessage())
+                .anyMatch(s -> s.contains(
+                        "Non-literal")
+                        && s.contains(
+                                "Class.forName"));
+    }
+
+    @Test
+    void dynamicProxyWarns()
+            throws Exception {
+        final Path classesDir =
+                tempDir.resolve("proxy");
+        Files.createDirectories(classesDir);
+        writeClassWithProxy(
+                classesDir,
+                "com/proxy/ProxyCreator");
+        buildForDir(classesDir);
+        assertThat(diag.getEvents())
+                .extracting(
+                        e -> e.getLevel().name()
+                                + ":" + e.getMessage())
+                .anyMatch(s -> s.contains(
+                        "Dynamic proxy"));
+    }
+
     /**
      * Builds a call graph for a
      * single classes directory.
@@ -330,10 +516,10 @@ class CallGraphEngineTest {
                                 ? Opcodes.ACC_PUBLIC
                                 | Opcodes.ACC_ABSTRACT
                                 : Opcodes.ACC_PUBLIC,
-                        isCallee
+                        (isCallee || isIface)
                                 ? callName
                                 : "invoke",
-                        isCallee
+                        (isCallee || isIface)
                                 ? callDesc
                                 : "()V",
                         null, null);
@@ -653,6 +839,202 @@ class CallGraphEngineTest {
         try (OutputStream os =
                 Files.newOutputStream(
                         out)) {
+            os.write(cw.toByteArray());
+        }
+    }
+
+    /**
+     * Writes a class that calls
+     * Class.forName with a literal.
+     *
+     * @param dir       output directory
+     * @param className caller internal name
+     * @param target    target binary name
+     */
+    private void writeClassWithForName(
+            final Path dir,
+            final String className,
+            final String target)
+            throws IOException {
+        final ClassWriter cw =
+                new ClassWriter(0);
+        cw.visit(Opcodes.V17,
+                Opcodes.ACC_PUBLIC,
+                className, null,
+                "java/lang/Object", null);
+        final MethodVisitor init =
+                cw.visitMethod(
+                        Opcodes.ACC_PUBLIC,
+                        "<init>", "()V",
+                        null, null);
+        init.visitCode();
+        init.visitVarInsn(
+                Opcodes.ALOAD, 0);
+        init.visitMethodInsn(
+                Opcodes.INVOKESPECIAL,
+                "java/lang/Object",
+                "<init>", "()V", false);
+        init.visitInsn(Opcodes.RETURN);
+        init.visitMaxs(1, 1);
+        init.visitEnd();
+        final MethodVisitor mv =
+                cw.visitMethod(
+                        Opcodes.ACC_PUBLIC,
+                        "load", "()V",
+                        null, null);
+        mv.visitCode();
+        mv.visitLdcInsn(target);
+        mv.visitMethodInsn(
+                Opcodes.INVOKESTATIC,
+                "java/lang/Class",
+                "forName",
+                "(Ljava/lang/String;)"
+                        + "Ljava/lang/Class;",
+                false);
+        mv.visitInsn(Opcodes.POP);
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitMaxs(1, 1);
+        mv.visitEnd();
+        cw.visitEnd();
+        final Path out = dir.resolve(
+                className + ".class");
+        Files.createDirectories(
+                out.getParent());
+        try (OutputStream os =
+                Files.newOutputStream(out)) {
+            os.write(cw.toByteArray());
+        }
+    }
+
+    /**
+     * Writes a class that calls
+     * Class.forName with a variable.
+     *
+     * @param dir       output directory
+     * @param className caller internal name
+     */
+    private void writeClassWithDynamicForName(
+            final Path dir,
+            final String className)
+            throws IOException {
+        final ClassWriter cw =
+                new ClassWriter(0);
+        cw.visit(Opcodes.V17,
+                Opcodes.ACC_PUBLIC,
+                className, null,
+                "java/lang/Object", null);
+        final MethodVisitor init =
+                cw.visitMethod(
+                        Opcodes.ACC_PUBLIC,
+                        "<init>", "()V",
+                        null, null);
+        init.visitCode();
+        init.visitVarInsn(
+                Opcodes.ALOAD, 0);
+        init.visitMethodInsn(
+                Opcodes.INVOKESPECIAL,
+                "java/lang/Object",
+                "<init>", "()V", false);
+        init.visitInsn(Opcodes.RETURN);
+        init.visitMaxs(1, 1);
+        init.visitEnd();
+        final MethodVisitor mv =
+                cw.visitMethod(
+                        Opcodes.ACC_PUBLIC,
+                        "load",
+                        "(Ljava/lang/String;)V",
+                        null, null);
+        mv.visitCode();
+        mv.visitVarInsn(
+                Opcodes.ALOAD, 1);
+        mv.visitMethodInsn(
+                Opcodes.INVOKESTATIC,
+                "java/lang/Class",
+                "forName",
+                "(Ljava/lang/String;)"
+                        + "Ljava/lang/Class;",
+                false);
+        mv.visitInsn(Opcodes.POP);
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitMaxs(1, 2);
+        mv.visitEnd();
+        cw.visitEnd();
+        final Path out = dir.resolve(
+                className + ".class");
+        Files.createDirectories(
+                out.getParent());
+        try (OutputStream os =
+                Files.newOutputStream(out)) {
+            os.write(cw.toByteArray());
+        }
+    }
+
+    /**
+     * Writes a class that calls
+     * Proxy.newProxyInstance.
+     *
+     * @param dir       output directory
+     * @param className caller internal name
+     */
+    private void writeClassWithProxy(
+            final Path dir,
+            final String className)
+            throws IOException {
+        final ClassWriter cw =
+                new ClassWriter(0);
+        cw.visit(Opcodes.V17,
+                Opcodes.ACC_PUBLIC,
+                className, null,
+                "java/lang/Object", null);
+        final MethodVisitor init =
+                cw.visitMethod(
+                        Opcodes.ACC_PUBLIC,
+                        "<init>", "()V",
+                        null, null);
+        init.visitCode();
+        init.visitVarInsn(
+                Opcodes.ALOAD, 0);
+        init.visitMethodInsn(
+                Opcodes.INVOKESPECIAL,
+                "java/lang/Object",
+                "<init>", "()V", false);
+        init.visitInsn(Opcodes.RETURN);
+        init.visitMaxs(1, 1);
+        init.visitEnd();
+        final MethodVisitor mv =
+                cw.visitMethod(
+                        Opcodes.ACC_PUBLIC,
+                        "create", "()V",
+                        null, null);
+        mv.visitCode();
+        mv.visitInsn(Opcodes.ACONST_NULL);
+        mv.visitInsn(Opcodes.ICONST_0);
+        mv.visitTypeInsn(
+                Opcodes.ANEWARRAY,
+                "java/lang/Class");
+        mv.visitInsn(Opcodes.ACONST_NULL);
+        mv.visitMethodInsn(
+                Opcodes.INVOKESTATIC,
+                "java/lang/reflect/Proxy",
+                "newProxyInstance",
+                "(Ljava/lang/ClassLoader;"
+                        + "[Ljava/lang/Class;"
+                        + "Ljava/lang/"
+                        + "reflect/"
+                        + "InvocationHandler;)"
+                        + "Ljava/lang/Object;",
+                false);
+        mv.visitInsn(Opcodes.POP);
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitMaxs(PROXY_MAX_STACK, 1);
+        mv.visitEnd();
+        cw.visitEnd();
+        final Path out = dir.resolve(
+                className + ".class");
+        Files.createDirectories(
+                out.getParent());
+        try (OutputStream os =
+                Files.newOutputStream(out)) {
             os.write(cw.toByteArray());
         }
     }

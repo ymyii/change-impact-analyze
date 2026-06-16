@@ -23,4 +23,10 @@ public enum EdgeKind {
 
     /** Method override relationship. */
     OVERRIDE,
+
+    /** ServiceLoader provider edge. */
+    SERVICE,
+
+    /** Literal Class.forName edge. */
+    REFLECTION_LITERAL,
 }
