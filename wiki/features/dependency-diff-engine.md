@@ -8,6 +8,8 @@ relations:
     desc: "依赖变动对比依赖前序阶段产出的 resolved dependency tree"
   - path: "wiki/features/jar-locator.md"
     desc: "依赖变动对比产物供 Jar Locator 定位 jar 文件"
+  - path: "wiki/features/bytecode-diff-engine.md"
+    desc: "依赖变动对比产物最终供 Bytecode Diff Engine 执行 bytecode diff"
 code_refs:
   - path: "src/main/java/io/github/changeimpact/analyze/dependency/DependencyDiffEngine.java"
     desc: "依赖变动对比引擎主实现"

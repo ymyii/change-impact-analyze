@@ -16,6 +16,8 @@ relations:
     desc: "依赖变动对比"
   - path: "wiki/features/jar-locator.md"
     desc: "Jar 文件定位"
+  - path: "wiki/features/bytecode-diff-engine.md"
+    desc: "Bytecode diff 引擎"
 code_refs:
   - path: "src/main/java/io/github/changeimpact/analyze/cli/ChangeImpactAnalyzeCli.java"
     desc: "CLI 主入口，总流程编排"
@@ -39,6 +41,18 @@ code_refs:
     desc: "Jar 定位结果数据类"
   - path: "src/main/java/io/github/changeimpact/analyze/jar/JarLocatorException.java"
     desc: "Jar 定位异常"
+  - path: "src/main/java/io/github/changeimpact/analyze/bytecode/BytecodeDiffEngine.java"
+    desc: "Bytecode diff 核心引擎"
+  - path: "src/main/java/io/github/changeimpact/analyze/bytecode/ChangePoint.java"
+    desc: "Bytecode 变化点数据类"
+  - path: "src/main/java/io/github/changeimpact/analyze/bytecode/ChangePointKind.java"
+    desc: "9 种变化类型枚举"
+  - path: "src/main/java/io/github/changeimpact/analyze/bytecode/BytecodeDiffException.java"
+    desc: "Bytecode diff 异常"
+  - path: "src/main/java/io/github/changeimpact/analyze/bytecode/JarClassIndexer.java"
+    desc: "Jar → class index 索引器"
+  - path: "src/main/java/io/github/changeimpact/analyze/bytecode/StableHashMethodVisitor.java"
+    desc: "Method body SHA-256 hash visitor"
 ---
 
 # Architecture: Analysis Pipeline Architecture
@@ -56,7 +70,7 @@ code_refs:
 - **DependencyAnalyzer**: 调用 Maven dependency plugin 输出 GraphML 并解析为结构化依赖树。
 - **DependencyDiffEngine**: 对比两侧 resolved dependency tree，按模块维度 union diff，生成 `DependencyChange` 清单。
 - **JarLocator**: 从 Maven local repository 定位 version changed 依赖的 old/new jar 文件。
-- **BytecodeDiffEngine** (待实现): 对 old/new jar 做 bytecode diff，生成 ChangePoint。
+- **BytecodeDiffEngine**: 对 old/new jar 做 bytecode diff，使用 ASM 9.7 读取 class 文件，通过 SHA-256 body hash 检测 method body 变化，生成 `ChangePoint` 清单。
 - **CallGraphEngine** (待实现): 基于业务代码 main classes 构建全局 Call Graph。
 - **ImpactTracer** (待实现): 从变化点反向追踪受影响业务方法。
 - **ReportGenerator** (待实现): 生成单文件 HTML 或 Markdown 报告。

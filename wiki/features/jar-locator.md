@@ -6,6 +6,8 @@ relations:
     desc: "Jar 定位是分析流水线的第六阶段"
   - path: "wiki/features/dependency-diff-engine.md"
     desc: "Jar 定位依赖前序阶段产出的 DependencyChange 清单"
+  - path: "wiki/features/bytecode-diff-engine.md"
+    desc: "Jar 定位产物供 Bytecode Diff Engine 执行 bytecode diff"
 code_refs:
   - path: "src/main/java/io/github/changeimpact/analyze/jar/JarLocator.java"
     desc: "Jar 定位主实现"
