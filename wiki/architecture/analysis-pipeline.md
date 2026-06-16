@@ -12,6 +12,8 @@ relations:
     desc: "Maven 编译执行"
   - path: "wiki/features/dependency-tree-extraction.md"
     desc: "依赖树提取与解析"
+  - path: "wiki/features/dependency-diff-engine.md"
+    desc: "依赖变动对比"
 code_refs:
   - path: "src/main/java/io/github/changeimpact/analyze/cli/ChangeImpactAnalyzeCli.java"
     desc: "CLI 主入口，总流程编排"
@@ -23,6 +25,12 @@ code_refs:
     desc: "Maven 编译执行模块"
   - path: "src/main/java/io/github/changeimpact/analyze/dependency/DependencyAnalyzer.java"
     desc: "依赖树提取模块"
+  - path: "src/main/java/io/github/changeimpact/analyze/dependency/DependencyDiffEngine.java"
+    desc: "依赖变动对比模块"
+  - path: "src/main/java/io/github/changeimpact/analyze/dependency/DependencyChange.java"
+    desc: "依赖变动数据类"
+  - path: "src/main/java/io/github/changeimpact/analyze/dependency/ChangeType.java"
+    desc: "变动类型枚举"
 ---
 
 # Architecture: Analysis Pipeline Architecture
@@ -38,7 +46,7 @@ code_refs:
 - **WorkspaceManager**: 准备 baseline、target、current workspace 三类分析输入，使用 git worktree 隔离。
 - **BuildRunner**: 调用用户环境默认 `mvn` 编译，收集 main classes。
 - **DependencyAnalyzer**: 调用 Maven dependency plugin 输出 GraphML 并解析为结构化依赖树。
-- **DependencyDiffEngine** (待实现): 对比两侧 resolved dependency tree，生成依赖变动。
+- **DependencyDiffEngine**: 对比两侧 resolved dependency tree，按模块维度 union diff，生成 `DependencyChange` 清单。
 - **JarLocator** (待实现): 从 Maven local repository 定位 version changed 依赖 jar。
 - **BytecodeDiffEngine** (待实现): 对 old/new jar 做 bytecode diff，生成 ChangePoint。
 - **CallGraphEngine** (待实现): 基于业务代码 main classes 构建全局 Call Graph。

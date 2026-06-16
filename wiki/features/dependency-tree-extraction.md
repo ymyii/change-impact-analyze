@@ -4,6 +4,8 @@ type: feature
 relations:
   - path: "wiki/architecture/analysis-pipeline.md"
     desc: "依赖树提取是分析流水线的第四阶段"
+  - path: "wiki/features/dependency-diff-engine.md"
+    desc: "依赖树提取产物供 Dependency Diff Engine 对比"
 code_refs:
   - path: "src/main/java/io/github/changeimpact/analyze/dependency/DependencyAnalyzer.java"
     desc: "调用 Maven dependency plugin 并解析 GraphML"
