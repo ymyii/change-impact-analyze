@@ -3,8 +3,8 @@
 ## Project
 
 ### [Project Overview](project/project-overview.md)
-- Summary: Maven Java 17 变更影响分析命令行工具，picocli CLI 框架。
-- Code: `pom.xml`, `src/main/java/io/github/changeimpact/analyze/cli/ChangeImpactAnalyzeCli.java`
+- Summary: Maven Java 17 变更影响分析命令行工具，picocli CLI 框架，含诊断框架和 Git workspace 管理。
+- Code: `pom.xml`, `src/main/java/io/github/changeimpact/analyze/cli/ChangeImpactAnalyzeCli.java`, `src/main/java/io/github/changeimpact/analyze/diagnostic/DiagnosticCollector.java`, `src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceManager.java`
 - Related: [Build, Test, Package](runbooks/build-test-package.md)
 
 ## Architecture

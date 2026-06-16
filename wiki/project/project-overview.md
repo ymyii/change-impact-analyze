@@ -9,6 +9,10 @@ code_refs:
     desc: "Maven 构建配置，依赖和插件定义"
   - path: "src/main/java/io/github/changeimpact/analyze/cli/ChangeImpactAnalyzeCli.java"
     desc: "CLI 主入口"
+  - path: "src/main/java/io/github/changeimpact/analyze/diagnostic/DiagnosticCollector.java"
+    desc: "诊断事件收集器"
+  - path: "src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceManager.java"
+    desc: "Git workspace 管理核心"
 ---
 
 # Project: Project Overview
@@ -20,6 +24,8 @@ Change Impact Analyze 是一个命令行变更影响分析工具，用于分析�
 ## Module Map
 
 - `src/main/java/io/github/changeimpact/analyze/cli/` - CLI 入口和命令行参数解析。
+- `src/main/java/io/github/changeimpact/analyze/diagnostic/` - 诊断框架，收集和结构化阶段诊断事件。
+- `src/main/java/io/github/changeimpact/analyze/workspace/` - Git workspace 管理，使用 git worktree 隔离 baseline/target 工作目录，支持 current workspace 模式，自动清理临时 worktree。
 - `src/test/java/` - 单元测试。
 - `src/integration-test/java/` - 集成测试（通过 build-helper-maven-plugin 注册为测试源码目录）。
 
