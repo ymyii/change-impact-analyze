@@ -36,7 +36,8 @@ CLI 提供命令行入口，负责参数解析、校验、退出码控制和诊�
 1. picocli 解析命令行参数。
 2. `call()` 方法执行校验逻辑。
 3. 校验失败时记录诊断事件并返回退出码 `1`。
-4. 校验通过后进入分析阶段（当前为 no-op）。
+4. 校验通过后调用 `runPipeline()` 执行完整分析流水线：WorkspaceManager → BuildRunner → DependencyAnalyzer → DependencyDiffEngine → JarLocator → BytecodeDiffEngine → CallGraphEngine → ImpactTracer → ReportGenerator。
+5. Pipeline 异常时返回退出码 `2`。
 
 ## Implementation Files
 

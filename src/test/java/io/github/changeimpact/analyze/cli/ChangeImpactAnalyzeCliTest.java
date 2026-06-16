@@ -117,14 +117,28 @@ class ChangeImpactAnalyzeCliTest {
     }
 
     @Test
-    void validParamsReturnZero(
+    void validParamsTriggersPipeline(
             @TempDir final Path temp) {
-        final int code = runCli(temp,
-                "--project", temp.toString(),
-                "--baseline", "main",
-                "--output",
-                temp.resolve("out.html").toString());
-        assertThat(code).isZero();
+        final DiagnosticCollector collector =
+                new DiagnosticCollector();
+        final ChangeImpactAnalyzeCli cli =
+                new ChangeImpactAnalyzeCli(collector);
+        final int code =
+                ChangeImpactAnalyzeCli.newCommandLine(cli)
+                        .execute(
+                                "--project",
+                                temp.toString(),
+                                "--baseline", "main",
+                                "--output",
+                                temp.resolve("out.html")
+                                        .toString());
+        assertThat(code).isNotZero();
+        assertThat(collector.getEvents())
+                .anyMatch(e ->
+                        "pipeline".equals(
+                                e.getStage())
+                                && e.getLevel()
+                                        == DiagnosticLevel.ERROR);
     }
 
     @Test
@@ -148,30 +162,7 @@ class ChangeImpactAnalyzeCliTest {
     }
 
     @Test
-    void validParamsEmitNotImplemented(
-            @TempDir final Path temp) {
-        final DiagnosticCollector collector =
-                new DiagnosticCollector();
-        final ChangeImpactAnalyzeCli cli =
-                new ChangeImpactAnalyzeCli(collector);
-        ChangeImpactAnalyzeCli.newCommandLine(cli)
-                .execute(
-                        "--project", temp.toString(),
-                        "--baseline", "main",
-                        "--output",
-                        temp.resolve("out.html")
-                                .toString());
-        assertThat(collector.getEvents())
-                .anyMatch(e ->
-                        "analysis".equals(e.getStage())
-                        && e.getLevel()
-                                == DiagnosticLevel.INFO
-                        && e.getMessage().contains(
-                                "not yet implemented"));
-    }
-
-    @Test
-    void validParamsEmitStageEvents(
+    void validParamsEmitValidationStages(
             @TempDir final Path temp) {
         final DiagnosticCollector collector =
                 new DiagnosticCollector();
@@ -192,16 +183,6 @@ class ChangeImpactAnalyzeCliTest {
                                 "started"))
                 .anyMatch(e ->
                         "validation".equals(
-                                e.getStage())
-                        && e.getMessage().contains(
-                                "ended"))
-                .anyMatch(e ->
-                        "analysis".equals(
-                                e.getStage())
-                        && e.getMessage().contains(
-                                "started"))
-                .anyMatch(e ->
-                        "analysis".equals(
                                 e.getStage())
                         && e.getMessage().contains(
                                 "ended"));
@@ -210,37 +191,8 @@ class ChangeImpactAnalyzeCliTest {
     @Test
     void lowercaseFormatIsAccepted(
             @TempDir final Path temp) {
-        final int code = runCli(temp,
-                "--project", temp.toString(),
-                "--baseline", "main",
-                "--output",
-                temp.resolve("out.html").toString(),
-                "--format", "html");
-        assertThat(code).isZero();
-    }
-
-    @Test
-    void mixedCaseFormatIsAccepted(
-            @TempDir final Path temp) {
-        final int code = runCli(temp,
-                "--project", temp.toString(),
-                "--baseline", "main",
-                "--output",
-                temp.resolve("out.html").toString(),
-                "--format", "Html");
-        assertThat(code).isZero();
-    }
-
-    @Test
-    void diagnosticInfoPrintedToStdout(
-            @TempDir final Path temp) {
-        final ByteArrayOutputStream buf =
-                new ByteArrayOutputStream();
         final DiagnosticCollector collector =
-                new DiagnosticCollector(
-                        new PrintStream(buf),
-                        new PrintStream(
-                                new ByteArrayOutputStream()));
+                new DiagnosticCollector();
         final ChangeImpactAnalyzeCli cli =
                 new ChangeImpactAnalyzeCli(collector);
         ChangeImpactAnalyzeCli.newCommandLine(cli)
@@ -249,10 +201,33 @@ class ChangeImpactAnalyzeCliTest {
                         "--baseline", "main",
                         "--output",
                         temp.resolve("out.html")
-                                .toString());
-        final String output = buf.toString();
-        assertThat(output).contains(
-                "not yet implemented");
+                                .toString(),
+                        "--format", "html");
+        assertThat(collector.getEvents())
+                .anyMatch(e ->
+                        "pipeline".equals(
+                                e.getStage()));
+    }
+
+    @Test
+    void mixedCaseFormatIsAccepted(
+            @TempDir final Path temp) {
+        final DiagnosticCollector collector =
+                new DiagnosticCollector();
+        final ChangeImpactAnalyzeCli cli =
+                new ChangeImpactAnalyzeCli(collector);
+        ChangeImpactAnalyzeCli.newCommandLine(cli)
+                .execute(
+                        "--project", temp.toString(),
+                        "--baseline", "main",
+                        "--output",
+                        temp.resolve("out.html")
+                                .toString(),
+                        "--format", "Html");
+        assertThat(collector.getEvents())
+                .anyMatch(e ->
+                        "pipeline".equals(
+                                e.getStage()));
     }
 
     @Test
@@ -280,6 +255,29 @@ class ChangeImpactAnalyzeCliTest {
                                 .toString());
         assertThat(errBuf.toString()).contains(
                 "not a directory");
+    }
+
+    @Test
+    void pipelineFailurePrintsToStderr(
+            @TempDir final Path temp) {
+        final ByteArrayOutputStream errBuf =
+                new ByteArrayOutputStream();
+        final DiagnosticCollector collector =
+                new DiagnosticCollector(
+                        new PrintStream(
+                                new ByteArrayOutputStream()),
+                        new PrintStream(errBuf));
+        final ChangeImpactAnalyzeCli cli =
+                new ChangeImpactAnalyzeCli(collector);
+        ChangeImpactAnalyzeCli.newCommandLine(cli)
+                .execute(
+                        "--project", temp.toString(),
+                        "--baseline", "main",
+                        "--output",
+                        temp.resolve("out.html")
+                                .toString());
+        assertThat(errBuf.toString()).contains(
+                "Pipeline failed");
     }
 
     private int runCli(final Path temp,

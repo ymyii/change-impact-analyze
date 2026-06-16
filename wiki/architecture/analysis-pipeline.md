@@ -18,6 +18,8 @@ relations:
     desc: "Jar 文件定位"
   - path: "wiki/features/bytecode-diff-engine.md"
     desc: "Bytecode diff 引擎"
+  - path: "wiki/features/report-generator.md"
+    desc: "HTML/Markdown 报告生成"
 code_refs:
   - path: "src/main/java/io/github/changeimpact/analyze/cli/ChangeImpactAnalyzeCli.java"
     desc: "CLI 主入口，总流程编排"
@@ -53,6 +55,24 @@ code_refs:
     desc: "Jar → class index 索引器"
   - path: "src/main/java/io/github/changeimpact/analyze/bytecode/StableHashMethodVisitor.java"
     desc: "Method body SHA-256 hash visitor"
+  - path: "src/main/java/io/github/changeimpact/analyze/callgraph/CallGraphEngine.java"
+    desc: "WALA RTA Call Graph 构建引擎"
+  - path: "src/main/java/io/github/changeimpact/analyze/callgraph/CallGraph.java"
+    desc: "不可变 Call Graph 数据模型"
+  - path: "src/main/java/io/github/changeimpact/analyze/callgraph/CallEdge.java"
+    desc: "Call Graph 边数据类"
+  - path: "src/main/java/io/github/changeimpact/analyze/callgraph/MethodId.java"
+    desc: "方法唯一标识"
+  - path: "src/main/java/io/github/changeimpact/analyze/impact/ImpactTracer.java"
+    desc: "从变化点反向追踪受影响业务方法"
+  - path: "src/main/java/io/github/changeimpact/analyze/impact/ImpactResult.java"
+    desc: "影响追踪结果数据类"
+  - path: "src/main/java/io/github/changeimpact/analyze/impact/ImpactPath.java"
+    desc: "单条影响路径数据类"
+  - path: "src/main/java/io/github/changeimpact/analyze/report/ReportGenerator.java"
+    desc: "HTML/Markdown 报告生成器"
+  - path: "src/main/java/io/github/changeimpact/analyze/report/ReportException.java"
+    desc: "报告生成异常"
 ---
 
 # Architecture: Analysis Pipeline Architecture
@@ -71,9 +91,9 @@ code_refs:
 - **DependencyDiffEngine**: 对比两侧 resolved dependency tree，按模块维度 union diff，生成 `DependencyChange` 清单。
 - **JarLocator**: 从 Maven local repository 定位 version changed 依赖的 old/new jar 文件。
 - **BytecodeDiffEngine**: 对 old/new jar 做 bytecode diff，使用 ASM 9.7 读取 class 文件，通过 SHA-256 body hash 检测 method body 变化，生成 `ChangePoint` 清单。
-- **CallGraphEngine** (待实现): 基于业务代码 main classes 构建全局 Call Graph。
-- **ImpactTracer** (待实现): 从变化点反向追踪受影响业务方法。
-- **ReportGenerator** (待实现): 生成单文件 HTML 或 Markdown 报告。
+- **CallGraphEngine**: 基于业务代码 main classes 使用 WALA RTA 构建全局 Call Graph，并通过 ServiceLoader 和 Reflection enricher 补充间接调用边。
+- **ImpactTracer**: 从变化点反向追踪受影响业务方法，四阶段流程：resolve seeds → reverse BFS → build paths → sort。
+- **ReportGenerator**: 生成单文件 HTML 或 Markdown 报告，按模块分组展示依赖变动、变化点、影响路径和诊断信息。
 
 ## Architecture Diagram
 
@@ -117,13 +137,14 @@ flowchart TD
 
 ## Runtime Flow
 
-1. CLI 解析参数并校验。
+1. CLI 解析参数并校验（validation stage）。
 2. `WorkspaceManager` 准备 baseline 和 target workspace。
 3. `BuildRunner` 对每个 side 执行 `mvn compile`，收集 main classes。
-4. `DependencyAnalyzer` 对每个 side 执行 `mvn dependency:tree`，解析 GraphML。
-5. `DependencyDiffEngine` 对比两侧依赖树，生成 `DependencyChange` 清单。
-6. `JarLocator` 为 `version_changed` 依赖定位 old/new jar。
-7. `BytecodeDiffEngine` 对 jar 做 bytecode diff，生成 `ChangePoint`。
-8. `CallGraphEngine` 构建业务代码全局 Call Graph。
-9. `ImpactTracer` 从变化点反向追踪受影响业务方法。
-10. `ReportGenerator` 生成最终报告。
+4. `DependencyAnalyzer` 对 baseline 执行 `mvn dependency:tree`，解析 GraphML，提取 reactor 模块坐标。
+5. `DependencyAnalyzer` 对 target 执行 `mvn dependency:tree`，排除 reactor 模块。
+6. `DependencyDiffEngine` 对比两侧依赖树，按模块维度 union diff，生成 `DependencyChange` 清单。
+7. `JarLocator` 为 `version_changed` 依赖定位 old/new jar。
+8. `BytecodeDiffEngine` 对 jar 做 bytecode diff，生成 `ChangePoint`。
+9. `CallGraphEngine` 基于 target build 的 main classes 构建全局 Call Graph。
+10. `ImpactTracer` 从变化点反向追踪受影响业务方法，生成 `ImpactResult`。
+11. `ReportGenerator` 生成最终 HTML 或 Markdown 报告。
