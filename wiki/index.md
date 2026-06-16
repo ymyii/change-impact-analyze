@@ -11,8 +11,8 @@
 
 ### [Analysis Pipeline Architecture](architecture/analysis-pipeline.md)
 - Summary: 线性阶段分析架构，模块边界、数据流和关键设计决策。
-- Code: `src/main/java/io/github/changeimpact/analyze/cli/ChangeImpactAnalyzeCli.java`, `src/main/java/io/github/changeimpact/analyze/diagnostic/DiagnosticCollector.java`, `src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceManager.java`, `src/main/java/io/github/changeimpact/analyze/build/BuildRunner.java`, `src/main/java/io/github/changeimpact/analyze/dependency/DependencyAnalyzer.java`, `src/main/java/io/github/changeimpact/analyze/dependency/DependencyDiffEngine.java`, `src/main/java/io/github/changeimpact/analyze/dependency/DependencyChange.java`, `src/main/java/io/github/changeimpact/analyze/dependency/ChangeType.java`
-- Related: [Project Overview](project/project-overview.md), [CLI Validation and Diagnostics](features/cli-validation-diagnostics.md), [Git Workspace Management](features/git-workspace-management.md), [Maven Build Runner](features/maven-build-runner.md), [Dependency Tree Extraction](features/dependency-tree-extraction.md), [Dependency Diff Engine](features/dependency-diff-engine.md)
+- Code: `src/main/java/io/github/changeimpact/analyze/cli/ChangeImpactAnalyzeCli.java`, `src/main/java/io/github/changeimpact/analyze/diagnostic/DiagnosticCollector.java`, `src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceManager.java`, `src/main/java/io/github/changeimpact/analyze/build/BuildRunner.java`, `src/main/java/io/github/changeimpact/analyze/dependency/DependencyAnalyzer.java`, `src/main/java/io/github/changeimpact/analyze/dependency/DependencyDiffEngine.java`, `src/main/java/io/github/changeimpact/analyze/dependency/DependencyChange.java`, `src/main/java/io/github/changeimpact/analyze/dependency/ChangeType.java`, `src/main/java/io/github/changeimpact/analyze/jar/JarLocator.java`, `src/main/java/io/github/changeimpact/analyze/jar/JarLocationResult.java`, `src/main/java/io/github/changeimpact/analyze/jar/JarLocatorException.java`
+- Related: [Project Overview](project/project-overview.md), [CLI Validation and Diagnostics](features/cli-validation-diagnostics.md), [Git Workspace Management](features/git-workspace-management.md), [Maven Build Runner](features/maven-build-runner.md), [Dependency Tree Extraction](features/dependency-tree-extraction.md), [Dependency Diff Engine](features/dependency-diff-engine.md), [Jar Locator](features/jar-locator.md)
 
 ## Features
 
@@ -39,7 +39,12 @@
 ### [Dependency Diff Engine](features/dependency-diff-engine.md)
 - Summary: 对比两侧 resolved dependency tree，按模块维度 union diff，生成依赖变动清单。
 - Code: `src/main/java/io/github/changeimpact/analyze/dependency/DependencyDiffEngine.java`, `src/main/java/io/github/changeimpact/analyze/dependency/DependencyChange.java`, `src/main/java/io/github/changeimpact/analyze/dependency/ChangeType.java`
-- Related: [Analysis Pipeline Architecture](architecture/analysis-pipeline.md), [Dependency Tree Extraction](features/dependency-tree-extraction.md)
+- Related: [Analysis Pipeline Architecture](architecture/analysis-pipeline.md), [Dependency Tree Extraction](features/dependency-tree-extraction.md), [Jar Locator](features/jar-locator.md)
+
+### [Jar Locator](features/jar-locator.md)
+- Summary: 为 VERSION_CHANGED 依赖定位 Maven local repository 中的 old/new jar 文件。
+- Code: `src/main/java/io/github/changeimpact/analyze/jar/JarLocator.java`, `src/main/java/io/github/changeimpact/analyze/jar/JarLocationResult.java`, `src/main/java/io/github/changeimpact/analyze/jar/JarLocatorException.java`
+- Related: [Analysis Pipeline Architecture](architecture/analysis-pipeline.md), [Dependency Diff Engine](features/dependency-diff-engine.md)
 
 ## Rules
 

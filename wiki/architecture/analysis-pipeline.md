@@ -14,6 +14,8 @@ relations:
     desc: "依赖树提取与解析"
   - path: "wiki/features/dependency-diff-engine.md"
     desc: "依赖变动对比"
+  - path: "wiki/features/jar-locator.md"
+    desc: "Jar 文件定位"
 code_refs:
   - path: "src/main/java/io/github/changeimpact/analyze/cli/ChangeImpactAnalyzeCli.java"
     desc: "CLI 主入口，总流程编排"
@@ -31,6 +33,12 @@ code_refs:
     desc: "依赖变动数据类"
   - path: "src/main/java/io/github/changeimpact/analyze/dependency/ChangeType.java"
     desc: "变动类型枚举"
+  - path: "src/main/java/io/github/changeimpact/analyze/jar/JarLocator.java"
+    desc: "Jar 文件定位模块"
+  - path: "src/main/java/io/github/changeimpact/analyze/jar/JarLocationResult.java"
+    desc: "Jar 定位结果数据类"
+  - path: "src/main/java/io/github/changeimpact/analyze/jar/JarLocatorException.java"
+    desc: "Jar 定位异常"
 ---
 
 # Architecture: Analysis Pipeline Architecture
@@ -47,7 +55,7 @@ code_refs:
 - **BuildRunner**: 调用用户环境默认 `mvn` 编译，收集 main classes。
 - **DependencyAnalyzer**: 调用 Maven dependency plugin 输出 GraphML 并解析为结构化依赖树。
 - **DependencyDiffEngine**: 对比两侧 resolved dependency tree，按模块维度 union diff，生成 `DependencyChange` 清单。
-- **JarLocator** (待实现): 从 Maven local repository 定位 version changed 依赖 jar。
+- **JarLocator**: 从 Maven local repository 定位 version changed 依赖的 old/new jar 文件。
 - **BytecodeDiffEngine** (待实现): 对 old/new jar 做 bytecode diff，生成 ChangePoint。
 - **CallGraphEngine** (待实现): 基于业务代码 main classes 构建全局 Call Graph。
 - **ImpactTracer** (待实现): 从变化点反向追踪受影响业务方法。

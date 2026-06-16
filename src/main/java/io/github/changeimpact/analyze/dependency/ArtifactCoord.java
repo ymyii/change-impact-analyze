@@ -5,8 +5,8 @@ import java.util.Objects;
 // Wiki: wiki/features/dependency-tree-extraction.md - Maven artifact 坐标，依赖树基本单元
 /**
  * Immutable Maven artifact coordinate
- * with groupId, artifactId, type and
- * version.
+ * with groupId, artifactId, type,
+ * version and optional classifier.
  */
 public final class ArtifactCoord {
 
@@ -46,8 +46,12 @@ public final class ArtifactCoord {
     /** Artifact version. */
     private final String version;
 
+    /** Artifact classifier (may be empty). */
+    private final String classifier;
+
     /**
-     * Creates a new artifact coordinate.
+     * Creates a new artifact coordinate
+     * with empty classifier.
      *
      * @param group group identifier
      * @param artifact artifact identifier
@@ -59,6 +63,25 @@ public final class ArtifactCoord {
             final String artifact,
             final String pkg,
             final String ver) {
+        this(group, artifact, pkg,
+                ver, "");
+    }
+
+    /**
+     * Creates a new artifact coordinate.
+     *
+     * @param group group identifier
+     * @param artifact artifact identifier
+     * @param pkg packaging type
+     * @param ver artifact version
+     * @param clfr classifier (not null)
+     */
+    public ArtifactCoord(
+            final String group,
+            final String artifact,
+            final String pkg,
+            final String ver,
+            final String clfr) {
         this.groupId =
                 Objects.requireNonNull(
                         group, "groupId");
@@ -72,6 +95,9 @@ public final class ArtifactCoord {
         this.version =
                 Objects.requireNonNull(
                         ver, "version");
+        this.classifier =
+                Objects.requireNonNull(
+                        clfr, "classifier");
     }
 
     /**
@@ -147,16 +173,32 @@ public final class ArtifactCoord {
     }
 
     /**
+     * Returns the artifact classifier.
+     * Empty string when no classifier.
+     *
+     * @return classifier (never null)
+     */
+    public String getClassifier() {
+        return classifier;
+    }
+
+    /**
      * Returns a diff key for comparing
      * artifacts across versions.
-     * Format is groupId:artifactId:type.
+     * Format is groupId:artifactId:type
+     * or groupId:artifactId:type:clfr
+     * when classifier is non-empty.
      *
      * @return diff key string
      */
     public String diffKey() {
-        return groupId + ":"
+        final String base = groupId + ":"
                 + artifactId + ":"
                 + type;
+        if (classifier.isEmpty()) {
+            return base;
+        }
+        return base + ":" + classifier;
     }
 
     @Override
@@ -174,21 +216,27 @@ public final class ArtifactCoord {
                         that.artifactId)
                 && type.equals(that.type)
                 && version.equals(
-                        that.version);
+                        that.version)
+                && classifier.equals(
+                        that.classifier);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(
                 groupId, artifactId,
-                type, version);
+                type, version, classifier);
     }
 
     @Override
     public String toString() {
-        return groupId + ":"
+        final String base = groupId + ":"
                 + artifactId + ":"
                 + type + ":"
                 + version;
+        if (classifier.isEmpty()) {
+            return base;
+        }
+        return base + ":" + classifier;
     }
 }

@@ -6,6 +6,8 @@ relations:
     desc: "依赖树提取是分析流水线的第四阶段"
   - path: "wiki/features/dependency-diff-engine.md"
     desc: "依赖树提取产物供 Dependency Diff Engine 对比"
+  - path: "wiki/features/jar-locator.md"
+    desc: "ArtifactCoord 的 classifier 字段用于 Jar 定位时的文件名计算"
 code_refs:
   - path: "src/main/java/io/github/changeimpact/analyze/dependency/DependencyAnalyzer.java"
     desc: "调用 Maven dependency plugin 并解析 GraphML"
@@ -55,7 +57,7 @@ code_refs:
 
 - `src/main/java/io/github/changeimpact/analyze/dependency/DependencyAnalyzer.java` - Maven plugin 调用、GraphML 文件发现。
 - `src/main/java/io/github/changeimpact/analyze/dependency/GraphMLParser.java` - GraphML XML 解析，树结构构建。
-- `src/main/java/io/github/changeimpact/analyze/dependency/ArtifactCoord.java` - artifact 坐标（groupId/artifactId/type/version），支持 `parse()` 和 `diffKey()`。
+- `src/main/java/io/github/changeimpact/analyze/dependency/ArtifactCoord.java` - artifact 坐标（groupId/artifactId/type/version/classifier），支持 `parse()` 和 `diffKey()`。
 - `src/main/java/io/github/changeimpact/analyze/dependency/DependencyNode.java` - 依赖树节点（artifact/scope/children）。
 - `src/main/java/io/github/changeimpact/analyze/dependency/DependencyScope.java` - scope 枚举：COMPILE、RUNTIME、PROVIDED、TEST。
 - `src/main/java/io/github/changeimpact/analyze/dependency/ModuleDependencyTree.java` - 模块依赖树（moduleCoord/modulePath/dependencies）。

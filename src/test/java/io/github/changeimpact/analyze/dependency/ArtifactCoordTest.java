@@ -157,4 +157,81 @@ class ArtifactCoordTest {
         assertThat(a).isNotEqualTo(null);
         assertThat(a).isNotEqualTo("str");
     }
+
+    @Test
+    void constructorWithClassifier() {
+        final ArtifactCoord coord =
+                new ArtifactCoord(
+                        "g", "a", "jar",
+                        "1.0", "sources");
+        assertThat(coord.getClassifier())
+                .isEqualTo("sources");
+    }
+
+    @Test
+    void defaultClassifierIsEmpty() {
+        final ArtifactCoord coord =
+                new ArtifactCoord(
+                        "g", "a", "jar",
+                        "1.0");
+        assertThat(coord.getClassifier())
+                .isEmpty();
+    }
+
+    @Test
+    void diffKeyWithClassifier() {
+        final ArtifactCoord coord =
+                new ArtifactCoord(
+                        "g", "a", "jar",
+                        "1.0", "sources");
+        assertThat(coord.diffKey())
+                .isEqualTo(
+                        "g:a:jar:sources");
+    }
+
+    @Test
+    void diffKeyWithoutClassifier() {
+        final ArtifactCoord coord =
+                new ArtifactCoord(
+                        "g", "a", "jar",
+                        "1.0");
+        assertThat(coord.diffKey())
+                .isEqualTo("g:a:jar");
+    }
+
+    @Test
+    void toStringWithClassifier() {
+        final ArtifactCoord coord =
+                new ArtifactCoord(
+                        "g", "a", "jar",
+                        "1.0", "sources");
+        assertThat(coord.toString())
+                .isEqualTo(
+                        "g:a:jar:1.0"
+                                + ":sources");
+    }
+
+    @Test
+    void equalsWithDifferentClassifier() {
+        final ArtifactCoord a =
+                new ArtifactCoord(
+                        "g", "a", "jar",
+                        "1.0", "sources");
+        final ArtifactCoord b =
+                new ArtifactCoord(
+                        "g", "a", "jar",
+                        "1.0", "javadoc");
+        assertThat(a).isNotEqualTo(b);
+    }
+
+    @Test
+    void constructorThrowsOnNullClassifier() {
+        assertThatThrownBy(() ->
+                new ArtifactCoord(
+                        "g", "a", "jar",
+                        "1.0", null))
+                .isInstanceOf(
+                        NullPointerException
+                                .class);
+    }
 }
