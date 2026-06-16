@@ -2,6 +2,7 @@ package io.github.changeimpact.analyze.dependency;
 
 import java.util.Objects;
 
+// Wiki: wiki/features/dependency-tree-extraction.md - Maven artifact 坐标，依赖树基本单元
 /**
  * Immutable Maven artifact coordinate
  * with groupId, artifactId, type and

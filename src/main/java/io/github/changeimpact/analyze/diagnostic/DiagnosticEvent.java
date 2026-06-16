@@ -1,5 +1,6 @@
 package io.github.changeimpact.analyze.diagnostic;
 
+// Wiki: wiki/architecture/analysis-pipeline.md - 诊断事件数据模型，贯穿所有分析阶段
 /**
  * Immutable diagnostic event.
  */

@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+// Wiki: wiki/features/git-workspace-management.md - Git workspace 管理核心
 /**
  * Manages git workspaces for baseline,
  * target and current analysis inputs.

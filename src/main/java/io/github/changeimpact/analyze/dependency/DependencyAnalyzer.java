@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
 
+// Wiki: wiki/features/dependency-tree-extraction.md - 依赖树提取与 GraphML 解析
 /**
  * Executes Maven dependency plugin and
  * parses GraphML output into module

@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
+// Wiki: wiki/features/maven-build-runner.md - Maven 编译执行和 main classes 收集
 /**
  * Executes Maven compile on a workspace
  * and collects main classes directories.
