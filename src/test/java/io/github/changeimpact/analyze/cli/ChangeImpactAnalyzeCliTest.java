@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
@@ -37,13 +38,36 @@ class ChangeImpactAnalyzeCliTest {
     }
 
     @Test
-    void missingProjectReturnsNonZero(
-            @TempDir final Path temp) {
-        final int code = runCli(temp,
-                "--baseline", "main",
-                "--output",
-                temp.resolve("out.html").toString());
-        assertThat(code).isNotZero();
+    void projectIsOptionalAndDefaultsToCwd() {
+        final DiagnosticCollector collector =
+                new DiagnosticCollector();
+        final ChangeImpactAnalyzeCli cli =
+                new ChangeImpactAnalyzeCli(
+                        collector);
+        final int code =
+                ChangeImpactAnalyzeCli
+                        .newCommandLine(cli)
+                        .execute(
+                                "--baseline",
+                                "no-such-ref",
+                                "--output",
+                                new File(
+                                        System
+                                          .getProperty(
+                                            "user.dir"))
+                                        .toPath()
+                                        .resolve(
+                                                "out"
+                                          + ".html")
+                                        .toString());
+        assertThat(code).isEqualTo(2);
+        assertThat(collector.getEvents())
+                .anyMatch(e ->
+                        "pipeline".equals(
+                                e.getStage())
+                                && e.getLevel()
+                                        == DiagnosticLevel
+                                                .ERROR);
     }
 
     @Test

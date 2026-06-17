@@ -25,8 +25,8 @@ CLI 提供命令行入口，负责参数解析、校验、退出码控制和诊�
 
 ## Behavior
 
-- 必填参数：`--project`、`--baseline`、`--output`。
-- 可选参数：`--target`（默认使用 current workspace）、`--format`（默认 `html`）。
+- 必填参数：`--baseline`、`--output`。
+- 可选参数：`--project`（默认当前执行命令所在目录）、`--target`（默认使用 current workspace）、`--format`（默认 `html`）。
 - 校验规则：project 必须存在且为目录；baseline 不能为空；output 父目录必须存在且可写；format 只允许 `html` 或 `md`。
 - 退出码：`0` 成功，非 `0` 失败。
 - 诊断事件贯穿所有阶段，记录 stage/level/message/side/module/artifact/path/elapsedMillis。
@@ -51,7 +51,8 @@ CLI 提供命令行入口，负责参数解析、校验、退出码控制和诊�
 
 - 单元测试：`src/test/java/io/github/changeimpact/analyze/cli/ChangeImpactAnalyzeCliTest.java`
 - 单元测试：`src/test/java/io/github/changeimpact/analyze/diagnostic/DiagnosticCollectorTest.java`
-- 缺少必填参数时报错。
+- 缺少必填参数（`--baseline`、`--output`）时报错。
+- `--project` 不传时默认使用当前目录。
 - 非法 format 报错。
 - 默认 format 为 html。
 - `--help` 不执行分析。

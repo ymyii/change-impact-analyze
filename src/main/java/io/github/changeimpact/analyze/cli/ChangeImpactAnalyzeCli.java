@@ -51,8 +51,9 @@ public final class ChangeImpactAnalyzeCli
     /** Project directory path. */
     @Option(
             names = "--project",
-            description = "Path to the project directory.",
-            required = true
+            description = "Path to the project"
+                    + " directory. Defaults to"
+                    + " current directory."
     )
     private File project;
 
@@ -104,6 +105,10 @@ public final class ChangeImpactAnalyzeCli
 
     @Override
     public Integer call() {
+        if (project == null) {
+            project = new File(
+                    System.getProperty("user.dir"));
+        }
         diagnostics.startStage("validation");
 
         if (!project.exists()) {

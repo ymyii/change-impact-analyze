@@ -346,13 +346,88 @@ class WorkspaceManagerIT {
         }
     }
 
+    @Test
+    void subdirectoryProjectAlignsPaths()
+            throws Exception {
+        final Path subDir =
+                repoDir.resolve("sub")
+                        .resolve("module");
+        Files.createDirectories(subDir);
+        Files.writeString(
+                subDir.resolve("pom.xml"),
+                "<project/>");
+        git("add", ".");
+        git("commit", "-m", "add sub");
+        final String subCommit =
+                gitOutput("rev-parse", "HEAD");
+
+        Files.writeString(
+                repoDir.resolve("file.txt"),
+                "v3");
+        git("add", ".");
+        git("commit", "-m", "third");
+        final String thirdCommit =
+                gitOutput("rev-parse", "HEAD");
+
+        try (WorkspaceManager mgr =
+                new WorkspaceManager(
+                        subDir, diag)) {
+            final WorkspaceResult result =
+                    mgr.prepare(
+                            subCommit,
+                            thirdCommit);
+            final WorkspaceSideInfo base =
+                    result.getBaseline();
+            assertThat(base.getPath())
+                    .endsWith(Path.of("sub",
+                            "module"));
+            assertThat(Files.exists(
+                    base.getPath().resolve(
+                            "pom.xml")))
+                    .isTrue();
+            final WorkspaceSideInfo target =
+                    result.getTarget();
+            assertThat(target.getPath())
+                    .endsWith(Path.of("sub",
+                            "module"));
+            assertThat(target.isWhetherTemporary())
+                    .isTrue();
+            assertThat(Files.exists(
+                    target.getPath().resolve(
+                            "pom.xml")))
+                    .isTrue();
+        }
+    }
+
+    @Test
+    void nonGitDirectoryThrowsException()
+            throws Exception {
+        final Path nonGitDir =
+                tempDir.resolve("non-git");
+        Files.createDirectories(nonGitDir);
+        assertThatThrownBy(() ->
+                new WorkspaceManager(
+                        nonGitDir, diag))
+                .isInstanceOf(
+                        IllegalStateException
+                                .class)
+                .hasMessageContaining(
+                        "not inside a git"
+                                + " repository");
+    }
+
     private void git(final String... args)
+            throws Exception {
+        gitCmd(repoDir, args);
+    }
+
+    private void gitCmd(final Path dir,
+            final String... args)
             throws Exception {
         final ProcessBuilder pb =
                 new ProcessBuilder()
                         .command(prependGit(args))
-                        .directory(
-                                repoDir.toFile())
+                        .directory(dir.toFile())
                         .redirectErrorStream(
                                 true);
         final Process p = pb.start();
@@ -368,11 +443,16 @@ class WorkspaceManagerIT {
     private String gitOutput(
             final String... args)
             throws Exception {
+        return gitCmdOutput(repoDir, args);
+    }
+
+    private String gitCmdOutput(final Path dir,
+            final String... args)
+            throws Exception {
         final ProcessBuilder pb =
                 new ProcessBuilder()
                         .command(prependGit(args))
-                        .directory(
-                                repoDir.toFile())
+                        .directory(dir.toFile())
                         .redirectErrorStream(
                                 true);
         final Process p = pb.start();

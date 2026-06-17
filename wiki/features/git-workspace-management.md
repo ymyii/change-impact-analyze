@@ -29,6 +29,9 @@ code_refs:
 
 ## Behavior
 
+- 构造时解析 project 所在 git repository root，并计算 project 相对于 git root 的相对路径。
+- project 不在 git 仓库内时，构造即抛出 `IllegalStateException`。
+- `--project` 指向 git 仓库子目录时，worktree 路径对齐到对应子项目目录（`worktreeRoot.resolve(relativePath)`），而非仓库根。
 - baseline 使用 `git worktree add --detach` 创建临时目录。
 - 指定 `--target` 时，target 也使用 `git worktree` 创建临时目录。
 - 未指定 `--target` 时，target side 指向 current workspace（非临时）。
@@ -39,9 +42,10 @@ code_refs:
 ## Flow
 
 1. `WorkspaceManager` 接收 project 路径和 DiagnosticCollector。
-2. `prepare(baselineRef, targetRef)` 解析 commit、创建 worktree。
-3. 返回 `WorkspaceResult`，包含 baseline 和 target 的 `WorkspaceSideInfo`。
-4. `close()` 清理所有临时 worktree 和父目录。
+2. 构造时解析 git root（`git rev-parse --show-toplevel`），计算 project 相对于 git root 的 `relativePath`。
+3. `prepare(baselineRef, targetRef)` 解析 commit、创建 worktree，worktree 内路径追加 `relativePath` 以对齐子项目。
+4. 返回 `WorkspaceResult`，包含 baseline 和 target 的 `WorkspaceSideInfo`。
+5. `close()` 清理所有临时 worktree 和父目录。
 
 ## Implementation Files
 
@@ -59,6 +63,8 @@ code_refs:
 - 集成测试：`src/integration-test/java/io/github/changeimpact/analyze/workspace/WorkspaceManagerIT.java`
 - baseline + current workspace 模式可准备 workspace。
 - baseline + target commit 模式可准备 workspace。
+- 子目录 project 场景：worktree 路径包含子目录后缀，对齐到子项目。
+- 非 git 目录：构造时抛出 `IllegalStateException`，错误信息包含 "not inside a git repository"。
 - current workspace 不被 checkout/stash。
 - commit 不存在时失败可诊断。
 - 正常结束后临时 worktree 被清理。

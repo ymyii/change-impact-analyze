@@ -49,6 +49,12 @@ public final class WorkspaceManager
     /** Git runner for project directory. */
     private final GitCommandRunner runner;
 
+    /** Git repository root directory. */
+    private final Path gitRoot;
+
+    /** Relative path from git root to project. */
+    private final Path relativePath;
+
     /** Temporary parent dirs to clean. */
     private final List<Path> tempParents =
             new ArrayList<>();
@@ -61,6 +67,8 @@ public final class WorkspaceManager
      *
      * @param project     project root directory
      * @param diagnostics diagnostic collector
+     * @throws IllegalStateException if project
+     *     is not inside a git repository
      */
     public WorkspaceManager(
             final Path project,
@@ -72,6 +80,16 @@ public final class WorkspaceManager
                 diagnostics, "diagnostics");
         this.runner = new GitCommandRunner(
                 project);
+        this.gitRoot = resolveGitRoot();
+        try {
+            this.relativePath = gitRoot.relativize(
+                    projectDir.toRealPath());
+        } catch (IOException e) {
+            throw new IllegalStateException(
+                    "Cannot resolve project"
+                            + " path: " + projectDir,
+                    e);
+        }
     }
 
     /**
@@ -121,6 +139,43 @@ public final class WorkspaceManager
         cleanupAll();
     }
 
+    /**
+     * Resolves the git repository root for
+     * the project directory.
+     *
+     * @return git repository root path
+     * @throws IllegalStateException if not
+     *     inside a git repository
+     */
+    private Path resolveGitRoot() {
+        try {
+            final GitCommandResult res =
+                    runner.run("rev-parse",
+                            "--show-toplevel");
+            if (res.getExitCode() != 0) {
+                throw new IllegalStateException(
+                        "Project directory is"
+                                + " not inside"
+                                + " a git"
+                                + " repository: "
+                                + projectDir);
+            }
+            return Path.of(
+                    res.getStdout().trim());
+        } catch (IOException e) {
+            throw new IllegalStateException(
+                    "Failed to resolve git"
+                            + " root for: "
+                            + projectDir, e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(
+                    "Interrupted resolving"
+                            + " git root: "
+                            + projectDir, e);
+        }
+    }
+
     private WorkspaceResult doPrepare(
             final String baselineRef,
             final String targetRef)
@@ -151,7 +206,8 @@ public final class WorkspaceManager
                         .side(
                                 WorkspaceSide
                                         .BASELINE)
-                        .path(baseWt)
+                        .path(baseWt.resolve(
+                                relativePath))
                         .commit(baseCommit)
                         .whetherTemporary(true)
                         .build();
@@ -206,7 +262,8 @@ public final class WorkspaceManager
 
         return new WorkspaceSideInfo.Builder()
                 .side(WorkspaceSide.TARGET)
-                .path(targetWt)
+                .path(targetWt.resolve(
+                        relativePath))
                 .commit(targetCommit)
                 .whetherTemporary(true)
                 .build();

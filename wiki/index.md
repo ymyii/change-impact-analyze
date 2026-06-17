@@ -17,12 +17,12 @@
 ## Features
 
 ### [CLI Validation and Diagnostics](features/cli-validation-diagnostics.md)
-- Summary: picocli CLI 参数解析、校验、退出码控制和诊断事件收集框架。
+- Summary: picocli CLI 参数解析、校验、退出码控制和诊断事件收集框架。`--project` 可选，默认当前目录。
 - Code: `src/main/java/io/github/changeimpact/analyze/cli/ChangeImpactAnalyzeCli.java`, `src/main/java/io/github/changeimpact/analyze/cli/OutputFormat.java`, `src/main/java/io/github/changeimpact/analyze/diagnostic/DiagnosticCollector.java`, `src/main/java/io/github/changeimpact/analyze/diagnostic/DiagnosticEvent.java`, `src/main/java/io/github/changeimpact/analyze/diagnostic/DiagnosticLevel.java`
 - Related: [Analysis Pipeline Architecture](architecture/analysis-pipeline.md)
 
 ### [Git Workspace Management](features/git-workspace-management.md)
-- Summary: 使用 git worktree 隔离 baseline/target workspace，支持 current workspace 模式，自动清理临时 worktree。
+- Summary: 使用 git worktree 隔离 baseline/target workspace，支持子目录 project 路径对齐和 current workspace 模式，自动清理临时 worktree。
 - Code: `src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceManager.java`, `src/main/java/io/github/changeimpact/analyze/workspace/GitCommandRunner.java`, `src/main/java/io/github/changeimpact/analyze/workspace/GitCommandResult.java`, `src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceResult.java`, `src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceSideInfo.java`, `src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceSide.java`, `src/main/java/io/github/changeimpact/analyze/workspace/WorkspacePrepareException.java`
 - Related: [Analysis Pipeline Architecture](architecture/analysis-pipeline.md)
 
