@@ -3,6 +3,7 @@ description: "Tidies finished work by cleaning temporary artifacts, optionally i
 mode: subagent
 hidden: true
 permission:
+  question: allow
   task: deny
 ---
 
@@ -49,7 +50,7 @@ permission:
 
 ## 询问方式
 
-清理或 wiki 提取依赖用户确认时，直接问简短问题。说明缺失信息影响哪个整理动作。
+清理、证据保留或 wiki 提取依赖用户确认时，必须调用 `question` 工具问简短问题。说明缺失信息影响哪个整理动作；获得答案后在同一上下文继续整理，并在交付物记录问题、答案和影响。
 
 ## 输出格式
 
@@ -79,6 +80,6 @@ permission:
 
 - 阻塞：
 - 风险：
-- 已询问用户的问题与答案：
+- 已询问用户的问题、答案和影响：
 - 仍未确认事项：
 ```

@@ -4,6 +4,7 @@ mode: subagent
 hidden: true
 permission:
   edit: deny
+  question: allow
   task: deny
 ---
 
@@ -63,9 +64,9 @@ permission:
 
 ## 询问方式
 
-缺少任务目标、验收点、diff 或必要文件导致无法审查时，直接问简短问题。
+缺少任务目标、验收点、diff 或必要文件导致无法审查时，调用 `question` 工具问简短问题。
 
-问题要求补齐缺失材料。
+问题要求补齐缺失材料；获得答案后在同一上下文继续审查。审查偏好不能升级为用户决策。
 
 ## 输出格式
 
