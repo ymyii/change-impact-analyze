@@ -245,6 +245,126 @@ class ChangeImpactAnalyzeCliIT {
                                 + " Report");
     }
 
+    // ---- Version upgrade E2E ----
+
+    @Test
+    void versionUpgradeDetectedInTargetCommit()
+            throws Exception {
+        final Path libV1 =
+                tempDir.resolve("lib-v1");
+        writeLibProject(libV1, "1.0.0",
+                "v1");
+        installLibToM2(libV1);
+        final Path libV2 =
+                tempDir.resolve("lib-v2");
+        writeLibProject(libV2, "2.0.0",
+                "v2_result");
+        installLibToM2(libV2);
+        final Path repo =
+                tempDir.resolve("main-repo");
+        Files.createDirectories(repo);
+        git(repo, "init");
+        git(repo, "config", "user.email",
+                "t@t.com");
+        git(repo, "config", "user.name",
+                "t");
+        writeMainProject(repo, "1.0.0");
+        git(repo, "add", ".");
+        git(repo, "commit", "-m", "base");
+        final String base = gitOut(repo,
+                "rev-parse", "HEAD");
+        writeMainProject(repo, "2.0.0");
+        git(repo, "add", ".");
+        git(repo, "commit", "-m", "tgt");
+        final String tgt = gitOut(repo,
+                "rev-parse", "HEAD");
+        final Path out =
+                tempDir.resolve("r.html");
+        final int code = newCli().execute(
+                new String[]{
+                        "--project",
+                        repo.toString(),
+                        "--baseline", base,
+                        "--target", tgt,
+                        "--output",
+                        out.toString(),
+                });
+        assertThat(code).isZero();
+        final String content =
+                Files.readString(out);
+        assertThat(content)
+                .contains("VERSION_CHANGED");
+        assertThat(content)
+                .contains("cia.e2e"
+                        + ":test-lib:2.0.0");
+        assertThat(content)
+                .contains(
+                        "METHOD_BODY_CHANGED");
+        assertThat(content)
+                .contains("cia/e2e/Lib");
+        assertThat(content)
+                .contains("Impact Paths");
+        assertThat(content)
+                .contains("cia/e2e/App");
+    }
+
+    @Test
+    void versionUpgradeDetectedInCurrentWorkspace()
+            throws Exception {
+        final Path libV1 =
+                tempDir.resolve("lib-v1");
+        writeLibProject(libV1, "1.0.0",
+                "v1");
+        installLibToM2(libV1);
+        final Path libV2 =
+                tempDir.resolve("lib-v2");
+        writeLibProject(libV2, "2.0.0",
+                "v2_result");
+        installLibToM2(libV2);
+        final Path repo =
+                tempDir.resolve("main-ws");
+        Files.createDirectories(repo);
+        git(repo, "init");
+        git(repo, "config", "user.email",
+                "t@t.com");
+        git(repo, "config", "user.name",
+                "t");
+        writeMainProject(repo, "1.0.0");
+        git(repo, "add", ".");
+        git(repo, "commit", "-m", "base");
+        final String base = gitOut(repo,
+                "rev-parse", "HEAD");
+        writeMainProject(repo, "2.0.0");
+        modifyAppSource(repo);
+        final Path out =
+                tempDir.resolve("r.html");
+        final int code = newCli().execute(
+                new String[]{
+                        "--project",
+                        repo.toString(),
+                        "--baseline", base,
+                        "--output",
+                        out.toString(),
+                });
+        assertThat(code).isZero();
+        final String content =
+                Files.readString(out);
+        assertThat(content)
+                .contains("VERSION_CHANGED");
+        assertThat(content)
+                .contains("cia.e2e"
+                        + ":test-lib:2.0.0");
+        assertThat(content)
+                .contains(
+                        "METHOD_BODY_CHANGED");
+        assertThat(content)
+                .contains("cia/e2e/Lib");
+        assertThat(content)
+                .contains("Impact Paths");
+        assertThat(content)
+                .contains("cia/e2e/App");
+    }
+
     // ---- Helpers ----
 
     /**
@@ -435,5 +555,192 @@ class ChangeImpactAnalyzeCliIT {
                             + code);
         }
         return out.trim();
+    }
+
+    /**
+     * Writes a library Maven project.
+     *
+     * @param dir     project directory
+     * @param version Maven version
+     * @param retVal  doWork return value
+     * @throws Exception if write fails
+     */
+    private void writeLibProject(
+            final Path dir,
+            final String version,
+            final String retVal)
+            throws Exception {
+        final String pom =
+                "<?xml version=\"1.0\" "
+                        + "encoding=\"UTF-8\"?>"
+                        + "<project xmlns="
+                        + "\"http://maven.apache"
+                        + ".org/POM/4.0.0\">"
+                        + "<modelVersion>"
+                        + "4.0.0"
+                        + "</modelVersion>"
+                        + "<groupId>cia.e2e"
+                        + "</groupId>"
+                        + "<artifactId>"
+                        + "test-lib"
+                        + "</artifactId>"
+                        + "<version>"
+                        + version
+                        + "</version>"
+                        + "<properties>"
+                        + "<maven.compiler"
+                        + ".source>8"
+                        + "</maven.compiler"
+                        + ".source>"
+                        + "<maven.compiler"
+                        + ".target>8"
+                        + "</maven.compiler"
+                        + ".target>"
+                        + "</properties>"
+                        + "</project>";
+        Files.createDirectories(dir);
+        Files.writeString(
+                dir.resolve("pom.xml"), pom);
+        final Path srcDir = dir.resolve(
+                "src/main/java/cia/e2e");
+        Files.createDirectories(srcDir);
+        Files.writeString(
+                srcDir.resolve("Lib.java"),
+                "package cia.e2e;\n"
+                        + "public class Lib "
+                        + "{\n"
+                        + "  public String "
+                        + "doWork() {\n"
+                        + "    return \""
+                        + retVal
+                        + "\";\n"
+                        + "  }\n"
+                        + "}\n");
+    }
+
+    /**
+     * Installs a Maven project to
+     * the local repository.
+     *
+     * @param dir project directory
+     * @throws Exception if install fails
+     */
+    private void installLibToM2(
+            final Path dir)
+            throws Exception {
+        final ProcessBuilder pb =
+                new ProcessBuilder(
+                        "mvn", "install",
+                        "-B", "-q")
+                        .directory(
+                                dir.toFile())
+                        .redirectErrorStream(
+                                true);
+        final Process p = pb.start();
+        p.getInputStream().readAllBytes();
+        final int code = p.waitFor();
+        if (code != 0) {
+            throw new IOException(
+                    "mvn install failed: "
+                            + code);
+        }
+    }
+
+    /**
+     * Writes a main Maven project
+     * depending on test-lib.
+     *
+     * @param dir        project dir
+     * @param libVersion test-lib version
+     * @throws Exception if write fails
+     */
+    private void writeMainProject(
+            final Path dir,
+            final String libVersion)
+            throws Exception {
+        final String pom =
+                "<?xml version=\"1.0\" "
+                        + "encoding=\"UTF-8\"?>"
+                        + "<project xmlns="
+                        + "\"http://maven.apache"
+                        + ".org/POM/4.0.0\">"
+                        + "<modelVersion>"
+                        + "4.0.0"
+                        + "</modelVersion>"
+                        + "<groupId>cia.e2e"
+                        + "</groupId>"
+                        + "<artifactId>"
+                        + "main-app"
+                        + "</artifactId>"
+                        + "<version>"
+                        + "1.0.0"
+                        + "</version>"
+                        + "<properties>"
+                        + "<maven.compiler"
+                        + ".source>8"
+                        + "</maven.compiler"
+                        + ".source>"
+                        + "<maven.compiler"
+                        + ".target>8"
+                        + "</maven.compiler"
+                        + ".target>"
+                        + "</properties>"
+                        + "<dependencies>"
+                        + "<dependency>"
+                        + "<groupId>cia.e2e"
+                        + "</groupId>"
+                        + "<artifactId>"
+                        + "test-lib"
+                        + "</artifactId>"
+                        + "<version>"
+                        + libVersion
+                        + "</version>"
+                        + "</dependency>"
+                        + "</dependencies>"
+                        + "</project>";
+        Files.writeString(
+                dir.resolve("pom.xml"), pom);
+        final Path srcDir = dir.resolve(
+                "src/main/java/cia/e2e");
+        Files.createDirectories(srcDir);
+        Files.writeString(
+                srcDir.resolve("App.java"),
+                "package cia.e2e;\n"
+                        + "public class App "
+                        + "{\n"
+                        + "  public String "
+                        + "run() {\n"
+                        + "    return "
+                        + "new Lib().doWork();"
+                        + "\n"
+                        + "  }\n"
+                        + "}\n");
+    }
+
+    /**
+     * Modifies App.java source to
+     * dirty the workspace.
+     *
+     * @param dir project directory
+     * @throws Exception if write fails
+     */
+    private void modifyAppSource(
+            final Path dir)
+            throws Exception {
+        final Path src = dir.resolve(
+                "src/main/java/cia/e2e"
+                        + "/App.java");
+        Files.writeString(src,
+                "package cia.e2e;\n"
+                        + "public class App "
+                        + "{\n"
+                        + "  public String "
+                        + "run() {\n"
+                        + "    String r = "
+                        + "new Lib().doWork();"
+                        + "\n"
+                        + "    return r;\n"
+                        + "  }\n"
+                        + "}\n");
     }
 }
