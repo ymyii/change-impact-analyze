@@ -26,7 +26,7 @@ CLI 提供命令行入口，负责参数解析、校验、退出码控制和诊�
 ## Behavior
 
 - 必填参数：`--baseline`、`--output`。
-- 可选参数：`--project`（默认当前执行命令所在目录）、`--target`（默认使用 current workspace）、`--format`（默认 `html`）。
+- 可选参数：`--project`（默认当前执行命令所在目录）、`--target`（默认使用 current workspace）、`--format`（默认 `html`）、`--build-java-home`（Maven 子进程使用的 JAVA_HOME 路径，不传时 Maven 继承当前 JVM 的 JAVA_HOME）。
 - 校验规则：project 必须存在且为目录；baseline 不能为空；output 父目录必须存在且可写；format 只允许 `html` 或 `md`。
 - 退出码：`0` 成功，非 `0` 失败。
 - 诊断事件贯穿所有阶段，记录 stage/level/message/side/module/artifact/path/elapsedMillis。
@@ -50,6 +50,7 @@ CLI 提供命令行入口，负责参数解析、校验、退出码控制和诊�
 ## Verification
 
 - 单元测试：`src/test/java/io/github/changeimpact/analyze/cli/ChangeImpactAnalyzeCliTest.java`
+- 单元测试：`src/test/java/io/github/changeimpact/analyze/cli/ChangeImpactAnalyzeCliBuildJavaHomeTest.java`
 - 单元测试：`src/test/java/io/github/changeimpact/analyze/diagnostic/DiagnosticCollectorTest.java`
 - 缺少必填参数（`--baseline`、`--output`）时报错。
 - `--project` 不传时默认使用当前目录。
@@ -58,3 +59,4 @@ CLI 提供命令行入口，负责参数解析、校验、退出码控制和诊�
 - `--help` 不执行分析。
 - 参数错误返回非 `0`。
 - 诊断事件可被测试断言。
+- `--build-java-home` 选项正确解析并传递给 BuildRunner 和 DependencyAnalyzer。

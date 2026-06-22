@@ -19,7 +19,12 @@ code_refs:
 
 ## Summary
 
-调用用户环境默认 `mvn` 编译 baseline 与 target/current workspace，并收集 main classes 目录（`target/classes`）。不内嵌 Maven Resolver，不绕过用户 settings.xml。
+调用用户环境 `mvn` 编译 baseline 与 target/current workspace，并收集 main classes 目录（`target/classes`）。支持通过 `--build-java-home` 覆盖 Maven 子进程的 `JAVA_HOME`，使工具运行在 JDK 17+ 的同时目标项目可使用旧版 JDK 编译。不内嵌 Maven Resolver，不绕过用户 settings.xml。
+
+## Design Decisions
+
+- 通过 `ProcessBuilder.environment()` 覆盖 `JAVA_HOME` 实现 JDK 隔离，而非修改工具运行 JDK 或目标项目 pom.xml。
+- 提供向后兼容的 3 参数构造函数重载，不传 `buildJavaHome` 时 Maven 继承当前 JVM 的 `JAVA_HOME`，行为与旧版本一致。
 
 ## Behavior
 
@@ -29,14 +34,17 @@ code_refs:
 - 忽略 `target/test-classes`。
 - 编译失败时抛出 `BuildException`，包含 side/module/command/exitCode/stderr 摘要/logFile 路径。
 - 失败时读取日志最后 20 行作为诊断摘要。
+- 当构造时传入 `buildJavaHome`（非 null），在 `ProcessBuilder.environment()` 中覆盖 `JAVA_HOME` 为该路径的绝对路径。
+- 当 `buildJavaHome` 为 null 时，不覆盖环境变量，Maven 继承当前进程的 `JAVA_HOME`。
 
 ## Flow
 
-1. `BuildRunner` 接收 side 名称、workspace 路径和 DiagnosticCollector。
+1. `BuildRunner` 接收 side 名称、workspace 路径、DiagnosticCollector 和可选的 `buildJavaHome`。
 2. `build()` 执行 `mvn compile -B`，日志写入临时文件。
-3. 编译失败时抛出 `BuildException`。
-4. 编译成功后遍历 workspace 发现所有 `target/classes` 目录。
-5. 返回 `BuildResult`，包含 `ModuleBuildOutput` 列表。
+3. `runMvnCompile()` 构建 ProcessBuilder，若 `buildJavaHome` 非 null 则覆盖 `JAVA_HOME` 环境变量。
+4. 编译失败时抛出 `BuildException`。
+5. 编译成功后遍历 workspace 发现所有 `target/classes` 目录。
+6. 返回 `BuildResult`，包含 `ModuleBuildOutput` 列表。
 
 ## Implementation Files
 
@@ -48,9 +56,13 @@ code_refs:
 ## Verification
 
 - 单元测试：`src/test/java/io/github/changeimpact/analyze/build/` 下的测试类。
+- 单元测试：`src/test/java/io/github/changeimpact/analyze/build/BuildRunnerConstructorTest.java`
 - 集成测试：`src/integration-test/java/io/github/changeimpact/analyze/build/BuildRunnerIT.java`
+- 集成测试：`src/integration-test/java/io/github/changeimpact/analyze/build/BuildRunnerJavaHomeIT.java`
 - 单模块 Java 8 Maven fixture 编译成功。
 - 多模块 Java 8 Maven fixture 编译成功。
 - main classes 路径被正确收集。
 - test classes 不进入分析输入。
 - 编译失败时终止，诊断包含 side/command/exitCode/stderr/logFile。
+- 3 参数构造函数向后兼容，`buildJavaHome` 默认为 null。
+- 4 参数构造函数传入 `buildJavaHome` 时，`ProcessBuilder` 环境变量 `JAVA_HOME` 被正确覆盖。

@@ -3,11 +3,13 @@ package io.github.changeimpact.analyze.build;
 import io.github.changeimpact.analyze
         .diagnostic.DiagnosticCollector;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 
 // Wiki: wiki/features/maven-build-runner.md - Maven 编译执行和 main classes 收集
@@ -34,6 +36,9 @@ public final class BuildRunner {
     /** Diagnostic collector. */
     private final DiagnosticCollector diag;
 
+    /** Optional JAVA_HOME for mvn. */
+    private final File buildJavaHome;
+
     /**
      * Creates a new build runner.
      *
@@ -46,9 +51,30 @@ public final class BuildRunner {
             final Path path,
             final DiagnosticCollector
                     diagCol) {
+        this(sideName, path, diagCol,
+                null);
+    }
+
+    /**
+     * Creates a new build runner
+     * with optional JAVA_HOME override.
+     *
+     * @param sideName     side identifier
+     * @param path         workspace root path
+     * @param diagCol      diagnostic collector
+     * @param javaHomeOpt  optional JAVA_HOME
+     *                     for mvn subprocess
+     */
+    public BuildRunner(
+            final String sideName,
+            final Path path,
+            final DiagnosticCollector
+                    diagCol,
+            final File javaHomeOpt) {
         this.side = sideName;
         this.workspacePath = path;
         this.diag = diagCol;
+        this.buildJavaHome = javaHomeOpt;
     }
 
     /**
@@ -142,6 +168,13 @@ public final class BuildRunner {
                                         .toFile())
                         .redirectErrorStream(
                                 true);
+        if (buildJavaHome != null) {
+            final Map<String, String> env =
+                    pb.environment();
+            env.put("JAVA_HOME",
+                    buildJavaHome
+                            .getAbsolutePath());
+        }
         final Process proc = pb.start();
         return proc.waitFor();
     }

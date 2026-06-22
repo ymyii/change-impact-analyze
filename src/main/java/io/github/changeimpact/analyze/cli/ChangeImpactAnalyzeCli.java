@@ -88,6 +88,15 @@ public final class ChangeImpactAnalyzeCli
     )
     private OutputFormat format;
 
+    /** Optional JAVA_HOME for build. */
+    @Option(
+            names = "--build-java-home",
+            description = "JAVA_HOME path"
+                    + " for Maven"
+                    + " subprocess."
+    )
+    private File buildJavaHome;
+
     /** Diagnostic event collector. */
     private final DiagnosticCollector diagnostics;
 
@@ -192,18 +201,21 @@ public final class ChangeImpactAnalyzeCli
             final BuildResult baseBuild =
                     new BuildRunner("baseline",
                             ws.getBaseline().getPath(),
-                            diagnostics).build();
+                            diagnostics,
+                            buildJavaHome).build();
             final BuildResult tgtBuild =
                     new BuildRunner("target",
                             ws.getTarget().getPath(),
-                            diagnostics).build();
+                            diagnostics,
+                            buildJavaHome).build();
 
             final List<ModuleDependencyTree>
                     baseTrees =
                     new DependencyAnalyzer("baseline",
                             ws.getBaseline().getPath(),
                             Collections.emptySet(),
-                            diagnostics).analyze();
+                            diagnostics,
+                            buildJavaHome).analyze();
 
             final Set<ArtifactCoord> reactor =
                     extractReactor(baseTrees);
@@ -216,7 +228,8 @@ public final class ChangeImpactAnalyzeCli
                     new DependencyAnalyzer("target",
                             ws.getTarget().getPath(),
                             reactor,
-                            diagnostics).analyze();
+                            diagnostics,
+                            buildJavaHome).analyze();
 
             final List<DependencyChange> changes =
                     new DependencyDiffEngine()

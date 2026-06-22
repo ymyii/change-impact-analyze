@@ -17,7 +17,7 @@
 ## Features
 
 ### [CLI Validation and Diagnostics](features/cli-validation-diagnostics.md)
-- Summary: picocli CLI 参数解析、校验、退出码控制和诊断事件收集框架。`--project` 可选，默认当前目录。
+- Summary: picocli CLI 参数解析、校验、退出码控制和诊断事件收集框架。`--project` 可选，默认当前目录。`--build-java-home` 可选，覆盖 Maven 子进程的 JAVA_HOME。
 - Code: `src/main/java/io/github/changeimpact/analyze/cli/ChangeImpactAnalyzeCli.java`, `src/main/java/io/github/changeimpact/analyze/cli/OutputFormat.java`, `src/main/java/io/github/changeimpact/analyze/diagnostic/DiagnosticCollector.java`, `src/main/java/io/github/changeimpact/analyze/diagnostic/DiagnosticEvent.java`, `src/main/java/io/github/changeimpact/analyze/diagnostic/DiagnosticLevel.java`
 - Related: [Analysis Pipeline Architecture](architecture/analysis-pipeline.md)
 
@@ -27,12 +27,12 @@
 - Related: [Analysis Pipeline Architecture](architecture/analysis-pipeline.md)
 
 ### [Maven Build Runner](features/maven-build-runner.md)
-- Summary: 调用用户环境 `mvn compile` 编译 workspace，收集 main classes 目录。
+- Summary: 调用用户环境 `mvn compile` 编译 workspace，收集 main classes 目录。支持 `--build-java-home` 覆盖 Maven 子进程 JAVA_HOME 实现 JDK 隔离。
 - Code: `src/main/java/io/github/changeimpact/analyze/build/BuildRunner.java`, `src/main/java/io/github/changeimpact/analyze/build/BuildResult.java`, `src/main/java/io/github/changeimpact/analyze/build/ModuleBuildOutput.java`, `src/main/java/io/github/changeimpact/analyze/build/BuildException.java`
 - Related: [Analysis Pipeline Architecture](architecture/analysis-pipeline.md)
 
 ### [Dependency Tree Extraction](features/dependency-tree-extraction.md)
-- Summary: 调用 Maven dependency plugin 输出 GraphML，解析为结构化 resolved dependency tree。
+- Summary: 调用 Maven dependency plugin 输出 GraphML，解析为结构化 resolved dependency tree。支持 `--build-java-home` 覆盖 Maven 子进程 JAVA_HOME 实现 JDK 隔离。
 - Code: `src/main/java/io/github/changeimpact/analyze/dependency/DependencyAnalyzer.java`, `src/main/java/io/github/changeimpact/analyze/dependency/GraphMLParser.java`, `src/main/java/io/github/changeimpact/analyze/dependency/ArtifactCoord.java`, `src/main/java/io/github/changeimpact/analyze/dependency/DependencyNode.java`, `src/main/java/io/github/changeimpact/analyze/dependency/DependencyScope.java`, `src/main/java/io/github/changeimpact/analyze/dependency/ModuleDependencyTree.java`, `src/main/java/io/github/changeimpact/analyze/dependency/DependencyAnalysisException.java`
 - Related: [Analysis Pipeline Architecture](architecture/analysis-pipeline.md), [Dependency Diff Engine](features/dependency-diff-engine.md)
 

@@ -3,11 +3,13 @@ package io.github.changeimpact.analyze.dependency;
 import io.github.changeimpact.analyze
         .diagnostic.DiagnosticCollector;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 
@@ -44,6 +46,9 @@ public final class DependencyAnalyzer {
     /** Diagnostic collector. */
     private final DiagnosticCollector diag;
 
+    /** Optional JAVA_HOME for mvn. */
+    private final File buildJavaHome;
+
     /**
      * Creates a new dependency analyzer.
      *
@@ -59,10 +64,34 @@ public final class DependencyAnalyzer {
                     reactor,
             final DiagnosticCollector
                     diagCol) {
+        this(sideName, path, reactor,
+                diagCol, null);
+    }
+
+    /**
+     * Creates a new dependency analyzer
+     * with optional JAVA_HOME override.
+     *
+     * @param sideName     side identifier
+     * @param path         workspace root path
+     * @param reactor      reactor module coords
+     * @param diagCol      diagnostic collector
+     * @param javaHomeOpt  optional JAVA_HOME
+     *                     for mvn subprocess
+     */
+    public DependencyAnalyzer(
+            final String sideName,
+            final Path path,
+            final Set<ArtifactCoord>
+                    reactor,
+            final DiagnosticCollector
+                    diagCol,
+            final File javaHomeOpt) {
         this.side = sideName;
         this.workspacePath = path;
         this.reactorModules = reactor;
         this.diag = diagCol;
+        this.buildJavaHome = javaHomeOpt;
     }
 
     /**
@@ -185,6 +214,13 @@ public final class DependencyAnalyzer {
                                         .toFile())
                         .redirectErrorStream(
                                 true);
+        if (buildJavaHome != null) {
+            final Map<String, String> env =
+                    pb.environment();
+            env.put("JAVA_HOME",
+                    buildJavaHome
+                            .getAbsolutePath());
+        }
         final Process proc = pb.start();
         return proc.waitFor();
     }
