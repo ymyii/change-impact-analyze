@@ -99,6 +99,26 @@ public final class ChangeImpactAnalyzeCli
     )
     private File buildJavaHome;
 
+    /** Included change point kinds. */
+    @Option(
+            names = "--include-change-kinds",
+            split = ",",
+            description = "Comma-separated"
+                    + " change point kinds"
+                    + " to include. Default:"
+                    + " CLASS_REMOVED,"
+                    + " METHOD_REMOVED,"
+                    + " METHOD_DESCRIPTOR_CHANGED,"
+                    + " METHOD_BODY_CHANGED,"
+                    + " FIELD_REMOVED,"
+                    + " FIELD_DESCRIPTOR_CHANGED"
+    )
+    private Set<ChangePointKind>
+            includeChangeKinds =
+                    new HashSet<>(
+                            ChangePointKind
+                                    .DEFAULT_INCLUDED_KINDS);
+
     /** Diagnostic event collector. */
     private final DiagnosticCollector diagnostics;
 
@@ -310,7 +330,8 @@ public final class ChangeImpactAnalyzeCli
         final List<ChangePoint> pts =
                 new ArrayList<>();
         final BytecodeDiffEngine engine =
-                new BytecodeDiffEngine();
+                new BytecodeDiffEngine(
+                        includeChangeKinds);
         for (JarLocationResult jar : jars) {
             pts.addAll(engine.diff(jar));
         }

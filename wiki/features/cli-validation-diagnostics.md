@@ -26,7 +26,7 @@ CLI 提供命令行入口，负责参数解析、校验、退出码控制和诊�
 ## Behavior
 
 - 必填参数：`--baseline`、`--output`。
-- 可选参数：`--project`（默认当前执行命令所在目录）、`--target`（默认使用 current workspace）、`--format`（默认 `html`）、`--build-java-home`（Maven 子进程使用的 JAVA_HOME 路径，不传时 Maven 继承当前 JVM 的 JAVA_HOME）。
+- 可选参数：`--project`（默认当前执行命令所在目录）、`--target`（默认使用 current workspace）、`--format`（默认 `html`）、`--build-java-home`（Maven 子进程使用的 JAVA_HOME 路径，不传时 Maven 继承当前 JVM 的 JAVA_HOME）、`--include-change-kinds`（逗号分隔的 `ChangePointKind` 名称，大小写不敏感，默认包含 6 种非 ADDED 类型：`CLASS_REMOVED`、`METHOD_REMOVED`、`METHOD_DESCRIPTOR_CHANGED`、`METHOD_BODY_CHANGED`、`FIELD_REMOVED`、`FIELD_DESCRIPTOR_CHANGED`；无效值返回退出码 2）。
 - 校验规则：project 必须存在且为目录；baseline 不能为空；output 父目录必须存在且可写；format 只允许 `html` 或 `md`。
 - 退出码：`0` 成功，非 `0` 失败。
 - 诊断事件贯穿所有阶段，记录 stage/level/message/side/module/artifact/path/elapsedMillis。
@@ -60,3 +60,4 @@ CLI 提供命令行入口，负责参数解析、校验、退出码控制和诊�
 - 参数错误返回非 `0`。
 - 诊断事件可被测试断言。
 - `--build-java-home` 选项正确解析并传递给 BuildRunner 和 DependencyAnalyzer。
+- `--include-change-kinds` 逗号分隔解析、大小写不敏感、默认值引用 `ChangePointKind.DEFAULT_INCLUDED_KINDS`、无效值退出码 2。

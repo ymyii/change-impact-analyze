@@ -17,7 +17,7 @@
 ## Features
 
 ### [CLI Validation and Diagnostics](features/cli-validation-diagnostics.md)
-- Summary: picocli CLI 参数解析、校验、退出码控制和诊断事件收集框架。`--project` 可选，默认当前目录。`--build-java-home` 可选，覆盖 Maven 子进程的 JAVA_HOME。
+- Summary: picocli CLI 参数解析、校验、退出码控制和诊断事件收集框架。`--project` 可选，默认当前目录。`--build-java-home` 可选，覆盖 Maven 子进程的 JAVA_HOME。`--include-change-kinds` 可选，逗号分隔 ChangePointKind，大小写不敏感，默认 6 种非 ADDED 类型。
 - Code: `src/main/java/io/github/changeimpact/analyze/cli/ChangeImpactAnalyzeCli.java`, `src/main/java/io/github/changeimpact/analyze/cli/OutputFormat.java`, `src/main/java/io/github/changeimpact/analyze/diagnostic/DiagnosticCollector.java`, `src/main/java/io/github/changeimpact/analyze/diagnostic/DiagnosticEvent.java`, `src/main/java/io/github/changeimpact/analyze/diagnostic/DiagnosticLevel.java`
 - Related: [Analysis Pipeline Architecture](architecture/analysis-pipeline.md)
 
@@ -47,7 +47,7 @@
 - Related: [Analysis Pipeline Architecture](architecture/analysis-pipeline.md), [Dependency Diff Engine](features/dependency-diff-engine.md)
 
 ### [Bytecode Diff Engine](features/bytecode-diff-engine.md)
-- Summary: 对 version_changed 依赖的 old/new jar 执行 bytecode diff，使用 ASM 9.7 + SHA-256 body hash，生成 ChangePoint 清单。
+- Summary: 对 VERSION_CHANGED 依赖的 old/new jar 执行 bytecode diff，使用 ASM 9.7 + SHA-256 body hash，生成 ChangePoint 清单。支持通过构造函数按 `ChangePointKind` 过滤，默认排除 ADDED 类型。
 - Code: `src/main/java/io/github/changeimpact/analyze/bytecode/BytecodeDiffEngine.java`, `src/main/java/io/github/changeimpact/analyze/bytecode/ChangePoint.java`, `src/main/java/io/github/changeimpact/analyze/bytecode/ChangePointKind.java`, `src/main/java/io/github/changeimpact/analyze/bytecode/BytecodeDiffException.java`, `src/main/java/io/github/changeimpact/analyze/bytecode/JarClassIndexer.java`, `src/main/java/io/github/changeimpact/analyze/bytecode/StableHashMethodVisitor.java`
 - Related: [Analysis Pipeline Architecture](architecture/analysis-pipeline.md), [Dependency Diff Engine](features/dependency-diff-engine.md), [Jar Locator](features/jar-locator.md)
 

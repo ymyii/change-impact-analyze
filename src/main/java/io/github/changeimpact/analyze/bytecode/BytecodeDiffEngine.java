@@ -7,6 +7,7 @@ import io.github.changeimpact.analyze.jar.JarLocationResult;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -24,11 +25,46 @@ import java.util.Set;
  */
 public final class BytecodeDiffEngine {
 
+    /** Set of included change
+     * point kinds. */
+    private final Set<ChangePointKind>
+            includedKinds;
+
     /**
      * Creates a new bytecode diff
-     * engine.
+     * engine with default included
+     * kinds.
      */
     public BytecodeDiffEngine() {
+        this(ChangePointKind
+                .DEFAULT_INCLUDED_KINDS);
+    }
+
+    /**
+     * Creates a new bytecode diff
+     * engine with the specified
+     * included change point kinds.
+     * Only change points whose kind
+     * is in the given set will be
+     * produced.
+     *
+     * @param kinds set of included
+     *  change point kinds
+     */
+    public BytecodeDiffEngine(
+            final Set<ChangePointKind>
+                    kinds) {
+        Objects.requireNonNull(
+                kinds, "kinds");
+        if (kinds.isEmpty()) {
+            this.includedKinds =
+                    Collections.emptySet();
+        } else {
+            this.includedKinds =
+                    Collections.unmodifiableSet(
+                            EnumSet.copyOf(
+                                    kinds));
+        }
     }
 
     /**
@@ -94,23 +130,31 @@ public final class BytecodeDiffEngine {
             final ClassInfo newC =
                     newIdx.get(name);
             if (oldC == null) {
-                result.add(new ChangePoint(
-                        art,
+                if (includedKinds.contains(
                         ChangePointKind
-                                .CLASS_ADDED,
-                        name,
-                        null, null,
-                        null, null));
+                                .CLASS_ADDED)) {
+                    result.add(new ChangePoint(
+                            art,
+                            ChangePointKind
+                                    .CLASS_ADDED,
+                            name,
+                            null, null,
+                            null, null));
+                }
                 continue;
             }
             if (newC == null) {
-                result.add(new ChangePoint(
-                        art,
+                if (includedKinds.contains(
                         ChangePointKind
-                                .CLASS_REMOVED,
-                        name,
-                        null, null,
-                        null, null));
+                                .CLASS_REMOVED)) {
+                    result.add(new ChangePoint(
+                            art,
+                            ChangePointKind
+                                    .CLASS_REMOVED,
+                            name,
+                            null, null,
+                            null, null));
+                }
                 continue;
             }
             diffMethods(
@@ -155,28 +199,39 @@ public final class BytecodeDiffEngine {
             final MethodInfo newM =
                     newMap.get(key);
             if (oldM == null) {
-                result.add(new ChangePoint(
-                        art,
+                if (includedKinds.contains(
                         ChangePointKind
-                                .METHOD_ADDED,
-                        owner,
-                        newM.getName(),
-                        newM.getDescriptor(),
-                        null, null));
+                                .METHOD_ADDED)) {
+                    result.add(new ChangePoint(
+                            art,
+                            ChangePointKind
+                                    .METHOD_ADDED,
+                            owner,
+                            newM.getName(),
+                            newM.getDescriptor(),
+                            null, null));
+                }
                 continue;
             }
             if (newM == null) {
-                result.add(new ChangePoint(
-                        art,
+                if (includedKinds.contains(
                         ChangePointKind
-                                .METHOD_REMOVED,
-                        owner,
-                        oldM.getName(),
-                        oldM.getDescriptor(),
-                        null, null));
+                                .METHOD_REMOVED)) {
+                    result.add(new ChangePoint(
+                            art,
+                            ChangePointKind
+                                    .METHOD_REMOVED,
+                            owner,
+                            oldM.getName(),
+                            oldM.getDescriptor(),
+                            null, null));
+                }
                 continue;
             }
-            if (oldM.getBodyHash() != null
+            if (includedKinds.contains(
+                    ChangePointKind
+                            .METHOD_BODY_CHANGED)
+                    && oldM.getBodyHash() != null
                     && newM.getBodyHash()
                             != null
                     && !oldM.getBodyHash()
@@ -193,10 +248,14 @@ public final class BytecodeDiffEngine {
                         newM.getBodyHash()));
             }
         }
-        detectDescriptorChanges(
-                oldC.getMethods(),
-                newC.getMethods(),
-                art, owner, result);
+        if (includedKinds.contains(
+                ChangePointKind
+                        .METHOD_DESCRIPTOR_CHANGED)) {
+            detectDescriptorChanges(
+                    oldC.getMethods(),
+                    newC.getMethods(),
+                    art, owner, result);
+        }
     }
 
     /**
@@ -305,30 +364,41 @@ public final class BytecodeDiffEngine {
             final FieldInfo newF =
                     newMap.get(name);
             if (oldF == null) {
-                result.add(new ChangePoint(
-                        art,
+                if (includedKinds.contains(
                         ChangePointKind
-                                .FIELD_ADDED,
-                        owner,
-                        newF.getName(),
-                        newF.getDescriptor(),
-                        null, null));
+                                .FIELD_ADDED)) {
+                    result.add(new ChangePoint(
+                            art,
+                            ChangePointKind
+                                    .FIELD_ADDED,
+                            owner,
+                            newF.getName(),
+                            newF.getDescriptor(),
+                            null, null));
+                }
                 continue;
             }
             if (newF == null) {
-                result.add(new ChangePoint(
-                        art,
+                if (includedKinds.contains(
                         ChangePointKind
-                                .FIELD_REMOVED,
-                        owner,
-                        oldF.getName(),
-                        oldF.getDescriptor(),
-                        null, null));
+                                .FIELD_REMOVED)) {
+                    result.add(new ChangePoint(
+                            art,
+                            ChangePointKind
+                                    .FIELD_REMOVED,
+                            owner,
+                            oldF.getName(),
+                            oldF.getDescriptor(),
+                            null, null));
+                }
                 continue;
             }
-            if (!oldF.getDescriptor()
-                    .equals(newF
-                            .getDescriptor())) {
+            if (includedKinds.contains(
+                    ChangePointKind
+                            .FIELD_DESCRIPTOR_CHANGED)
+                    && !oldF.getDescriptor()
+                            .equals(newF
+                                    .getDescriptor())) {
                 result.add(new ChangePoint(
                         art,
                         ChangePointKind

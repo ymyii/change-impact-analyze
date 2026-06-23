@@ -4,6 +4,7 @@ import io.github.changeimpact.analyze.diagnostic.DiagnosticCollector;
 import io.github.changeimpact.analyze.diagnostic.DiagnosticLevel;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import picocli.CommandLine;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -302,6 +303,63 @@ class ChangeImpactAnalyzeCliTest {
                                 .toString());
         assertThat(errBuf.toString()).contains(
                 "Pipeline failed");
+    }
+
+    @Test
+    void invalidChangeKindReturnsNonZero(
+            @TempDir final Path temp) {
+        final int code = runCli(temp,
+                "--project", temp.toString(),
+                "--baseline", "main",
+                "--output",
+                temp.resolve("out.html")
+                        .toString(),
+                "--include-change-kinds",
+                "INVALID_KIND");
+        assertThat(code).isNotZero();
+    }
+
+    @Test
+    void caseInsensitiveChangeKindParsing(
+            @TempDir final Path temp) {
+        final DiagnosticCollector collector =
+                new DiagnosticCollector();
+        final ChangeImpactAnalyzeCli cli =
+                new ChangeImpactAnalyzeCli(collector);
+        final CommandLine.ParseResult result =
+                ChangeImpactAnalyzeCli
+                        .newCommandLine(cli)
+                        .parseArgs(
+                                "--project",
+                                temp.toString(),
+                                "--baseline", "main",
+                                "--output",
+                                temp.resolve("out.html")
+                                        .toString(),
+                                "--include-change-kinds",
+                                "class_removed,"
+                                        + "method_body_changed");
+        assertThat(result.errors())
+                .isEmpty();
+        assertThat(result
+                .hasMatchedOption(
+                        "--include-change-kinds"))
+                .isTrue();
+    }
+
+    @Test
+    void helpOutputContainsIncludeChangeKinds() {
+        final ByteArrayOutputStream outBuf =
+                new ByteArrayOutputStream();
+        final CommandLine cmd =
+                ChangeImpactAnalyzeCli.newCommandLine(
+                        new ChangeImpactAnalyzeCli());
+        cmd.setOut(new java.io.PrintWriter(
+                new PrintStream(outBuf), true));
+        final int code = cmd.execute("--help");
+        assertThat(code).isZero();
+        assertThat(outBuf.toString())
+                .contains("--include-change-kinds");
     }
 
     private int runCli(final Path temp,

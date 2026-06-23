@@ -1,5 +1,9 @@
 package io.github.changeimpact.analyze.bytecode;
 
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.Set;
+
 // Wiki: wiki/features/bytecode-diff-engine.md - Bytecode change point kind
 /**
  * Enumeration of bytecode change
@@ -33,5 +37,26 @@ public enum ChangePointKind {
     FIELD_REMOVED,
 
     /** A field descriptor changed. */
-    FIELD_DESCRIPTOR_CHANGED
+    FIELD_DESCRIPTOR_CHANGED;
+
+    /**
+     * Default set of included change
+     * point kinds. Contains the 6
+     * non-ADDED kinds that represent
+     * removals and modifications.
+     */
+    public static final Set<ChangePointKind>
+            DEFAULT_INCLUDED_KINDS;
+
+    static {
+        DEFAULT_INCLUDED_KINDS =
+                Collections.unmodifiableSet(
+                        EnumSet.of(
+                                CLASS_REMOVED,
+                                METHOD_REMOVED,
+                                METHOD_DESCRIPTOR_CHANGED,
+                                METHOD_BODY_CHANGED,
+                                FIELD_REMOVED,
+                                FIELD_DESCRIPTOR_CHANGED));
+    }
 }

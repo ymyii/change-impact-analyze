@@ -35,11 +35,17 @@ code_refs:
 
 对 `VERSION_CHANGED` 依赖的 old/new jar 执行 bytecode 级别 diff，生成 `ChangePoint` 清单。使用 ASM 9.7 读取 class 文件，通过 SHA-256 body hash 检测 method body 变化，忽略 debug 信息（行号、局部变量表、stack map frames）。
 
+## Design Decisions
+
+- 引擎支持通过 `BytecodeDiffEngine(Set<ChangePointKind>)` 构造函数按 kind 过滤输出。无参构造函数默认使用 `ChangePointKind.DEFAULT_INCLUDED_KINDS`（6 种非 ADDED 类型：`CLASS_REMOVED`、`METHOD_REMOVED`、`METHOD_DESCRIPTOR_CHANGED`、`METHOD_BODY_CHANGED`、`FIELD_REMOVED`、`FIELD_DESCRIPTOR_CHANGED`），排除 ADDED 类型。过滤在 9 个 ChangePoint 产生点逐一执行 `includedKinds.contains(...)` 检查，空 set 则不产出任何 ChangePoint。
+
 ## Behavior
 
 - 输入为 `JarLocationResult`（包含 `DependencyChange` + old/new jar `Path`）。
 - 输出为不可变 `List<ChangePoint>`，每个 `ChangePoint` 携带 artifact 坐标、`ChangePointKind`、owner（internal class name）、name、descriptor、oldHash、newHash。
 - 9 种 `ChangePointKind`：`CLASS_ADDED`、`CLASS_REMOVED`、`METHOD_ADDED`、`METHOD_REMOVED`、`METHOD_DESCRIPTOR_CHANGED`、`METHOD_BODY_CHANGED`、`FIELD_ADDED`、`FIELD_REMOVED`、`FIELD_DESCRIPTOR_CHANGED`。
+- `ChangePointKind.DEFAULT_INCLUDED_KINDS` 为不可变 `Set<ChangePointKind>`，包含 6 种非 ADDED 类型，供引擎和 CLI 共享默认值。
+- 引擎支持 kind 过滤：构造时传入 `Set<ChangePointKind>` 指定允许的 kind，diff 过程中在每个 ChangePoint 产生点检查 `includedKinds.contains(...)`，不在集合中的 kind 不产出。
 - class 级别：仅检测新增和移除。
 - method 级别：通过 `name:descriptor` 复合 key 匹配。新增/移除直接产出 ChangePoint；匹配到的方法比较 body hash，不同则产出 `METHOD_BODY_CHANGED`；同名方法 descriptor 不同则产出 `METHOD_DESCRIPTOR_CHANGED`。
 - field 级别：通过 name 匹配。新增/移除直接产出 ChangePoint；匹配到的 field 比较 descriptor，不同则产出 `FIELD_DESCRIPTOR_CHANGED`。
@@ -70,8 +76,9 @@ code_refs:
 
 ## Verification
 
-- 单元测试：`BytecodeDiffEngineTest`、`ChangePointTest`、`ChangePointKindTest`、`BytecodeDiffExceptionTest`、`JarClassIndexerTest`、`StableHashMethodVisitorTest`，共 50 个测试。
+- 单元测试：`BytecodeDiffEngineTest`（20）、`ChangePointTest`、`ChangePointKindTest`（11）、`BytecodeDiffExceptionTest`、`JarClassIndexerTest`、`StableHashMethodVisitorTest`。
 - 测试使用 ASM `ClassWriter` 动态生成 jar，无外部测试资源文件。
 - 覆盖所有 9 种 `ChangePointKind` 的识别。
 - 覆盖 corrupt jar、corrupt class、abstract/native 方法 hash 为 null 等边界场景。
-- 全量 212 个测试无回归，Checkstyle 零违规。
+- 覆盖 kind 过滤行为：默认排除 ADDED、自定义 set 过滤、空 set 不产出、正向断言验证过滤逻辑生效。
+- 全量测试无回归，Checkstyle 零违规。

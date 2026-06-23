@@ -15,7 +15,10 @@ import org.objectweb.asm.Opcodes;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Path;
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -46,7 +49,9 @@ class BytecodeDiffEngineTest {
 
     /** Engine under test. */
     private final BytecodeDiffEngine engine =
-            new BytecodeDiffEngine();
+            new BytecodeDiffEngine(
+                    EnumSet.allOf(
+                            ChangePointKind.class));
 
     @Test
     void detectsClassAdded()
@@ -413,6 +418,160 @@ class BytecodeDiffEngineTest {
                                 .class);
     }
 
+    @Test
+    void defaultConstructorExcludesAddedKinds()
+            throws Exception {
+        final BytecodeDiffEngine defaultEng =
+                new BytecodeDiffEngine();
+        final Path oldJar = createJar(
+                "old.jar",
+                classBytes("com/Foo"));
+        final Path newJar = createJar(
+                "new.jar",
+                classBytes("com/Foo"),
+                classBytes("com/Bar"));
+        final List<ChangePoint> pts =
+                diffWith(defaultEng, oldJar, newJar);
+        assertThat(pts)
+                .extracting(
+                        ChangePoint::getKind)
+                .doesNotContain(
+                        ChangePointKind
+                                .CLASS_ADDED);
+    }
+
+    @Test
+    void excludeAddedKindsProducesNoAdded()
+            throws Exception {
+        final Path oldJar = createJar(
+                "old.jar",
+                classWithMethodAndField(
+                        "com/Foo"));
+        final Path newJar = createJar(
+                "new.jar",
+                classWithMethodAndField(
+                        "com/Foo"),
+                classWithMethodAndField(
+                        "com/Bar"));
+        final BytecodeDiffEngine allEng =
+                new BytecodeDiffEngine(
+                        EnumSet.allOf(
+                                ChangePointKind
+                                        .class));
+        final List<ChangePoint> allPts =
+                diffWith(allEng, oldJar, newJar);
+        assertThat(allPts)
+                .extracting(
+                        ChangePoint::getKind)
+                .contains(
+                        ChangePointKind
+                                .CLASS_ADDED);
+        final Set<ChangePointKind> kinds =
+                EnumSet.complementOf(
+                        EnumSet.of(
+                                ChangePointKind
+                                        .CLASS_ADDED,
+                                ChangePointKind
+                                        .METHOD_ADDED,
+                                ChangePointKind
+                                        .FIELD_ADDED));
+        final BytecodeDiffEngine eng =
+                new BytecodeDiffEngine(kinds);
+        final List<ChangePoint> pts =
+                diffWith(eng, oldJar, newJar);
+        assertThat(pts)
+                .extracting(
+                        ChangePoint::getKind)
+                .doesNotContain(
+                        ChangePointKind
+                                .CLASS_ADDED)
+                .doesNotContain(
+                        ChangePointKind
+                                .METHOD_ADDED)
+                .doesNotContain(
+                        ChangePointKind
+                                .FIELD_ADDED);
+    }
+
+    @Test
+    void onlySpecificKindProducesOnlyThatKind()
+            throws Exception {
+        final Set<ChangePointKind> kinds =
+                EnumSet.of(
+                        ChangePointKind
+                                .METHOD_BODY_CHANGED);
+        final BytecodeDiffEngine eng =
+                new BytecodeDiffEngine(kinds);
+        final Path oldJar = createJar(
+                "old.jar",
+                classWithMethodBody(
+                        "com/Foo",
+                        "bar",
+                        "()V",
+                        Opcodes.ICONST_0));
+        final Path newJar = createJar(
+                "new.jar",
+                classWithMethodBody(
+                        "com/Foo",
+                        "bar",
+                        "()V",
+                        Opcodes.ICONST_1));
+        final List<ChangePoint> pts =
+                diffWith(eng, oldJar, newJar);
+        assertThat(pts)
+                .extracting(
+                        ChangePoint::getKind)
+                .containsExactly(
+                        ChangePointKind
+                                .METHOD_BODY_CHANGED);
+    }
+
+    @Test
+    void emptySetProducesNoChangePoints()
+            throws Exception {
+        final BytecodeDiffEngine eng =
+                new BytecodeDiffEngine(
+                        Collections.emptySet());
+        final Path oldJar = createJar(
+                "old.jar",
+                classWithMethodBody(
+                        "com/Foo",
+                        "bar",
+                        "()V",
+                        Opcodes.ICONST_0));
+        final Path newJar = createJar(
+                "new.jar",
+                classWithMethodBody(
+                        "com/Foo",
+                        "bar",
+                        "()V",
+                        Opcodes.ICONST_1));
+        final List<ChangePoint> pts =
+                diffWith(eng, oldJar, newJar);
+        assertThat(pts).isEmpty();
+    }
+
+    @Test
+    void defaultConstructorBackwardCompatible()
+            throws Exception {
+        final BytecodeDiffEngine defaultEng =
+                new BytecodeDiffEngine();
+        final Path oldJar = createJar(
+                "old.jar",
+                classBytes("com/Foo"),
+                classBytes("com/Bar"));
+        final Path newJar = createJar(
+                "new.jar",
+                classBytes("com/Foo"));
+        final List<ChangePoint> pts =
+                diffWith(defaultEng, oldJar, newJar);
+        assertThat(pts)
+                .extracting(
+                        ChangePoint::getKind)
+                .contains(ChangePointKind
+                        .CLASS_REMOVED);
+    }
+
     /**
      * Runs the diff engine.
      *
@@ -439,6 +598,37 @@ class BytecodeDiffEngineTest {
                         change, oldJar,
                         newJar);
         return engine.diff(loc);
+    }
+
+    /**
+     * Runs the diff with a specific
+     * engine instance.
+     *
+     * @param eng    engine instance
+     * @param oldJar old jar path
+     * @param newJar new jar path
+     * @return change points
+     * @throws BytecodeDiffException
+     *  on error
+     */
+    private List<ChangePoint> diffWith(
+            final BytecodeDiffEngine eng,
+            final Path oldJar,
+            final Path newJar)
+            throws BytecodeDiffException {
+        final DependencyChange change =
+                new DependencyChange(
+                        ChangeType
+                                .VERSION_CHANGED,
+                        OLD, NEW,
+                        DependencyScope
+                                .COMPILE,
+                        "root");
+        final JarLocationResult loc =
+                new JarLocationResult(
+                        change, oldJar,
+                        newJar);
+        return eng.diff(loc);
     }
 
     /**
@@ -715,6 +905,42 @@ class BytecodeDiffEngineTest {
                             null, null);
             fv.visitEnd();
         }
+        cw.visitEnd();
+        return cw.toByteArray();
+    }
+
+    /**
+     * Generates class with one method
+     * and one field.
+     *
+     * @param cls internal class name
+     * @return class bytes
+     */
+    private byte[] classWithMethodAndField(
+            final String cls) {
+        final ClassWriter cw =
+                new ClassWriter(0);
+        cw.visit(
+                Opcodes.V1_8,
+                Opcodes.ACC_PUBLIC,
+                cls, null,
+                "java/lang/Object",
+                null);
+        final FieldVisitor fv =
+                cw.visitField(
+                        Opcodes.ACC_PUBLIC,
+                        "x", "I",
+                        null, null);
+        fv.visitEnd();
+        final MethodVisitor mv =
+                cw.visitMethod(
+                        Opcodes.ACC_PUBLIC,
+                        "bar", "()V",
+                        null, null);
+        mv.visitCode();
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitMaxs(0, 1);
+        mv.visitEnd();
         cw.visitEnd();
         return cw.toByteArray();
     }
