@@ -1,6 +1,7 @@
 package io.github.changeimpact.analyze.report;
 
 import io.github.changeimpact.analyze.bytecode.ChangePoint;
+import io.github.changeimpact.analyze.callgraph.CallEdge;
 import io.github.changeimpact.analyze.cli.OutputFormat;
 import io.github.changeimpact.analyze.dependency.ArtifactCoord;
 import io.github.changeimpact.analyze.dependency.ChangeType;
@@ -268,6 +269,8 @@ public final class ReportGenerator {
                     .append("<th>Type</th>")
                     .append("<th>Artifact")
                     .append("</th>")
+                    .append("<th>Old ")
+                    .append("Version</th>")
                     .append("<th>Scope</th>")
                     .append("</tr>\n");
             for (DependencyChange ch
@@ -334,12 +337,22 @@ public final class ReportGenerator {
             typeLabel = "VERSION_CHANGED";
             art = ch.getNewArtifact();
         }
+        final String oldVer;
+        if (type == ChangeType
+                .VERSION_CHANGED) {
+            oldVer = ch.getOldArtifact()
+                    .getVersion();
+        } else {
+            oldVer = "N/A";
+        }
         sb.append("<tr class=\"")
                 .append(cssClass)
                 .append("\"><td>")
                 .append(typeLabel)
                 .append("</td><td>")
                 .append(formatArtifact(art))
+                .append("</td><td>")
+                .append(oldVer)
                 .append("</td><td>")
                 .append(ch.getScope());
         if (ch.isCompileTimeApiRisk()) {
@@ -445,14 +458,15 @@ public final class ReportGenerator {
                 .append("</b> ")
                 .append(formatMethod(
                         path.getAffectedMethod()))
-                .append("</p>\n")
-                .append("<p><b>Change:")
+                .append("</p>\n");
+        appendHtmlCallChain(sb, path);
+        sb.append("<p><b>Change:")
                 .append("</b> ")
                 .append(path.getChangePoint()
                         .getKind())
                 .append(" in ")
-                .append(path.getChangePoint()
-                        .getOwner())
+                .append(formatChangePointLocation(
+                        path.getChangePoint()))
                 .append("</p>\n");
         if (!path.getModules().isEmpty()) {
             sb.append("<p><b>Modules:")
@@ -621,9 +635,11 @@ public final class ReportGenerator {
                     .append("\n\n")
                     .append("| Type | ")
                     .append("Artifact | ")
+                    .append("Old Version | ")
                     .append("Scope |\n")
                     .append("|------|")
                     .append("----------|")
+                    .append("-------------|")
                     .append("-------|\n");
             for (DependencyChange ch
                     : entry.getValue()) {
@@ -657,9 +673,19 @@ public final class ReportGenerator {
             typeLabel = "VERSION_CHANGED";
             art = ch.getNewArtifact();
         }
+        final String oldVer;
+        if (type == ChangeType
+                .VERSION_CHANGED) {
+            oldVer = ch.getOldArtifact()
+                    .getVersion();
+        } else {
+            oldVer = "N/A";
+        }
         sb.append("| ").append(typeLabel)
                 .append(" | ")
                 .append(formatArtifact(art))
+                .append(" | ")
+                .append(oldVer)
                 .append(" | ")
                 .append(ch.getScope());
         if (ch.isCompileTimeApiRisk()) {
@@ -751,13 +777,14 @@ public final class ReportGenerator {
                 .append("**Affected:** ")
                 .append(formatMethod(
                         path.getAffectedMethod()))
-                .append("\n\n")
-                .append("**Change:** ")
+                .append("\n\n");
+        appendMdCallChain(sb, path);
+        sb.append("**Change:** ")
                 .append(path.getChangePoint()
                         .getKind())
                 .append(" in ")
-                .append(path.getChangePoint()
-                        .getOwner())
+                .append(formatChangePointLocation(
+                        path.getChangePoint()))
                 .append("\n\n");
         if (!path.getModules().isEmpty()) {
             sb.append("**Modules:** ")
@@ -811,6 +838,98 @@ public final class ReportGenerator {
                     .append(ev.getElapsedMillis())
                     .append(" |\n");
         }
+    }
+
+    /**
+     * Formats change point location
+     * as owner or owner#name.
+     *
+     * @param cp change point
+     * @return location string
+     */
+    private String
+            formatChangePointLocation(
+                    final ChangePoint cp) {
+        if (cp.getName() != null) {
+            return cp.getOwner() + "#"
+                    + cp.getName();
+        }
+        return cp.getOwner();
+    }
+
+    /**
+     * Builds ordered call chain
+     * node labels from an impact
+     * path.
+     *
+     * @param path impact path
+     * @return list of node labels
+     */
+    private List<String>
+            buildCallChainNodes(
+                    final ImpactPath path) {
+        final List<String> nodes =
+                new ArrayList<>();
+        nodes.add(formatMethod(
+                path.getAffectedMethod()));
+        for (CallEdge edge
+                : path.getEdges()) {
+            nodes.add(formatMethod(
+                    edge.getCallee()));
+        }
+        nodes.add(
+                formatChangePointLocation(
+                        path.getChangePoint()));
+        return nodes;
+    }
+
+    /**
+     * Appends HTML call chain
+     * ordered list for an impact
+     * path.
+     *
+     * @param sb   string builder
+     * @param path impact path
+     */
+    private void appendHtmlCallChain(
+            final StringBuilder sb,
+            final ImpactPath path) {
+        final List<String> nodes =
+                buildCallChainNodes(path);
+        sb.append("<p><b>Call ")
+                .append("Chain:</b></p>\n")
+                .append("<ol>\n");
+        for (String node : nodes) {
+            sb.append("  <li>")
+                    .append(node)
+                    .append("</li>\n");
+        }
+        sb.append("</ol>\n");
+    }
+
+    /**
+     * Appends Markdown call chain
+     * arrow chain for an impact
+     * path.
+     *
+     * @param sb   string builder
+     * @param path impact path
+     */
+    private void appendMdCallChain(
+            final StringBuilder sb,
+            final ImpactPath path) {
+        final List<String> nodes =
+                buildCallChainNodes(path);
+        sb.append("**Call Chain:**")
+                .append("\n\n");
+        for (int i = 0; i < nodes.size();
+                i++) {
+            if (i > 0) {
+                sb.append(" \u2192 ");
+            }
+            sb.append(nodes.get(i));
+        }
+        sb.append("\n\n");
     }
 
     /**
