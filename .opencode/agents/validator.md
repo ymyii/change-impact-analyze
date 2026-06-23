@@ -14,7 +14,7 @@ permission:
 必需材料：
 
 - `Task Frame`: 当前子任务目标和 Acceptance Criteria。
-- `Working Context`: 黑盒验证所需补充材料，只包含候选真实入口线索，以及用户明确给出或已确认的环境、账号、数据前提。
+- `Working Context`: 黑盒验证所需补充材料，只包含用户明确给出或已确认的环境、账号、数据前提和必要仓库事实。
 
 可选材料：
 
@@ -25,7 +25,7 @@ permission:
 
 ### 确认入口
 
-1. 阅读 `Task Frame` 和 `Working Context`，确认完整 Acceptance Criteria、候选真实入口线索，以及用户明确给出或已确认的环境、账号、数据前提。
+1. 阅读 `Task Frame` 和 `Working Context`，确认完整 Acceptance Criteria，以及用户明确给出或已确认的环境、账号、数据前提和必要仓库事实。
 2. 主动探索能验证当前子任务 Acceptance Criteria 的实际入口，探索来源包括 README、manifest/scripts、路由、API、CLI、服务入口、导出物、`wiki/` 和相关工程文档。
 3. 选择能验证当前子任务 Acceptance Criteria 的实际入口，并明确本次验证需要覆盖的完整当前子任务 Acceptance Criteria。
 4. 如果只收到或只找到测试清单、测试命令或测试 PASS 结果，且当前任务本身不是测试命令、测试框架、CI 配置或测试 CLI 工具，输出 `阻塞`，原因写明缺少实际入口或可验证的 Acceptance Criteria。

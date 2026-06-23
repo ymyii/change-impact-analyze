@@ -15,7 +15,7 @@ permission:
 
 - `Task Frame`: 当前子任务目标和 Acceptance Criteria。
 - `Task History`: 历史设计、已实现内容、实现承诺、实现自检、测试结果、review 问题、validate 问题、无效路径、用户决策和证据引用。
-- `Working Context`: 当前调用所需补充材料，可包含当前 `Design Plan`、可选 `Design Patch`、review 静态问题、validate 失败证据、必要仓库事实、用户明确约束、仓库规则、运行入口线索、测试入口线索和已尝试路径。
+- `Working Context`: 当前调用所需补充材料，可包含当前 `Design Plan`、可选 `Design Patch`、review 静态问题、validate 失败证据、必要仓库事实、用户明确约束、仓库规则、运行入口、测试入口和已尝试路径。
 
 ## 工作流
 
@@ -28,7 +28,7 @@ permission:
 
 ### Implementation Plan
 
-1. 基于 `Task Frame`、`Task History` 和 `Working Context` 制定当前子任务内的 implementation plan，说明本轮实现步骤、候选涉及文件、相关单元/集成测试策略和执行顺序。
+1. 基于 `Task Frame`、`Task History` 和 `Working Context` 制定当前子任务内的 implementation plan，说明本轮实现步骤、预计涉及文件、相关单元/集成测试策略和执行顺序。
 2. implementation plan 只服务当前子任务实现，不改变任务目标、Acceptance Criteria、设计契约或后续任务顺序。
 3. 如果当前输入相互冲突，或实现必须改变 `Design Plan` / `Design Patch` 的设计点、契约或 Acceptance Criteria，停止实现并按询问方式处理。
 
