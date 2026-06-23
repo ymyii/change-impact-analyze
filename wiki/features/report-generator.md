@@ -21,7 +21,7 @@ code_refs:
 
 ## Summary
 
-生成单文件 HTML 或 Markdown 变更影响分析报告。报告包含 Summary、Dependency Changes（按模块分组）、Internal Changes（ChangePoint 清单）、Impact Paths 和 Diagnostics（含耗时列）五个 section。
+生成多文件 HTML 或 Markdown 变更影响分析报告。`generate()` 输出一个 index 文件和三个子文件（`-dependencies`、`-internal-changes`、`-impact-paths`），index 包含 Summary（带子文件链接）和 Diagnostics。`generateToString()` 返回单文件字符串。
 
 ## Behavior
 
@@ -32,7 +32,9 @@ code_refs:
 - `provided` scope 的 VERSION_CHANGED 依赖标记 `[API risk]`。
 - Impact Paths 为空时显示 "No static confirmed impact."。
 - Diagnostics 表格包含 Stage、Level、Message、Elapsed(ms) 四列。
-- HTML 报告包含内联 CSS，为单文件自包含。
+- `generate()` 生成 index 文件 + 3 个子文件（`{stem}-dependencies{ext}`、`{stem}-internal-changes{ext}`、`{stem}-impact-paths{ext}`），子文件命名由 `resolveSubPath()` 统一计算。
+- Index 文件的 Summary section 包含指向子文件的链接。
+- 每个子文件包含完整的页面结构（HTML 含 DOCTYPE/CSS，MD 含标题）。
 - 写入失败抛出 `ReportException`。
 
 ## Flow
@@ -40,7 +42,8 @@ code_refs:
 1. CLI pipeline 收集所有阶段的 `DependencyChange`、`ChangePoint`、`ImpactResult`、`DiagnosticEvent`。
 2. 调用 `ReportGenerator.generate()` 传入数据和输出格式。
 3. 根据 format 选择 HTML 或 Markdown 生成路径。
-4. 拼接报告内容为字符串，写入输出文件。
+4. 通过 `resolveSubPath()` 计算三个子文件路径，写入子文件内容。
+5. 写入 index 文件，Summary section 包含指向子文件的链接。
 
 ## Implementation Files
 

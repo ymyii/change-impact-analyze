@@ -23,8 +23,11 @@ import java.util.Objects;
 
 // Wiki: wiki/features/report-generator.md - 报告生成核心类，HTML/Markdown 双格式输出
 /**
- * Generates single-file HTML or
- * Markdown impact analysis reports.
+ * Generates HTML or Markdown impact
+ * analysis reports.
+ * generate() writes an index file and
+ * three sub-files; generateToString()
+ * returns a single-file string.
  */
 public final class ReportGenerator {
 
@@ -87,14 +90,46 @@ public final class ReportGenerator {
                 "format");
         Objects.requireNonNull(output,
                 "output");
-        final String content =
-                generateToString(
-                        changes, points,
-                        result, events,
-                        format);
         try {
-            Files.writeString(output,
-                    content);
+            if (format == OutputFormat.MD) {
+                writeIndexMd(output,
+                        changes, points,
+                        result, events);
+                writeMdSub(
+                        resolveSubPath(output,
+                                "-dependencies"),
+                        "Dependency Changes",
+                        depBodyMd(changes));
+                writeMdSub(
+                        resolveSubPath(output,
+                                "-internal-changes"),
+                        "Internal Changes",
+                        intBodyMd(points));
+                writeMdSub(
+                        resolveSubPath(output,
+                                "-impact-paths"),
+                        "Impact Paths",
+                        impBodyMd(result));
+            } else {
+                writeIndexHtml(output,
+                        changes, points,
+                        result, events);
+                writeHtmlSub(
+                        resolveSubPath(output,
+                                "-dependencies"),
+                        "Dependency Changes",
+                        depBody(changes));
+                writeHtmlSub(
+                        resolveSubPath(output,
+                                "-internal-changes"),
+                        "Internal Changes",
+                        intBody(points));
+                writeHtmlSub(
+                        resolveSubPath(output,
+                                "-impact-paths"),
+                        "Impact Paths",
+                        impBody(result));
+            }
         } catch (IOException e) {
             throw new ReportException(
                     "Failed to write: "
@@ -231,6 +266,54 @@ public final class ReportGenerator {
                 .append("Paths: ")
                 .append(result.getPaths()
                         .size())
+                .append("</li>\n")
+                .append("</ul>\n");
+    }
+
+    /**
+     * Appends HTML summary with links.
+     *
+     * @param sb      string builder
+     * @param changes dependency changes
+     * @param points  change points
+     * @param result  impact result
+     * @param depFile dependency sub-file
+     * @param intFile internal sub-file
+     * @param impFile impact sub-file
+     */
+    private void appendHtmlSummary(
+            final StringBuilder sb,
+            final List<DependencyChange>
+                    changes,
+            final List<ChangePoint>
+                    points,
+            final ImpactResult result,
+            final String depFile,
+            final String intFile,
+            final String impFile) {
+        sb.append("<h2>Summary</h2>\n")
+                .append("<ul>\n")
+                .append("<li>Dependency ")
+                .append("Changes: ")
+                .append(changes.size())
+                .append(" (<a href=\"")
+                .append(depFile)
+                .append("\">details</a>)")
+                .append("</li>\n")
+                .append("<li>Internal ")
+                .append("Changes: ")
+                .append(points.size())
+                .append(" (<a href=\"")
+                .append(intFile)
+                .append("\">details</a>)")
+                .append("</li>\n")
+                .append("<li>Impact ")
+                .append("Paths: ")
+                .append(result.getPaths()
+                        .size())
+                .append(" (<a href=\"")
+                .append(impFile)
+                .append("\">details</a>)")
                 .append("</li>\n")
                 .append("</ul>\n");
     }
@@ -606,6 +689,49 @@ public final class ReportGenerator {
     }
 
     /**
+     * Appends Markdown summary with links.
+     *
+     * @param sb      string builder
+     * @param changes dependency changes
+     * @param points  change points
+     * @param result  impact result
+     * @param depFile dependency sub-file
+     * @param intFile internal sub-file
+     * @param impFile impact sub-file
+     */
+    private void appendMdSummary(
+            final StringBuilder sb,
+            final List<DependencyChange>
+                    changes,
+            final List<ChangePoint>
+                    points,
+            final ImpactResult result,
+            final String depFile,
+            final String intFile,
+            final String impFile) {
+        sb.append("## Summary\n\n")
+                .append("- Dependency ")
+                .append("Changes: ")
+                .append(changes.size())
+                .append(" ([details](")
+                .append(depFile)
+                .append("))\n")
+                .append("- Internal ")
+                .append("Changes: ")
+                .append(points.size())
+                .append(" ([details](")
+                .append(intFile)
+                .append("))\n")
+                .append("- Impact ")
+                .append("Paths: ")
+                .append(result.getPaths()
+                        .size())
+                .append(" ([details](")
+                .append(impFile)
+                .append("))\n\n");
+    }
+
+    /**
      * Appends Markdown dependency
      * changes grouped by module.
      *
@@ -962,4 +1088,302 @@ public final class ReportGenerator {
                 + method.name()
                 + method.descriptor();
     }
+
+    /**
+     * Resolves sub-file path.
+     *
+     * @param output base output path
+     * @param suffix suffix to insert
+     * @return resolved sub-file path
+     */
+    private Path resolveSubPath(
+            final Path output,
+            final String suffix) {
+        final Path parent =
+                output.getParent();
+        final String name =
+                output.getFileName()
+                        .toString();
+        final int dot = name.lastIndexOf('.');
+        final String stem;
+        final String ext;
+        if (dot > 0) {
+            stem = name.substring(0, dot);
+            ext = name.substring(dot);
+        } else {
+            stem = name;
+            ext = "";
+        }
+        final String subName =
+                stem + suffix + ext;
+        if (parent != null) {
+            return parent.resolve(subName);
+        }
+        return Path.of(subName);
+    }
+
+    /**
+     * Wraps body in a complete HTML page.
+     *
+     * @param title page title
+     * @param body  body content
+     * @return HTML string
+     */
+    private String generateHtmlPage(
+            final String title,
+            final String body) {
+        return "<!DOCTYPE html>\n"
+                + "<html>\n<head>\n"
+                + "<meta charset=\"UTF-8\">\n"
+                + "<title>" + title
+                + "</title>\n"
+                + "<style>" + CSS
+                + "</style>\n"
+                + "</head>\n<body>\n"
+                + body
+                + "</body>\n</html>\n";
+    }
+
+    /**
+     * Wraps body in a Markdown page.
+     *
+     * @param title page title
+     * @param body  body content
+     * @return Markdown string
+     */
+    private String generateMdPage(
+            final String title,
+            final String body) {
+        return "# " + title + "\n\n" + body;
+    }
+
+    /**
+     * Builds dependency changes body.
+     *
+     * @param changes dependency changes
+     * @return body string
+     */
+    private String depBody(
+            final List<DependencyChange>
+                    changes) {
+        final StringBuilder sb =
+                new StringBuilder();
+        appendHtmlDependencyChanges(sb,
+                changes);
+        return sb.toString();
+    }
+
+    /**
+     * Builds internal changes body.
+     *
+     * @param points change points
+     * @return body string
+     */
+    private String intBody(
+            final List<ChangePoint>
+                    points) {
+        final StringBuilder sb =
+                new StringBuilder();
+        appendHtmlChangePoints(sb,
+                points);
+        return sb.toString();
+    }
+
+    /**
+     * Builds impact paths body.
+     *
+     * @param result impact result
+     * @return body string
+     */
+    private String impBody(
+            final ImpactResult result) {
+        final StringBuilder sb =
+                new StringBuilder();
+        appendHtmlImpactPaths(sb, result);
+        return sb.toString();
+    }
+
+    /**
+     * Builds MD dependency body.
+     *
+     * @param changes dependency changes
+     * @return body string
+     */
+    private String depBodyMd(
+            final List<DependencyChange>
+                    changes) {
+        final StringBuilder sb =
+                new StringBuilder();
+        appendMdDependencyChanges(sb,
+                changes);
+        return sb.toString();
+    }
+
+    /**
+     * Builds MD internal changes body.
+     *
+     * @param points change points
+     * @return body string
+     */
+    private String intBodyMd(
+            final List<ChangePoint>
+                    points) {
+        final StringBuilder sb =
+                new StringBuilder();
+        appendMdChangePoints(sb, points);
+        return sb.toString();
+    }
+
+    /**
+     * Builds MD impact paths body.
+     *
+     * @param result impact result
+     * @return body string
+     */
+    private String impBodyMd(
+            final ImpactResult result) {
+        final StringBuilder sb =
+                new StringBuilder();
+        appendMdImpactPaths(sb, result);
+        return sb.toString();
+    }
+
+    /**
+     * Writes HTML sub-file.
+     *
+     * @param path  sub-file path
+     * @param title page title
+     * @param body  body content
+     * @throws IOException on write error
+     */
+    private void writeHtmlSub(
+            final Path path,
+            final String title,
+            final String body)
+            throws IOException {
+        Files.writeString(path,
+                generateHtmlPage(title, body));
+    }
+
+    /**
+     * Writes Markdown sub-file.
+     *
+     * @param path  sub-file path
+     * @param title page title
+     * @param body  body content
+     * @throws IOException on write error
+     */
+    private void writeMdSub(
+            final Path path,
+            final String title,
+            final String body)
+            throws IOException {
+        Files.writeString(path,
+                generateMdPage(title, body));
+    }
+
+    /**
+     * Writes HTML index file.
+     *
+     * @param output  output path
+     * @param changes dependency changes
+     * @param points  change points
+     * @param result  impact result
+     * @param events  diagnostic events
+     * @throws IOException on write error
+     */
+    private void writeIndexHtml(
+            final Path output,
+            final List<DependencyChange>
+                    changes,
+            final List<ChangePoint>
+                    points,
+            final ImpactResult result,
+            final List<DiagnosticEvent>
+                    events)
+            throws IOException {
+        final String depName =
+                resolveSubPath(output,
+                        "-dependencies")
+                        .getFileName()
+                        .toString();
+        final String intName =
+                resolveSubPath(output,
+                        "-internal-changes")
+                        .getFileName()
+                        .toString();
+        final String impName =
+                resolveSubPath(output,
+                        "-impact-paths")
+                        .getFileName()
+                        .toString();
+        final StringBuilder sb =
+                new StringBuilder();
+        sb.append("<!DOCTYPE html>\n")
+                .append("<html>\n<head>\n")
+                .append("<meta charset=")
+                .append("\"UTF-8\">\n")
+                .append("<title>Impact ")
+                .append("Analysis ")
+                .append("Report</title>\n")
+                .append("<style>")
+                .append(CSS)
+                .append("</style>\n")
+                .append("</head>\n<body>\n");
+        appendHtmlHeader(sb);
+        appendHtmlSummary(sb, changes,
+                points, result,
+                depName, intName, impName);
+        appendHtmlDiagnostics(sb, events);
+        sb.append("</body>\n</html>\n");
+        Files.writeString(output,
+                sb.toString());
+    }
+
+    /**
+     * Writes Markdown index file.
+     *
+     * @param output  output path
+     * @param changes dependency changes
+     * @param points  change points
+     * @param result  impact result
+     * @param events  diagnostic events
+     * @throws IOException on write error
+     */
+    private void writeIndexMd(
+            final Path output,
+            final List<DependencyChange>
+                    changes,
+            final List<ChangePoint>
+                    points,
+            final ImpactResult result,
+            final List<DiagnosticEvent>
+                    events)
+            throws IOException {
+        final String depName =
+                resolveSubPath(output,
+                        "-dependencies")
+                        .getFileName()
+                        .toString();
+        final String intName =
+                resolveSubPath(output,
+                        "-internal-changes")
+                        .getFileName()
+                        .toString();
+        final String impName =
+                resolveSubPath(output,
+                        "-impact-paths")
+                        .getFileName()
+                        .toString();
+        final StringBuilder sb =
+                new StringBuilder();
+        appendMdHeader(sb);
+        appendMdSummary(sb, changes,
+                points, result,
+                depName, intName, impName);
+        appendMdDiagnostics(sb, events);
+        Files.writeString(output,
+                sb.toString());
+    }
+
 }

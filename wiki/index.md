@@ -52,7 +52,7 @@
 - Related: [Analysis Pipeline Architecture](architecture/analysis-pipeline.md), [Dependency Diff Engine](features/dependency-diff-engine.md), [Jar Locator](features/jar-locator.md)
 
 ### [Report Generator](features/report-generator.md)
-- Summary: 生成单文件 HTML 或 Markdown 变更影响分析报告，按模块分组展示依赖变动、变化点、影响路径和诊断信息。
+- Summary: 生成多文件 HTML 或 Markdown 变更影响分析报告（index + 3 个子文件），按模块分组展示依赖变动、变化点、影响路径和诊断信息。
 - Code: `src/main/java/io/github/changeimpact/analyze/report/ReportGenerator.java`, `src/main/java/io/github/changeimpact/analyze/report/ReportException.java`
 - Related: [Analysis Pipeline Architecture](architecture/analysis-pipeline.md), [CLI Validation and Diagnostics](features/cli-validation-diagnostics.md)
 

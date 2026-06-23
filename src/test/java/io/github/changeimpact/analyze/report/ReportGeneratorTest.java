@@ -49,7 +49,8 @@ class ReportGeneratorTest {
             generator = new ReportGenerator();
 
     /**
-     * HTML format generates file.
+     * HTML format generates index
+     * and 3 sub-files.
      *
      * @throws Exception on error
      */
@@ -66,16 +67,28 @@ class ReportGeneratorTest {
                 OutputFormat.HTML,
                 output);
         assertThat(output).exists();
-        final String content =
+        assertThat(tempDir.resolve(
+                "report-dependencies.html"))
+                .exists();
+        assertThat(tempDir.resolve(
+                "report-internal-changes.html"))
+                .exists();
+        assertThat(tempDir.resolve(
+                "report-impact-paths.html"))
+                .exists();
+        final String index =
                 Files.readString(output);
-        assertThat(content)
+        assertThat(index)
                 .contains("<!DOCTYPE html>")
                 .contains("<style>")
-                .contains("</html>");
+                .contains("</html>")
+                .contains("Summary")
+                .contains("Diagnostics");
     }
 
     /**
-     * Markdown format generates file.
+     * Markdown format generates index
+     * and 3 sub-files.
      *
      * @throws Exception on error
      */
@@ -92,9 +105,18 @@ class ReportGeneratorTest {
                 OutputFormat.MD,
                 output);
         assertThat(output).exists();
-        final String content =
+        assertThat(tempDir.resolve(
+                "report-dependencies.md"))
+                .exists();
+        assertThat(tempDir.resolve(
+                "report-internal-changes.md"))
+                .exists();
+        assertThat(tempDir.resolve(
+                "report-impact-paths.md"))
+                .exists();
+        final String index =
                 Files.readString(output);
-        assertThat(content)
+        assertThat(index)
                 .contains("# Impact")
                 .contains("## Summary");
     }
@@ -126,7 +148,8 @@ class ReportGeneratorTest {
                 OutputFormat.HTML,
                 output);
         final String content =
-                Files.readString(output);
+                Files.readString(tempDir
+                        .resolve("report-dependencies.html"));
         assertThat(content)
                 .contains("ADDED")
                 .contains("g:a:1.0");
@@ -159,7 +182,8 @@ class ReportGeneratorTest {
                 OutputFormat.HTML,
                 output);
         final String content =
-                Files.readString(output);
+                Files.readString(tempDir
+                        .resolve("report-dependencies.html"));
         assertThat(content)
                 .contains("REMOVED");
     }
@@ -199,10 +223,15 @@ class ReportGeneratorTest {
                 Collections.emptyList(),
                 OutputFormat.HTML,
                 output);
-        final String content =
-                Files.readString(output);
-        assertThat(content)
-                .contains("VERSION_CHANGED")
+        final String depContent =
+                Files.readString(tempDir
+                        .resolve("report-dependencies.html"));
+        assertThat(depContent)
+                .contains("VERSION_CHANGED");
+        final String intContent =
+                Files.readString(tempDir
+                        .resolve("report-internal-changes.html"));
+        assertThat(intContent)
                 .contains("METHOD_REMOVED")
                 .contains("com/Foo");
     }
@@ -250,7 +279,8 @@ class ReportGeneratorTest {
                 OutputFormat.HTML,
                 output);
         final String content =
-                Files.readString(output);
+                Files.readString(tempDir
+                        .resolve("report-impact-paths.html"));
         assertThat(content)
                 .contains("Path #1")
                 .contains("com/App.main");
@@ -274,7 +304,8 @@ class ReportGeneratorTest {
                 OutputFormat.HTML,
                 output);
         final String content =
-                Files.readString(output);
+                Files.readString(tempDir
+                        .resolve("report-internal-changes.html"));
         assertThat(content)
                 .contains("No static")
                 .contains("confirmed");
@@ -307,7 +338,8 @@ class ReportGeneratorTest {
                 OutputFormat.HTML,
                 output);
         final String content =
-                Files.readString(output);
+                Files.readString(tempDir
+                        .resolve("report-dependencies.html"));
         assertThat(content)
                 .contains("API risk")
                 .contains("PROVIDED");
@@ -430,6 +462,281 @@ class ReportGeneratorTest {
         assertThat(md)
                 .contains("### Module: mod-a")
                 .contains("### Module: mod-b");
+    }
+
+    /**
+     * Sub-file naming convention test
+     * with index link cross-validation.
+     *
+     * @throws Exception on error
+     */
+    @Test
+    void subFileNamingConvention()
+            throws Exception {
+        final Path output = tempDir
+                .resolve("my-report.html");
+        generator.generate(
+                Collections.emptyList(),
+                Collections.emptyList(),
+                emptyResult(),
+                Collections.emptyList(),
+                OutputFormat.HTML,
+                output);
+        final String dep =
+                "my-report-dependencies.html";
+        final String intf =
+                "my-report-internal-changes"
+                        + ".html";
+        final String imp =
+                "my-report-impact-paths.html";
+        assertThat(tempDir.resolve(dep))
+                .exists();
+        assertThat(tempDir.resolve(intf))
+                .exists();
+        assertThat(tempDir.resolve(imp))
+                .exists();
+        final String index =
+                Files.readString(output);
+        assertThat(index)
+                .contains("href=\"" + dep + "\"")
+                .contains("href=\"" + intf + "\"")
+                .contains("href=\"" + imp + "\"");
+    }
+
+    /**
+     * HTML sub-files content test.
+     *
+     * @throws Exception on error
+     */
+    @Test
+    void htmlSubFilesContent()
+            throws Exception {
+        final Path output = tempDir
+                .resolve("report.html");
+        final ArtifactCoord art =
+                new ArtifactCoord("g", "a",
+                        "jar", "1.0");
+        final ChangePoint cp =
+                new ChangePoint(art,
+                        ChangePointKind
+                                .METHOD_REMOVED,
+                        "com/Foo", "bar",
+                        "()V", null, null);
+        final MethodId method =
+                new MethodId("com/App",
+                        "main",
+                        "([Ljava/lang/String;)V",
+                        "module1",
+                        "com/App.class");
+        final ImpactPath path =
+                new ImpactPath(method, cp,
+                        Collections.emptyList(),
+                        new HashSet<>(),
+                        Collections.emptyList());
+        final ImpactResult result =
+                new ImpactResult(
+                        List.of(path),
+                        new EnumMap<>(
+                                NotReportedReason
+                                        .class));
+        final List<DependencyChange> changes =
+                new ArrayList<>();
+        changes.add(new DependencyChange(
+                ChangeType.ADDED,
+                null,
+                new ArtifactCoord("g", "a",
+                        "jar", "1.0"),
+                DependencyScope.COMPILE,
+                "module1"));
+        generator.generate(changes,
+                List.of(cp), result,
+                Collections.emptyList(),
+                OutputFormat.HTML,
+                output);
+        final String dep = Files.readString(
+                tempDir.resolve(
+                        "report-dependencies.html"));
+        assertThat(dep)
+                .contains("<!DOCTYPE html>")
+                .contains("<style>")
+                .contains("ADDED")
+                .contains("g:a:1.0");
+        final String intF = Files.readString(
+                tempDir.resolve(
+                        "report-internal-changes.html"));
+        assertThat(intF)
+                .contains("<!DOCTYPE html>")
+                .contains("METHOD_REMOVED")
+                .contains("com/Foo");
+        final String imp = Files.readString(
+                tempDir.resolve(
+                        "report-impact-paths.html"));
+        assertThat(imp)
+                .contains("<!DOCTYPE html>")
+                .contains("Path #1")
+                .contains("com/App.main");
+    }
+
+    /**
+     * Markdown sub-files content test.
+     *
+     * @throws Exception on error
+     */
+    @Test
+    void mdSubFilesContent()
+            throws Exception {
+        final Path output = tempDir
+                .resolve("report.md");
+        final ArtifactCoord art =
+                new ArtifactCoord("g", "a",
+                        "jar", "1.0");
+        final ChangePoint cp =
+                new ChangePoint(art,
+                        ChangePointKind
+                                .METHOD_REMOVED,
+                        "com/Foo", "bar",
+                        "()V", null, null);
+        final MethodId method =
+                new MethodId("com/App",
+                        "main",
+                        "([Ljava/lang/String;)V",
+                        "module1",
+                        "com/App.class");
+        final ImpactPath path =
+                new ImpactPath(method, cp,
+                        Collections.emptyList(),
+                        new HashSet<>(),
+                        Collections.emptyList());
+        final ImpactResult result =
+                new ImpactResult(
+                        List.of(path),
+                        new EnumMap<>(
+                                NotReportedReason
+                                        .class));
+        final List<DependencyChange> changes =
+                new ArrayList<>();
+        changes.add(new DependencyChange(
+                ChangeType.ADDED,
+                null,
+                new ArtifactCoord("g", "a",
+                        "jar", "1.0"),
+                DependencyScope.COMPILE,
+                "module1"));
+        generator.generate(changes,
+                List.of(cp), result,
+                Collections.emptyList(),
+                OutputFormat.MD,
+                output);
+        final String dep = Files.readString(
+                tempDir.resolve(
+                        "report-dependencies.md"));
+        assertThat(dep)
+                .contains("# Dependency Changes")
+                .contains("ADDED")
+                .contains("|");
+        assertThat(dep)
+                .doesNotContain("<html>")
+                .doesNotContain("<style>")
+                .doesNotContain("<table>");
+        final String intF = Files.readString(
+                tempDir.resolve(
+                        "report-internal-changes.md"));
+        assertThat(intF)
+                .contains("# Internal Changes")
+                .contains("METHOD_REMOVED")
+                .contains("|");
+        assertThat(intF)
+                .doesNotContain("<html>")
+                .doesNotContain("<table>");
+        final String imp = Files.readString(
+                tempDir.resolve(
+                        "report-impact-paths.md"));
+        assertThat(imp)
+                .contains("# Impact Paths")
+                .contains("Path #1")
+                .contains("**Affected:**");
+        assertThat(imp)
+                .doesNotContain("<html>")
+                .doesNotContain("<ol>")
+                .doesNotContain("<li>");
+    }
+
+    /**
+     * Index contains summary links
+     * that match actual sub-files.
+     *
+     * @throws Exception on error
+     */
+    @Test
+    void indexContainsSummaryLinks()
+            throws Exception {
+        final Path output = tempDir
+                .resolve("report.html");
+        generator.generate(
+                Collections.emptyList(),
+                Collections.emptyList(),
+                emptyResult(),
+                Collections.emptyList(),
+                OutputFormat.HTML,
+                output);
+        final String index =
+                Files.readString(output);
+        final String dep =
+                "report-dependencies.html";
+        final String intf =
+                "report-internal-changes"
+                        + ".html";
+        final String imp =
+                "report-impact-paths.html";
+        assertThat(index)
+                .contains("details")
+                .contains("href=\"" + dep + "\"")
+                .contains("href=\"" + intf + "\"")
+                .contains("href=\"" + imp + "\"");
+        assertThat(tempDir.resolve(dep))
+                .exists();
+        assertThat(tempDir.resolve(intf))
+                .exists();
+        assertThat(tempDir.resolve(imp))
+                .exists();
+    }
+
+    /**
+     * MD index links match actual
+     * sub-files.
+     *
+     * @throws Exception on error
+     */
+    @Test
+    void mdIndexLinksMatchSubFiles()
+            throws Exception {
+        final Path output = tempDir
+                .resolve("report.md");
+        generator.generate(
+                Collections.emptyList(),
+                Collections.emptyList(),
+                emptyResult(),
+                Collections.emptyList(),
+                OutputFormat.MD,
+                output);
+        final String index =
+                Files.readString(output);
+        final String dep =
+                "report-dependencies.md";
+        final String intf =
+                "report-internal-changes.md";
+        final String imp =
+                "report-impact-paths.md";
+        assertThat(index)
+                .contains("[details](" + dep + ")")
+                .contains("[details](" + intf + ")")
+                .contains("[details](" + imp + ")");
+        assertThat(tempDir.resolve(dep))
+                .exists();
+        assertThat(tempDir.resolve(intf))
+                .exists();
+        assertThat(tempDir.resolve(imp))
+                .exists();
     }
 
     /**
