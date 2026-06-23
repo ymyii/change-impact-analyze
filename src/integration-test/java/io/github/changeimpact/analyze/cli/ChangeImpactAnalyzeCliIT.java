@@ -290,6 +290,11 @@ class ChangeImpactAnalyzeCliIT {
                         out.toString(),
                 });
         assertThat(code).isZero();
+        assertThat(stderr())
+                .contains("Change points:");
+        assertThat(stderr())
+                .contains(
+                        "METHOD_BODY_CHANGED:");
         final String content =
                 Files.readString(out);
         assertThat(content)

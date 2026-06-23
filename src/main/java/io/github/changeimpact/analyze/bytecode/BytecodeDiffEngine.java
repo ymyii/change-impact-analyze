@@ -202,6 +202,9 @@ public final class BytecodeDiffEngine {
     /**
      * Detects method descriptor
      * changes by matching on name.
+     * Only reports when both old and new
+     * have exactly one method with the
+     * same name but different descriptor.
      *
      * @param oldMethods old methods
      * @param newMethods new methods
@@ -218,32 +221,55 @@ public final class BytecodeDiffEngine {
             final String owner,
             final List<ChangePoint>
                     result) {
-        final Map<String, MethodInfo> oldByName =
-                new HashMap<>();
-        for (final MethodInfo m
-                : oldMethods) {
-            oldByName.put(
-                    m.getName(), m);
-        }
-        for (final MethodInfo newM
-                : newMethods) {
-            final MethodInfo oldM =
-                    oldByName.get(
-                            newM.getName());
-            if (oldM != null
-                    && !oldM.getDescriptor()
-                            .equals(newM
+        final Map<String, List<MethodInfo>>
+                oldByName = groupByName(oldMethods);
+        final Map<String, List<MethodInfo>>
+                newByName = groupByName(newMethods);
+        for (final Map.Entry<String,
+                List<MethodInfo>> entry
+                : oldByName.entrySet()) {
+            final String name = entry.getKey();
+            final List<MethodInfo> oldList =
+                    entry.getValue();
+            final List<MethodInfo> newList =
+                    newByName.get(name);
+            if (oldList.size() == 1
+                    && newList != null
+                    && newList.size() == 1
+                    && !oldList.get(0)
+                            .getDescriptor()
+                            .equals(newList.get(0)
                                     .getDescriptor())) {
                 result.add(new ChangePoint(
                         art,
                         ChangePointKind
                                 .METHOD_DESCRIPTOR_CHANGED,
                         owner,
-                        newM.getName(),
-                        newM.getDescriptor(),
+                        name,
+                        newList.get(0).getDescriptor(),
                         null, null));
             }
         }
+    }
+
+    /**
+     * Groups methods by name.
+     *
+     * @param methods method list
+     * @return map of name to methods
+     */
+    private Map<String, List<MethodInfo>>
+            groupByName(
+            final List<MethodInfo> methods) {
+        final Map<String, List<MethodInfo>>
+                result = new HashMap<>();
+        for (final MethodInfo m : methods) {
+            result.computeIfAbsent(
+                    m.getName(),
+                    k -> new ArrayList<>())
+                    .add(m);
+        }
+        return result;
     }
 
     /**

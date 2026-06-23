@@ -4,6 +4,7 @@ import io.github.changeimpact.analyze.build.BuildResult;
 import io.github.changeimpact.analyze.build.BuildRunner;
 import io.github.changeimpact.analyze.bytecode.BytecodeDiffEngine;
 import io.github.changeimpact.analyze.bytecode.ChangePoint;
+import io.github.changeimpact.analyze.bytecode.ChangePointKind;
 import io.github.changeimpact.analyze.callgraph.CallGraph;
 import io.github.changeimpact.analyze.callgraph.CallGraphEngine;
 import io.github.changeimpact.analyze.dependency.ArtifactCoord;
@@ -32,6 +33,7 @@ import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
 
@@ -243,6 +245,7 @@ public final class ChangeImpactAnalyzeCli
             diagnostics.info("pipeline",
                     "Change points: "
                             + points.size());
+            logChangePointBreakdown(points);
 
             final ImpactResult impact =
                     computeImpact(points, tgtBuild);
@@ -342,6 +345,34 @@ public final class ChangeImpactAnalyzeCli
                         .build(tgtBuild);
         return new ImpactTracer(diagnostics)
                 .trace(points, cg, tgtBuild);
+    }
+
+    /**
+     * Logs change point counts per kind.
+     *
+     * @param points change points
+     */
+    private void logChangePointBreakdown(
+            final List<ChangePoint> points) {
+        final Map<ChangePointKind, Integer>
+                counts = new EnumMap<>(
+                ChangePointKind.class);
+        for (final ChangePointKind k
+                : ChangePointKind.values()) {
+            counts.put(k, 0);
+        }
+        for (final ChangePoint cp : points) {
+            counts.merge(cp.getKind(), 1,
+                    Integer::sum);
+        }
+        for (final ChangePointKind k
+                : ChangePointKind.values()) {
+            final int count = counts.get(k);
+            if (count > 0) {
+                diagnostics.info("pipeline",
+                        "  " + k + ": " + count);
+            }
+        }
     }
 
     /**

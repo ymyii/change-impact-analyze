@@ -216,6 +216,32 @@ class BytecodeDiffEngineTest {
     }
 
     @Test
+    void overloadedMethodNoFalseDescriptorChange()
+            throws Exception {
+        final Path oldJar = createJar(
+                "old.jar",
+                classWithMethods(
+                        "com/Foo",
+                        new String[]{"bar", "()V"},
+                        new String[]{"bar", "(I)V"}));
+        final Path newJar = createJar(
+                "new.jar",
+                classWithMethods(
+                        "com/Foo",
+                        new String[]{"bar", "()V"},
+                        new String[]{"bar", "(I)V"},
+                        new String[]{"bar",
+                                "(J)V"}));
+        final List<ChangePoint> pts =
+                diff(oldJar, newJar);
+        assertThat(pts)
+                .extracting(
+                        ChangePoint::getKind)
+                .doesNotContain(ChangePointKind
+                        .METHOD_DESCRIPTOR_CHANGED);
+    }
+
+    @Test
     void detectsFieldAdded()
             throws Exception {
         final Path oldJar = createJar(
