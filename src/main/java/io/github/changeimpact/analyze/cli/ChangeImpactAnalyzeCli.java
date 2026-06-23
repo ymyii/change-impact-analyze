@@ -176,9 +176,7 @@ public final class ChangeImpactAnalyzeCli
             diagnostics.error("pipeline",
                     "Pipeline failed: "
                             + e.getMessage());
-            System.err.println(
-                    "Pipeline failed: "
-                            + e.getMessage());
+            e.printStackTrace(System.err);
             return 2;
         }
     }
