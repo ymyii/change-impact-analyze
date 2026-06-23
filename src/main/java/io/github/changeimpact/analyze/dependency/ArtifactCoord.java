@@ -16,7 +16,7 @@ public final class ArtifactCoord {
 
     /** Maximum label segments. */
     private static final int MAX_SEGMENTS =
-            5;
+            6;
 
     /** Group id segment index. */
     private static final int IDX_GROUP =
@@ -33,6 +33,18 @@ public final class ArtifactCoord {
     /** Version segment index. */
     private static final int IDX_VERSION =
             3;
+
+    /** Classifier segment index. */
+    private static final int IDX_CLASSIFIER =
+            3;
+
+    /** Version index when classifier present. */
+    private static final int
+            IDX_VERSION_WITH_CLASSIFIER = 4;
+
+    /** Min segments when classifier present. */
+    private static final int
+            SEGMENTS_WITH_CLASSIFIER = 6;
 
     /** Group identifier. */
     private final String groupId;
@@ -103,8 +115,9 @@ public final class ArtifactCoord {
     /**
      * Parses a label string into an
      * ArtifactCoord. Supports 4-segment
-     * (g:a:t:v) and 5-segment
-     * (g:a:t:v:scope) formats.
+     * (g:a:t:v), 5-segment
+     * (g:a:t:v:scope), and 6-segment
+     * (g:a:t:classifier:v:scope) formats.
      *
      * @param label colon-separated label
      * @return parsed coordinate
@@ -129,11 +142,20 @@ public final class ArtifactCoord {
                     "Invalid label format: "
                             + label);
         }
+        final boolean hasClassifier =
+                parts.length
+                        >= SEGMENTS_WITH_CLASSIFIER;
+        final String clfr = hasClassifier
+                ? parts[IDX_CLASSIFIER] : "";
+        final int idxVer = hasClassifier
+                ? IDX_VERSION_WITH_CLASSIFIER
+                : IDX_VERSION;
         return new ArtifactCoord(
                 parts[IDX_GROUP],
                 parts[IDX_ARTIFACT],
                 parts[IDX_TYPE],
-                parts[IDX_VERSION]);
+                parts[idxVer],
+                clfr);
     }
 
     /**

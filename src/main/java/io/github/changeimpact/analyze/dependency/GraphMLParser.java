@@ -55,13 +55,9 @@ public final class GraphMLParser {
     private static final String ATTR_ID =
             "id";
 
-    /** Scope segment count in label. */
+    /** Minimum segments for scope in label. */
     private static final int SCOPE_SEGMENTS =
             5;
-
-    /** Scope segment index in label. */
-    private static final int IDX_SCOPE =
-            4;
 
     /** Private constructor. */
     private GraphMLParser() {
@@ -342,8 +338,8 @@ public final class GraphMLParser {
     }
 
     /**
-     * Extracts scope from a 5-segment
-     * label. Returns empty string for
+     * Extracts scope from a label.
+     * Returns empty string for
      * 4-segment labels.
      *
      * @param label node label
@@ -355,7 +351,7 @@ public final class GraphMLParser {
         final String[] parts =
                 label.split(":");
         if (parts.length >= SCOPE_SEGMENTS) {
-            return parts[IDX_SCOPE];
+            return parts[parts.length - 1];
         }
         return "";
     }

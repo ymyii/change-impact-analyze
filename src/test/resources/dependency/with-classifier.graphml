@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns"
+         xmlns:y="http://www.yworks.com/xml/graphml">
+  <graph id="G" edgedefault="directed">
+    <node id="n0">
+      <data key="d0">
+        <y:ShapeNode>
+          <y:NodeLabel>com.example:my-app:jar:1.0.0</y:NodeLabel>
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n1">
+      <data key="d0">
+        <y:ShapeNode>
+          <y:NodeLabel>io.netty:netty-transport-native-epoll:jar:linux-x86_64:4.1.118.Final:compile</y:NodeLabel>
+        </y:ShapeNode>
+      </data>
+    </node>
+    <edge source="n0" target="n1">
+      <data key="d1">
+        <y:PolyLineEdge>
+          <y:EdgeLabel>compile</y:EdgeLabel>
+        </y:PolyLineEdge>
+      </data>
+    </edge>
+  </graph>
+</graphml>

@@ -198,6 +198,38 @@ class GraphMLParserTest {
                 .isEqualTo(graphml.getParent());
     }
 
+    @Test
+    void parseClassifierDependency()
+            throws Exception {
+        final Path graphml =
+                copyResource(
+                        "with-classifier.graphml");
+        final ModuleDependencyTree tree =
+                GraphMLParser.parse(
+                        graphml, Set.of());
+        assertThat(tree.getDependencies())
+                .hasSize(1);
+        final DependencyNode epoll =
+                tree.getDependencies().get(0);
+        assertThat(epoll.getArtifact()
+                .getGroupId())
+                .isEqualTo("io.netty");
+        assertThat(epoll.getArtifact()
+                .getArtifactId())
+                .isEqualTo(
+                        "netty-transport"
+                                + "-native-epoll");
+        assertThat(epoll.getArtifact()
+                .getClassifier())
+                .isEqualTo("linux-x86_64");
+        assertThat(epoll.getArtifact()
+                .getVersion())
+                .isEqualTo("4.1.118.Final");
+        assertThat(epoll.getScope())
+                .isEqualTo(DependencyScope
+                        .COMPILE);
+    }
+
     /**
      * Copies a test resource to temp dir.
      *

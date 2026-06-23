@@ -45,6 +45,30 @@ class ArtifactCoordTest {
     }
 
     @Test
+    void parseSixSegmentsWithClassifier() {
+        final ArtifactCoord coord =
+                ArtifactCoord.parse(
+                        "io.netty"
+                                + ":netty-transport"
+                                + "-native-epoll"
+                                + ":jar:linux-x86_64"
+                                + ":4.1.118.Final"
+                                + ":provider");
+        assertThat(coord.getGroupId())
+                .isEqualTo("io.netty");
+        assertThat(coord.getArtifactId())
+                .isEqualTo(
+                        "netty-transport"
+                                + "-native-epoll");
+        assertThat(coord.getType())
+                .isEqualTo("jar");
+        assertThat(coord.getClassifier())
+                .isEqualTo("linux-x86_64");
+        assertThat(coord.getVersion())
+                .isEqualTo("4.1.118.Final");
+    }
+
+    @Test
     void parseTrimsWhitespace() {
         final ArtifactCoord coord =
                 ArtifactCoord.parse(
@@ -77,7 +101,7 @@ class ArtifactCoordTest {
     void parseThrowsOnTooManySegments() {
         assertThatThrownBy(() ->
                 ArtifactCoord.parse(
-                        "a:b:c:d:e:f"))
+                        "a:b:c:d:e:f:g"))
                 .isInstanceOf(
                         IllegalArgumentException
                                 .class);
