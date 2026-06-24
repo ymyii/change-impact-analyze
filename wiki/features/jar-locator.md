@@ -21,43 +21,65 @@ code_refs:
 
 ## Summary
 
-为 `VERSION_CHANGED` 类型的依赖变动定位 Maven local repository 中的 old/new jar 文件。根据 artifact 坐标计算标准 Maven repository 路径，校验文件存在性，缺失时抛出携带完整诊断信息的异常。
+Jar Locator 为 `VERSION_CHANGED` 类型的依赖变动定位 Maven local repository 中的 old/new jar 文件。它根据 artifact 坐标计算标准 Maven repository 路径，并在文件缺失时暴露完整诊断字段。
 
 ## Design Decisions
 
-- Jar 定位只处理 `VERSION_CHANGED` 依赖，因为 bytecode diff 需要 old/new 两侧 jar；`ADDED` 和 `REMOVED` 依赖不进入该阶段。
-- 通过 Maven local repository 标准路径计算 jar 位置，不解析远程仓库；缺失文件由 `JarLocatorException` 暴露完整诊断字段。
+- Jar 定位只处理 `VERSION_CHANGED` 依赖，因为 bytecode diff 需要 old/new 两侧 jar；`ADDED` 和 `REMOVED` 不进入该阶段。
+- 默认 repository root 使用 `~/.m2/repository`，同时保留构造函数注入能力以支持测试或自定义本地仓库。
+- 通过 Maven local repository 标准路径计算 jar 位置，不解析远程仓库、不触发下载。
+- 缺失文件由 `JarLocatorException` 暴露 artifact、side、expectedPath 和 repositoryRoot，便于用户修复本地 Maven 缓存。
 
-## Behavior
+## Actors / Entrypoints
 
-- 仅处理 `ChangeType.VERSION_CHANGED` 的 `DependencyChange`，其余类型（ADDED、REMOVED）过滤跳过。
-- 默认使用 `~/.m2/repository` 作为 Maven local repository 根路径，支持自定义路径。
-- 路径计算规则：`{repoRoot}/{groupId 的 . 替换为 /}/{artifactId}/{version}/{artifactId}-{version}[-{classifier}].{type}`。
-- classifier 为空字符串时文件名不含 classifier 段；非空时插入 `-{classifier}`。
-- old jar 和 new jar 均使用 `Files.exists()` 校验存在性。
-- 任一 jar 缺失时抛出 `JarLocatorException`，携带 `artifactCoord`、`side`（"old" 或 "new"）、`expectedPath`、`repositoryRoot` 四个诊断字段。
-- 返回结果为 `JarLocationResult` 列表，每个结果持有原始 `DependencyChange` 和 old/new jar 的 `Path`。
+- CLI pipeline 在 Dependency Diff Engine 之后调用 Jar Locator。
+- `JarLocator.locate(changes)` 是定位入口。
 
-## Flow
+## Behavior Contract
 
-1. `JarLocator.locate()` 接收 `List<DependencyChange>`。
-2. 遍历列表，跳过非 `VERSION_CHANGED` 条目。
-3. 对每条变动的 `oldArtifact` 和 `newArtifact` 分别调用 `resolveJarPath()` 计算期望路径。
-4. 校验 old jar 路径存在性，缺失时抛异常。
-5. 校验 new jar 路径存在性，缺失时抛异常。
-6. 构建 `JarLocationResult` 并添加到结果列表。
-7. 返回完整结果列表。
+- 仅处理 `ChangeType.VERSION_CHANGED` 的 `DependencyChange`。
+- 路径格式为 `{repoRoot}/{groupId path}/{artifactId}/{version}/{artifactId}-{version}[-{classifier}].{type}`。
+- groupId 中的 `.` 必须转换为目录分隔路径。
+- classifier 为空字符串时文件名不包含 classifier 段；非空时插入 `-{classifier}`。
+- old jar 和 new jar 都必须存在。
+- 任一 jar 缺失时抛出 `JarLocatorException`，并标明缺失 side 为 `old` 或 `new`。
+- 成功结果为 `JarLocationResult` 列表，每项包含原始 `DependencyChange`、old jar path 和 new jar path。
 
-## Implementation Files
+## Core Flow
 
-- `src/main/java/io/github/changeimpact/analyze/jar/JarLocator.java` - 路径计算、过滤、存在性校验。
-- `src/main/java/io/github/changeimpact/analyze/jar/JarLocationResult.java` - 不可变结果类，持有 DependencyChange + oldJar + newJar。
-- `src/main/java/io/github/changeimpact/analyze/jar/JarLocatorException.java` - checked exception，携带 artifactCoord/side/expectedPath/repositoryRoot 诊断字段。
+1. `locate()` 接收依赖变动列表。
+2. 跳过非 `VERSION_CHANGED` 条目。
+3. 对 old artifact 和 new artifact 分别调用 jar path 计算逻辑。
+4. 校验 old jar 存在性。
+5. 校验 new jar 存在性。
+6. 构造 `JarLocationResult` 并加入结果列表。
+7. 返回完整定位结果。
 
-## Verification
+## Acceptance Criteria
 
-- 单元测试：`src/test/java/io/github/changeimpact/analyze/jar/JarLocatorTest.java`、`JarLocationResultTest.java`、`JarLocatorExceptionTest.java`。
-- 路径计算覆盖 groupId `.` → `/` 转换、classifier 空/非空、嵌套 groupId。
-- VERSION_CHANGED 过滤逻辑正确，ADDED/REMOVED 被跳过。
-- 异常诊断信息完整（artifactCoord、side、expectedPath、repositoryRoot）。
-- 默认无参构造使用 `~/.m2/repository`。
+### Functional
+
+- Given `VERSION_CHANGED` 依赖且 old/new jar 都存在，When `locate()` 执行，Then 返回对应 `JarLocationResult`。
+- Given `ADDED` 或 `REMOVED` 依赖，When `locate()` 执行，Then 该变动被跳过。
+- Given artifact groupId 包含 `.`，When 计算路径，Then `.` 转换为 repository 子目录。
+- Given classifier 为空，When 计算文件名，Then 文件名不包含 classifier 段。
+- Given old jar 缺失，When `locate()` 执行，Then 抛出 side 为 `old` 的 `JarLocatorException`。
+- Given new jar 缺失，When `locate()` 执行，Then 抛出 side 为 `new` 的 `JarLocatorException`。
+
+### Non-Functional
+
+- [ ] Jar 定位不得访问网络或修改 Maven repository。
+- [ ] 缺失 jar 的诊断字段必须足够用户直接定位 expected path。
+- [ ] 路径计算必须兼容 classifier 和非 jar type。
+
+## Edge Cases
+
+- 自定义 repository root 可用于测试或非默认 Maven local repository。
+- classifier 非空时必须出现在 artifactId 与 type 扩展名之间。
+- 缺失任一侧 jar 时整个定位阶段失败，不产出部分成功报告。
+
+## Implementation Boundaries
+
+- Jar Locator 不判断依赖是否需要 bytecode diff；该筛选由 ChangeType 合同决定。
+- Jar Locator 不执行 Maven 下载，不解析远程仓库，也不校验 jar 内容。
+- `JarLocationResult` 是 Bytecode Diff Engine 的输入边界。

@@ -7,74 +7,83 @@ relations:
   - path: "wiki/features/dependency-tree-extraction.md"
     desc: "依赖变动对比依赖前序阶段产出的 resolved dependency tree"
   - path: "wiki/features/jar-locator.md"
-    desc: "依赖变动对比产物供 Jar Locator 定位 jar 文件"
+    desc: "VERSION_CHANGED 依赖变动供 Jar Locator 定位 jar 文件"
   - path: "wiki/features/bytecode-diff-engine.md"
-    desc: "依赖变动对比产物最终供 Bytecode Diff Engine 执行 bytecode diff"
+    desc: "VERSION_CHANGED 依赖变动最终供 Bytecode Diff Engine 执行 bytecode diff"
 code_refs:
   - path: "src/main/java/io/github/changeimpact/analyze/dependency/DependencyDiffEngine.java"
     desc: "依赖变动对比引擎主实现"
   - path: "src/main/java/io/github/changeimpact/analyze/dependency/DependencyChange.java"
     desc: "单条依赖变动不可变数据类"
   - path: "src/main/java/io/github/changeimpact/analyze/dependency/ChangeType.java"
-    desc: "变动类型枚举（ADDED/REMOVED/VERSION_CHANGED）"
+    desc: "变动类型枚举"
 ---
 
 # Feature: Dependency Diff Engine
 
 ## Summary
 
-对比 baseline 和 target 两侧的 resolved dependency tree，按模块维度生成依赖变动清单（`DependencyChange` 列表）。支持新增、移除和版本变更三类变动，结果按模块、变动类型、artifact 三级稳定排序。
+Dependency Diff Engine 对比 baseline 和 target 的 resolved dependency tree，按模块维度生成 `DependencyChange` 列表。它识别新增、移除和版本变更三类依赖变动，并输出稳定排序的不可变结果。
 
 ## Design Decisions
 
 - 依赖 diff 以模块为边界，对 baseline 和 target 的模块集合做 union diff，避免只比较共同模块时遗漏整模块新增或移除。
+- 依赖树 flatten 使用 DFS 和 `putIfAbsent` 先入为主去重，使同一 artifact 的传递重复路径只产生一个比较对象。
 - 输出列表保持不可变并执行稳定排序，保证 CLI 报告和 snapshot 测试具有确定性。
+- `provided` scope 的版本变更通过 `isCompileTimeApiRisk()` 标记 compile-time API risk，供报告层展示。
 
-## Behavior
+## Actors / Entrypoints
 
-- 以模块为粒度做 union diff：baseline 和 target 的模块集合取并集。
-- 仅存在于 target 的模块：该模块所有依赖标记为 `ADDED`。
-- 仅存在于 baseline 的模块：该模块所有依赖标记为 `REMOVED`。
-- 两侧均存在的模块：逐 artifact 对比版本。
-- 仅存在于 target 的 artifact：`ADDED`。
-- 仅存在于 baseline 的 artifact：`REMOVED`。
-- 两侧均存在但版本不同：`VERSION_CHANGED`。
-- 两侧均存在且版本相同：不产生变动。
-- 对依赖树做 DFS flatten，先入为主去重（`putIfAbsent`），以 `ArtifactCoord.diffKey()` 为去重键。
-- `DependencyChange.module` 使用 `ArtifactCoord.toString()` 格式（`groupId:artifactId:type:version`）。
-- `DependencyChange` 构造器校验 artifact 空值与 `ChangeType` 的一致性，不一致时抛出 `IllegalArgumentException`。
-- `isCompileTimeApiRisk()` 返回 `true` 当且仅当 scope 为 `PROVIDED`，标识编译期 API 风险。
-- 返回结果为不可变列表（`Collections.unmodifiableList`）。
-- 两侧输入均为空列表时返回空列表。
-- 排序规则：module 字典序 → ChangeType ordinal 序（ADDED < REMOVED < VERSION_CHANGED） → artifact diffKey 字典序。
+- CLI pipeline 在 baseline 和 target dependency tree 都准备完成后调用 diff。
+- `DependencyDiffEngine.diff(baselineTrees, targetTrees)` 是功能入口。
 
-## Flow
+## Behavior Contract
 
-1. `DependencyDiffEngine.diff()` 接收 baseline 和 target 的 `ModuleDependencyTree` 列表。
-2. 分别按 `ArtifactCoord.diffKey()` 索引为 Map。
-3. 取两侧模块 key 的并集（`LinkedHashSet` 保持插入序）。
-4. 对每个模块调用 `diffModule()`，处理三种情况（仅 baseline/仅 target/两侧均有）。
-5. 模块内通过 `flatten()` 将依赖树 DFS 展开为 `LinkedHashMap<diffKey, DependencyNode>`。
-6. 对展开后的 artifact 集合做 union diff，生成 `DependencyChange`。
-7. 全部变动收集完毕后，按三级 comparator 排序。
-8. 返回不可变列表。
+- 两侧模块集合取 union，模块 key 使用 module artifact 的 `diffKey()`。
+- 仅存在于 target 的模块，其所有依赖标记为 `ADDED`。
+- 仅存在于 baseline 的模块，其所有依赖标记为 `REMOVED`。
+- 两侧均存在的模块按 artifact `diffKey()` 对比版本和存在性。
+- 仅存在于 target 的 artifact 标记为 `ADDED`；仅存在于 baseline 的 artifact 标记为 `REMOVED`。
+- 两侧均存在但版本不同的 artifact 标记为 `VERSION_CHANGED`。
+- 两侧均存在且版本相同的 artifact 不产生变动。
+- 返回结果排序规则为 module 字典序、ChangeType ordinal、artifact diffKey 字典序。
+- `DependencyChange` 构造器必须校验 `ChangeType` 与 old/new artifact 空值组合的一致性。
 
-## Implementation Files
+## Core Flow
 
-- `src/main/java/io/github/changeimpact/analyze/dependency/DependencyDiffEngine.java` - 对比引擎，模块索引、DFS flatten、artifact diff、稳定排序。
-- `src/main/java/io/github/changeimpact/analyze/dependency/DependencyChange.java` - 单条变动记录，含构造器校验和 `isCompileTimeApiRisk()`。
-- `src/main/java/io/github/changeimpact/analyze/dependency/ChangeType.java` - 变动类型枚举，ordinal 顺序决定排序优先级。
+1. `diff()` 接收 baseline 和 target 的 `ModuleDependencyTree` 列表。
+2. 分别按 module `diffKey()` 索引模块。
+3. 对模块 key 做 union，逐模块执行比较。
+4. 模块缺失时将另一侧 flatten 后的依赖全部标记为新增或移除。
+5. 模块两侧都存在时，对依赖树做 DFS flatten 并按 artifact key 比较。
+6. 构造 `DependencyChange` 并收集到结果列表。
+7. 对结果执行稳定排序并返回不可变列表。
 
-## Verification
+## Acceptance Criteria
 
-- 单元测试：`src/test/java/io/github/changeimpact/analyze/dependency/ChangeTypeTest.java`、`DependencyChangeTest.java`、`DependencyDiffEngineTest.java`。
-- 空输入返回空列表。
-- 仅 baseline 模块的所有依赖标记为 REMOVED。
-- 仅 target 模块的所有依赖标记为 ADDED。
-- 版本变更检测正确。
-- 版本相同不产生变动。
-- DFS flatten 先入为主去重。
-- 三级排序稳定（module → changeType ordinal → artifact diffKey）。
-- `DependencyChange` 构造器对 artifact 空值与 ChangeType 不一致时抛异常。
-- `isCompileTimeApiRisk()` 仅对 PROVIDED scope 返回 true。
-- 返回结果不可变。
+### Functional
+
+- Given baseline 和 target 都为空，When 执行 diff，Then 返回空列表。
+- Given 模块只存在于 baseline，When 执行 diff，Then 该模块依赖全部标记为 `REMOVED`。
+- Given 模块只存在于 target，When 执行 diff，Then 该模块依赖全部标记为 `ADDED`。
+- Given 同一 artifact 版本不同，When 执行 diff，Then 生成 `VERSION_CHANGED`。
+- Given 同一 artifact 版本相同，When 执行 diff，Then 不生成变动。
+- Given provided scope 的 `VERSION_CHANGED`，When 报告判断风险，Then `isCompileTimeApiRisk()` 返回 true。
+
+### Non-Functional
+
+- [ ] diff 输出必须 deterministic，支持报告 snapshot 和跨次运行审计。
+- [ ] 返回集合必须不可变，避免后续阶段意外修改依赖变动结果。
+- [ ] 依赖比较必须以 `ArtifactCoord.diffKey()` 为稳定边界，而不是原始显示文本。
+
+## Edge Cases
+
+- 依赖树中同一 artifact 通过多条传递路径出现时，flatten 保留第一次出现的节点。
+- `DependencyChange` 的 old/new artifact 组合与 ChangeType 不匹配时立即抛出 `IllegalArgumentException`。
+- 新增和移除依赖不进入 Jar Locator；只有 `VERSION_CHANGED` 会继续进入 jar 定位和 bytecode diff。
+
+## Implementation Boundaries
+
+- Dependency Diff Engine 不解析 Maven、不过滤 scope，也不定位 jar。
+- `DependencyChange` 是后续 Jar Locator、Bytecode Diff Engine 和 Report Generator 的共享数据合同。
+- API risk 判断只基于依赖 scope，不推断调用路径或实际业务影响。

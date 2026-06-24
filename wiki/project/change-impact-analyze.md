@@ -6,6 +6,8 @@ relations:
     desc: "构建、测试、打包操作手册"
   - path: "wiki/architecture/analysis-pipeline.md"
     desc: "分析流水线架构和模块边界"
+  - path: "wiki/rules/process-command-resolution.md"
+    desc: "外部命令执行的跨平台约束"
 code_refs:
   - path: "pom.xml"
     desc: "Maven 构建配置，依赖和插件定义"
@@ -66,6 +68,7 @@ Change Impact Analyze 是一个命令行变更影响分析工具，用于分析 
 - **Logging**: slf4j-simple 2.0.13（SLF4J 2.0 API + simple 实现）。
 - **Testing**: JUnit Jupiter 5.10.2 + AssertJ 3.25.3。
 - **Code Style**: maven-checkstyle-plugin 3.3.1，使用 `sun_checks.xml`，在 `validate` 阶段执行，`failsOnError=true`。
+- **Static Analysis**: ASM 9.7 支撑 bytecode diff 和应用 bytecode 扫描；WALA 1.6.13 构建 Call Graph。
 
 ## Main Entrypoints
 
@@ -78,3 +81,4 @@ Change Impact Analyze 是一个命令行变更影响分析工具，用于分析 
 - 集成测试放在 `src/integration-test/java/`，与主代码包结构一致。
 - 构建产物输出到 `target/`，uber-jar 名为 `change-impact-analyze.jar`。
 - 临时文件和设计文档放在 `tmp-files/`，不提交 git。
+- 通过 `ProcessBuilder` 启动外部命令时遵守 `wiki/rules/process-command-resolution.md`。

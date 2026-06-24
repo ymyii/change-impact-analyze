@@ -23,6 +23,7 @@ import java.util.Objects;
 import java.util.Queue;
 import java.util.Set;
 
+// Wiki: wiki/features/impact-tracing.md - 影响追踪入口
 /**
  * Main entry point for impact
  * tracing. Traces change points

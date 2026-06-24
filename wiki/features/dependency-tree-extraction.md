@@ -8,6 +8,8 @@ relations:
     desc: "依赖树提取产物供 Dependency Diff Engine 对比"
   - path: "wiki/features/jar-locator.md"
     desc: "ArtifactCoord 的 classifier 字段用于 Jar 定位时的文件名计算"
+  - path: "wiki/rules/process-command-resolution.md"
+    desc: "Maven dependency plugin 命令执行必须遵守跨平台命令解析规则"
 code_refs:
   - path: "src/main/java/io/github/changeimpact/analyze/dependency/DependencyAnalyzer.java"
     desc: "调用 Maven dependency plugin 并解析 GraphML"
@@ -24,66 +26,72 @@ code_refs:
   - path: "src/main/java/io/github/changeimpact/analyze/dependency/DependencyAnalysisException.java"
     desc: "依赖分析异常"
   - path: "src/main/java/io/github/changeimpact/analyze/util/CommandResolver.java"
-    desc: "跨平台命令解析，Windows 上通过 cmd.exe /c 包裹命令"
+    desc: "跨平台命令解析工具"
 ---
 
 # Feature: Dependency Tree Extraction
 
 ## Summary
 
-基于 Maven 实际解析结果提取 resolved dependency tree。调用 `maven-dependency-plugin:tree` 输出 GraphML 格式，解析为结构化依赖树，保留传递依赖和依赖调解结果。支持通过 `--build-java-home` 覆盖 Maven 子进程的 `JAVA_HOME`，使工具运行在 JDK 17+ 的同时目标项目可使用旧版 JDK 执行依赖解析。
+Dependency Tree Extraction 基于 Maven 实际解析结果提取 resolved dependency tree。它调用 `maven-dependency-plugin:tree` 输出 GraphML，解析为保留传递依赖和依赖调解结果的结构化模块依赖树。
 
 ## Design Decisions
 
-- 与 BuildRunner 一致，通过 `ProcessBuilder.environment()` 覆盖 `JAVA_HOME` 实现 JDK 隔离。
-- 提供向后兼容的 4 参数构造函数重载，不传 `buildJavaHome` 时 Maven 继承当前 JVM 的 `JAVA_HOME`，行为与旧版本一致。
-- Windows 上通过 `CommandResolver.resolve()` 将命令包裹为 `cmd.exe /c ...`，利用 `cmd.exe` 的 `PATHEXT` 解析能力找到 `mvn.cmd`。Linux/macOS 不经过任何转换。所有 ProcessBuilder 命令调用必须使用 `CommandResolver.resolve()`。
+- 使用 Maven dependency plugin 的 GraphML 输出作为依赖树交换格式，避免自行实现 Maven 依赖调解。
+- baseline 依赖树用于提取 reactor module 坐标，target 依赖树用这些坐标排除 reactor module 依赖。
+- 与 BuildRunner 一致，`--build-java-home` 只覆盖 Maven 子进程 `JAVA_HOME`，保持目标项目 JDK 兼容边界。
+- Maven 命令统一经过 `CommandResolver.resolve()`，确保 Windows 上可解析 `mvn.cmd`。
 
-## Behavior
+## Actors / Entrypoints
 
-- 调用 `mvn dependency:tree -DoutputType=graphml -DoutputFile=dep-tree.graphml -B`。Windows 上通过 `CommandResolver.resolve()` 将命令包裹为 `cmd.exe /c mvn ...`，使 `cmd.exe` 负责 `PATHEXT` 解析，解决 `ProcessBuilder` 无法直接找到 `mvn.cmd` 的问题。Linux/macOS 上命令列表不经过任何转换。
-- 为每个模块提取 GraphML 文件。
-- 解析 GraphML：提取节点标签（artifact 坐标）和边（依赖关系）。
-- 生成 `DependencyNode` 树结构。
-- 保留 scope：compile、runtime、provided。
-- 忽略 scope：test。
-- 排除 reactor module 依赖（通过传入的 reactor 坐标集合）。
-- 保留 module 归属（`ModuleDependencyTree` 包含模块坐标和模块路径）。
-- GraphML 缺失、为空、不可解析时抛出 `DependencyAnalysisException`。
-- 当构造时传入 `buildJavaHome`（非 null），在 `ProcessBuilder.environment()` 中覆盖 `JAVA_HOME` 为该路径的绝对路径。
-- 当 `buildJavaHome` 为 null 时，不覆盖环境变量，Maven 继承当前进程的 `JAVA_HOME`。
+- CLI pipeline 对 baseline 和 target side 分别创建 `DependencyAnalyzer`。
+- `DependencyAnalyzer.analyze()` 是依赖树提取入口。
+- `GraphMLParser.parse()` 是 GraphML 到 `ModuleDependencyTree` 的解析入口。
 
-## Flow
+## Behavior Contract
 
-1. `DependencyAnalyzer` 接收 side 名称、workspace 路径、reactor 模块坐标集合、DiagnosticCollector 和可选的 `buildJavaHome`。
-2. `analyze()` 执行 `mvn dependency:tree`，日志写入临时文件。
-3. `runDependencyTree()` 构建命令列表后通过 `CommandResolver.resolve()` 处理（Windows 包裹 `cmd.exe /c`），再构建 ProcessBuilder，若 `buildJavaHome` 非 null 则覆盖 `JAVA_HOME` 环境变量。
-4. plugin 执行失败时抛出 `DependencyAnalysisException`。
-5. 查找所有 `dep-tree.graphml` 文件。
-6. 对每个 GraphML 文件调用 `GraphMLParser.parse()`。
-7. `GraphMLParser` 解析 XML，提取节点和边，构建树结构。
-8. 返回 `ModuleDependencyTree` 列表。
+- 执行命令为 `mvn dependency:tree -DoutputType=graphml -DoutputFile=dep-tree.graphml -B`。
+- 每个模块的 `dep-tree.graphml` 被解析为一棵 `DependencyNode` 树。
+- 解析保留 compile、runtime 和 provided scope，忽略 test scope。
+- `ModuleDependencyTree` 保留模块坐标、模块路径和依赖树根节点集合。
+- target side 解析时排除传入的 reactor module 坐标，避免把项目内部模块当作第三方依赖。
+- GraphML 缺失、为空、不可解析或 plugin 失败时抛出 `DependencyAnalysisException`。
+- `ArtifactCoord` 必须保留 groupId、artifactId、type、version 和 classifier，以支持后续 diff 和 jar 路径计算。
 
-## Implementation Files
+## Core Flow
 
-- `src/main/java/io/github/changeimpact/analyze/dependency/DependencyAnalyzer.java` - Maven plugin 调用、GraphML 文件发现。
-- `src/main/java/io/github/changeimpact/analyze/dependency/GraphMLParser.java` - GraphML XML 解析，树结构构建。
-- `src/main/java/io/github/changeimpact/analyze/dependency/ArtifactCoord.java` - artifact 坐标（groupId/artifactId/type/version/classifier），支持 `parse()` 和 `diffKey()`。
-- `src/main/java/io/github/changeimpact/analyze/dependency/DependencyNode.java` - 依赖树节点（artifact/scope/children）。
-- `src/main/java/io/github/changeimpact/analyze/dependency/DependencyScope.java` - scope 枚举：COMPILE、RUNTIME、PROVIDED、TEST。
-- `src/main/java/io/github/changeimpact/analyze/dependency/ModuleDependencyTree.java` - 模块依赖树（moduleCoord/modulePath/dependencies）。
-- `src/main/java/io/github/changeimpact/analyze/dependency/DependencyAnalysisException.java` - 依赖分析异常。
+1. `DependencyAnalyzer` 接收 side、workspace、reactor 模块坐标集合、DiagnosticCollector 和可选 `buildJavaHome`。
+2. `analyze()` 执行 Maven dependency plugin，日志写入临时文件。
+3. 命令经 `CommandResolver.resolve()` 处理，并在需要时覆盖 Maven 子进程 `JAVA_HOME`。
+4. 查找 workspace 中生成的 `dep-tree.graphml` 文件。
+5. 对每个 GraphML 文件调用 `GraphMLParser.parse()`。
+6. GraphML parser 读取 XML 节点和边，构建 `DependencyNode` 树。
+7. 返回 `ModuleDependencyTree` 列表。
 
-## Verification
+## Acceptance Criteria
 
-- 单元测试：`src/test/java/io/github/changeimpact/analyze/dependency/` 下的测试类。
-- 单元测试：`src/test/java/io/github/changeimpact/analyze/dependency/DependencyAnalyzerConstructorTest.java`
-- 集成测试：`src/integration-test/java/io/github/changeimpact/analyze/dependency/DependencyAnalyzerIT.java`
-- 单模块 dependency tree 可解析。
-- 多模块 dependency tree 可解析。
-- compile/runtime/provided scope 被保留。
-- test scope 被忽略。
-- reactor module 不作为第三方依赖。
-- GraphML 缺失/不可解析时报错。
-- 4 参数构造函数向后兼容，`buildJavaHome` 默认为 null。
-- 5 参数构造函数传入 `buildJavaHome` 时，`ProcessBuilder` 环境变量 `JAVA_HOME` 被正确覆盖。
+### Functional
+
+- Given 单模块 Maven 项目，When `analyze()` 成功，Then 返回包含模块坐标和 resolved dependency tree 的列表。
+- Given 多模块 Maven 项目，When `analyze()` 成功，Then 每个模块生成独立 `ModuleDependencyTree`。
+- Given 依赖 scope 为 test，When GraphML 被解析，Then 该依赖不进入结果树。
+- Given target analyzer 传入 reactor 坐标，When 解析 target dependency tree，Then reactor module 依赖被排除。
+- Given GraphML 文件缺失或不可解析，When `analyze()` 处理结果，Then 抛出 `DependencyAnalysisException`。
+
+### Non-Functional
+
+- [ ] 依赖解析必须使用用户 Maven 环境，保证 mirror、proxy、settings 和 local repository 行为一致。
+- [ ] GraphML 解析必须 deterministic，支撑后续 diff 和报告 snapshot 稳定。
+- [ ] 命令执行必须跨平台，遵守 `CommandResolver` 规则。
+
+## Edge Cases
+
+- classifier 为空字符串时仍保留为空值语义，供 Jar Locator 生成无 classifier 的 jar 文件名。
+- provided scope 保留在结果中，后续 Dependency Diff Engine 用它标记 compile-time API risk。
+- dependency plugin 失败时保留日志摘要和日志文件路径，供诊断定位。
+
+## Implementation Boundaries
+
+- Dependency Tree Extraction 只生产 resolved dependency tree，不比较 baseline/target 差异。
+- Reactor module 排除只影响 target 第三方依赖视图，不改变 Maven 原始解析结果。
+- Artifact 坐标和 scope 是后续 diff、jar 定位和报告的稳定数据边界。

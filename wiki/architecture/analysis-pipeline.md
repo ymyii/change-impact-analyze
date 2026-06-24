@@ -18,8 +18,14 @@ relations:
     desc: "Jar 文件定位"
   - path: "wiki/features/bytecode-diff-engine.md"
     desc: "Bytecode diff 引擎"
+  - path: "wiki/features/call-graph-engine.md"
+    desc: "Target 业务代码 Call Graph 构建"
+  - path: "wiki/features/impact-tracing.md"
+    desc: "ChangePoint 到受影响业务方法的影响追踪"
   - path: "wiki/features/report-generator.md"
     desc: "HTML/Markdown 报告生成"
+  - path: "wiki/rules/process-command-resolution.md"
+    desc: "外部命令执行的跨平台约束"
 code_refs:
   - path: "src/main/java/io/github/changeimpact/analyze/cli/ChangeImpactAnalyzeCli.java"
     desc: "CLI 主入口，总流程编排"
@@ -127,6 +133,8 @@ flowchart TD
 - `reactor module` - 多模块 Maven 项目中，属于同一构建反应的模块，不作为第三方依赖处理。
 - `DependencyNode` - resolved dependency tree 中的一个节点，包含 artifact 坐标、scope 和子节点。
 - `ModuleDependencyTree` - 一个 Maven 模块的完整依赖树，包含模块坐标和所有 DependencyNode。
+- `CallGraph` - target 业务代码内部调用关系图，包含方法、调用边、override map 和构建统计。
+- `ImpactPath` - 从受影响业务入口到 ChangePoint 引用 seed 的静态可确认调用路径。
 
 ## Architecture Decision Records
 

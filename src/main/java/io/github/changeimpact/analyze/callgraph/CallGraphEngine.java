@@ -49,6 +49,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Stream;
 
+// Wiki: wiki/features/call-graph-engine.md - Call Graph 构建入口
 /**
  * Builds a call graph from a
  * {@link BuildResult} using the WALA

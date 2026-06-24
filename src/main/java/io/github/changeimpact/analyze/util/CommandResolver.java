@@ -3,6 +3,7 @@ package io.github.changeimpact.analyze.util;
 import java.util.ArrayList;
 import java.util.List;
 
+// Wiki: wiki/rules/process-command-resolution.md - 跨平台命令规则
 /**
  * Resolves command lists for the
  * current operating system.
