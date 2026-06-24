@@ -2,6 +2,8 @@ package io.github.changeimpact.analyze.dependency;
 
 import io.github.changeimpact.analyze
         .diagnostic.DiagnosticCollector;
+import io.github.changeimpact.analyze
+        .util.CommandResolver;
 
 import java.io.File;
 import java.io.IOException;
@@ -204,8 +206,12 @@ public final class DependencyAnalyzer {
         cmd.add("-DoutputFile="
                 + GRAPHML_FILE);
         cmd.add("-B");
+        final List<String> resolved =
+                CommandResolver.resolve(
+                        cmd);
         final ProcessBuilder pb =
-                new ProcessBuilder(cmd)
+                new ProcessBuilder(
+                        resolved)
                         .directory(
                                 workspacePath
                                         .toFile())

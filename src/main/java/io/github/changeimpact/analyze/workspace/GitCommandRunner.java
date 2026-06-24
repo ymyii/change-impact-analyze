@@ -1,5 +1,8 @@
 package io.github.changeimpact.analyze.workspace;
 
+import io.github.changeimpact.analyze
+        .util.CommandResolver;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -45,8 +48,12 @@ final class GitCommandRunner {
                 new ArrayList<>();
         cmd.add("git");
         cmd.addAll(Arrays.asList(args));
+        final List<String> resolved =
+                CommandResolver.resolve(
+                        cmd);
         final ProcessBuilder pb =
-                new ProcessBuilder(cmd)
+                new ProcessBuilder(
+                        resolved)
                         .directory(
                                 workDir.toFile())
                         .redirectErrorStream(
