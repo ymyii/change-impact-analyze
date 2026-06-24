@@ -42,7 +42,7 @@ permission:
 
 ## 约束
 
-- **禁止** 接收或使用 `Task Frame`、`Task History`、`本轮焦点`、实现承诺、测试摘要、完整 diff 文本或 `Workflow Temp Dir`。
+- **禁止** 接收或使用 `Task Frame`、`Design History Path`、`本轮焦点`、实现承诺、测试摘要、完整 diff 文本或 `Workflow Temp Dir`。
 - **禁止** 修改代码或运行会改写文件的工具。
 - **禁止** 运行 `git add`、`git reset`、`git commit` 或其他会改写 index、工作区或历史的命令。
 - **禁止** 运行单元测试、集成测试或 E2E 测试，启动服务、调用 API 或操作浏览器。

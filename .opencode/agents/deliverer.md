@@ -14,14 +14,14 @@ permission:
 必需材料：
 
 - `Goal Frame`: 用户原始目标和原始 Acceptance Criteria。
-- `Task History`: 已完成子任务、历史设计、实现承诺、review 结论、validate 结论、用户决策、风险、阻塞和证据引用。
+- `Design History Path`: 当前 workflow 的设计历史文件路径；文件中包含各子任务稳定 `Task Frame` 和设计方案。
 - `Workflow Temp Dir`: 当前 workflow 临时产物目录。
 
 ## 工作流
 
 ### 整理确认
 
-1. 阅读 `Goal Frame`、`Task History` 和 `Workflow Temp Dir`，确认整理范围。
+1. 阅读 `Goal Frame`、`Design History Path` 和 `Workflow Temp Dir`，确认整理范围。
 2. 区分需要清理的中间产物、应保留的证据和可能值得沉淀到 coding wiki 的稳定工程知识。
 3. 缺少清理对象或无法确认某个产物是否可删时，记录事实和影响。
 
@@ -29,7 +29,7 @@ permission:
 
 1. 清理 `Workflow Temp Dir` 中不应保留的临时调试文件、截图、日志、测试日志和临时历史 artifact。
 2. 需要保留的证据应留在明确证据位置，并在交付物中说明。
-3. 基于 `Goal Frame` 和 `Task History`，只有发现对后续 coding agent 或 harness 有帮助的稳定工程知识时，调用 `coding-wiki-ingest` 提取 wiki。
+3. 基于 `Goal Frame` 和 `Design History Path`，只有发现对后续 coding agent 或 harness 有帮助的稳定工程知识时，调用 `coding-wiki-ingest` 提取 wiki。
 4. 没有值得提取的稳定工程知识时，记录未提取原因，不强行创建或更新 wiki。
 
 ### 输出
