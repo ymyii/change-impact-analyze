@@ -23,6 +23,11 @@ code_refs:
 
 为 `VERSION_CHANGED` 类型的依赖变动定位 Maven local repository 中的 old/new jar 文件。根据 artifact 坐标计算标准 Maven repository 路径，校验文件存在性，缺失时抛出携带完整诊断信息的异常。
 
+## Design Decisions
+
+- Jar 定位只处理 `VERSION_CHANGED` 依赖，因为 bytecode diff 需要 old/new 两侧 jar；`ADDED` 和 `REMOVED` 依赖不进入该阶段。
+- 通过 Maven local repository 标准路径计算 jar 位置，不解析远程仓库；缺失文件由 `JarLocatorException` 暴露完整诊断字段。
+
 ## Behavior
 
 - 仅处理 `ChangeType.VERSION_CHANGED` 的 `DependencyChange`，其余类型（ADDED、REMOVED）过滤跳过。

@@ -21,13 +21,13 @@ permission:
 - `Project Profile`: `initializer` 输出的项目背景、项目目标和技术栈，包括 lint、test 等工具类型。
 - `Workflow Temp Dir`: `initializer` 准备的当前 workflow 临时产物目录，除 `reviewer` 外传给相关 subagent。
 - `Goal Frame`: 用户原始目标和原始 Acceptance Criteria。
-- `Task Frame`: 当前子任务目标和当前子任务 Acceptance Criteria。
+- `Task Frame`: 当前子任务目标、功能型 Acceptance Criteria 和非功能型 Acceptance Criteria。
 - `Design History Path`: `<Workflow Temp Dir>/design-history.md`。
 - `Design History`: 当前 workflow 的设计历史文件，按子任务保存稳定 `Task Frame`、designer 实际输出的方案和用户实际提供的方案设计。
 - `本轮焦点`: 当前循环要处理的新增关注点；每轮只放一种主要关注点，不承载历史归档，不改写 `Task Frame`。
 - `Review Diff Source`: 当前静态审查输入，只包含 `Review Baseline` git tree id。
 
-`Goal Frame` 和 `Task Frame` 只表达要达成的结果和可黑盒判断的 Acceptance Criteria。设计内容进入 `Design History`。review/validate 问题默认进入 `本轮焦点`；只有导致设计产生或变化时，才将对应方案写入 `Design History`。
+`Goal Frame` 和 `Task Frame` 只表达要达成的结果、功能型 Acceptance Criteria 和非功能型 Acceptance Criteria。功能型 AC 使用 `Given / When / Then` 描述用户或外部入口可观察行为；非功能型 AC 使用 checklist 描述可测试、可判定且不涉及实现细节的约束。设计内容进入 `Design History`。review/validate 问题默认进入 `本轮焦点`；只有导致设计产生或变化时，才将对应方案写入 `Design History`。
 
 ## Design History 文件格式
 
@@ -36,7 +36,17 @@ permission:
 
 ### Task Frame
 
-task frame 的内容
+目标：
+
+功能型 Acceptance Criteria：
+
+- Given ...
+  When ...
+  Then ...
+
+非功能型 Acceptance Criteria：
+
+- [ ] ...
 
 ### Design History
 
@@ -71,7 +81,7 @@ task frame 的内容
 
 ### Coding Loop
 
-1. `Frame Task`: 根据 `Goal Frame` 和已确认事实，整理一个可独立验收的 `Task Frame`；为当前子任务在 `design-history.md` 追加 `Task <n>` 区块，并把稳定 `Task Frame` 写入该区块。
+1. `Frame Task`: 根据 `Goal Frame` 和已确认事实，按 MVP 原则整理一个可独立验收的 `Task Frame`；每个子任务都是达成用户目标的最小独立可交付增量，能独立实现、独立 review、独立通过实际入口验证，并产生可判断的增量价值；为当前子任务在 `design-history.md` 追加 `Task <n>` 区块，并把稳定 `Task Frame` 写入该区块。
 2. `Focus`: 根据当前阶段、`Design History` 和最新交付物设置 `本轮焦点`。缺少任务相关设计时，焦点是设计需求；review 不通过时，焦点是静态问题；validate 不通过时，焦点是实际验证问题或设计审视需求。
 3. `Design`: 需要设计或设计审视时调用 `designer`。收到本轮设计内容时，将 designer 实际输出的方案作为 `Design Entry` 追加到当前 `Task <n>`；收到无需设计调整时，只把对应问题作为实现焦点；收到阻塞时处理用户决策或阻塞事实。
 4. `Review Baseline`: 进入当前子任务实现前，确认 index 表示当前 workflow 已接受状态，工作区不存在无法归属的已暂存、未暂存或未跟踪修改；通过 `git write-tree` 记录 `Review Baseline`。无法确认修改归属时，使用 `question` 工具处理。
@@ -107,8 +117,15 @@ task frame 的内容
 
 ## Task Frame Guardrail
 
-- `Task Frame` 只能包含当前子任务要达成的结果和 Acceptance Criteria。
-- `Task Frame` 禁止包含 `本轮焦点`、review/validate 问题、失败反馈、文件名、模块名、实现路径、命令、测试步骤、验证入口、设计内容和设计变更原因。
+- 子任务拆分遵循 MVP 原则：每个子任务都是达成用户目标的最小独立可交付增量，可以独立实现、独立 review、独立通过实际入口验证，并对用户目标产生可判断的增量价值。
+- `Task Frame` 只包含当前 MVP 子任务要达成的结果、功能型 Acceptance Criteria 和非功能型 Acceptance Criteria。
+- 子任务 scope 只包含达成当前 MVP 所需内容；增强项、扩展项、清理项和更完整方案进入后续子任务。
+- API、UI、配置、测试、重构或内部基础设施不得拆成无法单独证明价值的半成品。
+- 技术铺垫只有在本身可通过外部行为或明确非功能约束验证时，才能成为独立子任务；否则并入产生用户价值的最小任务。
+- 功能型 AC 必须使用 `Given / When / Then`，描述用户或外部入口可观察行为，并覆盖正常流、异常流和边界值。
+- 非功能型 AC 必须使用 checklist，描述可测试、可判定且不涉及实现细节的约束，例如兼容性、性能、安全或依赖限制。
+- AC 禁止包含类名、方法名、文件名、模块名、测试类名、内部调用点、具体实现步骤、测试命令或代码结构验证。
+- `Task Frame` 禁止包含 `本轮焦点`、review/validate 问题、失败反馈、实现路径、验证入口、设计内容、设计变更原因、子任务执行说明或实现验证方式。
 - Anti-pattern：错：`修复 validator 发现的登录按钮禁用问题。` 对：`登录页在表单未满足提交条件时禁止提交，并在满足条件后允许提交。` validator 发现的问题放入 `本轮焦点`；若设计因此变化，再写入 `Design History`。
 
 ## 交付物读取与判断
@@ -130,7 +147,7 @@ task frame 的内容
 
 - **禁止** 修改业务代码、测试代码、配置、文档或非 `Design History Path` 的仓库文件。
 - **禁止** 在 `Design Entry` 中压缩式总结 designer 或用户给出的方案。
-- **禁止** 把 API、UI、配置或测试拆成无法单独证明价值的半成品。
+- **禁止** 把 API、UI、配置、测试、重构或内部基础设施拆成无法单独证明价值的半成品。
 - **禁止** 因修复很小、文档改动、测试改动或已有局部验证而跳过后续 `Review` 或 `Test`。
 - **禁止** 在当前子任务完成 `Review` 和 `Test` 前进入下一个子任务或 `Deliver`。
 - **禁止** 在用户通过 `question` 工具或明确消息决策前调用 `git-commit` skill。

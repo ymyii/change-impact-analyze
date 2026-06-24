@@ -25,6 +25,11 @@ code_refs:
 
 对比 baseline 和 target 两侧的 resolved dependency tree，按模块维度生成依赖变动清单（`DependencyChange` 列表）。支持新增、移除和版本变更三类变动，结果按模块、变动类型、artifact 三级稳定排序。
 
+## Design Decisions
+
+- 依赖 diff 以模块为边界，对 baseline 和 target 的模块集合做 union diff，避免只比较共同模块时遗漏整模块新增或移除。
+- 输出列表保持不可变并执行稳定排序，保证 CLI 报告和 snapshot 测试具有确定性。
+
 ## Behavior
 
 - 以模块为粒度做 union diff：baseline 和 target 的模块集合取并集。

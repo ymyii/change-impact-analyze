@@ -37,7 +37,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
 
-// Wiki: wiki/project/project-overview.md - CLI 主入口，picocli 命令定义
+// Wiki: wiki/project/change-impact-analyze.md - CLI 主入口，picocli 命令定义
 /**
  * CLI entry point for change impact analysis.
  */

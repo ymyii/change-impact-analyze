@@ -23,6 +23,11 @@ code_refs:
 
 生成多文件 HTML 或 Markdown 变更影响分析报告。`generate()` 输出一个 index 文件和三个子文件（`-dependencies`、`-internal-changes`、`-impact-paths`），index 包含 Summary（带子文件链接）和 Diagnostics。`generateToString()` 返回单文件字符串。
 
+## Design Decisions
+
+- 文件输出采用 index + dependencies/internal-changes/impact-paths 的多文件结构，避免单页报告过长，同时保留 Summary 和 Diagnostics 入口。
+- 报告生成保持 deterministic 输出，便于 snapshot 测试和跨次运行审计。
+
 ## Behavior
 
 - 支持 `OutputFormat.HTML` 和 `OutputFormat.MD` 两种格式。

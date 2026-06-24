@@ -31,7 +31,7 @@ code_refs:
 
 ## Design Decisions
 
-- Windows 上通过 `CommandResolver.resolve()` 将 git 命令包裹为 `cmd.exe /c ...`，利用 `cmd.exe` 的 `PATHEXT` 解析能力找到 `git.cmd` 或 `git.exe`。Linux/macOS 不经过任何转换。新增 ProcessBuilder 调用时必须使用 `CommandResolver.resolve()`。
+- Windows 上通过 `CommandResolver.resolve()` 将 git 命令包裹为 `cmd.exe /c ...`，利用 `cmd.exe` 的 `PATHEXT` 解析能力找到 `git.cmd` 或 `git.exe`。Linux/macOS 不经过任何转换。所有 ProcessBuilder 命令调用必须使用 `CommandResolver.resolve()`。
 
 ## Behavior
 
@@ -67,8 +67,8 @@ code_refs:
 
 - 单元测试：`src/test/java/io/github/changeimpact/analyze/workspace/` 下的测试类。
 - 集成测试：`src/integration-test/java/io/github/changeimpact/analyze/workspace/WorkspaceManagerIT.java`
-- baseline + current workspace 模式可准备 workspace。
-- baseline + target commit 模式可准备 workspace。
+- baseline + current workspace mode 可准备 workspace。
+- baseline + target commit mode 可准备 workspace。
 - 子目录 project 场景：worktree 路径包含子目录后缀，对齐到子项目。
 - 非 git 目录：构造时抛出 `IllegalStateException`，错误信息包含 "not inside a git repository"。
 - current workspace 不被 checkout/stash。

@@ -2,7 +2,7 @@
 title: "Analysis Pipeline Architecture"
 type: architecture
 relations:
-  - path: "wiki/project/project-overview.md"
+  - path: "wiki/project/change-impact-analyze.md"
     desc: "项目概览和技术栈"
   - path: "wiki/features/cli-validation-diagnostics.md"
     desc: "CLI 参数校验与诊断框架"
@@ -93,7 +93,7 @@ code_refs:
 - **BytecodeDiffEngine**: 对 old/new jar 做 bytecode diff，使用 ASM 9.7 读取 class 文件，通过 SHA-256 body hash 检测 method body 变化，生成 `ChangePoint` 清单。
 - **CallGraphEngine**: 基于业务代码 main classes 使用 WALA RTA 构建全局 Call Graph，并通过 ServiceLoader 和 Reflection enricher 补充间接调用边。
 - **ImpactTracer**: 从变化点反向追踪受影响业务方法，四阶段流程：resolve seeds → reverse BFS → build paths → sort。
-- **ReportGenerator**: 生成单文件 HTML 或 Markdown 报告，按模块分组展示依赖变动、变化点、影响路径和诊断信息。
+- **ReportGenerator**: 生成多文件 HTML 或 Markdown 报告，按模块分组展示依赖变动、变化点、影响路径和诊断信息。
 
 ## Architecture Diagram
 
@@ -128,7 +128,7 @@ flowchart TD
 - `DependencyNode` - resolved dependency tree 中的一个节点，包含 artifact 坐标、scope 和子节点。
 - `ModuleDependencyTree` - 一个 Maven 模块的完整依赖树，包含模块坐标和所有 DependencyNode。
 
-## Key Decisions
+## Architecture Decision Records
 
 - **使用用户环境默认 `mvn`**：不内嵌 Maven Resolver，不绕过用户 `settings.xml`、mirror、proxy、local repository。保证构建行为与用户真实环境一致。
 - **Git worktree 隔离**：baseline 和 target commit 使用 `git worktree` 创建临时目录，避免 checkout 污染用户工作区。current workspace 不 checkout、不 stash。

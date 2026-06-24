@@ -23,6 +23,11 @@ code_refs:
 
 CLI 提供命令行入口，负责参数解析、校验、退出码控制和诊断事件收集。使用 picocli 框架定义命令参数，校验通过后进入分析流程。
 
+## Design Decisions
+
+- 参数校验在进入 pipeline 前完成，校验失败直接返回退出码 `1` 并记录 validation 诊断事件，避免后续阶段基于无效输入执行。
+- `--include-change-kinds` 默认使用 `ChangePointKind.DEFAULT_INCLUDED_KINDS`，默认报告聚焦移除和变更类风险；调用方可显式选择需要纳入的 ChangePointKind。
+
 ## Behavior
 
 - 必填参数：`--baseline`、`--output`。
@@ -44,7 +49,7 @@ CLI 提供命令行入口，负责参数解析、校验、退出码控制和诊�
 - `src/main/java/io/github/changeimpact/analyze/cli/ChangeImpactAnalyzeCli.java` - picocli `@Command` 定义，参数校验，诊断记录。
 - `src/main/java/io/github/changeimpact/analyze/cli/OutputFormat.java` - 输出格式枚举（HTML、MD）。
 - `src/main/java/io/github/changeimpact/analyze/diagnostic/DiagnosticCollector.java` - 诊断事件收集器，支持 startStage/endStage/failStage/info/warn。
-- `src/main/java/io/github/changeimpact/analyze/diagnostic/DiagnosticEvent.java` - 不可变诊断事件，Builder 模式。
+- `src/main/java/io/github/changeimpact/analyze/diagnostic/DiagnosticEvent.java` - 不可变诊断事件，`Builder Pattern`。
 - `src/main/java/io/github/changeimpact/analyze/diagnostic/DiagnosticLevel.java` - 诊断级别：INFO、WARN、ERROR。
 
 ## Verification

@@ -2,7 +2,7 @@
 title: "Build, Test, Package"
 type: runbook
 relations:
-  - path: "wiki/project/project-overview.md"
+  - path: "wiki/project/change-impact-analyze.md"
     desc: "项目概览和技术栈"
 code_refs:
   - path: "pom.xml"

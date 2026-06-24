@@ -27,7 +27,7 @@ code_refs:
 
 - 通过 `ProcessBuilder.environment()` 覆盖 `JAVA_HOME` 实现 JDK 隔离，而非修改工具运行 JDK 或目标项目 pom.xml。
 - 提供向后兼容的 3 参数构造函数重载，不传 `buildJavaHome` 时 Maven 继承当前 JVM 的 `JAVA_HOME`，行为与旧版本一致。
-- Windows 上通过 `CommandResolver.resolve()` 将命令包裹为 `cmd.exe /c ...`，利用 `cmd.exe` 的 `PATHEXT` 解析能力找到 `mvn.cmd`。Linux/macOS 不经过任何转换。新增 ProcessBuilder 调用时必须使用 `CommandResolver.resolve()`。
+- Windows 上通过 `CommandResolver.resolve()` 将命令包裹为 `cmd.exe /c ...`，利用 `cmd.exe` 的 `PATHEXT` 解析能力找到 `mvn.cmd`。Linux/macOS 不经过任何转换。所有 ProcessBuilder 命令调用必须使用 `CommandResolver.resolve()`。
 
 ## Behavior
 
