@@ -8,7 +8,7 @@ code_refs:
   - path: "src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceManager.java"
     desc: "Workspace 管理核心，worktree 创建和清理"
   - path: "src/main/java/io/github/changeimpact/analyze/workspace/GitCommandRunner.java"
-    desc: "Git 命令执行器"
+    desc: "Git 命令执行器，Windows 上通过 CommandResolver 包裹 cmd.exe /c"
   - path: "src/main/java/io/github/changeimpact/analyze/workspace/GitCommandResult.java"
     desc: "Git 命令执行结果"
   - path: "src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceResult.java"
@@ -19,6 +19,8 @@ code_refs:
     desc: "Workspace side 枚举"
   - path: "src/main/java/io/github/changeimpact/analyze/workspace/WorkspacePrepareException.java"
     desc: "Workspace 准备异常"
+  - path: "src/main/java/io/github/changeimpact/analyze/util/CommandResolver.java"
+    desc: "跨平台命令解析，Windows 上通过 cmd.exe /c 包裹命令"
 ---
 
 # Feature: Git Workspace Management
@@ -26,6 +28,10 @@ code_refs:
 ## Summary
 
 安全准备 baseline、target、current workspace 三类分析输入。使用 git worktree 隔离 baseline 和 target commit，避免污染用户工作区。current workspace 不 checkout、不 stash，未提交变更参与分析。
+
+## Design Decisions
+
+- Windows 上通过 `CommandResolver.resolve()` 将 git 命令包裹为 `cmd.exe /c ...`，利用 `cmd.exe` 的 `PATHEXT` 解析能力找到 `git.cmd` 或 `git.exe`。Linux/macOS 不经过任何转换。新增 ProcessBuilder 调用时必须使用 `CommandResolver.resolve()`。
 
 ## Behavior
 
@@ -50,7 +56,7 @@ code_refs:
 ## Implementation Files
 
 - `src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceManager.java` - worktree 创建、commit 解析、清理逻辑。
-- `src/main/java/io/github/changeimpact/analyze/workspace/GitCommandRunner.java` - 封装 `git` 命令执行，返回 exit code/stdout/stderr。
+- `src/main/java/io/github/changeimpact/analyze/workspace/GitCommandRunner.java` - 封装 `git` 命令执行，Windows 上通过 `CommandResolver.resolve()` 包裹 `cmd.exe /c`，返回 exit code/stdout/stderr。
 - `src/main/java/io/github/changeimpact/analyze/workspace/GitCommandResult.java` - Git 命令执行结果。
 - `src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceResult.java` - baseline + target 的 workspace 信息。
 - `src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceSideInfo.java` - 单个 side 的 path/commit/whetherTemporary。

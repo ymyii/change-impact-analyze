@@ -13,6 +13,8 @@ code_refs:
     desc: "单模块编译输出"
   - path: "src/main/java/io/github/changeimpact/analyze/build/BuildException.java"
     desc: "编译异常"
+  - path: "src/main/java/io/github/changeimpact/analyze/util/CommandResolver.java"
+    desc: "跨平台命令解析，Windows 上通过 cmd.exe /c 包裹命令"
 ---
 
 # Feature: Maven Build Runner
@@ -25,10 +27,11 @@ code_refs:
 
 - 通过 `ProcessBuilder.environment()` 覆盖 `JAVA_HOME` 实现 JDK 隔离，而非修改工具运行 JDK 或目标项目 pom.xml。
 - 提供向后兼容的 3 参数构造函数重载，不传 `buildJavaHome` 时 Maven 继承当前 JVM 的 `JAVA_HOME`，行为与旧版本一致。
+- Windows 上通过 `CommandResolver.resolve()` 将命令包裹为 `cmd.exe /c ...`，利用 `cmd.exe` 的 `PATHEXT` 解析能力找到 `mvn.cmd`。Linux/macOS 不经过任何转换。新增 ProcessBuilder 调用时必须使用 `CommandResolver.resolve()`。
 
 ## Behavior
 
-- 使用系统 PATH 中的 `mvn`，执行 `mvn compile -B`。
+- 使用系统 PATH 中的 `mvn`，执行 `mvn compile -B`。Windows 上通过 `CommandResolver.resolve()` 将命令包裹为 `cmd.exe /c mvn ...`，使 `cmd.exe` 负责 `PATHEXT` 解析，解决 `ProcessBuilder` 无法直接找到 `mvn.cmd` 的问题。Linux/macOS 上命令列表不经过任何转换。
 - 编译日志重定向到临时文件。
 - 收集所有模块的 `target/classes` 目录。
 - 忽略 `target/test-classes`。
@@ -41,7 +44,7 @@ code_refs:
 
 1. `BuildRunner` 接收 side 名称、workspace 路径、DiagnosticCollector 和可选的 `buildJavaHome`。
 2. `build()` 执行 `mvn compile -B`，日志写入临时文件。
-3. `runMvnCompile()` 构建 ProcessBuilder，若 `buildJavaHome` 非 null 则覆盖 `JAVA_HOME` 环境变量。
+3. `runMvnCompile()` 构建命令列表后通过 `CommandResolver.resolve()` 处理（Windows 包裹 `cmd.exe /c`），再构建 ProcessBuilder，若 `buildJavaHome` 非 null 则覆盖 `JAVA_HOME` 环境变量。
 4. 编译失败时抛出 `BuildException`。
 5. 编译成功后遍历 workspace 发现所有 `target/classes` 目录。
 6. 返回 `BuildResult`，包含 `ModuleBuildOutput` 列表。

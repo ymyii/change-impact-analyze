@@ -23,6 +23,8 @@ code_refs:
     desc: "模块依赖树"
   - path: "src/main/java/io/github/changeimpact/analyze/dependency/DependencyAnalysisException.java"
     desc: "依赖分析异常"
+  - path: "src/main/java/io/github/changeimpact/analyze/util/CommandResolver.java"
+    desc: "跨平台命令解析，Windows 上通过 cmd.exe /c 包裹命令"
 ---
 
 # Feature: Dependency Tree Extraction
@@ -35,10 +37,11 @@ code_refs:
 
 - 与 BuildRunner 一致，通过 `ProcessBuilder.environment()` 覆盖 `JAVA_HOME` 实现 JDK 隔离。
 - 提供向后兼容的 4 参数构造函数重载，不传 `buildJavaHome` 时 Maven 继承当前 JVM 的 `JAVA_HOME`，行为与旧版本一致。
+- Windows 上通过 `CommandResolver.resolve()` 将命令包裹为 `cmd.exe /c ...`，利用 `cmd.exe` 的 `PATHEXT` 解析能力找到 `mvn.cmd`。Linux/macOS 不经过任何转换。新增 ProcessBuilder 调用时必须使用 `CommandResolver.resolve()`。
 
 ## Behavior
 
-- 调用 `mvn dependency:tree -DoutputType=graphml -DoutputFile=dep-tree.graphml -B`。
+- 调用 `mvn dependency:tree -DoutputType=graphml -DoutputFile=dep-tree.graphml -B`。Windows 上通过 `CommandResolver.resolve()` 将命令包裹为 `cmd.exe /c mvn ...`，使 `cmd.exe` 负责 `PATHEXT` 解析，解决 `ProcessBuilder` 无法直接找到 `mvn.cmd` 的问题。Linux/macOS 上命令列表不经过任何转换。
 - 为每个模块提取 GraphML 文件。
 - 解析 GraphML：提取节点标签（artifact 坐标）和边（依赖关系）。
 - 生成 `DependencyNode` 树结构。
@@ -54,7 +57,7 @@ code_refs:
 
 1. `DependencyAnalyzer` 接收 side 名称、workspace 路径、reactor 模块坐标集合、DiagnosticCollector 和可选的 `buildJavaHome`。
 2. `analyze()` 执行 `mvn dependency:tree`，日志写入临时文件。
-3. `runDependencyTree()` 构建 ProcessBuilder，若 `buildJavaHome` 非 null 则覆盖 `JAVA_HOME` 环境变量。
+3. `runDependencyTree()` 构建命令列表后通过 `CommandResolver.resolve()` 处理（Windows 包裹 `cmd.exe /c`），再构建 ProcessBuilder，若 `buildJavaHome` 非 null 则覆盖 `JAVA_HOME` 环境变量。
 4. plugin 执行失败时抛出 `DependencyAnalysisException`。
 5. 查找所有 `dep-tree.graphml` 文件。
 6. 对每个 GraphML 文件调用 `GraphMLParser.parse()`。

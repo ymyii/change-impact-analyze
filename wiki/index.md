@@ -23,17 +23,17 @@
 
 ### [Git Workspace Management](features/git-workspace-management.md)
 - Summary: 使用 git worktree 隔离 baseline/target workspace，支持子目录 project 路径对齐和 current workspace 模式，自动清理临时 worktree。
-- Code: `src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceManager.java`, `src/main/java/io/github/changeimpact/analyze/workspace/GitCommandRunner.java`, `src/main/java/io/github/changeimpact/analyze/workspace/GitCommandResult.java`, `src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceResult.java`, `src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceSideInfo.java`, `src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceSide.java`, `src/main/java/io/github/changeimpact/analyze/workspace/WorkspacePrepareException.java`
+- Code: `src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceManager.java`, `src/main/java/io/github/changeimpact/analyze/workspace/GitCommandRunner.java`, `src/main/java/io/github/changeimpact/analyze/workspace/GitCommandResult.java`, `src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceResult.java`, `src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceSideInfo.java`, `src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceSide.java`, `src/main/java/io/github/changeimpact/analyze/workspace/WorkspacePrepareException.java`, `src/main/java/io/github/changeimpact/analyze/util/CommandResolver.java`
 - Related: [Analysis Pipeline Architecture](architecture/analysis-pipeline.md)
 
 ### [Maven Build Runner](features/maven-build-runner.md)
 - Summary: 调用用户环境 `mvn compile` 编译 workspace，收集 main classes 目录。支持 `--build-java-home` 覆盖 Maven 子进程 JAVA_HOME 实现 JDK 隔离。
-- Code: `src/main/java/io/github/changeimpact/analyze/build/BuildRunner.java`, `src/main/java/io/github/changeimpact/analyze/build/BuildResult.java`, `src/main/java/io/github/changeimpact/analyze/build/ModuleBuildOutput.java`, `src/main/java/io/github/changeimpact/analyze/build/BuildException.java`
+- Code: `src/main/java/io/github/changeimpact/analyze/build/BuildRunner.java`, `src/main/java/io/github/changeimpact/analyze/build/BuildResult.java`, `src/main/java/io/github/changeimpact/analyze/build/ModuleBuildOutput.java`, `src/main/java/io/github/changeimpact/analyze/build/BuildException.java`, `src/main/java/io/github/changeimpact/analyze/util/CommandResolver.java`
 - Related: [Analysis Pipeline Architecture](architecture/analysis-pipeline.md)
 
 ### [Dependency Tree Extraction](features/dependency-tree-extraction.md)
 - Summary: 调用 Maven dependency plugin 输出 GraphML，解析为结构化 resolved dependency tree。支持 `--build-java-home` 覆盖 Maven 子进程 JAVA_HOME 实现 JDK 隔离。
-- Code: `src/main/java/io/github/changeimpact/analyze/dependency/DependencyAnalyzer.java`, `src/main/java/io/github/changeimpact/analyze/dependency/GraphMLParser.java`, `src/main/java/io/github/changeimpact/analyze/dependency/ArtifactCoord.java`, `src/main/java/io/github/changeimpact/analyze/dependency/DependencyNode.java`, `src/main/java/io/github/changeimpact/analyze/dependency/DependencyScope.java`, `src/main/java/io/github/changeimpact/analyze/dependency/ModuleDependencyTree.java`, `src/main/java/io/github/changeimpact/analyze/dependency/DependencyAnalysisException.java`
+- Code: `src/main/java/io/github/changeimpact/analyze/dependency/DependencyAnalyzer.java`, `src/main/java/io/github/changeimpact/analyze/dependency/GraphMLParser.java`, `src/main/java/io/github/changeimpact/analyze/dependency/ArtifactCoord.java`, `src/main/java/io/github/changeimpact/analyze/dependency/DependencyNode.java`, `src/main/java/io/github/changeimpact/analyze/dependency/DependencyScope.java`, `src/main/java/io/github/changeimpact/analyze/dependency/ModuleDependencyTree.java`, `src/main/java/io/github/changeimpact/analyze/dependency/DependencyAnalysisException.java`, `src/main/java/io/github/changeimpact/analyze/util/CommandResolver.java`
 - Related: [Analysis Pipeline Architecture](architecture/analysis-pipeline.md), [Dependency Diff Engine](features/dependency-diff-engine.md)
 
 ### [Dependency Diff Engine](features/dependency-diff-engine.md)
