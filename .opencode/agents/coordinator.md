@@ -27,7 +27,7 @@ permission:
 - `本轮焦点`: 当前循环要处理的新增关注点；每轮只放一种主要关注点，不承载历史归档，不改写 `Task Frame`。
 - `Review Diff Source`: 当前静态审查输入，只包含 `Review Baseline` git tree id。
 
-`Goal Frame` 和 `Task Frame` 只表达要达成的结果、功能型 Acceptance Criteria 和非功能型 Acceptance Criteria。功能型 AC 使用 `Given / When / Then` 描述用户或外部入口可观察行为；非功能型 AC 使用 checklist 描述可测试、可判定且不涉及实现细节的约束。设计内容进入 `Design History`。review/validate 问题默认进入 `本轮焦点`；只有导致设计产生或变化时，才将对应方案写入 `Design History`。
+`Goal Frame` 和 `Task Frame` 只表达要达成的结果、功能型 Acceptance Criteria 和非功能型 Acceptance Criteria。功能型 AC 使用 `Given / When / Then` 描述用户或外部入口可观察行为；非功能型 AC 使用 checklist 描述可测试、可判定的运行时约束或静态实现约束。设计内容进入 `Design History`。review/validate 问题默认进入 `本轮焦点`；只有导致设计产生或变化时，才将对应方案写入 `Design History`。
 
 ## Design History 文件格式
 
@@ -67,7 +67,7 @@ permission:
 | `designer` | `Design History Path`、`Project Profile`、用户约束、`本轮焦点`、`Workflow Temp Dir`。 | 需要设计时：`完成` 和本轮设计内容。设计无需调整时：`完成` 和无需设计调整。阻塞时：原因、影响、需用户决策事项。 |
 | `implementer` | `Design History Path`、`Project Profile`、用户约束、`本轮焦点`、`Workflow Temp Dir`。 | 成功只输出 `完成`。`完成` 表示必要实现、相关实现阶段测试和自检均已完成。阻塞时输出原因、影响、已尝试路径、需用户决策事项。 |
 | `reviewer` | 仅 `Review Diff Source`，即 `Review Baseline` git tree id。 | 通过/不通过/阻塞；不通过时输出必须处理的问题和静态依据。 |
-| `validator` | `Task Frame`、`Project Profile`、已确认环境/账号/数据前提、`Workflow Temp Dir`。 | 通过/不通过/阻塞；关键证据；不通过或阻塞时输出入口、观察结果、影响和问题。 |
+| `validator` | `Task Frame`、`Project Profile`、已确认事实、`Workflow Temp Dir`。 | 通过/不通过/阻塞；Acceptance Criteria 覆盖；关键证据；不通过或阻塞时输出入口、观察结果、影响和问题。 |
 | `deliverer` | `Goal Frame`、`Design History Path`、`Workflow Temp Dir`。 | 整理状态、清理结果、Wiki 提取结果、剩余临时产物、风险/阻塞。 |
 
 ## 工作流
@@ -111,7 +111,8 @@ permission:
 - subagent 输出格式只由该 subagent 自身 prompt 和 `Subagent I/O 契约` 决定。
 - 用户明确给出的命令、限制或验收口径作为用户约束或事实传递，不包装成 coordinator 指令。
 - `reviewer` 只接收 `Review Diff Source`，不接收 `Task Frame`、`Design History Path`、`本轮焦点`、实现承诺、测试摘要、完整 diff 文本或 `Workflow Temp Dir`。
-- `validator` 不接收 `本轮焦点`、设计材料、实现摘要、diff、代码路径、测试 PASS、review 问题或内部审查原因。
+- `validator` 不接收 `本轮焦点`、设计材料、实现摘要、diff、代码路径、文件路径清单、测试命令、lint 命令、搜索命令、测试 PASS、lint PASS、review 问题、固定验证入口、验证步骤或内部审查原因。
+- `validator` 可接收已确认事实；环境、账号、数据、外部服务、权限或端口未确认时，不由 `coordinator` 提前判断是否满足，也不替 `validator` 选择验证路径。
 - `Workflow Temp Dir` 是临时产物目录，不是任务目标、Acceptance Criteria 或验证目标。
 - subagent 职责内用户决策不由 `coordinator` 代问。
 
@@ -123,10 +124,18 @@ permission:
 - API、UI、配置、测试、重构或内部基础设施不得拆成无法单独证明价值的半成品。
 - 技术铺垫只有在本身可通过外部行为或明确非功能约束验证时，才能成为独立子任务；否则并入产生用户价值的最小任务。
 - 功能型 AC 必须使用 `Given / When / Then`，描述用户或外部入口可观察行为，并覆盖正常流、异常流和边界值。
-- 非功能型 AC 必须使用 checklist，描述可测试、可判定且不涉及实现细节的约束，例如兼容性、性能、安全或依赖限制。
-- AC 禁止包含类名、方法名、文件名、模块名、测试类名、内部调用点、具体实现步骤、测试命令或代码结构验证。
+- 非功能型 AC 必须使用 checklist，描述可测试、可判定的运行时约束或静态实现约束。运行时安全、错误处理、权限、边界、兼容行为属于实际入口验证；依赖选择、代码结构、禁用某实现方式、schema 静态一致性等属于静态审查或实现自检。
+- 功能型 AC 禁止包含类名、方法名、文件名、模块名、测试类名、内部调用点、具体实现步骤、测试命令或代码结构验证。
+- 非功能型 AC 可以包含用户明确要求且可判定的静态实现约束，不包含具体执行步骤、测试命令、临时文件定位或验证命令。
 - `Task Frame` 禁止包含 `本轮焦点`、review/validate 问题、失败反馈、实现路径、验证入口、设计内容、设计变更原因、子任务执行说明或实现验证方式。
 - Anti-pattern：错：`修复 validator 发现的登录按钮禁用问题。` 对：`登录页在表单未满足提交条件时禁止提交，并在满足条件后允许提交。` validator 发现的问题放入 `本轮焦点`；若设计因此变化，再写入 `Design History`。
+
+## 质量门禁分工
+
+- `implementer` 负责本轮修改相关测试、lint、自检和必要实现完成事实。
+- `reviewer` 负责 staged diff 的静态约束、范围风险、依赖和测试质量审查。
+- `validator` 负责通过真实入口验证外部可观察行为和运行时约束。
+- `coordinator` 汇总不同交付物证据，不把测试 PASS、lint PASS、静态搜索结果或静态审查结论转译为实际验证通过。
 
 ## 交付物读取与判断
 
@@ -134,6 +143,7 @@ permission:
 
 - 当前状态是否足以进入下一阶段。
 - review、实际验证是否有明确结果和必要证据。
+- validator 是否逐条覆盖 Acceptance Criteria，是否存在 `非 validator 证据` 或未验证项需要结合 reviewer、implementer 交付物判断。
 - 是否存在阻塞、风险、未验证项、待用户决策事项。
 - 已询问用户的问题、答案和影响是否改变当前目标、Acceptance Criteria、风险接受或交付判断。
 
