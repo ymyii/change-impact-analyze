@@ -1,0 +1,102 @@
+---
+title: "Maven Runtime"
+type: feature
+relations:
+  - path: "wiki/project/dependency-analyzer.md"
+    desc: "产品 runtime 和 config dir 约定"
+  - path: "wiki/architecture/dependency-analysis-pipelines.md"
+    desc: "两个 subcommand 共享 runtime descriptor"
+  - path: "wiki/features/cli-preflight-diagnostics.md"
+    desc: "Runtime executable/version/Java home preflight"
+  - path: "wiki/rules/process-command-resolution.md"
+    desc: "Maven process 的跨平台解析约束"
+code_refs:
+  - path: "src/main/java/io/github/dependencyanalysis/runtime/MavenRuntimeManager.java"
+    desc: "Config dir、SHA-512、lock、staging 和 extraction 实现"
+  - path: "src/main/java/io/github/dependencyanalysis/runtime/MavenRuntimeDescriptor.java"
+    desc: "两个 subcommand 共享的只读 runtime 契约"
+  - path: "src/main/java/io/github/dependencyanalysis/runtime/MavenExecutor.java"
+    desc: "Maven process token 和 JAVA_HOME 执行入口"
+  - path: "src/main/java/io/github/dependencyanalysis/runtime/MavenDependencyPluginRuntimeManager.java"
+    desc: "Dependency Plugin repository 准备、settings overlay 和 capability validation"
+  - path: "src/main/java/io/github/dependencyanalysis/runtime/MavenDependencyPluginRuntime.java"
+    desc: "Tree collection 使用的 plugin goal、arguments 和 cache descriptor"
+  - path: "src/main/resources/maven/apache-maven-3.6.3-bin.zip"
+    desc: "未修改的 Apache Maven 3.6.3 binary distribution"
+  - path: "src/main/resources/maven/apache-maven-3.6.3-bin.zip.sha512"
+    desc: "官方 SHA-512"
+  - path: "src/main/resources/maven/LICENSE"
+    desc: "Apache Maven distribution LICENSE"
+  - path: "src/main/resources/maven/NOTICE"
+    desc: "Apache Maven distribution NOTICE"
+  - path: "src/main/resources/maven/dependency-plugin/maven-dependency-plugin-3.6.1-repository.zip"
+    desc: "Maven Dependency Plugin 3.6.1 与完整传递依赖 repository"
+  - path: "src/main/resources/maven/dependency-plugin/maven-dependency-plugin-3.6.1-repository.zip.sha512"
+    desc: "Dependency Plugin repository SHA-512"
+  - path: "src/main/resources/maven/dependency-plugin/DEPENDENCIES"
+    desc: "Dependency Plugin repository third-party attribution"
+---
+
+# Feature: Maven Runtime
+
+## Summary
+
+Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个 subcommand 提供 Maven 3.6.3–3.x executable。默认从 JAR resource 离线准备 Apache Maven 3.6.3；`tree` 还会离线准备 evidence-complete Dependency Plugin repository。
+
+## Design Decisions
+
+- Maven 选择顺序固定为用户 executable、config dir 中已校验 runtime、JAR resource 解压。
+- Runtime leaf 同时包含 Maven version 和 ZIP SHA-512；completion marker 与 executable 共同判定可复用。
+- 解压前校验官方 SHA-512，并拒绝 normalized path 越出 staging directory 的 ZIP entry。
+- Config dir cleanup 只允许删除 `runtime/apache-maven/<version>/<sha>` leaf，不整体删除 config dir。
+- Maven 3.6.3 已 EOL，preflight evidence 明确展示，但版本仍在支持范围内。
+- Dependency Plugin cache 与 Maven distribution 使用相同的 checksum、leaf lock、staging 和 atomic move 安全模型，但两者是独立 resource。
+
+## Actors / Entrypoints
+
+- `impact`/`tree` preflight 调用 `MavenRuntimeManager.prepare()`。
+- 用户通过 `--maven`、`--maven-java-home` 和 `--config-dir` 控制 runtime。
+
+## Behavior Contract
+
+- 默认 config dir 为 `${user.home}/.dependency-analyzer`，结构包含 Maven runtime、Dependency Plugin repository 和 `locks/`。
+- 用户 executable 优先级最高，descriptor source 为 `USER_CONFIGURED`；内嵌 runtime source 为 `EMBEDDED`。
+- 内嵌 preparation 使用 file lock、staging 和 atomic move，其他进程不会看到半解压 runtime。
+- 损坏 runtime 只重建对应 leaf；未知 config/user 文件保持不变。
+- POSIX/macOS 依靠 `.` 前缀隐藏默认目录；Windows best-effort 设置 DOS hidden attribute。
+
+## Core Flow
+
+- 创建完整 config dir 和 locks directory。
+- 若有 `--maven`，校验 absolute executable file 并返回 descriptor。
+- 否则读取 SHA-512、获取 leaf lock、校验 marker/executable。
+- 需要重建时，校验 resource checksum、Zip Slip 防护解压、写 completion marker、atomic replace。
+- Preflight 以 `--version` probe 填充 descriptor version，并验证 `>=3.6.3 && <4.0.0`。
+- Tree 为 Maven 生成 effective global settings，保留用户 `-gs`、`-s`、mirror、proxy 和 server，同时注入内置 file plugin repository；不输出 settings 中的敏感值。
+
+## Acceptance Criteria
+
+### Functional
+
+- Given config dir 为空；When preparation；Then 不联网即可得到可运行 Maven 3.6.3。
+- Given runtime marker/executable 损坏；When 再次 preparation；Then leaf 重建且未知文件保留。
+- Given user executable；When preparation；Then 不解压内嵌 runtime。
+- Given 本地无 Dependency Plugin cache 且网络不可用；When 执行默认 `tree`；Then 可从 JAR resource 准备并执行 `maven-dependency-plugin:3.6.1`。
+- Given plugin cache checksum/marker 损坏；When 再次 preparation；Then 只重建工具拥有的 cache leaf。
+
+### Non-Functional
+
+- [ ] Maven distribution 和 Dependency Plugin repository 的 ZIP、SHA-512、LICENSE、NOTICE 完整打入 uber JAR。
+- [ ] 并发 preparation 由 leaf lock 串行化。
+- [ ] 所有 path 先 absolute normalize，再执行 allowlist cleanup。
+
+## Edge Cases
+
+- SHA-512 不匹配或 resource 缺失时 preparation 失败，不保留 completion marker。
+- ZIP entry 越出 staging directory 时拒绝解压。
+- Unix executable bit 在 preparation 后设置；Windows 使用 `bin/mvn.cmd`。
+
+## Implementation Boundaries
+
+- Runtime distribution 不是 Maven local repository；内置 Dependency Plugin repository 仅保证工具控制的 plugin 及其传递依赖，project dependency 仍由 Maven settings/local repository 管理。
+- Runtime manager 不下载 distribution，不读取 PATH，不选择 repository Maven Wrapper。

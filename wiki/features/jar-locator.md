@@ -2,18 +2,18 @@
 title: "Jar Locator"
 type: feature
 relations:
-  - path: "wiki/architecture/analysis-pipeline.md"
+  - path: "wiki/architecture/dependency-analysis-pipelines.md"
     desc: "Jar 定位是分析流水线的第六阶段"
   - path: "wiki/features/dependency-diff-engine.md"
     desc: "Jar 定位依赖前序阶段产出的 DependencyChange 清单"
   - path: "wiki/features/bytecode-diff-engine.md"
     desc: "Jar 定位产物供 Bytecode Diff Engine 执行 bytecode diff"
 code_refs:
-  - path: "src/main/java/io/github/changeimpact/analyze/jar/JarLocator.java"
+  - path: "src/main/java/io/github/dependencyanalysis/jar/JarLocator.java"
     desc: "Jar 定位主实现"
-  - path: "src/main/java/io/github/changeimpact/analyze/jar/JarLocationResult.java"
+  - path: "src/main/java/io/github/dependencyanalysis/jar/JarLocationResult.java"
     desc: "Jar 定位结果数据类"
-  - path: "src/main/java/io/github/changeimpact/analyze/jar/JarLocatorException.java"
+  - path: "src/main/java/io/github/dependencyanalysis/jar/JarLocatorException.java"
     desc: "Jar 定位异常，携带诊断字段"
 ---
 

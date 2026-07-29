@@ -2,7 +2,7 @@
 title: "Dependency Tree Extraction"
 type: feature
 relations:
-  - path: "wiki/architecture/analysis-pipeline.md"
+  - path: "wiki/architecture/dependency-analysis-pipelines.md"
     desc: "依赖树提取是分析流水线的第四阶段"
   - path: "wiki/features/dependency-diff-engine.md"
     desc: "依赖树提取产物供 Dependency Diff Engine 对比"
@@ -10,22 +10,24 @@ relations:
     desc: "ArtifactCoord 的 classifier 字段用于 Jar 定位时的文件名计算"
   - path: "wiki/rules/process-command-resolution.md"
     desc: "Maven dependency plugin 命令执行必须遵守跨平台命令解析规则"
+  - path: "wiki/features/maven-runtime.md"
+    desc: "impact dependency extraction 使用共享 Maven runtime"
 code_refs:
-  - path: "src/main/java/io/github/changeimpact/analyze/dependency/DependencyAnalyzer.java"
+  - path: "src/main/java/io/github/dependencyanalysis/dependency/DependencyAnalyzer.java"
     desc: "调用 Maven dependency plugin 并解析 GraphML"
-  - path: "src/main/java/io/github/changeimpact/analyze/dependency/GraphMLParser.java"
+  - path: "src/main/java/io/github/dependencyanalysis/dependency/GraphMLParser.java"
     desc: "GraphML 文件解析器"
-  - path: "src/main/java/io/github/changeimpact/analyze/dependency/ArtifactCoord.java"
+  - path: "src/main/java/io/github/dependencyanalysis/dependency/ArtifactCoord.java"
     desc: "Maven artifact 坐标"
-  - path: "src/main/java/io/github/changeimpact/analyze/dependency/DependencyNode.java"
+  - path: "src/main/java/io/github/dependencyanalysis/dependency/DependencyNode.java"
     desc: "依赖树节点"
-  - path: "src/main/java/io/github/changeimpact/analyze/dependency/DependencyScope.java"
+  - path: "src/main/java/io/github/dependencyanalysis/dependency/DependencyScope.java"
     desc: "依赖 scope 枚举"
-  - path: "src/main/java/io/github/changeimpact/analyze/dependency/ModuleDependencyTree.java"
+  - path: "src/main/java/io/github/dependencyanalysis/dependency/ModuleDependencyTree.java"
     desc: "模块依赖树"
-  - path: "src/main/java/io/github/changeimpact/analyze/dependency/DependencyAnalysisException.java"
+  - path: "src/main/java/io/github/dependencyanalysis/dependency/DependencyAnalysisException.java"
     desc: "依赖分析异常"
-  - path: "src/main/java/io/github/changeimpact/analyze/util/CommandResolver.java"
+  - path: "src/main/java/io/github/dependencyanalysis/util/CommandResolver.java"
     desc: "跨平台命令解析工具"
 ---
 
@@ -33,13 +35,14 @@ code_refs:
 
 ## Summary
 
-Dependency Tree Extraction 基于 Maven 实际解析结果提取 resolved dependency tree。它调用 `maven-dependency-plugin:tree` 输出 GraphML，解析为保留传递依赖和依赖调解结果的结构化模块依赖树。
+Dependency Tree Extraction 是 `impact` pipeline 的兼容层，基于 Maven 实际解析结果调用 `maven-dependency-plugin:tree` 输出 GraphML，再解析为 baseline/target `ModuleDependencyTree`。Repository `tree` 功能使用独立 text parser，不替换此算法。
 
 ## Design Decisions
 
 - 使用 Maven dependency plugin 的 GraphML 输出作为依赖树交换格式，避免自行实现 Maven 依赖调解。
 - baseline 依赖树用于提取 reactor module 坐标，target 依赖树用这些坐标排除 reactor module 依赖。
-- 与 BuildRunner 一致，`--build-java-home` 只覆盖 Maven 子进程 `JAVA_HOME`，保持目标项目 JDK 兼容边界。
+- Maven executable、`--maven-java-home` 和安全 user Maven arguments 来自 impact preflight prepared context。
+- 保留既有 GraphML 算法，避免未经证明的 text parser migration 改变 impact 分析语义。
 - Maven 命令统一经过 `CommandResolver.resolve()`，确保 Windows 上可解析 `mvn.cmd`。
 
 ## Actors / Entrypoints

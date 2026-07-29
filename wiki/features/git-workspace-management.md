@@ -2,93 +2,78 @@
 title: "Git Workspace Management"
 type: feature
 relations:
-  - path: "wiki/architecture/analysis-pipeline.md"
-    desc: "Workspace 管理是分析流水线的第二阶段"
+  - path: "wiki/architecture/dependency-analysis-pipelines.md"
+    desc: "impact workspace 与 tree snapshot 的架构边界"
+  - path: "wiki/features/repository-dependency-tree-report.md"
+    desc: "tree repository snapshot 和 Git file set"
   - path: "wiki/rules/process-command-resolution.md"
-    desc: "Git 命令执行必须遵守跨平台命令解析规则"
+    desc: "Git process 的跨平台约束"
 code_refs:
-  - path: "src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceManager.java"
-    desc: "Workspace 管理核心，worktree 创建和清理"
-  - path: "src/main/java/io/github/changeimpact/analyze/workspace/GitCommandRunner.java"
-    desc: "Git 命令执行器"
-  - path: "src/main/java/io/github/changeimpact/analyze/workspace/GitCommandResult.java"
-    desc: "Git 命令执行结果"
-  - path: "src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceResult.java"
-    desc: "Workspace 准备结果"
-  - path: "src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceSideInfo.java"
-    desc: "单个 side 的 workspace 信息"
-  - path: "src/main/java/io/github/changeimpact/analyze/workspace/WorkspaceSide.java"
-    desc: "Workspace side 枚举"
-  - path: "src/main/java/io/github/changeimpact/analyze/workspace/WorkspacePrepareException.java"
-    desc: "Workspace 准备异常"
-  - path: "src/main/java/io/github/changeimpact/analyze/util/CommandResolver.java"
-    desc: "跨平台命令解析工具"
+  - path: "src/main/java/io/github/dependencyanalysis/workspace/WorkspaceManager.java"
+    desc: "impact baseline/target/current workspace"
+  - path: "src/main/java/io/github/dependencyanalysis/workspace/GitCommandRunner.java"
+    desc: "impact Git command runner"
+  - path: "src/main/java/io/github/dependencyanalysis/tree/GitSnapshotProvider.java"
+    desc: "tree current checkout/local-ref repository snapshot"
+  - path: "src/main/java/io/github/dependencyanalysis/tree/ReactorInventoryBuilder.java"
+    desc: "tracked/non-ignored untracked POM 与 submodule filtering"
 ---
 
 # Feature: Git Workspace Management
 
 ## Summary
 
-Git Workspace Management 安全准备 baseline、target 和 current workspace 三类分析输入。baseline 和显式 target commit 使用 git worktree 隔离，current workspace 保持用户当前目录和未提交变更。
+Git Workspace Management 为 `impact` 准备 baseline/target project workspace，为 `tree` 准备 current checkout 或 local-ref repository snapshot。临时 detached worktree 由 owner cleanup；current checkout 保留 dirty 与 eligible untracked POM。
 
 ## Design Decisions
 
-- baseline 和显式 target 使用 `git worktree add --detach` 创建临时目录，避免 checkout 污染用户工作区。
-- current workspace 不执行 checkout、不 stash，使用户未提交变更可以作为 target 参与分析。
-- project 可以指向 git repository 子目录；worktree 创建在仓库根后再追加相对路径，保证多模块或子项目分析路径一致。
-- Git 命令统一经过 `CommandResolver.resolve()`，确保 Windows 上可解析 `git.cmd` 或 `git.exe`。
+- `impact` baseline 和显式 target 使用 detached worktree；未传 target 时使用 current project directory。
+- `tree --ref` 使用 detached repository worktree；未传 ref 时直接分析 current checkout。
+- `tree --path` 先解析真实 directory 和所属 Git root，保存 Git-root-relative analysis path；detached snapshot 必须存在同一路径。
+- Tree inventory 以 relative analysis path 计算 direct-match `requestedPoms`；命中 reactor root 时进入 full-reactor mode，否则由 collector 计算 bounded dependency closure。
+- Local ref 只通过 `rev-parse --verify <ref>^{commit}` 解析，不 fetch。
+- Git file discovery 使用 tracked + non-ignored untracked，并排除 stage mode `160000` Git submodule path。
 
 ## Actors / Entrypoints
 
-- CLI pipeline 通过 `new WorkspaceManager(projectPath, diagnostics)` 创建 workspace 管理器。
-- `WorkspaceManager.prepare(baselineRef, targetRef)` 是准备 baseline/target 输入的功能入口。
-- `WorkspaceManager.close()` 是临时 worktree 清理入口，通常由 try-with-resources 调用。
+- `impact` preflight 调用 `WorkspaceManager.prepare(baseline, target)`。
+- `tree` preflight 调用 `GitSnapshotProvider.open(path, ref)`。
 
 ## Behavior Contract
 
-- project 必须位于 git repository 内；否则构造阶段抛出 `IllegalStateException`。
-- baseline ref 必须解析为 commit，并始终创建临时 detached worktree。
-- target ref 存在时必须解析为 commit，并创建临时 detached worktree。
-- target ref 不存在时 target side 使用 current workspace，且 `whetherTemporary=false`。
-- 子目录 project 在 baseline 和 target worktree 中必须解析到同一相对子目录。
-- 正常和异常退出时都尽力移除由本次准备创建的临时 worktree 和父目录。
-- workspace 准备失败时抛出包含 side、commit、path、exitCode 和 stderr 的 `WorkspacePrepareException`。
+- Project 可位于 Git root 子目录；impact worktree 保持同一 relative project path。
+- Current tree snapshot metadata 包含 repository root、branch、commit 和 dirty flag。
+- Tree snapshot metadata 同时包含 user input path、resolved Git root 与 relative analysis path。
+- Local-ref snapshot 只包含对应 commit，不包含 current dirty/untracked 文件。
+- 成功、失败和 command close 路径都 best-effort 执行 `git worktree remove --force`。
 
 ## Core Flow
 
-1. 构造 `WorkspaceManager` 时运行 `git rev-parse --show-toplevel` 解析 repository root。
-2. 计算 project 相对 repository root 的 `relativePath`。
-3. `prepare()` 解析 baseline commit，并创建 baseline worktree。
-4. target ref 存在时解析 target commit 并创建 target worktree。
-5. target ref 不存在时将 target side 指向 current project 目录。
-6. 返回 `WorkspaceResult`，包含 baseline 与 target 的 `WorkspaceSideInfo`。
-7. `close()` 遍历临时 workspace，执行清理。
+- 将 input path `toRealPath()`，解析 Git root、relative analysis path 和 commit。
+- 对 local ref 创建 detached temporary worktree；current checkout 不 checkout/stash。
+- 将 relative analysis path 映射到 detached worktree；路径不存在时在 command Preflight 阻断。
+- Pipeline 复用 prepared path。
+- Owner close 时清理 worktree；Git remove 失败时清理 temporary directory。
 
 ## Acceptance Criteria
 
 ### Functional
 
-- Given project 在 git repository 内，When 创建 `WorkspaceManager`，Then 能解析 repository root 和 project relative path。
-- Given baseline ref 合法，When 调用 `prepare()`，Then baseline side 指向 detached temporary worktree。
-- Given target ref 为空，When 调用 `prepare()`，Then target side 指向 current workspace 且不 checkout、不 stash。
-- Given target ref 合法，When 调用 `prepare()`，Then target side 指向 detached temporary worktree。
-- Given project 是 repository 子目录，When 创建 worktree，Then side path 追加同一子目录 relative path。
-- Given worktree 创建失败，When `prepare()` 抛出异常，Then 异常包含失败 side 和 git stderr。
+- Given current dirty/untracked eligible POM；When tree inventory；Then POM 可被发现。
+- Given local ref；When snapshot；Then report commit 等于 ref resolved commit。
+- Given Git submodule 内 POM；When discovery；Then POM 被排除。
 
 ### Non-Functional
 
-- [ ] 用户当前工作区不得被 checkout、stash 或删除。
-- [ ] 临时 workspace 清理必须 best-effort，不掩盖原始分析失败。
-- [ ] Git 命令执行必须跨平台，遵守 `CommandResolver` 规则。
+- [ ] 不修改 current branch、index 或 tracked file。
+- [ ] Worktree cleanup 对成功和 failure path 生效。
 
 ## Edge Cases
 
-- project 不在 git repository 内时构造失败，不进入后续分析。
-- baseline 或 target ref 不存在时，失败在 workspace 阶段暴露。
-- 清理阶段可能遇到已经被外部删除的临时目录；实现应保持 best-effort。
+- Invalid local ref、非 Git directory 或 Git command failure 在 preflight 阻断相应 scope。
+- Input path 不存在、不是 directory、越出 resolved Git root 或在 local ref snapshot 中不存在时阻断 command。
+- External module normalized path 越出 snapshot root 时 reactor model check failure。
 
 ## Implementation Boundaries
 
-- Workspace 模块只负责 git 输入准备和清理，不执行 Maven build 或依赖分析。
-- Git 命令执行封装在 `GitCommandRunner`；跨平台命令转换由 `CommandResolver` 统一负责。
-- Workspace 输出通过 `WorkspaceResult` 传递给后续 build 和 dependency 阶段。
+- Workspace/snapshot 只负责 Git isolation 和 metadata，不执行 Maven 或 report rendering。

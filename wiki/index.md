@@ -2,54 +2,60 @@
 
 ## Project
 
-### [Change Impact Analyze](project/change-impact-analyze.md)
-- Summary: Maven Java 17 变更影响分析 CLI，分析 Java 8 Maven 项目依赖升级后的静态影响范围，输出 HTML/Markdown 报告。
+### [Dependency Analyzer](project/dependency-analyzer.md)
+- Summary: Java 17 + Maven + picocli dependency analysis CLI，提供 `impact` 与 repository 级 `tree` report。
 
 ## Architecture
 
-### [Analysis Pipeline Architecture](architecture/analysis-pipeline.md)
-- Summary: 线性阶段分析架构，覆盖 workspace、build、dependency、bytecode、call graph、impact 和 report 的边界与数据流。
+### [Dependency Analysis Pipelines](architecture/dependency-analysis-pipelines.md)
+- Summary: Root CLI、共享 Maven runtime/preflight 与独立 `impact`/`tree` pipeline 的结构和数据流。
 
 ## Features
 
-### [CLI Validation and Diagnostics](features/cli-validation-diagnostics.md)
-- Summary: picocli CLI 参数解析、校验、退出码控制、ChangePointKind 过滤和跨阶段诊断事件收集。
+### [CLI Preflight and Diagnostics](features/cli-preflight-diagnostics.md)
+- Summary: Public CLI、Command Preflight、Tree Analysis issue、三阶段 Console 与 exit code 契约。
+
+### [Maven Runtime](features/maven-runtime.md)
+- Summary: 用户 executable、JAR 内嵌 Maven 3.6.3 与 Dependency Plugin repository 的离线准备和 config dir 管理。
+
+### [Repository Dependency Tree Report](features/repository-dependency-tree-report.md)
+- Summary: Git snapshot、bounded/full reactor execution、纯 aggregator result boundary、incremental checkpoint 与 Module-tab offline report。
 
 ### [Git Workspace Management](features/git-workspace-management.md)
-- Summary: 使用 git worktree 隔离 baseline/target workspace，支持子目录 project 路径对齐和 current workspace mode。
+- Summary: `impact` baseline/target worktree 与 `tree` current/local-ref repository snapshot 的隔离和清理。
 
 ### [Maven Build Runner](features/maven-build-runner.md)
-- Summary: 调用用户环境 `mvn compile -B` 编译 workspace，收集 main classes，并支持 `--build-java-home` 隔离 Maven 子进程 JDK。
+- Summary: 使用 preflight 选定 Maven runtime 编译 `impact` baseline/target 并收集 main classes。
 
 ### [Dependency Tree Extraction](features/dependency-tree-extraction.md)
-- Summary: 调用 Maven dependency plugin 输出 GraphML，解析 resolved dependency tree，并排除 target reactor module 依赖。
+- Summary: `impact` 使用 Maven dependency plugin GraphML 提取兼容的 resolved dependency tree。
 
 ### [Dependency Diff Engine](features/dependency-diff-engine.md)
-- Summary: 对比 baseline/target resolved dependency tree，按模块 union diff 生成稳定排序的依赖变动清单。
+- Summary: 对比 baseline/target resolved dependency tree，生成稳定排序的 dependency changes。
 
 ### [Jar Locator](features/jar-locator.md)
-- Summary: 为 VERSION_CHANGED 依赖定位 Maven local repository 中的 old/new jar 文件。
+- Summary: 为 VERSION_CHANGED dependency 定位 Maven local repository 中的 old/new JAR。
 
 ### [Bytecode Diff Engine](features/bytecode-diff-engine.md)
-- Summary: 对 VERSION_CHANGED 依赖的 old/new jar 执行 ASM bytecode diff，生成可过滤的 ChangePoint 清单。
+- Summary: 对 VERSION_CHANGED JAR 执行 ASM bytecode diff，生成可过滤的 ChangePoint。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
-- Summary: 基于 target main classes 使用 WALA RTA 构建应用 Call Graph，并补充 ServiceLoader 与 Reflection 间接调用边。
+- Summary: 基于 target main classes 使用 WALA RTA 构建 Call Graph，并补充动态调用边。
 
 ### [Impact Tracing](features/impact-tracing.md)
-- Summary: 将 ChangePoint 映射到 target bytecode seed methods，并沿 Call Graph 反向追踪受影响业务入口。
+- Summary: 将 ChangePoint 映射到 target bytecode seed，并沿 Call Graph 反向追踪业务入口。
 
 ### [Report Generator](features/report-generator.md)
-- Summary: 生成多文件 HTML 或 Markdown 报告，展示依赖变动、内部变化、影响路径和诊断事件。
+- Summary: 生成 `impact` HTML/Markdown，以及 Index 表格、Reactor cross-module section、Module tabs 与 Maven-style verbose tree 的 `tree` offline report。
 
 ## Rules
 
 ### [Process Command Resolution](rules/process-command-resolution.md)
-- Summary: 通过 `ProcessBuilder` 执行外部工具命令前必须经过 `CommandResolver.resolve()`，保证 Windows 与 Unix-like 行为一致。
+- Summary: 所有 production external process token 在 `ProcessBuilder` 前必须经过 `CommandResolver.resolve()`。
 
 ## Runbooks
 
 ### [Build, Test, Package](runbooks/build-test-package.md)
-- Summary: Maven 编译、测试、checkstyle、集成测试、打包和运行操作手册。
+- Summary: Checkstyle、unit/integration tests、全量 quality gate、uber JAR 和 CLI smoke commands。
 
 ## Glossary

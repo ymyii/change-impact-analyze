@@ -2,7 +2,7 @@
 title: "Dependency Diff Engine"
 type: feature
 relations:
-  - path: "wiki/architecture/analysis-pipeline.md"
+  - path: "wiki/architecture/dependency-analysis-pipelines.md"
     desc: "依赖变动对比是分析流水线的第五阶段"
   - path: "wiki/features/dependency-tree-extraction.md"
     desc: "依赖变动对比依赖前序阶段产出的 resolved dependency tree"
@@ -11,11 +11,11 @@ relations:
   - path: "wiki/features/bytecode-diff-engine.md"
     desc: "VERSION_CHANGED 依赖变动最终供 Bytecode Diff Engine 执行 bytecode diff"
 code_refs:
-  - path: "src/main/java/io/github/changeimpact/analyze/dependency/DependencyDiffEngine.java"
+  - path: "src/main/java/io/github/dependencyanalysis/dependency/DependencyDiffEngine.java"
     desc: "依赖变动对比引擎主实现"
-  - path: "src/main/java/io/github/changeimpact/analyze/dependency/DependencyChange.java"
+  - path: "src/main/java/io/github/dependencyanalysis/dependency/DependencyChange.java"
     desc: "单条依赖变动不可变数据类"
-  - path: "src/main/java/io/github/changeimpact/analyze/dependency/ChangeType.java"
+  - path: "src/main/java/io/github/dependencyanalysis/dependency/ChangeType.java"
     desc: "变动类型枚举"
 ---
 

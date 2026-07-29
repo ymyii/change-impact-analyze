@@ -2,81 +2,81 @@
 title: "Build, Test, Package"
 type: runbook
 relations:
-  - path: "wiki/project/change-impact-analyze.md"
-    desc: "项目概览和技术栈"
+  - path: "wiki/project/dependency-analyzer.md"
+    desc: "项目 stack、module map 和 artifact 名称"
+  - path: "wiki/features/maven-runtime.md"
+    desc: "打入 uber JAR 的 Maven distribution resources"
 code_refs:
   - path: "pom.xml"
-    desc: "Maven 构建配置，插件和命令定义"
+    desc: "Maven build、Surefire、Failsafe、Checkstyle 和 Shade 配置"
+  - path: "docs/user-manual.md"
+    desc: "打包后 CLI 使用手册"
+  - path: "src/integration-test/java/io/github/dependencyanalysis/cli/PackagedJarCliIT.java"
+    desc: "最终 shaded JAR、真实 command 与 interruption black-box gate"
 ---
 
 # Runbook: Build, Test, Package
 
 ## Summary
 
-本 runbook 覆盖项目的编译、测试、代码风格检查和打包操作。所有命令基于 Maven，需要 Java 17 和 Maven 3.x 环境。
+本 runbook 覆盖 Dependency Analyzer 的编译、unit tests、integration tests、Checkstyle、打包和本地 smoke verification。
 
 ## Prerequisites
 
 - Java 17 JDK。
 - Maven 3.x。
+- integration tests 需要本地 `git` 和可运行 Maven executable；内嵌 runtime 测试不依赖 PATH Maven。
 
 ## Commands
 
-### 编译
+### Checkstyle
 
 ```sh
-mvn compile
+mvn validate
 ```
 
-### 运行单元测试
+### Unit tests
 
 ```sh
 mvn test
 ```
 
-Surefire 插件执行 `src/test/java/` 下的测试。
-
-### 代码风格检查
+### Integration tests 与全量 quality gate
 
 ```sh
-mvn checkstyle:check
+mvn failsafe:integration-test failsafe:verify
+mvn clean verify
 ```
 
-Checkstyle 在 `validate` 阶段自动执行，使用 `sun_checks.xml` 规则，`failsOnError=true`。也可单独运行。
-
-### 运行集成测试
-
-```sh
-mvn verify
-```
-
-Failsafe 插件执行 `src/integration-test/java/` 下的测试（通过 build-helper-maven-plugin 注册）。`verify` 阶段包含编译、单元测试、checkstyle 和集成测试。
-
-### 打包 uber-jar
+### 打包与 Root CLI smoke
 
 ```sh
 mvn package
+java -jar target/dependency-analyzer.jar --help
+java -jar target/dependency-analyzer.jar impact --help
+java -jar target/dependency-analyzer.jar tree --help
 ```
 
-Shade 插件在 `package` 阶段生成 `target/change-impact-analyze.jar`，包含所有依赖。
-
-### 运行
-
-```sh
-java -jar target/change-impact-analyze.jar --help
-```
+最终 JAR smoke 必须包含真实 `impact`、full-repository `tree`、subdirectory `tree` 与 process interruption recovery；不能只调用 Java command class。
+Subdirectory `tree` fixture 必须包含 requested module、同 reactor dependency module 与无关 sibling，并断言 Report 只出现前两者；full-reactor fixture 必须断言全部 active module 使用 `REACTOR_ROOT_SCOPE`。
 
 ## Success Criteria
 
-- `mvn test`：输出 `BUILD SUCCESS`，测试全部通过。
-- `mvn verify`：输出 `BUILD SUCCESS`，包含 checkstyle 0 violations 和集成测试通过。
-- `mvn package`：生成 `target/change-impact-analyze.jar`（uber-jar）。
-- `java -jar target/change-impact-analyze.jar --help`：输出 CLI 帮助信息。
+- `mvn validate` 输出 `0 Checkstyle violations`。
+- `mvn test` 的 Surefire tests 全部通过。
+- `mvn verify` 的 Surefire 和 Failsafe tests 全部通过。
+- `target/dependency-analyzer.jar` 存在，manifest `Main-Class` 为 `io.github.dependencyanalysis.cli.DependencyAnalyzerCli`。
+- JAR 包含 Maven distribution 和 `maven-dependency-plugin:3.6.1` 完整 repository archive、SHA-512、LICENSE 和 NOTICE。
+- JAR 内 Maven/plugin archive 的实际 SHA-512 与 packaged checksum 一致。
+- Root/两个 subcommand help 列出全部 short option；旧 Root invocation、`--project` 与 `--repository` 返回 usage failure。
+- Packaged JAR 中断测试保留已发布 reactor page 与最后一个 `RUNNING x/N` Index。
+- Packaged JAR 在空 plugin cache 且无远程 plugin repository 时仍能执行 tree，Console 不出现 `evidence is incomplete`。
+- Reactor HTML metadata 使用表格，dependency tree 无交互，依赖冲突表的检索、Module/Scope filter、排序和 10/50/100 分页在 `file://` 下可用。
 
 ## Failure Entrypoints
 
-- **编译失败**：检查 `mvn compile` 输出中的错误信息和行号。
-- **Checkstyle 违规**：`mvn checkstyle:check` 输出会列出具体违规文件和行号。规则配置在 `pom.xml` 的 `maven-checkstyle-plugin` 中。
-- **测试失败**：查看 `target/surefire-reports/` 下的测试报告。
-- **集成测试失败**：查看 `target/failsafe-reports/` 下的测试报告。
-- **打包失败**：检查 `pom.xml` 中 shade 插件配置和 `mainClass` 是否正确。
+- Compile/test failure：`target/surefire-reports/`。
+- Integration failure：`target/failsafe-reports/`。
+- Checkstyle failure：Maven console 中的 file/line/check 名称。
+- Embedded runtime/plugin failure：校验 `src/main/resources/maven/` 下 distribution、plugin repository、attribution 和 SHA-512。
+- Shade/manifest failure：检查 `pom.xml` 的 `maven-shade-plugin` `finalName` 与 `mainClass`。

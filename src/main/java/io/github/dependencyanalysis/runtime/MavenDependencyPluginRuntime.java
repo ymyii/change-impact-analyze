@@ -1,0 +1,81 @@
+package io.github.dependencyanalysis.runtime;
+
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Objects;
+
+/** Prepared Maven Dependency Plugin execution contract. */
+public final class MavenDependencyPluginRuntime {
+
+    /** Selected plugin version. */
+    private final String version;
+
+    /** Fully-qualified Maven goal. */
+    private final String goal;
+
+    /** Maven arguments with the settings overlay applied. */
+    private final List<String> mavenArguments;
+
+    /** Embedded repository, or null for an override. */
+    private final Path repository;
+
+    /** Embedded repository SHA-512, empty for an override. */
+    private final String repositorySha512;
+
+    /**
+     * Creates a prepared plugin runtime.
+     *
+     * @param pluginVersion selected version
+     * @param pluginGoal fully-qualified goal
+     * @param arguments prepared Maven arguments
+     * @param embeddedRepository repository, nullable
+     * @param sha512 embedded archive checksum
+     */
+    MavenDependencyPluginRuntime(
+            final String pluginVersion,
+            final String pluginGoal,
+            final List<String> arguments,
+            final Path embeddedRepository,
+            final String sha512) {
+        version = Objects.requireNonNull(
+                pluginVersion, "version");
+        goal = Objects.requireNonNull(
+                pluginGoal, "goal");
+        mavenArguments = List.copyOf(arguments);
+        repository = embeddedRepository == null
+                ? null : embeddedRepository
+                .toAbsolutePath().normalize();
+        repositorySha512 = Objects.requireNonNull(
+                sha512, "repositorySha512");
+    }
+
+    /** @return selected plugin version */
+    public String getVersion() {
+        return version;
+    }
+
+    /** @return fully-qualified goal */
+    public String getGoal() {
+        return goal;
+    }
+
+    /** @return Maven arguments including settings overlay */
+    public List<String> getMavenArguments() {
+        return mavenArguments;
+    }
+
+    /** @return embedded repository, or null for override */
+    public Path getRepository() {
+        return repository;
+    }
+
+    /** @return embedded repository archive SHA-512 */
+    public String getRepositorySha512() {
+        return repositorySha512;
+    }
+
+    /** @return true when the bundled repository is selected */
+    public boolean isEmbedded() {
+        return repository != null;
+    }
+}

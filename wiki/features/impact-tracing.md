@@ -2,7 +2,7 @@
 title: "Impact Tracing"
 type: feature
 relations:
-  - path: "wiki/architecture/analysis-pipeline.md"
+  - path: "wiki/architecture/dependency-analysis-pipelines.md"
     desc: "Impact Tracing 是报告前的受影响路径计算阶段"
   - path: "wiki/features/bytecode-diff-engine.md"
     desc: "Impact Tracing 消费 Bytecode Diff Engine 产出的 ChangePoint"
@@ -11,17 +11,17 @@ relations:
   - path: "wiki/features/report-generator.md"
     desc: "Report Generator 展示 ImpactResult"
 code_refs:
-  - path: "src/main/java/io/github/changeimpact/analyze/impact/ImpactTracer.java"
+  - path: "src/main/java/io/github/dependencyanalysis/impact/ImpactTracer.java"
     desc: "影响追踪主流程"
-  - path: "src/main/java/io/github/changeimpact/analyze/impact/ChangePointRefScanner.java"
+  - path: "src/main/java/io/github/dependencyanalysis/impact/ChangePointRefScanner.java"
     desc: "应用 bytecode 中 ChangePoint 引用扫描器"
-  - path: "src/main/java/io/github/changeimpact/analyze/impact/ImpactResult.java"
+  - path: "src/main/java/io/github/dependencyanalysis/impact/ImpactResult.java"
     desc: "影响追踪结果"
-  - path: "src/main/java/io/github/changeimpact/analyze/impact/ImpactPath.java"
+  - path: "src/main/java/io/github/dependencyanalysis/impact/ImpactPath.java"
     desc: "单条影响路径"
-  - path: "src/main/java/io/github/changeimpact/analyze/impact/NotReportedReason.java"
+  - path: "src/main/java/io/github/dependencyanalysis/impact/NotReportedReason.java"
     desc: "未报告影响路径的原因枚举"
-  - path: "src/main/java/io/github/changeimpact/analyze/impact/ImpactException.java"
+  - path: "src/main/java/io/github/dependencyanalysis/impact/ImpactException.java"
     desc: "影响追踪异常"
 ---
 

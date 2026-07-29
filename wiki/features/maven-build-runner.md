@@ -2,20 +2,22 @@
 title: "Maven Build Runner"
 type: feature
 relations:
-  - path: "wiki/architecture/analysis-pipeline.md"
+  - path: "wiki/architecture/dependency-analysis-pipelines.md"
     desc: "Build Runner 是分析流水线的第三阶段"
   - path: "wiki/rules/process-command-resolution.md"
     desc: "Maven 命令执行必须遵守跨平台命令解析规则"
+  - path: "wiki/features/maven-runtime.md"
+    desc: "Build Runner 消费 preflight 选定的 Maven runtime"
 code_refs:
-  - path: "src/main/java/io/github/changeimpact/analyze/build/BuildRunner.java"
+  - path: "src/main/java/io/github/dependencyanalysis/build/BuildRunner.java"
     desc: "Maven 编译执行和 main classes 收集"
-  - path: "src/main/java/io/github/changeimpact/analyze/build/BuildResult.java"
+  - path: "src/main/java/io/github/dependencyanalysis/build/BuildResult.java"
     desc: "编译结果"
-  - path: "src/main/java/io/github/changeimpact/analyze/build/ModuleBuildOutput.java"
+  - path: "src/main/java/io/github/dependencyanalysis/build/ModuleBuildOutput.java"
     desc: "单模块编译输出"
-  - path: "src/main/java/io/github/changeimpact/analyze/build/BuildException.java"
+  - path: "src/main/java/io/github/dependencyanalysis/build/BuildException.java"
     desc: "编译异常"
-  - path: "src/main/java/io/github/changeimpact/analyze/util/CommandResolver.java"
+  - path: "src/main/java/io/github/dependencyanalysis/util/CommandResolver.java"
     desc: "跨平台命令解析工具"
 ---
 
@@ -23,18 +25,18 @@ code_refs:
 
 ## Summary
 
-Maven Build Runner 调用用户环境 `mvn compile -B` 编译 baseline 和 target/current workspace，并收集 main classes 目录作为后续 dependency、call graph 和 impact 阶段的输入。
+Maven Build Runner 使用 impact preflight 选定的 Maven executable 执行 `compile -B`，编译 baseline 和 target/current workspace，并收集 main classes 目录作为后续 Call Graph 和 impact 阶段输入。
 
 ## Design Decisions
 
-- 使用系统 PATH 中的 Maven，不内嵌 Maven Resolver，保持与用户 `settings.xml`、mirror、proxy 和 local repository 一致。
-- 通过 `ProcessBuilder.environment()` 覆盖 Maven 子进程 `JAVA_HOME`，让工具运行在 Java 17 的同时支持目标项目使用旧版 JDK 编译。
+- Runtime 来源为用户 `--maven` 或内嵌 Maven 3.6.3；不隐式使用 PATH 或 Maven Wrapper。
+- 通过 `ProcessBuilder.environment()` 应用 global `--maven-java-home`，同时保留用户 `settings.xml`、mirror、proxy 和 local repository 行为。
 - 编译只收集 `target/classes`，不把 `target/test-classes` 作为分析输入。
 - Maven 命令统一经过 `CommandResolver.resolve()`，确保 Windows 上可解析 `mvn.cmd`。
 
 ## Actors / Entrypoints
 
-- CLI pipeline 在 baseline 和 target side 上分别创建 `BuildRunner`。
+- `ImpactPipeline` 在 baseline 和 target side 上分别创建 `BuildRunner`，并传入同一 runtime descriptor 与 Maven arguments。
 - `BuildRunner.build()` 是编译和 classes 目录发现入口。
 
 ## Behavior Contract
