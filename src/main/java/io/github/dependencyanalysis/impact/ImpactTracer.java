@@ -79,12 +79,34 @@ public final class ImpactTracer {
                 graph, "graph");
         Objects.requireNonNull(
                 build, "build");
+        return trace(cps, graph, build,
+                resolveSeeds(cps, build));
+    }
+
+    /**
+     * Traces using seeds resolved before Call Graph construction.
+     *
+     * @param cps change points
+     * @param graph call graph
+     * @param build build result
+     * @param seeds prepared seed map
+     * @return impact result
+     */
+    public ImpactResult trace(
+            final List<ChangePoint> cps,
+            final CallGraph graph,
+            final BuildResult build,
+            final Map<ChangePoint, Set<MethodId>> seeds) {
+        Objects.requireNonNull(cps, "changePoints");
+        Objects.requireNonNull(graph, "graph");
+        Objects.requireNonNull(build, "build");
+        Objects.requireNonNull(seeds, "seeds");
         diagnostics.startStage(STAGE);
         try {
             final ImpactResult result =
                     traceInternal(
                             cps, graph,
-                            build);
+                            build, seeds);
             diagnostics.info(STAGE,
                     "Impact paths: "
                             + result.getPaths()
@@ -109,12 +131,43 @@ public final class ImpactTracer {
     }
 
     /**
+     * Produces the stable no-seed result without constructing a Call Graph.
+     *
+     * @param cps change points
+     * @param seeds prepared empty seed map
+     * @return impact result
+     */
+    public ImpactResult traceWithoutCallGraph(
+            final List<ChangePoint> cps,
+            final Map<ChangePoint, Set<MethodId>> seeds) {
+        Objects.requireNonNull(cps, "changePoints");
+        Objects.requireNonNull(seeds, "seeds");
+        diagnostics.startStage(STAGE);
+        final Map<NotReportedReason, Integer> reasons =
+                new EnumMap<>(NotReportedReason.class);
+        for (ChangePoint point : cps) {
+            incrementReason(reasons,
+                    ChangePointRefScanner.isScannable(
+                            point.getKind())
+                            ? NotReportedReason.NO_SEED_FOUND
+                            : NotReportedReason
+                            .CHANGE_KIND_NOT_APPLICABLE);
+        }
+        final ImpactResult result = new ImpactResult(
+                List.of(), reasons);
+        diagnostics.info(STAGE, "Impact paths: 0");
+        diagnostics.endStage(STAGE);
+        return result;
+    }
+
+    /**
      * Internal trace logic
      * running four stages.
      *
      * @param cps   change points
      * @param graph call graph
      * @param build build result
+     * @param seeds prepared seed map
      * @return impact result
      */
     private ImpactResult
@@ -122,15 +175,14 @@ public final class ImpactTracer {
             final List<ChangePoint>
                     cps,
             final CallGraph graph,
-            final BuildResult build) {
+            final BuildResult build,
+            final Map<ChangePoint,
+                    Set<MethodId>> seeds) {
         final Map<NotReportedReason,
                 Integer> notReported =
                 new EnumMap<>(
                         NotReportedReason
                                 .class);
-        final Map<ChangePoint,
-                Set<MethodId>> seeds =
-                resolveSeeds(cps, build);
         final Map<String, MethodId>
                 cgIndex = buildCgIndex(
                 graph);
@@ -140,6 +192,8 @@ public final class ImpactTracer {
                         build, graph);
         final List<ImpactPath> paths =
                 new ArrayList<>();
+        final Map<MethodId, ReverseTrace> reverseCache =
+                new HashMap<>();
         for (final ChangePoint cp
                 : cps) {
             if (!ChangePointRefScanner
@@ -173,15 +227,19 @@ public final class ImpactTracer {
                                     .INCOMPLETE_CHAIN);
                     continue;
                 }
-                final List<ImpactPath>
-                        seedPaths =
-                        reverseTrace(
-                                resolved, cp,
-                                graph,
+                final ReverseTrace trace = reverseCache
+                        .computeIfAbsent(resolved,
+                                key -> reverseTrace(
+                                        key, graph));
+                final List<ImpactPath> seedPaths =
+                        buildPaths(trace, resolved, cp,
                                 ownerModule);
                 paths.addAll(seedPaths);
             }
         }
+        diagnostics.info(STAGE,
+                "Reverse BFS executions: "
+                        + reverseCache.size());
         sortPaths(paths);
         return new ImpactResult(
                 paths, notReported);
@@ -370,19 +428,13 @@ public final class ImpactTracer {
      * impact paths.
      *
      * @param seed        seed method
-     * @param cp          change point
      * @param graph       call graph
-     * @param ownerModule owner to
-     *                    module map
-     * @return list of paths
+     * @return reusable reverse trace
      */
-    private List<ImpactPath>
+    private ReverseTrace
             reverseTrace(
             final MethodId seed,
-            final ChangePoint cp,
-            final CallGraph graph,
-            final Map<String, String>
-                    ownerModule) {
+            final CallGraph graph) {
         final Set<MethodId> visited =
                 new HashSet<>();
         final Map<MethodId, CallEdge>
@@ -414,16 +466,40 @@ public final class ImpactTracer {
         final List<MethodId> roots =
                 findRoots(visited, seed,
                         graph);
-        final List<ImpactPath> paths =
-                new ArrayList<>();
+        return new ReverseTrace(roots, predecessor);
+    }
+
+    private List<ImpactPath> buildPaths(
+            final ReverseTrace trace,
+            final MethodId seed,
+            final ChangePoint cp,
+            final Map<String, String> ownerModule) {
+        final List<ImpactPath> paths = new ArrayList<>();
         for (final MethodId root
-                : roots) {
+                : trace.roots) {
             paths.add(buildPath(
                     root, seed, cp,
-                    predecessor,
+                    trace.predecessor,
                     ownerModule));
         }
         return paths;
+    }
+
+    /** Reusable reverse BFS skeleton for one resolved seed. */
+    private static final class ReverseTrace {
+
+        /** Stable roots. */
+        private final List<MethodId> roots;
+
+        /** Caller-to-callee predecessor edges. */
+        private final Map<MethodId, CallEdge> predecessor;
+
+        ReverseTrace(
+                final List<MethodId> traceRoots,
+                final Map<MethodId, CallEdge> tracePredecessor) {
+            roots = traceRoots;
+            predecessor = tracePredecessor;
+        }
     }
 
     /**

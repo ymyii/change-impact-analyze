@@ -18,7 +18,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -26,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+// Wiki: wiki/features/impact-tracing.md - Call Graph 前精确 seed scanning
 /**
  * Scans application bytecode to
  * find methods that reference
@@ -75,11 +75,8 @@ final class ChangePointRefScanner {
         if (result.isEmpty()) {
             return result;
         }
-        final Map<String,
-                List<ChangePoint>>
-                byOwner = groupByOwner(
-                new ArrayList<>(
-                        result.keySet()));
+        final ChangePointIndex index =
+                new ChangePointIndex(result.keySet());
         for (final ModuleBuildOutput
                 out
                 : build.getOutputs()) {
@@ -88,7 +85,7 @@ final class ChangePointRefScanner {
                             .toString();
             scanDirectory(
                     out.getClassesDir(),
-                    mod, byOwner,
+                    mod, index,
                     result);
         }
         return result;
@@ -117,45 +114,18 @@ final class ChangePointRefScanner {
     }
 
     /**
-     * Groups change points by
-     * owner class name.
-     *
-     * @param cps change points
-     * @return map of owner to cps
-     */
-    private Map<String,
-            List<ChangePoint>>
-            groupByOwner(
-            final List<ChangePoint>
-                    cps) {
-        final Map<String,
-                List<ChangePoint>>
-                map = new HashMap<>();
-        for (final ChangePoint cp
-                : cps) {
-            map.computeIfAbsent(
-                            cp.getOwner(),
-                            k -> new ArrayList<>())
-                    .add(cp);
-        }
-        return map;
-    }
-
-    /**
      * Scans a classes directory
      * for references.
      *
      * @param dir     classes dir
      * @param module  module name
-     * @param byOwner cps by owner
+     * @param index exact change-point index
      * @param result  output map
      */
     private void scanDirectory(
             final Path dir,
             final String module,
-            final Map<String,
-                    List<ChangePoint>>
-                    byOwner,
+            final ChangePointIndex index,
             final Map<ChangePoint,
                     Set<MethodId>>
                     result) {
@@ -166,7 +136,7 @@ final class ChangePointRefScanner {
             Files.walkFileTree(dir,
                     new ScannerVisitor(
                             dir, module,
-                            byOwner, result));
+                            index, result));
         } catch (IOException e) {
             throw new ImpactException(
                     "Failed to scan: "
@@ -188,10 +158,8 @@ final class ChangePointRefScanner {
         /** Module name. */
         private final String module;
 
-        /** Change points by owner. */
-        private final Map<String,
-                List<ChangePoint>>
-                byOwner;
+        /** Exact change-point index. */
+        private final ChangePointIndex index;
 
         /** Result map. */
         private final Map<ChangePoint,
@@ -203,21 +171,19 @@ final class ChangePointRefScanner {
          *
          * @param rootDir root dir
          * @param modName module name
-         * @param ownerMap cps by owner
+         * @param changeIndex exact index
          * @param resMap   result map
          */
         ScannerVisitor(
                 final Path rootDir,
                 final String modName,
-                final Map<String,
-                        List<ChangePoint>>
-                        ownerMap,
+                final ChangePointIndex changeIndex,
                 final Map<ChangePoint,
                         Set<MethodId>>
                         resMap) {
             this.root = rootDir;
             this.module = modName;
-            this.byOwner = ownerMap;
+            this.index = changeIndex;
             this.result = resMap;
         }
 
@@ -253,7 +219,7 @@ final class ChangePointRefScanner {
                                 is);
                 final RefClassVisitor cv =
                         new RefClassVisitor(
-                                byOwner,
+                                index,
                                 result,
                                 module);
                 cr.accept(cv,
@@ -274,10 +240,8 @@ final class ChangePointRefScanner {
             RefClassVisitor
             extends ClassVisitor {
 
-        /** Change points by owner. */
-        private final Map<String,
-                List<ChangePoint>>
-                byOwner;
+        /** Exact change-point index. */
+        private final ChangePointIndex index;
 
         /** Result map. */
         private final Map<ChangePoint,
@@ -293,20 +257,18 @@ final class ChangePointRefScanner {
          * Creates a ref class
          * visitor.
          *
-         * @param ownerMap cps by owner
+         * @param changeIndex exact index
          * @param resMap   result map
          * @param modName  module name
          */
         RefClassVisitor(
-                final Map<String,
-                        List<ChangePoint>>
-                        ownerMap,
+                final ChangePointIndex changeIndex,
                 final Map<ChangePoint,
                         Set<MethodId>>
                         resMap,
                 final String modName) {
             super(Opcodes.ASM9);
-            this.byOwner = ownerMap;
+            this.index = changeIndex;
             this.result = resMap;
             this.module = modName;
         }
@@ -335,7 +297,7 @@ final class ChangePointRefScanner {
                 final String signature,
                 final String[] exc) {
             return new RefMethodVisitor(
-                    byOwner, result,
+                    index, result,
                     module, className,
                     name, desc);
         }
@@ -350,10 +312,8 @@ final class ChangePointRefScanner {
             RefMethodVisitor
             extends MethodVisitor {
 
-        /** Change points by owner. */
-        private final Map<String,
-                List<ChangePoint>>
-                byOwner;
+        /** Exact change-point index. */
+        private final ChangePointIndex index;
 
         /** Result map. */
         private final Map<ChangePoint,
@@ -375,7 +335,7 @@ final class ChangePointRefScanner {
          * Creates a ref method
          * visitor.
          *
-         * @param ownerMap cps by owner
+         * @param changeIndex exact index
          * @param resMap   result map
          * @param modName  module name
          * @param clsOwner class name
@@ -383,9 +343,7 @@ final class ChangePointRefScanner {
          * @param mDesc    method desc
          */
         RefMethodVisitor(
-                final Map<String,
-                        List<ChangePoint>>
-                        ownerMap,
+                final ChangePointIndex changeIndex,
                 final Map<ChangePoint,
                         Set<MethodId>>
                         resMap,
@@ -394,7 +352,7 @@ final class ChangePointRefScanner {
                 final String mName,
                 final String mDesc) {
             super(Opcodes.ASM9);
-            this.byOwner = ownerMap;
+            this.index = changeIndex;
             this.result = resMap;
             this.module = modName;
             this.owner = clsOwner;
@@ -449,20 +407,12 @@ final class ChangePointRefScanner {
                 final String instrName,
                 final String instrDesc) {
             matchClassRef(instrOwner);
-            final List<ChangePoint>
-                    cps = byOwner.get(
-                    instrOwner);
-            if (cps == null) {
-                return;
-            }
             for (final ChangePoint cp
-                    : cps) {
-                if (isMethodMatch(
-                        cp, instrOwner,
-                        instrName,
-                        instrDesc)) {
-                    addSeed(cp);
-                }
+                    : index.methods.getOrDefault(
+                            new ReferenceKey(instrOwner,
+                                    instrName, instrDesc),
+                            List.of())) {
+                addSeed(cp);
             }
         }
 
@@ -478,20 +428,12 @@ final class ChangePointRefScanner {
                 final String instrOwner,
                 final String instrName,
                 final String instrDesc) {
-            final List<ChangePoint>
-                    cps = byOwner.get(
-                    instrOwner);
-            if (cps == null) {
-                return;
-            }
             for (final ChangePoint cp
-                    : cps) {
-                if (isFieldMatch(
-                        cp, instrOwner,
-                        instrName,
-                        instrDesc)) {
-                    addSeed(cp);
-                }
+                    : index.fields.getOrDefault(
+                            new ReferenceKey(instrOwner,
+                                    instrName, instrDesc),
+                            List.of())) {
+                addSeed(cp);
             }
         }
 
@@ -505,86 +447,11 @@ final class ChangePointRefScanner {
          */
         private void matchClassRef(
                 final String refOwner) {
-            final List<ChangePoint>
-                    cps = byOwner.get(
-                    refOwner);
-            if (cps == null) {
-                return;
-            }
             for (final ChangePoint cp
-                    : cps) {
-                if (cp.getKind()
-                        == ChangePointKind
-                        .CLASS_REMOVED) {
-                    addSeed(cp);
-                }
+                    : index.classes.getOrDefault(
+                            refOwner, List.of())) {
+                addSeed(cp);
             }
-        }
-
-        /**
-         * Checks if a change
-         * point matches a method
-         * invocation.
-         *
-         * @param cp   change point
-         * @param own  instr owner
-         * @param nam  instr name
-         * @param dsc  instr desc
-         * @return true if match
-         */
-        private boolean isMethodMatch(
-                final ChangePoint cp,
-                final String own,
-                final String nam,
-                final String dsc) {
-            final ChangePointKind k =
-                    cp.getKind();
-            if (k != ChangePointKind
-                    .METHOD_BODY_CHANGED
-                    && k != ChangePointKind
-                    .METHOD_REMOVED
-                    && k != ChangePointKind
-                    .METHOD_DESCRIPTOR_CHANGED) {
-                return false;
-            }
-            return cp.getOwner()
-                            .equals(own)
-                    && nam.equals(
-                            cp.getName())
-                    && dsc.equals(
-                            cp.getDescriptor());
-        }
-
-        /**
-         * Checks if a change
-         * point matches a field
-         * access.
-         *
-         * @param cp   change point
-         * @param own  instr owner
-         * @param nam  instr name
-         * @param dsc  instr desc
-         * @return true if match
-         */
-        private boolean isFieldMatch(
-                final ChangePoint cp,
-                final String own,
-                final String nam,
-                final String dsc) {
-            final ChangePointKind k =
-                    cp.getKind();
-            if (k != ChangePointKind
-                    .FIELD_REMOVED
-                    && k != ChangePointKind
-                    .FIELD_DESCRIPTOR_CHANGED) {
-                return false;
-            }
-            return cp.getOwner()
-                            .equals(own)
-                    && nam.equals(
-                            cp.getName())
-                    && dsc.equals(
-                            cp.getDescriptor());
         }
 
         /**
@@ -606,5 +473,63 @@ final class ChangePointRefScanner {
                             k -> new HashSet<>())
                     .add(seed);
         }
+    }
+
+    /** Exact lookup indexes split by JVM reference kind. */
+    private static final class ChangePointIndex {
+
+        /** Method reference index. */
+        private final Map<ReferenceKey, List<ChangePoint>> methods =
+                new HashMap<>();
+
+        /** Field reference index. */
+        private final Map<ReferenceKey, List<ChangePoint>> fields =
+                new HashMap<>();
+
+        /** Removed class reference index. */
+        private final Map<String, List<ChangePoint>> classes =
+                new HashMap<>();
+
+        ChangePointIndex(final Iterable<ChangePoint> points) {
+            for (ChangePoint point : points) {
+                final ChangePointKind kind = point.getKind();
+                if (kind == ChangePointKind.CLASS_REMOVED) {
+                    classes.computeIfAbsent(point.getOwner(),
+                            ignored -> new java.util.ArrayList<>())
+                            .add(point);
+                } else if (kind == ChangePointKind.FIELD_REMOVED
+                        || kind == ChangePointKind
+                        .FIELD_DESCRIPTOR_CHANGED) {
+                    add(fields, point);
+                } else if (kind == ChangePointKind.METHOD_REMOVED
+                        || kind == ChangePointKind
+                        .METHOD_DESCRIPTOR_CHANGED
+                        || kind == ChangePointKind
+                        .METHOD_BODY_CHANGED) {
+                    add(methods, point);
+                }
+            }
+        }
+
+        private void add(
+                final Map<ReferenceKey, List<ChangePoint>> target,
+                final ChangePoint point) {
+            target.computeIfAbsent(new ReferenceKey(
+                            point.getOwner(), point.getName(),
+                            point.getDescriptor()),
+                    ignored -> new java.util.ArrayList<>())
+                    .add(point);
+        }
+    }
+
+    /**
+     * Exact JVM reference key.
+     *
+     * @param owner owner internal name
+     * @param name member name
+     * @param descriptor JVM descriptor
+     */
+    private record ReferenceKey(
+            String owner, String name, String descriptor) {
     }
 }

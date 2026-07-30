@@ -71,6 +71,28 @@ class GitSnapshotProviderTest {
                         "does not exist at ref");
     }
 
+    @Test
+    void detachedSnapshotUsesCommandWorkspaceDirectory()
+            throws Exception {
+        initialize();
+        write("pom.xml", "<project/>");
+        git("add", ".");
+        git("commit", "-m", "initial");
+        final Path commandWorkspace = repository
+                .getParent().resolve("config/tree/workspaces/run-id");
+
+        try (RepositorySnapshot snapshot =
+                     new GitSnapshotProvider().open(
+                             repository, "HEAD",
+                             commandWorkspace)) {
+            assertThat(snapshot.getRoot())
+                    .isEqualTo(commandWorkspace
+                            .resolve("worktree"));
+        }
+        assertThat(commandWorkspace.resolve("worktree"))
+                .doesNotExist();
+    }
+
     private void initialize() throws Exception {
         git("init");
         git("config", "user.email", "test@example.com");

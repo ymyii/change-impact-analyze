@@ -29,18 +29,21 @@ code_refs:
     desc: "共享结果 Schema"
   - path: "src/main/java/io/github/dependencyanalysis/diagnostic/DiagnosticCollector.java"
     desc: "pipeline diagnostics event 收集"
+  - path: "src/main/java/io/github/dependencyanalysis/runtime/JavaRuntimeProbe.java"
+    desc: "impact target JDK 8 Preflight probe"
 ---
 
 # Feature: CLI Preflight and Diagnostics
 
 ## Summary
 
-CLI 提供 breaking Root/subcommand 契约，并在昂贵 pipeline 启动前执行结构化 Command Preflight。`tree` Console 将 command decision 与运行时 Analysis issue 分离，固定输出 `Preflight → Analysis → Summary`。
+CLI 提供 Root/subcommand 契约，并在昂贵 pipeline 启动前执行结构化 Command Preflight。`tree` Console 将 command decision 与运行时 Analysis issue 分离，固定输出 `Preflight → Analysis → Summary`。
 
 ## Design Decisions
 
 - Global options 使用 picocli inheritance，可放在 subcommand 前或后。
-- `impact` 与 `tree` 统一使用 `-p, --path`；每个 Root/subcommand option 都有 short option，旧 `impact --project` 与 `tree --repository` 确定性 usage failure。
+- `impact` 与 `tree` 统一使用 `-p, --path`；Root Java option 为 `-j, --java-home`。
+- `impact` Preflight 要求完整 JDK 8，校验 `bin/java`、`bin/javac`、Java major、`rt.jar` 和 boot/ext properties；`tree` 不施加 JDK 8 限制。
 - `PreflightRunner` 按 check declaration 和 `dependsOn` 形成稳定拓扑顺序；前置 failure 导致后继 `SKIPPED`。
 - `--maven-arg` 每个值是独立 process token，拒绝 lifecycle/goal 和工具控制参数；settings 相对路径以 repository root 解析。
 - `impact` 无安全 core fallback；`tree` 默认内置 evidence-complete plugin，高级 plugin override 能力不足时在 Command Preflight 阻断。
@@ -54,7 +57,7 @@ CLI 提供 breaking Root/subcommand 契约，并在昂贵 pipeline 启动前执�
 
 ## Behavior Contract
 
-- Root command 无 subcommand 时返回 usage error；旧 `--baseline ... --output ...` Root 调用不会隐式转发。
+- Root command 无 subcommand 时返回 usage error；subcommand options 只在对应 subcommand 下解析。
 - Result 包含 `checkId`、`command`、`scope`、`scopeId`、`requirement`、`status`、`decision`、`summary`、`evidence`、`fallback`、`dependsOn`、`elapsedMillis`。
 - Command Preflight 使用 `COMMAND` 和 `SNAPSHOT` scope；`tree` 不生成 Reactor-level Preflight result。
 - `status` 固定为 `PASS`、`WARN`、`FAIL`、`SKIPPED`；`decision` 固定为 `CONTINUE`、`DEGRADE`、`BLOCK_REACTOR`、`BLOCK_COMMAND`。
@@ -63,6 +66,7 @@ CLI 提供 breaking Root/subcommand 契约，并在昂贵 pipeline 启动前执�
 - `tree` 全部 reactor 无 issue 时为 `SUCCESS` 并返回 `0`；已全部处理但有 issue 时为 `COMPLETED_WITH_ISSUES` 并返回 `2`；pipeline/report failure 为 `FAILED` 并返回 `2`。
 - Command-level block 仍输出 Summary：`status=FAILED`、`report=NOT_GENERATED`。
 - `impact` 完整成功返回 `0`，pipeline failure 返回 `2`。
+- `--call-graph-timeout-seconds` 默认为 `0`；负数 validation 返回 `1`，正数用于 RTA cooperative timeout。
 
 ## Core Flow
 
@@ -79,7 +83,8 @@ CLI 提供 breaking Root/subcommand 契约，并在昂贵 pipeline 启动前执�
 
 - `impact.path`
 - `impact.git-repository`（`impact.path`）
-- `impact.root-pom`、`impact.output`、`impact.maven-runtime`（`impact.path`）
+- `impact.root-pom`、`impact.output`、`impact.java-runtime`（`impact.path`）
+- `impact.maven-runtime`（`impact.java-runtime`）
 - `impact.maven-arguments`（`impact.git-repository`）
 - `impact.maven-version`（`impact.maven-runtime`）
 - `impact.workspace`（`impact.git-repository`、`impact.root-pom`），同时准备 baseline 与 target/current checkout。
@@ -93,7 +98,7 @@ CLI 提供 breaking Root/subcommand 契约，并在昂贵 pipeline 启动前执�
 - Command：内置/override plugin runtime 与 evidence capability 在启动 Analysis 前确定，不完整 override 不进入 pipeline。
 - Reactor mode、active/requested module 数、Maven result 和 evidence 在 Analysis 记录；bounded `-pl/-am` 由工具生成，用户仍不能通过 `--maven-arg` 覆盖 selection。
 
-CLI enum/format/change-kind validation 在 check graph 建立前完成；`impact.workspace` 负责 local ref/worktree preparation，runtime check 同时验证 `--maven-java-home` path，避免把同一 probe 拆成重复 process。
+CLI enum/format/change-kind/timeout validation 在 check graph 建立前完成；`impact.java-runtime` 负责唯一一次 target JDK probe，prepared descriptor 同时交给 Maven/build 和 WALA stages。
 
 ## Acceptance Criteria
 
@@ -113,6 +118,7 @@ CLI enum/format/change-kind validation 在 check graph 建立前完成；`impact
 
 - Check DAG 出现未知 dependency、重复 checkId 或 cycle 时，plan execution 明确失败。
 - Maven version 小于 3.6.3 或大于等于 4.0.0 时 required check 阻断 command。
+- `impact` 缺少 `--java-home`、JDK major 非 8、缺少 `javac` 或 `rt.jar` 时 required check 阻断 command；`tree` 可使用其他 Maven-compatible JDK。
 - Analysis issue 必须带 severity、code、scope、message 和 remediation，不能冒充 Preflight success。
 
 ## Implementation Boundaries

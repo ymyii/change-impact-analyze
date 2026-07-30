@@ -15,6 +15,10 @@ code_refs:
     desc: "Config dir、SHA-512、lock、staging 和 extraction 实现"
   - path: "src/main/java/io/github/dependencyanalysis/runtime/MavenRuntimeDescriptor.java"
     desc: "两个 subcommand 共享的只读 runtime 契约"
+  - path: "src/main/java/io/github/dependencyanalysis/runtime/Jdk8RuntimeProvider.java"
+    desc: "impact target JDK 8 provider"
+  - path: "src/main/java/io/github/dependencyanalysis/runtime/JavaRuntimeProbe.java"
+    desc: "JDK executable/version/boot/ext probe"
   - path: "src/main/java/io/github/dependencyanalysis/runtime/MavenExecutor.java"
     desc: "Maven process token 和 JAVA_HOME 执行入口"
   - path: "src/main/java/io/github/dependencyanalysis/runtime/MavenDependencyPluginRuntimeManager.java"
@@ -29,6 +33,8 @@ code_refs:
     desc: "Apache Maven distribution LICENSE"
   - path: "src/main/resources/maven/NOTICE"
     desc: "Apache Maven distribution NOTICE"
+  - path: "src/test/java/io/github/dependencyanalysis/runtime/MavenRuntimeManagerTest.java"
+    desc: "Maven archive launcher 与 platform selection contract tests"
   - path: "src/main/resources/maven/dependency-plugin/maven-dependency-plugin-3.6.1-repository.zip"
     desc: "Maven Dependency Plugin 3.6.1 与完整传递依赖 repository"
   - path: "src/main/resources/maven/dependency-plugin/maven-dependency-plugin-3.6.1-repository.zip.sha512"
@@ -51,11 +57,12 @@ Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个
 - Config dir cleanup 只允许删除 `runtime/apache-maven/<version>/<sha>` leaf，不整体删除 config dir。
 - Maven 3.6.3 已 EOL，preflight evidence 明确展示，但版本仍在支持范围内。
 - Dependency Plugin cache 与 Maven distribution 使用相同的 checksum、leaf lock、staging 和 atomic move 安全模型，但两者是独立 resource。
+- 内嵌 Maven ZIP 同时携带 `mvn`、`mvn.cmd`、`mvnDebug` 和 `mvnDebug.cmd`；launcher selection 提取为可测试的 OS contract。
 
 ## Actors / Entrypoints
 
 - `impact`/`tree` preflight 调用 `MavenRuntimeManager.prepare()`。
-- 用户通过 `--maven`、`--maven-java-home` 和 `--config-dir` 控制 runtime。
+- 用户通过 `--maven`、`--java-home` 和 `--config-dir` 控制 runtime。
 
 ## Behavior Contract
 
@@ -64,6 +71,8 @@ Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个
 - 内嵌 preparation 使用 file lock、staging 和 atomic move，其他进程不会看到半解压 runtime。
 - 损坏 runtime 只重建对应 leaf；未知 config/user 文件保持不变。
 - POSIX/macOS 依靠 `.` 前缀隐藏默认目录；Windows best-effort 设置 DOS hidden attribute。
+- Windows 选择 `bin/mvn.cmd`，Linux/macOS 选择 `bin/mvn`；最终 process token 仍统一经过 `CommandResolver.resolve()`，Windows 包装为 `cmd.exe /c`。
+- `--java-home` 设置 Maven subprocess 的 `JAVA_HOME`；`impact` 同时用它编译用户代码并构建目标 JDK scope，且只接受完整 JDK 8。`tree` 只要求该 JDK 与 Maven/project 兼容。
 
 ## Core Flow
 
@@ -83,6 +92,8 @@ Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个
 - Given user executable；When preparation；Then 不解压内嵌 runtime。
 - Given 本地无 Dependency Plugin cache 且网络不可用；When 执行默认 `tree`；Then 可从 JAR resource 准备并执行 `maven-dependency-plugin:3.6.1`。
 - Given plugin cache checksum/marker 损坏；When 再次 preparation；Then 只重建工具拥有的 cache leaf。
+- Given `os.name` 为 Windows；When 选择内嵌 launcher；Then 返回 `mvn.cmd`；Given Linux/macOS，Then 返回 `mvn`。
+- Given 检查内嵌 Maven ZIP；When 枚举 entries；Then 四个 Maven launcher 均存在。
 
 ### Non-Functional
 
@@ -95,6 +106,7 @@ Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个
 - SHA-512 不匹配或 resource 缺失时 preparation 失败，不保留 completion marker。
 - ZIP entry 越出 staging directory 时拒绝解压。
 - Unix executable bit 在 preparation 后设置；Windows 使用 `bin/mvn.cmd`。
+- Contract tests 验证 Windows launcher 和 `cmd.exe /c` 命令构造，但不等同于真实 Windows 端到端验证。
 
 ## Implementation Boundaries
 

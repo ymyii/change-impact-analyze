@@ -27,13 +27,13 @@ code_refs:
 
 ## Summary
 
-Dependency Analyzer 是 Java 17 + Maven + picocli CLI，用于分析 Maven dependency。`impact` 比较 dependency 升级前后的 bytecode 与业务调用影响；`tree` 扫描 Git repository 内的 Maven reactor，生成 repository 级静态 HTML dependency tree report。
+Dependency Analyzer 是 Java 17 analyzer + Maven + picocli CLI。`impact` 使用显式 JDK 8 比较 dependency 升级前后的 bytecode 与业务调用影响；`tree` 扫描 Git repository 内的 Maven reactor，生成 repository 级静态 HTML dependency tree report。
 
 ## Design Decisions
 
-- Public CLI 固定为 `dependency-analyzer [global-options] <subcommand>`，旧无 subcommand 调用不兼容。
+- Public CLI 固定为 `dependency-analyzer [global-options] <subcommand>`。
 - Maven coordinates 为 `io.github.dependencyanalysis:dependency-analyzer:0.1.0-SNAPSHOT`，Java base package 为 `io.github.dependencyanalysis`，uber JAR 为 `dependency-analyzer.jar`。
-- `impact` 保留既有 GraphML 分析算法；`tree` 使用 verbose text 采集完整 dependency occurrence，不用 rich parser 替换既有算法。
+- `impact` 使用 GraphML dependency diff；`tree` 使用 verbose text 采集完整 dependency occurrence。
 - 两个 subcommand 共享 Maven runtime 和 preflight Schema，但分别组装检查 DAG；pipeline 只消费 preflight decision。
 
 ## Module Map
@@ -48,9 +48,9 @@ Dependency Analyzer 是 Java 17 + Maven + picocli CLI，用于分析 Maven depen
 
 ## Technical Stack
 
-- Java 17。
+- Analyzer runtime 为 Java 17；`impact` target runtime 为完整 JDK 8，`tree` 接受 Maven-compatible JDK。
 - Maven 3.x 构建；应用默认内嵌 Apache Maven 3.6.3 runtime。
-- picocli 4.7.6、ASM 9.7、WALA 1.6.13、JUnit 5、AssertJ。
+- picocli 4.7.6、ASM 9.7、WALA 1.8.0、Vineflower 1.12.0 slim、JUnit 5、AssertJ。
 - maven-shade-plugin 生成包含 runtime distribution 的 uber JAR。
 
 ## Main Entrypoints

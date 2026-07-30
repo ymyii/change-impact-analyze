@@ -25,6 +25,7 @@ code_refs:
 
 - Java 17 JDK。
 - Maven 3.x。
+- 真实 `impact` integration/smoke 通过 `TEST_JDK8_HOME` 指向完整 JDK 8；Analyzer 仍由 Java 17 启动。
 - integration tests 需要本地 `git` 和可运行 Maven executable；内嵌 runtime 测试不依赖 PATH Maven。
 
 ## Commands
@@ -48,6 +49,12 @@ mvn failsafe:integration-test failsafe:verify
 mvn clean verify
 ```
 
+带真实 JDK 8 `impact` gate：
+
+```sh
+TEST_JDK8_HOME=/path/to/jdk8 mvn clean verify
+```
+
 ### 打包与 Root CLI smoke
 
 ```sh
@@ -67,8 +74,10 @@ Subdirectory `tree` fixture 必须包含 requested module、同 reactor dependen
 - `mvn verify` 的 Surefire 和 Failsafe tests 全部通过。
 - `target/dependency-analyzer.jar` 存在，manifest `Main-Class` 为 `io.github.dependencyanalysis.cli.DependencyAnalyzerCli`。
 - JAR 包含 Maven distribution 和 `maven-dependency-plugin:3.6.1` 完整 repository archive、SHA-512、LICENSE 和 NOTICE。
+- JAR 使用 WALA 1.8.0；JDK 8 smoke 覆盖 `jdk-analysis`、CHA/RTA，并断言 stdout/stderr 不含 `got NEW`。
+- `impact` 缺少 JDK 8、传入 JDK 17、缺少 `javac`/`rt.jar` 时 Preflight 返回 exit `1`；`tree` 不受 JDK 8 限制。
 - JAR 内 Maven/plugin archive 的实际 SHA-512 与 packaged checksum 一致。
-- Root/两个 subcommand help 列出全部 short option；旧 Root invocation、`--project` 与 `--repository` 返回 usage failure。
+- Root/两个 subcommand help 列出全部当前 option；无 subcommand或未知 option 返回 usage failure。
 - Packaged JAR 中断测试保留已发布 reactor page 与最后一个 `RUNNING x/N` Index。
 - Packaged JAR 在空 plugin cache 且无远程 plugin repository 时仍能执行 tree，Console 不出现 `evidence is incomplete`。
 - Reactor HTML metadata 使用表格，dependency tree 无交互，依赖冲突表的检索、Module/Scope filter、排序和 10/50/100 分页在 `file://` 下可用。

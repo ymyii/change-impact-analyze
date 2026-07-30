@@ -29,6 +29,25 @@ public final class GitSnapshotProvider {
             final String ref)
             throws IOException,
             InterruptedException {
+        return open(repository, ref, null);
+    }
+
+    /**
+     * Opens a snapshot in a command-owned workspace directory.
+     *
+     * @param repository user repository path
+     * @param ref local ref, nullable
+     * @param workspaceDirectory workspaces/run-id directory
+     * @return owned snapshot
+     * @throws IOException on Git or IO failure
+     * @throws InterruptedException when interrupted
+     */
+    public RepositorySnapshot open(
+            final Path repository,
+            final String ref,
+            final Path workspaceDirectory)
+            throws IOException,
+            InterruptedException {
         if (!Files.isDirectory(repository)) {
             throw new IOException(
                     "Analysis path is not a directory: "
@@ -65,9 +84,16 @@ public final class GitSnapshotProvider {
         final String commit = run(root,
                 "rev-parse", "--verify",
                 ref + "^{commit}").trim();
-        final Path worktree =
-                Files.createTempDirectory(
-                        "dependency-analyzer-ref-");
+        final Path worktree;
+        if (workspaceDirectory == null) {
+            worktree = Files.createTempDirectory(
+                    "dependency-analyzer-ref-");
+        } else {
+            worktree = workspaceDirectory
+                    .resolve("worktree");
+            Files.createDirectories(
+                    workspaceDirectory);
+        }
         try {
             run(root, "worktree", "add",
                     "--detach", worktree.toString(),

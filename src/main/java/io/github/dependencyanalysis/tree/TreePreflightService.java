@@ -22,6 +22,8 @@ import io.github.dependencyanalysis.preflight
 import io.github.dependencyanalysis.preflight
         .SimplePreflightCheck;
 import io.github.dependencyanalysis.runtime
+        .CommandRunDirectory;
+import io.github.dependencyanalysis.runtime
         .MavenDependencyPluginRuntime;
 import io.github.dependencyanalysis.runtime
         .MavenDependencyPluginRuntimeManager;
@@ -61,6 +63,9 @@ final class TreePreflightService {
 
     /** Inventory key. */
     static final String INVENTORY = "tree.inventory";
+
+    /** Command-owned workspace and temp run. */
+    static final String COMMAND_RUN = "tree.command-run";
 
     /** Root options. */
     private final DependencyAnalyzerCli root;
@@ -137,12 +142,23 @@ final class TreePreflightService {
                 List.of("tree.path"),
                 context -> {
                     try {
+                        final CommandRunDirectory run =
+                                context.own(
+                                        new CommandRunDirectory(
+                                                root
+                                                        .getConfigDir()
+                                                        .toPath(),
+                                                "tree"));
+                        context.put(COMMAND_RUN, run);
+                        final Path workspaceDirectory =
+                                run.getWorkspaceDirectory();
                         final RepositorySnapshot snapshot =
                                 context.own(
                                         new GitSnapshotProvider()
                                                 .open(path
                                                         .toPath(),
-                                                        ref));
+                                                        ref,
+                                                        workspaceDirectory));
                         context.put(SNAPSHOT, snapshot);
                         return PreflightOutcome.pass(
                                 "Repository snapshot prepared",
@@ -252,7 +268,7 @@ final class TreePreflightService {
     private PreflightOutcome prepareRuntime(
             final PreflightContext context) {
         final File javaHome = root
-                .getMavenJavaHome();
+                .getJavaHome();
         if (javaHome != null
                 && !javaHome.isDirectory()) {
             return PreflightOutcome.fail(

@@ -58,6 +58,9 @@ public final class DependencyAnalyzer {
     /** User Maven arguments. */
     private final List<String> mavenArguments;
 
+    /** Command-owned temporary directory, nullable. */
+    private Path temporaryDirectory;
+
     /**
      * Creates a new dependency analyzer.
      *
@@ -127,6 +130,19 @@ public final class DependencyAnalyzer {
         this.buildJavaHome = javaHomeOpt;
         this.mavenExecutable = executable;
         this.mavenArguments = List.copyOf(arguments);
+        this.temporaryDirectory = null;
+    }
+
+    /**
+     * Selects command-owned temporary storage.
+     *
+     * @param directory command temporary directory
+     * @return this analyzer
+     */
+    public DependencyAnalyzer withTemporaryDirectory(
+            final Path directory) {
+        temporaryDirectory = directory;
+        return this;
     }
 
     /**
@@ -153,10 +169,10 @@ public final class DependencyAnalyzer {
                         + "workspace="
                         + workspacePath
                         + " side=" + side);
-        final Path logFile =
-                Files.createTempFile(
-                        "cia-dep-",
-                        ".log");
+        final Path logFile = temporaryDirectory == null
+                ? Files.createTempFile("cia-dep-", ".log")
+                : Files.createTempFile(temporaryDirectory,
+                "dependency-" + side + "-", ".log");
         final String cmdStr =
                 "mvn dependency:tree "
                         + "-DoutputType=graphml "

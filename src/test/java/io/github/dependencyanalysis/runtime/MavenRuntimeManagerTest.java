@@ -3,13 +3,17 @@ package io.github.dependencyanalysis.runtime;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 import static org.assertj.core.api.Assertions
         .assertThat;
@@ -119,5 +123,43 @@ class MavenRuntimeManagerTest {
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    void embeddedArchiveContainsPosixAndWindowsLaunchers()
+            throws Exception {
+        final InputStream resource =
+                MavenRuntimeManager.class
+                        .getResourceAsStream(
+                                "/maven/apache-maven-3.6.3-bin.zip");
+        assertThat(resource).isNotNull();
+        final java.util.Set<String> entries =
+                new HashSet<>();
+        try (ZipInputStream zip =
+                     new ZipInputStream(resource)) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry())
+                    != null) {
+                entries.add(entry.getName());
+            }
+        }
+        assertThat(entries).contains(
+                "apache-maven-3.6.3/bin/mvn",
+                "apache-maven-3.6.3/bin/mvn.cmd",
+                "apache-maven-3.6.3/bin/mvnDebug",
+                "apache-maven-3.6.3/bin/mvnDebug.cmd");
+    }
+
+    @Test
+    void selectsPlatformSpecificLauncher() {
+        assertThat(MavenRuntimeManager
+                .executableNameFor("Windows 11"))
+                .isEqualTo("mvn.cmd");
+        assertThat(MavenRuntimeManager
+                .executableNameFor("Linux"))
+                .isEqualTo("mvn");
+        assertThat(MavenRuntimeManager
+                .executableNameFor("Mac OS X"))
+                .isEqualTo("mvn");
     }
 }

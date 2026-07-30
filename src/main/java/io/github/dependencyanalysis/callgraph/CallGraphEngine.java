@@ -4,8 +4,6 @@ import com.ibm.wala.classLoader.BinaryDirectoryTreeModule;
 import com.ibm.wala.classLoader.CallSiteReference;
 import com.ibm.wala.classLoader.IClass;
 import com.ibm.wala.classLoader.IMethod;
-import com.ibm.wala.classLoader.Module;
-import com.ibm.wala.classLoader.ModuleEntry;
 import com.ibm.wala.ipa.callgraph.AnalysisCacheImpl;
 import com.ibm.wala.ipa.callgraph.AnalysisOptions;
 import com.ibm.wala.ipa.callgraph.AnalysisScope;
@@ -16,6 +14,7 @@ import com.ibm.wala.ipa.callgraph.IAnalysisCacheView;
 import com.ibm.wala.ipa.callgraph.impl.AllApplicationEntrypoints;
 import com.ibm.wala.ipa.callgraph.impl.Util;
 import com.ibm.wala.ipa.callgraph.propagation.InstanceKey;
+import com.ibm.wala.ipa.callgraph.propagation.PropagationCallGraphBuilder;
 import com.ibm.wala.ipa.cha.ClassHierarchyException;
 import com.ibm.wala.ipa.cha.ClassHierarchyFactory;
 import com.ibm.wala.ipa.cha.IClassHierarchy;
@@ -30,16 +29,8 @@ import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
-import java.net.URI;
-import java.nio.file.FileSystem;
-import java.nio.file.FileSystemAlreadyExistsException;
-import java.nio.file.FileSystems;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -47,7 +38,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Stream;
 
 // Wiki: wiki/features/call-graph-engine.md - Call Graph 构建入口
 /**
@@ -89,8 +79,39 @@ public final class CallGraphEngine {
      */
     public CallGraph build(
             final BuildResult result) {
+        final AnalysisScope scope =
+                AnalysisScope.createJavaAnalysisScope();
+        try {
+            scope.addStdLibs(true,
+                    ClassLoaderReference.Primordial);
+        } catch (IOException exception) {
+            throw new CallGraphException(
+                    "Unable to prepare analyzer JDK scope",
+                    exception);
+        }
+        return build(result, scope, 0L);
+    }
+
+    /**
+     * Builds a call graph with a prepared target JDK scope.
+     *
+     * @param result build result
+     * @param baseScope prepared target JDK scope
+     * @param timeoutSeconds RTA timeout, zero for unlimited
+     * @return immutable call graph
+     */
+    public CallGraph build(
+            final BuildResult result,
+            final AnalysisScope baseScope,
+            final long timeoutSeconds) {
         Objects.requireNonNull(
                 result, "result");
+        Objects.requireNonNull(
+                baseScope, "baseScope");
+        if (timeoutSeconds < 0) {
+            throw new IllegalArgumentException(
+                    "timeoutSeconds must be >= 0");
+        }
         final long t0 =
                 System.currentTimeMillis();
         final Runtime rt =
@@ -98,12 +119,21 @@ public final class CallGraphEngine {
         final long maxMem =
                 rt.totalMemory()
                         - rt.freeMemory();
+        diagnostics.startStage(STAGE);
         try {
-            return buildInternal(
-                    result, t0, rt, maxMem);
+            final CallGraph graph = buildInternal(
+                    result, baseScope, timeoutSeconds,
+                    t0, rt, maxMem);
+            diagnostics.endStage(STAGE);
+            return graph;
         } catch (CallGraphException e) {
+            diagnostics.failStage(STAGE,
+                    e.getMessage());
             throw e;
         } catch (Exception e) {
+            diagnostics.failStage(STAGE,
+                    "Call graph build failed: "
+                            + e.getMessage());
             throw new CallGraphException(
                     "Call graph build failed",
                     e);
@@ -115,6 +145,8 @@ public final class CallGraphEngine {
      * orchestrates WALA phases.
      *
      * @param result build result
+     * @param baseScope prepared target JDK scope
+     * @param timeoutSeconds RTA timeout
      * @param t0     start time millis
      * @param rt     runtime instance
      * @param maxMem initial memory
@@ -122,19 +154,30 @@ public final class CallGraphEngine {
      */
     private CallGraph buildInternal(
             final BuildResult result,
+            final AnalysisScope baseScope,
+            final long timeoutSeconds,
             final long t0,
             final Runtime rt,
             final long maxMem) {
         final AnalysisScope scope =
-                createScope(result);
+                createScope(result, baseScope);
+        diagnostics.info(STAGE,
+                "Application scope prepared");
         final IClassHierarchy cha =
                 createClassHierarchy(scope);
-        final Iterable<Entrypoint> eps =
+        diagnostics.info(STAGE,
+                "CHA classes: " + cha.getNumberOfClasses());
+        final List<Entrypoint> eps =
                 createEntrypoints(scope, cha);
+        diagnostics.info(STAGE,
+                "Application entrypoints: " + eps.size());
         final com.ibm.wala.ipa.callgraph.CallGraph
                 walaCg =
                 buildRtaCallGraph(
-                        scope, cha, eps);
+                        scope, cha, eps,
+                        timeoutSeconds);
+        diagnostics.info(STAGE,
+                "RTA construction completed");
         final Map<String, String> modMap =
                 buildModuleMap(result);
         final Set<MethodId> methods =
@@ -144,6 +187,10 @@ public final class CallGraphEngine {
         extractEdges(
                 walaCg, cha, modMap,
                 methods, edges);
+        diagnostics.info(STAGE,
+                "Application edges extracted: methods="
+                        + methods.size() + ", edges="
+                        + edges.size());
         final Map<MethodId,
                 Set<MethodId>> ovr =
                 buildOverrideMap(
@@ -183,14 +230,12 @@ public final class CallGraphEngine {
      * scope from build outputs.
      *
      * @param result build result
+     * @param scope prepared target JDK scope
      * @return analysis scope
      */
     private AnalysisScope createScope(
-            final BuildResult result) {
-        final AnalysisScope scope =
-                AnalysisScope
-                        .createJavaAnalysisScope();
-        addJdkPrimordial(scope);
+            final BuildResult result,
+            final AnalysisScope scope) {
         for (final ModuleBuildOutput out
                 : result.getOutputs()) {
             final File dir =
@@ -210,59 +255,6 @@ public final class CallGraphEngine {
                             dir));
         }
         return scope;
-    }
-
-    /**
-     * Adds JDK primordial classes
-     * to the analysis scope using
-     * the JRT filesystem.
-     *
-     * @param scope analysis scope
-     */
-    private void addJdkPrimordial(
-            final AnalysisScope scope) {
-        try {
-            final FileSystem jrtFs =
-                    getOrCreateJrtFs();
-            if (jrtFs == null) {
-                return;
-            }
-            final Path modules =
-                    jrtFs.getPath("modules");
-            scope.addToScope(
-                    ClassLoaderReference
-                            .Primordial,
-                    new JrtDirectoryModule(
-                            modules));
-        } catch (Exception e) {
-            diagnostics.warn(STAGE,
-                    "Failed to add JDK"
-                            + " primordial: "
-                            + e.getMessage());
-        }
-    }
-
-    /**
-     * Gets or creates the JRT
-     * filesystem.
-     *
-     * @return JRT filesystem or null
-     */
-    private FileSystem getOrCreateJrtFs() {
-        final URI uri =
-                URI.create("jrt:/");
-        try {
-            return FileSystems
-                    .newFileSystem(
-                            uri,
-                            Collections
-                                    .emptyMap());
-        } catch (FileSystemAlreadyExistsException e) {
-            return FileSystems
-                    .getFileSystem(uri);
-        } catch (Exception e) {
-            return null;
-        }
     }
 
     /**
@@ -294,12 +286,18 @@ public final class CallGraphEngine {
      * @param cha   class hierarchy
      * @return iterable of entry points
      */
-    private Iterable<Entrypoint>
+    private List<Entrypoint>
             createEntrypoints(
             final AnalysisScope scope,
             final IClassHierarchy cha) {
-        return new AllApplicationEntrypoints(
-                scope, cha);
+        final List<Entrypoint> result =
+                new ArrayList<>();
+        for (Entrypoint entrypoint
+                : new AllApplicationEntrypoints(
+                        scope, cha)) {
+            result.add(entrypoint);
+        }
+        return result;
     }
 
     /**
@@ -308,13 +306,15 @@ public final class CallGraphEngine {
      * @param scope analysis scope
      * @param cha   class hierarchy
      * @param eps   entry points
+     * @param timeoutSeconds RTA timeout
      * @return WALA call graph
      */
     private com.ibm.wala.ipa.callgraph.CallGraph
             buildRtaCallGraph(
             final AnalysisScope scope,
             final IClassHierarchy cha,
-            final Iterable<Entrypoint> eps) {
+            final Iterable<Entrypoint> eps,
+            final long timeoutSeconds) {
         final AnalysisOptions opts =
                 new AnalysisOptions(
                         scope, eps);
@@ -322,22 +322,38 @@ public final class CallGraphEngine {
                 new AnalysisCacheImpl();
         Util.addDefaultSelectors(
                 opts, cha);
-        Util.addDefaultBypassLogic(
-                opts,
-                getClass().getClassLoader(),
-                cha);
         final CallGraphBuilder<InstanceKey>
                 builder =
                 Util.makeRTABuilder(
                         opts, cache, cha);
-        try {
-            return builder.makeCallGraph(
-                    opts, null);
-        } catch (Exception e) {
-            throw new CallGraphException(
-                    "RTA call graph"
-                            + " construction failed",
-                    e);
+        if (builder instanceof PropagationCallGraphBuilder) {
+            ((PropagationCallGraphBuilder) builder)
+                    .setInstanceKeys(
+                            new QuietClassBasedInstanceKeys(
+                                    opts, cha));
+        }
+        try (CallGraphProgressMonitor monitor =
+                     new CallGraphProgressMonitor(
+                             diagnostics, timeoutSeconds)) {
+            try {
+                return builder.makeCallGraph(
+                        opts, monitor);
+            } catch (Exception exception) {
+                if (monitor.isTimedOut()) {
+                    throw new CallGraphException(
+                            "RTA call graph timed out after "
+                                    + timeoutSeconds
+                                    + " seconds",
+                            exception);
+                }
+                final String detail = exception.getMessage() == null
+                        ? exception.getClass().getSimpleName()
+                        : exception.getMessage();
+                throw new CallGraphException(
+                        "RTA call graph construction failed: "
+                                + detail,
+                        exception);
+            }
         }
     }
 
@@ -718,170 +734,4 @@ public final class CallGraphEngine {
         return Math.max(cur, minMem);
     }
 
-    /**
-     * Module that wraps a JRT
-     * modules directory and provides
-     * class file entries.
-     */
-    private static final class
-            JrtDirectoryModule
-            implements Module {
-
-        /** Root modules path. */
-        private final Path root;
-
-        /**
-         * Creates a JRT directory module.
-         *
-         * @param modulesPath modules path
-         */
-        JrtDirectoryModule(
-                final Path modulesPath) {
-            this.root = modulesPath;
-        }
-
-        @Override
-        public Iterator<? extends
-                ModuleEntry> getEntries() {
-            try {
-                final List<ModuleEntry>
-                        entries =
-                        new ArrayList<>();
-                try (Stream<Path> mods =
-                        Files.list(root)) {
-                    mods.filter(
-                                    Files::isDirectory)
-                            .forEach(modDir ->
-                                    collectClasses(
-                                            modDir,
-                                            entries));
-                }
-                return entries.iterator();
-            } catch (IOException e) {
-                return Collections
-                        .<ModuleEntry>emptyList()
-                        .iterator();
-            }
-        }
-
-        /**
-         * Collects class file entries
-         * from a module directory.
-         *
-         * @param modDir  module directory
-         * @param entries output list
-         */
-        private void collectClasses(
-                final Path modDir,
-                final List<ModuleEntry>
-                        entries) {
-            try (Stream<Path> walk =
-                    Files.walk(modDir)) {
-                walk.filter(Files::isRegularFile)
-                        .filter(p -> p
-                                .toString()
-                                .endsWith(
-                                        ".class"))
-                        .forEach(p ->
-                                entries.add(
-                                        new JrtModuleEntry(
-                                                p)));
-            } catch (IOException e) {
-                // skip module
-            }
-        }
-    }
-
-    /**
-     * Module entry for a single
-     * class file in the JRT filesystem.
-     */
-    private static final class
-            JrtModuleEntry
-            implements ModuleEntry {
-
-        /** Class file path. */
-        private final Path path;
-
-        /**
-         * Creates a JRT module entry.
-         *
-         * @param filePath class file path
-         */
-        JrtModuleEntry(final Path filePath) {
-            this.path = filePath;
-        }
-
-        @Override
-        public String getName() {
-            final String s =
-                    path.toString();
-            // JRT paths look like:
-            // modules/java.base/java/lang/Object.class
-            // We need: java/lang/Object.class
-            final int firstSlash =
-                    s.indexOf('/');
-            if (firstSlash < 0) {
-                return s;
-            }
-            final int secondSlash =
-                    s.indexOf('/',
-                            firstSlash + 1);
-            if (secondSlash < 0) {
-                return s;
-            }
-            return s.substring(
-                    secondSlash + 1);
-        }
-
-        @Override
-        public boolean isClassFile() {
-            return path.toString()
-                    .endsWith(".class");
-        }
-
-        @Override
-        public boolean isSourceFile() {
-            return false;
-        }
-
-        @Override
-        public InputStream getInputStream() {
-            try {
-                return Files.newInputStream(
-                        path);
-            } catch (IOException e) {
-                throw new IllegalStateException(
-                        "Cannot read: "
-                                + path, e);
-            }
-        }
-
-        @Override
-        public boolean isModuleFile() {
-            return false;
-        }
-
-        @Override
-        public Module asModule() {
-            return null;
-        }
-
-        @Override
-        public String getClassName() {
-            final String name = getName();
-            if (name.endsWith(".class")) {
-                return name.substring(
-                        0, name.length()
-                                - ".class"
-                                        .length());
-            }
-            return name;
-        }
-
-        @Override
-        public Module getContainer() {
-            return null;
-        }
-    }
 }

@@ -41,7 +41,7 @@ Dependency Tree Extraction 是 `impact` pipeline 的兼容层，基于 Maven 实
 
 - 使用 Maven dependency plugin 的 GraphML 输出作为依赖树交换格式，避免自行实现 Maven 依赖调解。
 - baseline 依赖树用于提取 reactor module 坐标，target 依赖树用这些坐标排除 reactor module 依赖。
-- Maven executable、`--maven-java-home` 和安全 user Maven arguments 来自 impact preflight prepared context。
+- Maven executable、`--java-home` 和安全 user Maven arguments 来自 impact preflight prepared context。
 - 保留既有 GraphML 算法，避免未经证明的 text parser migration 改变 impact 分析语义。
 - Maven 命令统一经过 `CommandResolver.resolve()`，确保 Windows 上可解析 `mvn.cmd`。
 

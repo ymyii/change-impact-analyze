@@ -130,6 +130,25 @@ class WorkspaceManagerIT {
     }
 
     @Test
+    void commandOwnedWorktreesStayInsideRunDirectory()
+            throws Exception {
+        final Path runRoot = tempDir.resolve(
+                "config/impact/workspaces/run-id");
+        Files.createDirectories(runRoot);
+        try (WorkspaceManager manager = new WorkspaceManager(
+                repoDir, diag, runRoot)) {
+            final WorkspaceResult result = manager.prepare(
+                    firstCommit, secondCommit);
+            assertThat(result.getBaseline().getPath())
+                    .startsWith(runRoot);
+            assertThat(result.getTarget().getPath())
+                    .startsWith(runRoot);
+        }
+        assertThat(runRoot.resolve("baseline")).doesNotExist();
+        assertThat(runRoot.resolve("target")).doesNotExist();
+    }
+
+    @Test
     void currentWorkspaceNotCheckedOut()
             throws Exception {
         final String headBefore =

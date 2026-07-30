@@ -25,6 +25,12 @@ code_refs:
     desc: "Jar 到 class index 的两遍扫描索引器"
   - path: "src/main/java/io/github/dependencyanalysis/bytecode/StableHashMethodVisitor.java"
     desc: "忽略 debug 信息的 method body SHA-256 hash visitor"
+  - path: "src/main/java/io/github/dependencyanalysis/bytecode/MethodBodyDecompiler.java"
+    desc: "Vineflower in-memory 单 method 反编译入口"
+  - path: "src/main/java/io/github/dependencyanalysis/bytecode/MethodBodyEvidence.java"
+    desc: "METHOD_BODY_CHANGED 的 old/new Java-like evidence"
+  - path: "src/main/java/io/github/dependencyanalysis/bytecode/DecompiledMethod.java"
+    desc: "单侧反编译 source 或 unavailable reason"
   - path: "src/main/java/io/github/dependencyanalysis/bytecode/ClassInfo.java"
     desc: "包级内部 class 索引模型"
   - path: "src/main/java/io/github/dependencyanalysis/bytecode/MethodInfo.java"
@@ -37,7 +43,7 @@ code_refs:
 
 ## Summary
 
-Bytecode Diff Engine 对 `VERSION_CHANGED` 依赖的 old/new jar 执行 bytecode 级别 diff，生成 `ChangePoint` 清单。它使用 ASM 读取 class 文件，并通过稳定 SHA-256 method body hash 检测方法体变化。
+Bytecode Diff Engine 对 `VERSION_CHANGED` 依赖的 old/new jar 执行 bytecode 级别 diff，生成 `ChangePoint` 清单。它使用 ASM 读取 class 文件，并通过稳定 SHA-256 method body hash 检测方法体变化；对实际进入 Impact Paths 的 `METHOD_BODY_CHANGED`，pipeline 再使用 Vineflower 生成 old/new Java-like method evidence。
 
 ## Design Decisions
 
@@ -45,6 +51,9 @@ Bytecode Diff Engine 对 `VERSION_CHANGED` 依赖的 old/new jar 执行 bytecode
 - `BytecodeDiffEngine(Set<ChangePointKind>)` 支持调用方显式过滤 kind，过滤在每个 ChangePoint 产生点执行。
 - Method body hash 忽略 debug 信息、line number、local variable table 和 stack map frames，只关注结构性指令。
 - Abstract 和 native 方法 bodyHash 为 null，不参与 method body 变化比较。
+- Vineflower 固定使用 `org.vineflower:vineflower:1.12.0:slim`，随 uber JAR 打包，在运行期不下载 decompiler artifact。
+- 单 method 选择使用 `owner + name + descriptor` JVM identifier，overloaded method 不按 name 模糊匹配；constructor 保留显式空 constructor 输出。
+- 反编译是 best-effort evidence，不作为 impact 判定依据；任一侧失败只产生 WARN Diagnostic 和 unavailable reason。
 
 ## Actors / Entrypoints
 
@@ -63,6 +72,8 @@ Bytecode Diff Engine 对 `VERSION_CHANGED` 依赖的 old/new jar 执行 bytecode
 - Field 级别按 name 匹配，检测增删和 descriptor 变化。
 - includedKinds 为空集合时不产出任何 ChangePoint。
 - Corrupt jar 或 class 读取失败时抛出 `BytecodeDiffException`。
+- `MethodBodyEvidence` 同时保留 ChangePoint、old/new artifact，以及每侧的 Java-like source 或 unavailable reason。
+- 反编译 input/output 全部在内存中完成，不产生持久化 `.java` 中间文件。
 
 ## Core Flow
 
@@ -75,6 +86,8 @@ Bytecode Diff Engine 对 `VERSION_CHANGED` 依赖的 old/new jar 执行 bytecode
 7. Field diff 产出新增、移除和 descriptor 变化。
 8. 返回不可变 ChangePoint 列表。
 
+Impact Paths 生成后，pipeline 从路径中提取、排序并去重 `METHOD_BODY_CHANGED`，通过原 ChangePoint 到 `JarLocationResult` 的关联读取 old/new class，使用精确 JVM method identifier 反编译两侧。单侧失败不影响另一侧，也不阻断报告生成。
+
 ## Acceptance Criteria
 
 ### Functional
@@ -85,6 +98,8 @@ Bytecode Diff Engine 对 `VERSION_CHANGED` 依赖的 old/new jar 执行 bytecode
 - Given 方法结构性指令改变，When 执行 diff，Then 在 kind 允许时产出 `METHOD_BODY_CHANGED`。
 - Given field descriptor 改变，When 执行 diff，Then 在 kind 允许时产出 `FIELD_DESCRIPTOR_CHANGED`。
 - Given includedKinds 为空，When 执行 diff，Then 返回空 ChangePoint 列表。
+- Given overloaded method body 变化，When 生成 evidence，Then 只输出 descriptor 精确匹配的方法。
+- Given old/new 任一侧反编译失败，When 生成 evidence，Then 失败侧为 unavailable，成功侧仍保留 source，并记录 WARN Diagnostic。
 
 ### Non-Functional
 
@@ -98,9 +113,11 @@ Bytecode Diff Engine 对 `VERSION_CHANGED` 依赖的 old/new jar 执行 bytecode
 - 同名但 descriptor 不同的方法会产生 descriptor 变化，而不是被误判为两个无关方法。
 - Corrupt class 需要携带 jarPath 和 className，便于定位损坏输入。
 - ADDED 类型默认被过滤，但调用方可以通过 `--include-change-kinds` 显式纳入。
+- Decompiled source 是 Java-like evidence，不保证与原始 source 文本一致。
 
 ## Implementation Boundaries
 
 - Bytecode Diff Engine 不定位 jar、不筛选 `VERSION_CHANGED`；这些由 Jar Locator 和 Dependency Diff Engine 保证。
 - `ChangePointKind.DEFAULT_INCLUDED_KINDS` 是 CLI 和 engine 共享的默认过滤合同。
 - `ChangePoint` 是 Impact Tracing 和 Report Generator 的输入边界。
+- Decompiler 只处理已有 Impact Paths 引用的 `METHOD_BODY_CHANGED`；无调用链的变化不触发反编译。

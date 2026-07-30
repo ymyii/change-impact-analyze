@@ -103,7 +103,7 @@ class DependencyAnalyzerCliTest {
 
         assertThat(rootText.toString())
                 .contains("-m, --maven")
-                .contains("-j, --maven-java-home")
+                .contains("-j, --java-home")
                 .contains("-c, --config-dir")
                 .contains("-a, --maven-arg");
         assertThat(impactText.toString())
@@ -140,6 +140,27 @@ class DependencyAnalyzerCliTest {
                         new DependencyAnalyzerCli())
                 .execute("tree", "--repository", ".",
                         "--output", "report");
+
+        assertThat(code).isEqualTo(1);
+    }
+
+    @Test
+    void removedMavenJavaHomeOptionIsRejected() {
+        final int code = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli())
+                .execute("tree", "--maven-java-home", ".",
+                        "--output", "report");
+
+        assertThat(code).isEqualTo(1);
+    }
+
+    @Test
+    void negativeCallGraphTimeoutIsRejected() {
+        final int code = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli())
+                .execute("impact", "--baseline", "HEAD",
+                        "--output", "report.html",
+                        "--call-graph-timeout-seconds", "-1");
 
         assertThat(code).isEqualTo(1);
     }

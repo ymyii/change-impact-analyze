@@ -1,0 +1,6 @@
+IBM WALA 1.8.0
+https://github.com/wala/WALA
+
+This product includes software developed by the WALA project and licensed
+under the Eclipse Public License 2.0:
+https://www.eclipse.org/legal/epl-2.0/

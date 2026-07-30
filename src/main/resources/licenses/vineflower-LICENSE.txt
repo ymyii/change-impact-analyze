@@ -1,0 +1,5 @@
+Vineflower 1.12.0
+https://github.com/Vineflower/vineflower
+
+Licensed under the Apache License, Version 2.0. The complete Apache
+License 2.0 text is included in this application at maven/LICENSE.

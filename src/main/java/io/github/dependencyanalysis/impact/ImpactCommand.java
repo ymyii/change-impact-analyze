@@ -14,6 +14,10 @@ import io.github.dependencyanalysis.preflight
 import io.github.dependencyanalysis.preflight
         .PreflightReport;
 import io.github.dependencyanalysis.runtime
+        .CommandRunDirectory;
+import io.github.dependencyanalysis.runtime
+        .JavaRuntimeDescriptor;
+import io.github.dependencyanalysis.runtime
         .MavenRuntimeDescriptor;
 import io.github.dependencyanalysis.workspace
         .WorkspaceResult;
@@ -79,12 +83,24 @@ public final class ImpactCommand
             new HashSet<>(ChangePointKind
                     .DEFAULT_INCLUDED_KINDS);
 
+    /** Optional Call Graph timeout. */
+    @Option(names = "--call-graph-timeout-seconds",
+            defaultValue = "0",
+            description = "WALA RTA timeout in seconds;"
+                    + " 0 means unlimited.")
+    private long callGraphTimeoutSeconds;
+
     /** Diagnostics. */
     private final DiagnosticCollector diagnostics =
             new DiagnosticCollector();
 
     @Override
     public Integer call() {
+        if (callGraphTimeoutSeconds < 0) {
+            diagnostics.error("preflight",
+                    "--call-graph-timeout-seconds must be >= 0");
+            return 1;
+        }
         if (path == null) {
             path = new File(System.getProperty(
                     "user.dir"));
@@ -110,7 +126,17 @@ public final class ImpactCommand
                     context.get(
                             ImpactPreflightService
                                     .MAVEN_ARGS,
-                            List.class)).run(
+                            List.class),
+                    context.get(
+                            ImpactPreflightService
+                                    .JAVA_RUNTIME,
+                            JavaRuntimeDescriptor.class),
+                    callGraphTimeoutSeconds,
+                    context.get(
+                            ImpactPreflightService
+                                    .COMMAND_RUN,
+                            CommandRunDirectory.class)
+                            .getTemporaryDirectory()).run(
                     context.get(
                             ImpactPreflightService
                                     .WORKSPACE,

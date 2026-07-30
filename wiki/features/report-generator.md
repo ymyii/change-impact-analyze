@@ -15,6 +15,8 @@ code_refs:
     desc: "报告生成核心类，支持 HTML 和 Markdown 两种格式"
   - path: "src/main/java/io/github/dependencyanalysis/report/ReportException.java"
     desc: "报告生成失败时的运行时异常"
+  - path: "src/main/java/io/github/dependencyanalysis/report/ImpactReportMetadata.java"
+    desc: "Preflight/runtime metadata 与可选 method body evidence"
   - path: "src/main/java/io/github/dependencyanalysis/report/package-info.java"
     desc: "report 包定义"
   - path: "src/test/java/io/github/dependencyanalysis/report/ReportGeneratorTest.java"
@@ -37,6 +39,9 @@ Report generation 包含两条独立输出：`impact` 生成 HTML/Markdown index
 - `generateToString()` 保留单文件字符串生成能力，便于测试和调用方需要内存结果的场景。
 - 报告生成保持 deterministic 输出，便于 snapshot 测试和跨次运行审计。
 - `provided` scope 的 VERSION_CHANGED 依赖显示 `[API risk]`，把 compile-time API risk 暴露给报告读者。
+- `METHOD_BODY_CHANGED` evidence 按 ChangePoint 稳定排序和去重，分配 `MB-001` 起的 ID；每条相关调用链引用 ID，old/new method 只展示一次。
+- HTML 使用 escaped 双栏 code block，窄屏降为单栏；Markdown 使用 old/new `java` code fence。单侧 unavailable 不隐藏另一侧。
+- 现有无 evidence 的 public overload 保持兼容；新增 evidence overload 支持调用方显式传入。
 - Tree renderer 对全部动态内容 HTML escaping，使用 staging 后只替换 `index.html` 与 `dependency-report/`，保留 output root 其他内容。
 - Tree command-level Preflight 成功后立即发布 `RUNNING 0/N`；每个 reactor page 先于对应 Index checkpoint 原子发布。
 - Tree session 只持有 metadata、Command Preflight 与 `ReactorReportSummary`；完整 reactor/module/occurrence result 在 page 发布后可释放。
@@ -60,6 +65,7 @@ Report generation 包含两条独立输出：`impact` 生成 HTML/Markdown index
 - Dependencies 子文件按 module 展示依赖变动。
 - Internal Changes 子文件展示 ChangePoint。
 - Impact Paths 子文件展示影响路径和未报告原因统计。
+- 存在 method body evidence 时，Impact Paths 子文件在路径后追加 `Method Body Evidence`，并明确声明 decompiler 输出是 Java-like evidence。
 - Dependency Changes 按 module 分组，保留传入顺序。
 - HTML 中依赖变动类型使用 CSS class 区分 ADDED、REMOVED 和 VERSION_CHANGED。
 - 写入失败时抛出 `ReportException`。
@@ -79,6 +85,7 @@ Report generation 包含两条独立输出：`impact` 生成 HTML/Markdown index
 4. 先写入三个子文件内容。
 5. 再写入 index 文件，Summary section 包含子文件链接。
 6. Diagnostics section 渲染所有诊断事件。
+7. 对 evidence 按 artifact、owner、name、descriptor 排序去重，生成稳定 ID 并渲染路径引用及 old/new 内容。
 
 Tree flow 独立执行：初始化 owned output → 写 `RUNNING 0/N` → 对每个 reactor 写 temporary page 并 atomic move → 写 temporary Index 并 atomic move → 转换轻量 summary → 最终写 `SUCCESS` 或 `COMPLETED_WITH_ISSUES`；异常路径尝试写 `FAILED`。
 
@@ -91,6 +98,9 @@ Tree flow 独立执行：初始化 owned output → 写 `RUNNING 0/N` → 对每
 - Given 依赖变动包含 provided scope 的 VERSION_CHANGED，When 报告渲染，Then 该条显示 `[API risk]`。
 - Given Impact Paths 为空，When 报告渲染，Then 显示 "No static confirmed impact."。
 - Given dependency changes 为空，When 报告渲染，Then 显示 "No dependency changes."。
+- Given 多条 Impact Paths 引用同一 body change，When 报告渲染，Then 每条路径引用同一 `MB-xxx`，evidence section 只出现一次。
+- Given Java-like source 包含 HTML special characters，When HTML 渲染，Then code block 内容被 escaping。
+- Given 单侧 unavailable，When HTML/Markdown 渲染，Then显示 reason 且另一侧 source 保持可见。
 - Given 文件写入失败，When `generate()` 执行，Then 抛出 `ReportException`。
 - Given reactor page 已发布；When Index atomic move failure；Then page 保留，Index 不得链接未完整发布内容。
 - Given 只有 duplicate 且 requested version 相同；When 渲染 reactor page；Then duplicate 保留在 verbose dependency tree annotation，但不产生 `MODULE_MEDIATION` row。
@@ -109,6 +119,7 @@ Tree flow 独立执行：初始化 owned output → 写 `RUNNING 0/N` → 对每
 
 - 空依赖变动、空 ChangePoint 或空 Impact Paths 都必须显示明确空态。
 - Diagnostics 为空时仍生成完整报告结构。
+- Evidence 为空时不生成 `Method Body Evidence` section，原报告结构保持兼容。
 - 输出路径 stem 决定子文件名称，避免覆盖无关文件。
 - Tree 新一次有效运行清理旧工具 pages；command-level Preflight failure 不触碰旧 Report。
 
@@ -117,3 +128,4 @@ Tree flow 独立执行：初始化 owned output → 写 `RUNNING 0/N` → 对每
 - Report Generator 只负责渲染和写文件，不执行分析、不修改诊断事件。
 - 输出格式枚举由 CLI 层解析，报告层只消费 `OutputFormat`。
 - Snapshot 稳定性依赖上游排序和报告自身 deterministic 渲染共同保证。
+- Report Generator 不执行 decompilation，只消费 `MethodBodyEvidence`。

@@ -80,6 +80,23 @@ public final class CallGraph {
     }
 
     /**
+     * Creates an immutable graph from already resolved graph data.
+     *
+     * @param methods all method ids
+     * @param edges all call edges
+     * @param overrides override map
+     * @param stats construction statistics
+     * @return immutable call graph
+     */
+    public static CallGraph of(
+            final Set<MethodId> methods,
+            final List<CallEdge> edges,
+            final Map<MethodId, Set<MethodId>> overrides,
+            final CallGraphStats stats) {
+        return new CallGraph(methods, edges, overrides, stats);
+    }
+
+    /**
      * Returns all indexed method ids.
      *
      * @return unmodifiable set of

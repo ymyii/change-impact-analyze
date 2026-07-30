@@ -3,6 +3,8 @@ package io.github.dependencyanalysis.callgraph;
 import io.github.dependencyanalysis.build.BuildResult;
 import io.github.dependencyanalysis.build.ModuleBuildOutput;
 import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
+import com.ibm.wala.ipa.callgraph.AnalysisScope;
+import com.ibm.wala.types.ClassLoaderReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.objectweb.asm.ClassWriter;
@@ -11,6 +13,8 @@ import org.objectweb.asm.Opcodes;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -58,8 +62,18 @@ class CallGraphEngineTest {
                 null,
                 "doWork", "()V",
                 false, true);
-        final CallGraph cg =
-                buildForDir(classesDir);
+        final ByteArrayOutputStream stderr =
+                new ByteArrayOutputStream();
+        final PrintStream original = System.err;
+        final CallGraph cg;
+        try {
+            System.setErr(new PrintStream(stderr));
+            cg = buildForDir(classesDir);
+        } finally {
+            System.setErr(original);
+        }
+        assertThat(stderr.toString())
+                .doesNotContain("got NEW");
         assertThat(cg.getEdges())
                 .isNotEmpty();
         assertThat(cg.getEdges())
@@ -188,6 +202,25 @@ class CallGraphEngineTest {
                 .isInstanceOf(
                         CallGraphException
                                 .class);
+    }
+
+    @Test
+    void explicitTimeoutCancelsRta() throws Exception {
+        final Path classesDir = tempDir.resolve("timeout");
+        Files.createDirectories(classesDir);
+        writeClass(classesDir, "com/app/App", null,
+                "run", "()V", false, true);
+        final AnalysisScope scope =
+                AnalysisScope.createJavaAnalysisScope();
+        scope.addStdLibs(true,
+                ClassLoaderReference.Primordial);
+        final BuildResult build = BuildResult.of(List.of(
+                new ModuleBuildOutput(tempDir, classesDir)));
+
+        assertThatThrownBy(() -> engine.build(
+                build, scope, 1L))
+                .isInstanceOf(CallGraphException.class)
+                .hasMessageContaining("timed out");
     }
 
     @Test

@@ -153,8 +153,10 @@ public final class MavenRuntimeManager {
                 }
             }
         }
-        final String executableName = isWindows()
-                ? "mvn.cmd" : "mvn";
+        final String executableName =
+                executableNameFor(
+                        System.getProperty(
+                                "os.name", ""));
         final Path executable = runtimeLeaf
                 .resolve(DISTRIBUTION_ROOT)
                 .resolve("bin")
@@ -219,8 +221,9 @@ public final class MavenRuntimeManager {
         final Path executable = runtimeLeaf
                 .resolve(DISTRIBUTION_ROOT)
                 .resolve("bin")
-                .resolve(isWindows()
-                        ? "mvn.cmd" : "mvn");
+                .resolve(executableNameFor(
+                        System.getProperty(
+                                "os.name", "")));
         try {
             return Files.isRegularFile(executable,
                     LinkOption.NOFOLLOW_LINKS)
@@ -443,8 +446,22 @@ public final class MavenRuntimeManager {
     }
 
     private boolean isWindows() {
-        return System.getProperty("os.name", "")
+        return executableNameFor(
+                System.getProperty("os.name", ""))
+                .equals("mvn.cmd");
+    }
+
+    /**
+     * Selects the Maven launcher for an operating system.
+     *
+     * @param osName operating system name
+     * @return mvn.cmd on Windows, mvn otherwise
+     */
+    static String executableNameFor(
+            final String osName) {
+        return osName
                 .toLowerCase(Locale.ROOT)
-                .contains("win");
+                .contains("win")
+                ? "mvn.cmd" : "mvn";
     }
 }

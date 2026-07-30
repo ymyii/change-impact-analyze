@@ -40,13 +40,14 @@ public final class DependencyAnalyzerCli
     )
     private File maven;
 
-    /** Maven subprocess JAVA_HOME. */
+    /** User project JAVA_HOME. */
     @Option(
-            names = {"-j", "--maven-java-home"},
+            names = {"-j", "--java-home"},
             scope = ScopeType.INHERIT,
-            description = "JAVA_HOME for Maven subprocesses."
+            description = "JDK home for Maven and compilation;"
+                    + " impact requires target JDK 8."
     )
-    private File mavenJavaHome;
+    private File javaHome;
 
     /** Complete application config directory. */
     @Option(
@@ -81,9 +82,9 @@ public final class DependencyAnalyzerCli
         return maven;
     }
 
-    /** @return Maven JAVA_HOME, or null */
-    public File getMavenJavaHome() {
-        return mavenJavaHome;
+    /** @return user project JAVA_HOME, or null */
+    public File getJavaHome() {
+        return javaHome;
     }
 
     /**
