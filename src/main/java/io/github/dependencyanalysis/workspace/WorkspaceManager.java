@@ -28,10 +28,6 @@ public final class WorkspaceManager
     private static final String STAGE =
             "workspace";
 
-    /** Temp directory prefix. */
-    private static final String TEMP_PREFIX =
-            "cia-ws-";
-
     /** Worktree directory name. */
     private static final String WT_NAME =
             "worktree";
@@ -55,6 +51,9 @@ public final class WorkspaceManager
     /** Relative path from git root to project. */
     private final Path relativePath;
 
+    /** Optional command-owned workspace run root. */
+    private final Path workspaceRunRoot;
+
     /** Temporary parent dirs to clean. */
     private final List<Path> tempParents =
             new ArrayList<>();
@@ -74,13 +73,32 @@ public final class WorkspaceManager
             final Path project,
             final DiagnosticCollector
                     diagnostics) {
+        this(project, diagnostics, null);
+    }
+
+    /**
+     * Creates a manager using a command-owned workspace root.
+     *
+     * @param project project root directory
+     * @param diagnostics diagnostic collector
+     * @param runRoot command workspaces/run-id directory
+     */
+    public WorkspaceManager(
+            final Path project,
+            final DiagnosticCollector diagnostics,
+            final Path runRoot) {
         this.projectDir = Objects.requireNonNull(
                 project, "project");
         this.diag = Objects.requireNonNull(
                 diagnostics, "diagnostics");
         this.runner = new GitCommandRunner(
                 project);
+        this.workspaceRunRoot = runRoot == null
+                ? null : runRoot.toAbsolutePath().normalize();
         this.gitRoot = resolveGitRoot();
+        if (workspaceRunRoot != null) {
+            pruneStaleWorktreeMetadata();
+        }
         try {
             this.relativePath = gitRoot.relativize(
                     projectDir.toRealPath());
@@ -176,6 +194,27 @@ public final class WorkspaceManager
         }
     }
 
+    private void pruneStaleWorktreeMetadata() {
+        try {
+            final GitCommandResult result = runner.run(
+                    "worktree", "prune");
+            if (result.getExitCode() != 0) {
+                diag.warn(STAGE,
+                        "Failed to prune stale worktree metadata: "
+                                + summarize(result.getStderr()));
+            }
+        } catch (IOException exception) {
+            diag.warn(STAGE,
+                    "Failed to prune stale worktree metadata: "
+                            + exception.getMessage());
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(
+                    "Interrupted pruning worktree metadata",
+                    exception);
+        }
+    }
+
     private WorkspaceResult doPrepare(
             final String baselineRef,
             final String targetRef)
@@ -190,7 +229,7 @@ public final class WorkspaceManager
                         + baseCommit);
 
         final Path baseParent =
-                createTempParent();
+                createParent("baseline");
         final Path baseWt =
                 baseParent.resolve(WT_NAME);
         createWorktree(
@@ -244,7 +283,7 @@ public final class WorkspaceManager
                         + targetCommit);
 
         final Path targetParent =
-                createTempParent();
+                createParent("target");
         final Path targetWt =
                 targetParent.resolve(WT_NAME);
         try {
@@ -346,11 +385,15 @@ public final class WorkspaceManager
         }
     }
 
-    private Path createTempParent() {
+    private Path createParent(final String side) {
         try {
-            final Path dir =
-                    Files.createTempDirectory(
-                            TEMP_PREFIX);
+            final Path dir;
+            if (workspaceRunRoot == null) {
+                dir = Files.createTempDirectory("cia-ws-");
+            } else {
+                dir = workspaceRunRoot.resolve(side);
+                Files.createDirectories(dir);
+            }
             tempParents.add(dir);
             return dir;
         } catch (IOException e) {

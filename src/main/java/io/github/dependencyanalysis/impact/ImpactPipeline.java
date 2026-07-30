@@ -7,9 +7,16 @@ import io.github.dependencyanalysis.bytecode
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode
         .ChangePointKind;
+import io.github.dependencyanalysis.bytecode
+        .MethodBodyDecompiler;
+import io.github.dependencyanalysis.bytecode
+        .MethodBodyEvidence;
 import io.github.dependencyanalysis.callgraph.CallGraph;
+import io.github.dependencyanalysis.callgraph.MethodId;
 import io.github.dependencyanalysis.callgraph
         .CallGraphEngine;
+import io.github.dependencyanalysis.callgraph
+        .JdkAnalysisStage;
 import io.github.dependencyanalysis.cli.OutputFormat;
 import io.github.dependencyanalysis.dependency
         .ArtifactCoord;
@@ -32,17 +39,24 @@ import io.github.dependencyanalysis.report.ReportGenerator;
 import io.github.dependencyanalysis.report
         .ImpactReportMetadata;
 import io.github.dependencyanalysis.runtime
+        .JavaRuntimeDescriptor;
+import io.github.dependencyanalysis.runtime
         .MavenRuntimeDescriptor;
 import io.github.dependencyanalysis.workspace
         .WorkspaceResult;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 // Wiki: wiki/architecture/dependency-analysis-pipelines.md - impact pipeline
@@ -61,6 +75,15 @@ final class ImpactPipeline {
     /** Maven arguments. */
     private final List<String> mavenArguments;
 
+    /** Target Java runtime. */
+    private final JavaRuntimeDescriptor javaRuntime;
+
+    /** Call Graph timeout in seconds. */
+    private final long callGraphTimeoutSeconds;
+
+    /** Command-owned temporary directory. */
+    private final Path temporaryDirectory;
+
     /**
      * Creates a pipeline.
      *
@@ -68,16 +91,53 @@ final class ImpactPipeline {
      * @param includedKinds included change kinds
      * @param selectedRuntime selected runtime
      * @param arguments safe Maven arguments
+     * @param targetJavaRuntime target Java runtime
+     * @param timeoutSeconds Call Graph timeout
      */
     ImpactPipeline(
             final DiagnosticCollector collector,
             final Set<ChangePointKind> includedKinds,
             final MavenRuntimeDescriptor selectedRuntime,
-            final List<String> arguments) {
+            final List<String> arguments,
+            final JavaRuntimeDescriptor targetJavaRuntime,
+            final long timeoutSeconds) {
+        this(collector, includedKinds, selectedRuntime,
+                arguments, targetJavaRuntime,
+                timeoutSeconds, null);
+    }
+
+    /**
+     * Creates a pipeline using command-owned temporary storage.
+     *
+     * @param collector diagnostics
+     * @param includedKinds included change kinds
+     * @param selectedRuntime selected runtime
+     * @param arguments safe Maven arguments
+     * @param targetJavaRuntime target Java runtime
+     * @param timeoutSeconds Call Graph timeout
+     * @param tempDirectory command temporary directory
+     */
+    ImpactPipeline(
+            final DiagnosticCollector collector,
+            final Set<ChangePointKind> includedKinds,
+            final MavenRuntimeDescriptor selectedRuntime,
+            final List<String> arguments,
+            final JavaRuntimeDescriptor targetJavaRuntime,
+            final long timeoutSeconds,
+            final Path tempDirectory) {
         diagnostics = collector;
         kinds = Set.copyOf(includedKinds);
         runtime = selectedRuntime;
         mavenArguments = List.copyOf(arguments);
+        javaRuntime = Objects.requireNonNull(
+                targetJavaRuntime,
+                "targetJavaRuntime");
+        if (timeoutSeconds < 0) {
+            throw new IllegalArgumentException(
+                    "timeoutSeconds must be >= 0");
+        }
+        callGraphTimeoutSeconds = timeoutSeconds;
+        temporaryDirectory = tempDirectory;
     }
 
     /**
@@ -106,14 +166,16 @@ final class ImpactPipeline {
                     workspace.getBaseline().getPath(),
                     diagnostics, javaHome,
                     runtime.getExecutable(),
-                    mavenArguments).build();
+                    mavenArguments,
+                    temporaryDirectory).build();
             final BuildResult targetBuild =
                     new BuildRunner("target",
                             workspace.getTarget()
                                     .getPath(),
                             diagnostics, javaHome,
                             runtime.getExecutable(),
-                            mavenArguments).build();
+                            mavenArguments,
+                            temporaryDirectory).build();
             final List<ModuleDependencyTree>
                     baselineTrees =
                     new DependencyAnalyzer(
@@ -123,7 +185,10 @@ final class ImpactPipeline {
                             Collections.emptySet(),
                             diagnostics, javaHome,
                             runtime.getExecutable(),
-                            mavenArguments).analyze();
+                            mavenArguments)
+                            .withTemporaryDirectory(
+                                    temporaryDirectory)
+                            .analyze();
             final Set<ArtifactCoord> reactor =
                     extractReactor(baselineTrees);
             final List<ModuleDependencyTree>
@@ -135,15 +200,20 @@ final class ImpactPipeline {
                             reactor, diagnostics,
                             javaHome,
                             runtime.getExecutable(),
-                            mavenArguments).analyze();
+                            mavenArguments)
+                            .withTemporaryDirectory(
+                                    temporaryDirectory)
+                            .analyze();
             final List<DependencyChange> changes =
                     new DependencyDiffEngine().diff(
                             baselineTrees, targetTrees);
             diagnostics.info("pipeline",
                     "Dependency changes: "
                             + changes.size());
-            final List<ChangePoint> points =
+            final ChangePointAnalysis analysis =
                     computeChangePoints(changes);
+            final List<ChangePoint> points =
+                    analysis.getPoints();
             diagnostics.info("pipeline",
                     "Change points: "
                             + points.size());
@@ -151,11 +221,16 @@ final class ImpactPipeline {
             final ImpactResult impact =
                     computeImpact(points,
                             targetBuild);
+            final List<MethodBodyEvidence>
+                    bodyEvidence =
+                    computeMethodBodyEvidence(
+                            impact, analysis);
             new ReportGenerator().generate(
                     changes, points, impact,
                     diagnostics.getEvents(),
                     new ImpactReportMetadata(
-                            preflight, runtime),
+                            preflight, runtime,
+                            bodyEvidence),
                     format, output.toPath());
         } finally {
             diagnostics.endStage("pipeline");
@@ -172,7 +247,7 @@ final class ImpactPipeline {
         return result;
     }
 
-    private List<ChangePoint> computeChangePoints(
+    private ChangePointAnalysis computeChangePoints(
             final List<DependencyChange> changes)
             throws Exception {
         final List<DependencyChange> changed =
@@ -184,7 +259,9 @@ final class ImpactPipeline {
             }
         }
         if (changed.isEmpty()) {
-            return Collections.emptyList();
+            return new ChangePointAnalysis(
+                    Collections.emptyList(),
+                    Collections.emptyMap());
         }
         final List<JarLocationResult> jars =
                 new JarLocator().locate(changed);
@@ -192,10 +269,97 @@ final class ImpactPipeline {
                 new BytecodeDiffEngine(kinds);
         final List<ChangePoint> result =
                 new ArrayList<>();
+        final Map<ChangePoint,
+                JarLocationResult> locations =
+                new LinkedHashMap<>();
         for (JarLocationResult jar : jars) {
-            result.addAll(engine.diff(jar));
+            final List<ChangePoint> jarPoints =
+                    engine.diff(jar);
+            result.addAll(jarPoints);
+            for (ChangePoint point : jarPoints) {
+                locations.put(point, jar);
+            }
         }
-        return result;
+        return new ChangePointAnalysis(
+                result, locations);
+    }
+
+    private List<MethodBodyEvidence>
+            computeMethodBodyEvidence(
+            final ImpactResult impact,
+            final ChangePointAnalysis analysis) {
+        final List<ChangePoint> requested =
+                impactedBodyChanges(impact);
+        if (requested.isEmpty()) {
+            return Collections.emptyList();
+        }
+        diagnostics.startStage(
+                MethodBodyDecompiler.STAGE);
+        try {
+            final MethodBodyDecompiler decompiler =
+                    new MethodBodyDecompiler(
+                            diagnostics);
+            final List<MethodBodyEvidence> result =
+                    new ArrayList<>();
+            for (ChangePoint point : requested) {
+                final JarLocationResult location =
+                        analysis.locationOf(point);
+                if (location == null) {
+                    throw new IllegalStateException(
+                            "Jar provenance missing for "
+                                    + point);
+                }
+                result.add(decompiler.decompile(
+                        location, point));
+            }
+            diagnostics.info(
+                    MethodBodyDecompiler.STAGE,
+                    "Method body evidence: "
+                            + result.size());
+            return Collections
+                    .unmodifiableList(result);
+        } finally {
+            diagnostics.endStage(
+                    MethodBodyDecompiler.STAGE);
+        }
+    }
+
+    static List<ChangePoint> impactedBodyChanges(
+            final ImpactResult impact) {
+        final Set<ChangePoint> unique =
+                new LinkedHashSet<>();
+        for (ImpactPath path : impact.getPaths()) {
+            final ChangePoint point =
+                    path.getChangePoint();
+            if (point.getKind()
+                    == ChangePointKind
+                    .METHOD_BODY_CHANGED) {
+                unique.add(point);
+            }
+        }
+        final List<ChangePoint> requested =
+                new ArrayList<>(unique);
+        requested.sort(changePointComparator());
+        return Collections.unmodifiableList(
+                requested);
+    }
+
+    private static Comparator<ChangePoint>
+            changePointComparator() {
+        return Comparator
+                .comparing((ChangePoint point) ->
+                        point.getArtifact()
+                                .toString())
+                .thenComparing(
+                        ChangePoint::getOwner)
+                .thenComparing(point ->
+                        point.getName() == null
+                                ? ""
+                                : point.getName())
+                .thenComparing(point ->
+                        point.getDescriptor() == null
+                                ? ""
+                                : point.getDescriptor());
     }
 
     private ImpactResult computeImpact(
@@ -207,12 +371,46 @@ final class ImpactPipeline {
                     new EnumMap<>(
                             NotReportedReason.class));
         }
+        diagnostics.startStage("impact-seed");
+        final Map<ChangePoint, Set<MethodId>> seeds;
+        try {
+            seeds = new ChangePointRefScanner()
+                    .scan(points, targetBuild);
+            diagnostics.info("impact-seed",
+                    "Seeds resolved: " + countSeeds(seeds));
+            diagnostics.endStage("impact-seed");
+        } catch (RuntimeException exception) {
+            diagnostics.failStage("impact-seed",
+                    exception.getMessage());
+            throw exception;
+        }
+        final ImpactTracer tracer =
+                new ImpactTracer(diagnostics);
+        if (countSeeds(seeds) == 0) {
+            diagnostics.info("pipeline",
+                    "No impact seed; skipping JDK analysis,"
+                            + " CHA and RTA");
+            return tracer.traceWithoutCallGraph(
+                    points, seeds);
+        }
         final CallGraph callGraph =
                 new CallGraphEngine(diagnostics)
-                        .build(targetBuild);
-        return new ImpactTracer(diagnostics)
-                .trace(points, callGraph,
-                        targetBuild);
+                        .build(targetBuild,
+                                new JdkAnalysisStage(
+                                        diagnostics)
+                                        .prepare(javaRuntime),
+                                callGraphTimeoutSeconds);
+        return tracer.trace(points, callGraph,
+                targetBuild, seeds);
+    }
+
+    private int countSeeds(
+            final Map<ChangePoint, ? extends Set<?>> seeds) {
+        int total = 0;
+        for (Set<?> values : seeds.values()) {
+            total += values.size();
+        }
+        return total;
     }
 
     private void logChangePointBreakdown(

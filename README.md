@@ -20,6 +20,7 @@ Uber JAR：`target/dependency-analyzer.jar`。
 java -jar target/dependency-analyzer.jar --help
 
 java -jar target/dependency-analyzer.jar impact \
+  --java-home /path/to/jdk8 \
   --baseline main \
   --output build/impact.html
 
@@ -42,7 +43,7 @@ entrypoint，但不生成 Module result。
 | Scope | Short | Long |
 |---|---:|---|
 | Root | `-m` | `--maven` |
-| Root | `-j` | `--maven-java-home` |
+| Root | `-j` | `--java-home` |
 | Root | `-c` | `--config-dir` |
 | Root | `-a` | `--maven-arg` |
 | impact | `-p` | `--path` |
@@ -51,6 +52,7 @@ entrypoint，但不生成 Module result。
 | impact | `-o` | `--output` |
 | impact | `-f` | `--format` |
 | impact | `-k` | `--include-change-kinds` |
+| impact |  | `--call-graph-timeout-seconds` |
 | tree | `-p` | `--path` |
 | tree | `-r` | `--ref` |
 | tree | `-o` | `--output` |

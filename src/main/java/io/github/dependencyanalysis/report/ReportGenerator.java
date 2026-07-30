@@ -1,6 +1,8 @@
 package io.github.dependencyanalysis.report;
 
 import io.github.dependencyanalysis.bytecode.ChangePoint;
+import io.github.dependencyanalysis.bytecode.DecompiledMethod;
+import io.github.dependencyanalysis.bytecode.MethodBodyEvidence;
 import io.github.dependencyanalysis.callgraph.CallEdge;
 import io.github.dependencyanalysis.cli.OutputFormat;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
@@ -19,6 +21,8 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,7 +52,15 @@ public final class ReportGenerator {
             + ".removed{color:red;}"
             + ".changed{color:orange;}"
             + ".warn{color:orange;}"
-            + ".info{color:#666;}";
+            + ".info{color:#666;}"
+            + ".method-body-grid{display:grid;"
+            + "grid-template-columns:repeat(2,minmax(0,1fr));"
+            + "gap:16px;}"
+            + ".method-body-side{min-width:0;}"
+            + "pre{background:#f6f8fa;border:1px solid #ddd;"
+            + "overflow:auto;padding:12px;}"
+            + "@media(max-width:800px){.method-body-grid{"
+            + "grid-template-columns:1fr;}}";
 
     /** Date formatter. */
     private static final DateTimeFormatter
@@ -81,12 +93,38 @@ public final class ReportGenerator {
                     events,
             final OutputFormat format,
             final Path output) {
+        generate(changes, points, result,
+                Collections.emptyList(), events,
+                format, output);
+    }
+
+    /**
+     * Generates a report with method body evidence.
+     *
+     * @param changes dependency changes
+     * @param points change points
+     * @param result impact result
+     * @param evidence method body evidence
+     * @param events diagnostic events
+     * @param format output format
+     * @param output output path
+     */
+    public void generate(
+            final List<DependencyChange> changes,
+            final List<ChangePoint> points,
+            final ImpactResult result,
+            final List<MethodBodyEvidence> evidence,
+            final List<DiagnosticEvent> events,
+            final OutputFormat format,
+            final Path output) {
         Objects.requireNonNull(changes,
                 "changes");
         Objects.requireNonNull(points,
                 "points");
         Objects.requireNonNull(result,
                 "result");
+        Objects.requireNonNull(evidence,
+                "evidence");
         Objects.requireNonNull(events,
                 "events");
         Objects.requireNonNull(format,
@@ -112,7 +150,7 @@ public final class ReportGenerator {
                         resolveSubPath(output,
                                 "-impact-paths"),
                         "Impact Paths",
-                        impBodyMd(result));
+                        impBodyMd(result, evidence));
             } else {
                 writeIndexHtml(output,
                         changes, points,
@@ -131,7 +169,7 @@ public final class ReportGenerator {
                         resolveSubPath(output,
                                 "-impact-paths"),
                         "Impact Paths",
-                        impBody(result));
+                        impBody(result, evidence));
             }
         } catch (IOException e) {
             throw new ReportException(
@@ -160,6 +198,7 @@ public final class ReportGenerator {
             final OutputFormat format,
             final Path output) {
         generate(changes, points, result,
+                metadata.getMethodBodyEvidence(),
                 events, format, output);
         try {
             final String content =
@@ -285,12 +324,37 @@ public final class ReportGenerator {
             final List<DiagnosticEvent>
                     events,
             final OutputFormat format) {
+        return generateToString(changes, points,
+                result, Collections.emptyList(),
+                events, format);
+    }
+
+    /**
+     * Generates report content with method body evidence.
+     *
+     * @param changes dependency changes
+     * @param points change points
+     * @param result impact result
+     * @param evidence method body evidence
+     * @param events diagnostic events
+     * @param format output format
+     * @return report content string
+     */
+    public String generateToString(
+            final List<DependencyChange> changes,
+            final List<ChangePoint> points,
+            final ImpactResult result,
+            final List<MethodBodyEvidence> evidence,
+            final List<DiagnosticEvent> events,
+            final OutputFormat format) {
         Objects.requireNonNull(changes,
                 "changes");
         Objects.requireNonNull(points,
                 "points");
         Objects.requireNonNull(result,
                 "result");
+        Objects.requireNonNull(evidence,
+                "evidence");
         Objects.requireNonNull(events,
                 "events");
         Objects.requireNonNull(format,
@@ -298,11 +362,13 @@ public final class ReportGenerator {
         if (format == OutputFormat.MD) {
             return generateMarkdown(
                     changes, points,
-                    result, events);
+                    result, evidence,
+                    events);
         }
         return generateHtml(
                 changes, points,
-                result, events);
+                result, evidence,
+                events);
     }
 
     /**
@@ -311,6 +377,7 @@ public final class ReportGenerator {
      * @param changes dependency changes
      * @param points  change points
      * @param result  impact result
+     * @param evidence method body evidence
      * @param events  diagnostic events
      * @return HTML string
      */
@@ -320,6 +387,8 @@ public final class ReportGenerator {
             final List<ChangePoint>
                     points,
             final ImpactResult result,
+            final List<MethodBodyEvidence>
+                    evidence,
             final List<DiagnosticEvent>
                     events) {
         final StringBuilder sb =
@@ -342,7 +411,8 @@ public final class ReportGenerator {
                 changes);
         appendHtmlChangePoints(sb,
                 points);
-        appendHtmlImpactPaths(sb, result);
+        appendHtmlImpactPaths(sb, result,
+                evidence);
         appendHtmlDiagnostics(sb,
                 events);
         sb.append("</body>\n</html>\n");
@@ -630,10 +700,13 @@ public final class ReportGenerator {
      *
      * @param sb     string builder
      * @param result impact result
+     * @param evidence method body evidence
      */
     private void appendHtmlImpactPaths(
             final StringBuilder sb,
-            final ImpactResult result) {
+            final ImpactResult result,
+            final List<MethodBodyEvidence>
+                    evidence) {
         sb.append("<h2>Impact ")
                 .append("Paths</h2>\n");
         final List<ImpactPath> paths =
@@ -645,11 +718,16 @@ public final class ReportGenerator {
                     .append("</p>\n");
             return;
         }
+        final Map<ChangePoint, String> ids =
+                evidenceIds(evidence);
         for (int i = 0; i < paths.size();
                 i++) {
             appendHtmlImpactPath(sb,
-                    paths.get(i), i + 1);
+                    paths.get(i), i + 1,
+                    ids);
         }
+        appendHtmlMethodBodyEvidence(sb,
+                evidence, ids);
     }
 
     /**
@@ -658,11 +736,14 @@ public final class ReportGenerator {
      * @param sb   string builder
      * @param path impact path
      * @param num  path number
+     * @param evidenceIds evidence identifiers
      */
     private void appendHtmlImpactPath(
             final StringBuilder sb,
             final ImpactPath path,
-            final int num) {
+            final int num,
+            final Map<ChangePoint, String>
+                    evidenceIds) {
         sb.append("<h3>Path #")
                 .append(num)
                 .append("</h3>\n")
@@ -680,6 +761,16 @@ public final class ReportGenerator {
                 .append(formatChangePointLocation(
                         path.getChangePoint()))
                 .append("</p>\n");
+        final String evidenceId = evidenceIds.get(
+                path.getChangePoint());
+        if (evidenceId != null) {
+            sb.append("<p><b>Method body evidence:</b> ")
+                    .append("<a href=\"#method-body-evidence-")
+                    .append(evidenceId.toLowerCase())
+                    .append("\">")
+                    .append(evidenceId)
+                    .append("</a></p>\n");
+        }
         if (!path.getModules().isEmpty()) {
             sb.append("<p><b>Modules:")
                     .append("</b> ")
@@ -697,6 +788,84 @@ public final class ReportGenerator {
                     .append(" boundary edges")
                     .append("</p>\n");
         }
+    }
+
+    /**
+     * Appends decompiled old/new method body evidence.
+     *
+     * @param sb string builder
+     * @param evidence evidence list
+     * @param ids stable evidence identifiers
+     */
+    private void appendHtmlMethodBodyEvidence(
+            final StringBuilder sb,
+            final List<MethodBodyEvidence> evidence,
+            final Map<ChangePoint, String> ids) {
+        if (ids.isEmpty()) {
+            return;
+        }
+        sb.append("<h2>Method Body Evidence</h2>\n")
+                .append("<p class=\"info\">")
+                .append("Decompiler output is Java-like evidence; ")
+                .append("it may differ from the original source.")
+                .append("</p>\n");
+        for (MethodBodyEvidence item
+                : uniqueEvidence(evidence)) {
+            final String id = ids.get(
+                    item.getChangePoint());
+            sb.append("<section id=\"method-body-evidence-")
+                    .append(id.toLowerCase())
+                    .append("\">\n<h3>")
+                    .append(id)
+                    .append("</h3>\n<p><b>Method:</b> ")
+                    .append(escapeHtml(formatEvidenceMethod(
+                            item.getChangePoint())))
+                    .append("</p>\n<p><b>Artifacts:</b> ")
+                    .append(escapeHtml(formatArtifact(
+                            item.getOldArtifact())))
+                    .append(" &rarr; ")
+                    .append(escapeHtml(formatArtifact(
+                            item.getNewArtifact())))
+                    .append("</p>\n<p><b>Body hashes:</b> ")
+                    .append(escapeHtml(String.valueOf(
+                            item.getChangePoint().getOldHash())))
+                    .append(" &rarr; ")
+                    .append(escapeHtml(String.valueOf(
+                            item.getChangePoint().getNewHash())))
+                    .append("</p>\n<div class=\"method-body-grid\">\n");
+            appendHtmlMethodSide(sb, "Old",
+                    item.getOldMethod());
+            appendHtmlMethodSide(sb, "New",
+                    item.getNewMethod());
+            sb.append("</div>\n</section>\n");
+        }
+    }
+
+    /**
+     * Appends one HTML evidence side.
+     *
+     * @param sb string builder
+     * @param label side label
+     * @param method decompiled method
+     */
+    private void appendHtmlMethodSide(
+            final StringBuilder sb,
+            final String label,
+            final DecompiledMethod method) {
+        sb.append("<div class=\"method-body-side\"><h4>")
+                .append(label)
+                .append("</h4>\n");
+        if (method.isAvailable()) {
+            sb.append("<pre><code>")
+                    .append(escapeHtml(method.getSource()))
+                    .append("</code></pre>\n");
+        } else {
+            sb.append("<p class=\"warn\">unavailable: ")
+                    .append(escapeHtml(
+                            method.getFailureReason()))
+                    .append("</p>\n");
+        }
+        sb.append("</div>\n");
     }
 
     /**
@@ -747,6 +916,7 @@ public final class ReportGenerator {
      * @param changes dependency changes
      * @param points  change points
      * @param result  impact result
+     * @param evidence method body evidence
      * @param events  diagnostic events
      * @return Markdown string
      */
@@ -756,6 +926,8 @@ public final class ReportGenerator {
             final List<ChangePoint>
                     points,
             final ImpactResult result,
+            final List<MethodBodyEvidence>
+                    evidence,
             final List<DiagnosticEvent>
                     events) {
         final StringBuilder sb =
@@ -766,7 +938,8 @@ public final class ReportGenerator {
         appendMdDependencyChanges(sb,
                 changes);
         appendMdChangePoints(sb, points);
-        appendMdImpactPaths(sb, result);
+        appendMdImpactPaths(sb, result,
+                evidence);
         appendMdDiagnostics(sb, events);
         return sb.toString();
     }
@@ -996,10 +1169,13 @@ public final class ReportGenerator {
      *
      * @param sb     string builder
      * @param result impact result
+     * @param evidence method body evidence
      */
     private void appendMdImpactPaths(
             final StringBuilder sb,
-            final ImpactResult result) {
+            final ImpactResult result,
+            final List<MethodBodyEvidence>
+                    evidence) {
         sb.append("## Impact Paths\n\n");
         final List<ImpactPath> paths =
                 result.getPaths();
@@ -1009,11 +1185,16 @@ public final class ReportGenerator {
                     .append("impact.\n\n");
             return;
         }
+        final Map<ChangePoint, String> ids =
+                evidenceIds(evidence);
         for (int i = 0; i < paths.size();
                 i++) {
             appendMdImpactPath(sb,
-                    paths.get(i), i + 1);
+                    paths.get(i), i + 1,
+                    ids);
         }
+        appendMdMethodBodyEvidence(sb,
+                evidence, ids);
     }
 
     /**
@@ -1022,11 +1203,14 @@ public final class ReportGenerator {
      * @param sb   string builder
      * @param path impact path
      * @param num  path number
+     * @param evidenceIds evidence identifiers
      */
     private void appendMdImpactPath(
             final StringBuilder sb,
             final ImpactPath path,
-            final int num) {
+            final int num,
+            final Map<ChangePoint, String>
+                    evidenceIds) {
         sb.append("### Path #")
                 .append(num).append("\n\n")
                 .append("**Affected:** ")
@@ -1041,6 +1225,15 @@ public final class ReportGenerator {
                 .append(formatChangePointLocation(
                         path.getChangePoint()))
                 .append("\n\n");
+        final String evidenceId = evidenceIds.get(
+                path.getChangePoint());
+        if (evidenceId != null) {
+            sb.append("**Method body evidence:** [")
+                    .append(evidenceId)
+                    .append("](#")
+                    .append(evidenceId.toLowerCase())
+                    .append(")\n\n");
+        }
         if (!path.getModules().isEmpty()) {
             sb.append("**Modules:** ")
                     .append(path.getModules())
@@ -1054,6 +1247,74 @@ public final class ReportGenerator {
                             .size())
                     .append(" boundary edges")
                     .append("\n\n");
+        }
+    }
+
+    /**
+     * Appends Markdown method body evidence.
+     *
+     * @param sb string builder
+     * @param evidence evidence list
+     * @param ids stable evidence identifiers
+     */
+    private void appendMdMethodBodyEvidence(
+            final StringBuilder sb,
+            final List<MethodBodyEvidence> evidence,
+            final Map<ChangePoint, String> ids) {
+        if (ids.isEmpty()) {
+            return;
+        }
+        sb.append("## Method Body Evidence\n\n")
+                .append("Decompiler output is Java-like evidence; ")
+                .append("it may differ from the original source.\n\n");
+        for (MethodBodyEvidence item
+                : uniqueEvidence(evidence)) {
+            final ChangePoint point =
+                    item.getChangePoint();
+            sb.append("### ")
+                    .append(ids.get(point))
+                    .append("\n\n**Method:** `")
+                    .append(formatEvidenceMethod(point))
+                    .append("`\n\n**Artifacts:** `")
+                    .append(formatArtifact(
+                            item.getOldArtifact()))
+                    .append("` → `")
+                    .append(formatArtifact(
+                            item.getNewArtifact()))
+                    .append("`\n\n**Body hashes:** `")
+                    .append(point.getOldHash())
+                    .append("` → `")
+                    .append(point.getNewHash())
+                    .append("`\n\n");
+            appendMdMethodSide(sb, "Old",
+                    item.getOldMethod());
+            appendMdMethodSide(sb, "New",
+                    item.getNewMethod());
+        }
+    }
+
+    /**
+     * Appends one Markdown evidence side.
+     *
+     * @param sb string builder
+     * @param label side label
+     * @param method decompiled method
+     */
+    private void appendMdMethodSide(
+            final StringBuilder sb,
+            final String label,
+            final DecompiledMethod method) {
+        sb.append("#### ")
+                .append(label)
+                .append("\n\n");
+        if (method.isAvailable()) {
+            sb.append("```java\n")
+                    .append(method.getSource())
+                    .append("\n```\n\n");
+        } else {
+            sb.append("_unavailable: ")
+                    .append(method.getFailureReason())
+                    .append("_\n\n");
         }
     }
 
@@ -1204,6 +1465,71 @@ public final class ReportGenerator {
     }
 
     /**
+     * Builds stable evidence IDs from sorted unique change points.
+     *
+     * @param evidence evidence list
+     * @return change point to ID map
+     */
+    private Map<ChangePoint, String> evidenceIds(
+            final List<MethodBodyEvidence> evidence) {
+        final Map<ChangePoint, String> result =
+                new LinkedHashMap<>();
+        int index = 1;
+        for (MethodBodyEvidence item
+                : uniqueEvidence(evidence)) {
+            result.put(item.getChangePoint(),
+                    String.format("MB-%03d", index));
+            index++;
+        }
+        return result;
+    }
+
+    /**
+     * Returns evidence sorted by method identity and deduplicated.
+     *
+     * @param evidence evidence list
+     * @return ordered unique evidence
+     */
+    private List<MethodBodyEvidence> uniqueEvidence(
+            final List<MethodBodyEvidence> evidence) {
+        final List<MethodBodyEvidence> ordered =
+                new ArrayList<>(evidence);
+        ordered.sort(Comparator
+                .comparing((MethodBodyEvidence item)
+                        -> item.getChangePoint()
+                        .getArtifact().toString())
+                .thenComparing(item -> item.getChangePoint()
+                        .getOwner())
+                .thenComparing(item -> item.getChangePoint()
+                        .getName(),
+                        Comparator.nullsFirst(
+                                Comparator.naturalOrder()))
+                .thenComparing(item -> item.getChangePoint()
+                        .getDescriptor(),
+                        Comparator.nullsFirst(
+                                Comparator.naturalOrder())));
+        final Map<ChangePoint, MethodBodyEvidence> unique =
+                new LinkedHashMap<>();
+        for (MethodBodyEvidence item : ordered) {
+            unique.putIfAbsent(item.getChangePoint(), item);
+        }
+        return new ArrayList<>(unique.values());
+    }
+
+    /**
+     * Formats exact JVM method identity.
+     *
+     * @param point method change point
+     * @return readable method identity
+     */
+    private String formatEvidenceMethod(
+            final ChangePoint point) {
+        return point.getOwner().replace('/', '.')
+                + "." + point.getName()
+                + point.getDescriptor();
+    }
+
+    /**
      * Formats method identifier.
      *
      * @param method method id
@@ -1322,13 +1648,17 @@ public final class ReportGenerator {
      * Builds impact paths body.
      *
      * @param result impact result
+     * @param evidence method body evidence
      * @return body string
      */
     private String impBody(
-            final ImpactResult result) {
+            final ImpactResult result,
+            final List<MethodBodyEvidence>
+                    evidence) {
         final StringBuilder sb =
                 new StringBuilder();
-        appendHtmlImpactPaths(sb, result);
+        appendHtmlImpactPaths(sb, result,
+                evidence);
         return sb.toString();
     }
 
@@ -1367,13 +1697,17 @@ public final class ReportGenerator {
      * Builds MD impact paths body.
      *
      * @param result impact result
+     * @param evidence method body evidence
      * @return body string
      */
     private String impBodyMd(
-            final ImpactResult result) {
+            final ImpactResult result,
+            final List<MethodBodyEvidence>
+                    evidence) {
         final StringBuilder sb =
                 new StringBuilder();
-        appendMdImpactPaths(sb, result);
+        appendMdImpactPaths(sb, result,
+                evidence);
         return sb.toString();
     }
 

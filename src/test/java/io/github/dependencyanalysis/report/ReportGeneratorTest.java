@@ -2,6 +2,8 @@ package io.github.dependencyanalysis.report;
 
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
+import io.github.dependencyanalysis.bytecode.DecompiledMethod;
+import io.github.dependencyanalysis.bytecode.MethodBodyEvidence;
 import io.github.dependencyanalysis.callgraph.CallEdge;
 import io.github.dependencyanalysis.callgraph.EdgeKind;
 import io.github.dependencyanalysis.callgraph.MethodId;
@@ -423,6 +425,52 @@ class ReportGeneratorTest {
                 .contains("Path #1");
     }
 
+    @Test
+    void htmlDeduplicatesAndEscapesMethodBodyEvidence() {
+        final ChangePoint point = methodBodyPoint();
+        final MethodBodyEvidence evidence =
+                methodBodyEvidence(point);
+
+        final String html = generator.generateToString(
+                Collections.emptyList(),
+                List.of(point),
+                methodBodyResult(point),
+                List.of(evidence, evidence),
+                Collections.emptyList(),
+                OutputFormat.HTML);
+
+        assertThat(html)
+                .contains("Method Body Evidence")
+                .contains("MB-001")
+                .contains("href=\"#method-body-evidence-mb-001\"")
+                .contains("&lt;tag&gt;&amp;")
+                .contains("unavailable: new side failed")
+                .containsOnlyOnce(
+                        "id=\"method-body-evidence-mb-001\"")
+                .doesNotContain("MB-002");
+    }
+
+    @Test
+    void markdownRendersEvidenceReferencesAndJavaFence() {
+        final ChangePoint point = methodBodyPoint();
+
+        final String markdown = generator.generateToString(
+                Collections.emptyList(),
+                List.of(point),
+                methodBodyResult(point),
+                List.of(methodBodyEvidence(point)),
+                Collections.emptyList(),
+                OutputFormat.MD);
+
+        assertThat(markdown)
+                .contains("[MB-001](#mb-001)")
+                .contains("## Method Body Evidence")
+                .contains("### MB-001")
+                .contains("```java\n")
+                .contains("<tag>&")
+                .contains("_unavailable: new side failed_");
+    }
+
     /**
      * Module grouping test verifies
      * changes are grouped by module.
@@ -750,6 +798,50 @@ class ReportGeneratorTest {
                 new EnumMap<>(
                         NotReportedReason
                                 .class));
+    }
+
+    private ChangePoint methodBodyPoint() {
+        final ArtifactCoord artifact =
+                new ArtifactCoord("g", "a", "jar", "2.0");
+        return new ChangePoint(artifact,
+                ChangePointKind.METHOD_BODY_CHANGED,
+                "com/Foo", "changed", "()V",
+                "old-hash", "new-hash");
+    }
+
+    private MethodBodyEvidence methodBodyEvidence(
+            final ChangePoint point) {
+        return new MethodBodyEvidence(point,
+                new ArtifactCoord("g", "a", "jar", "1.0"),
+                point.getArtifact(),
+                DecompiledMethod.available(
+                        "void changed() {\n"
+                                + "  String value = \"<tag>&\";\n"
+                                + "}"),
+                DecompiledMethod.unavailable(
+                        "new side failed"));
+    }
+
+    private ImpactResult methodBodyResult(
+            final ChangePoint point) {
+        final ImpactPath first = new ImpactPath(
+                testMethod("first"), point,
+                Collections.emptyList(),
+                Collections.emptySet(),
+                Collections.emptyList());
+        final ImpactPath second = new ImpactPath(
+                testMethod("second"), point,
+                Collections.emptyList(),
+                Collections.emptySet(),
+                Collections.emptyList());
+        return new ImpactResult(List.of(first, second),
+                new EnumMap<>(NotReportedReason.class));
+    }
+
+    private MethodId testMethod(final String name) {
+        return new MethodId("com/App", name,
+                "()V", "module1",
+                "com/App.class");
     }
 
     /**

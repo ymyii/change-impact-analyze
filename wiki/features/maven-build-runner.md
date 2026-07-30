@@ -30,7 +30,7 @@ Maven Build Runner 使用 impact preflight 选定的 Maven executable 执行 `co
 ## Design Decisions
 
 - Runtime 来源为用户 `--maven` 或内嵌 Maven 3.6.3；不隐式使用 PATH 或 Maven Wrapper。
-- 通过 `ProcessBuilder.environment()` 应用 global `--maven-java-home`，同时保留用户 `settings.xml`、mirror、proxy 和 local repository 行为。
+- 通过 `ProcessBuilder.environment()` 应用 global `--java-home`；`impact` Preflight 已确保它是完整 JDK 8，同时保留用户 `settings.xml`、mirror、proxy 和 local repository 行为。
 - 编译只收集 `target/classes`，不把 `target/test-classes` 作为分析输入。
 - Maven 命令统一经过 `CommandResolver.resolve()`，确保 Windows 上可解析 `mvn.cmd`。
 

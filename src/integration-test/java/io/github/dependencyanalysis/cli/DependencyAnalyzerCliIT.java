@@ -84,13 +84,19 @@ class DependencyAnalyzerCliIT {
         assertThat(code).isZero();
         assertThat(output.resolve("index.html"))
                 .content().contains("SUCCESS")
-                .contains("1/1 reactors")
-                .contains("analysis path</dt><dd><code>.</code>");
+                .contains("<td>1/1</td>")
+                .contains("<th>analysis path</th>"
+                        + "<td><code>.</code></td>");
     }
 
     @Test
     void impactLongAndShortOptionsProduceReports()
             throws Exception {
+        final String jdk8Home = System.getenv(
+                "TEST_JDK8_HOME");
+        assumeTrue(jdk8Home != null
+                        && !jdk8Home.isBlank(),
+                "TEST_JDK8_HOME unavailable");
         final Path repository = createRepository(
                 temporary.resolve("impact"));
         final Path longOutput = temporary.resolve(
@@ -100,8 +106,7 @@ class DependencyAnalyzerCliIT {
 
         final int longCode = command().execute(
                 "--maven", maven.toString(),
-                "--maven-java-home",
-                System.getProperty("java.home"),
+                "--java-home", jdk8Home,
                 "--config-dir", temporary.resolve(
                         "long-config").toString(),
                 "--maven-arg=-DskipTests", "impact",
@@ -114,7 +119,7 @@ class DependencyAnalyzerCliIT {
                 "METHOD_BODY_CHANGED");
         final int shortCode = command().execute(
                 "impact", "-m", maven.toString(),
-                "-j", System.getProperty("java.home"),
+                "-j", jdk8Home,
                 "-c", temporary.resolve(
                         "short-config").toString(),
                 "-a=-DskipTests",
@@ -157,6 +162,26 @@ class DependencyAnalyzerCliIT {
         assertThat(output).doesNotExist();
     }
 
+    @Test
+    void impactRejectsAnalyzerJdk17AsTarget()
+            throws Exception {
+        final Path repository = createRepository(
+                temporary.resolve("jdk17-target"));
+        final Path output = temporary.resolve("jdk17.html");
+
+        final int code = command().execute(
+                "impact", "--maven", maven.toString(),
+                "--java-home", System.getProperty("java.home"),
+                "--config-dir", temporary.resolve("jdk17-config")
+                        .toString(),
+                "--path", repository.toString(),
+                "--baseline", "HEAD",
+                "--output", output.toString());
+
+        assertThat(code).isEqualTo(1);
+        assertThat(output).doesNotExist();
+    }
+
     private picocli.CommandLine command() {
         return DependencyAnalyzerCli.newCommandLine(
                 new DependencyAnalyzerCli());
@@ -177,7 +202,8 @@ class DependencyAnalyzerCliIT {
                   <artifactId>sample</artifactId>
                   <version>1.0</version>
                   <properties>
-                    <maven.compiler.release>17</maven.compiler.release>
+                    <maven.compiler.source>1.8</maven.compiler.source>
+                    <maven.compiler.target>1.8</maven.compiler.target>
                   </properties>
                 </project>
                 """);

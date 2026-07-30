@@ -48,6 +48,9 @@ public final class BuildRunner {
     /** User Maven arguments. */
     private final List<String> mavenArguments;
 
+    /** Command-owned temporary directory, nullable. */
+    private final Path temporaryDirectory;
+
     /**
      * Creates a new build runner.
      *
@@ -82,7 +85,7 @@ public final class BuildRunner {
             final File javaHomeOpt) {
         this(sideName, path, diagCol,
                 javaHomeOpt, Path.of("mvn"),
-                List.of());
+                List.of(), null);
     }
 
     /**
@@ -102,12 +105,36 @@ public final class BuildRunner {
             final File javaHomeOpt,
             final Path executable,
             final List<String> arguments) {
+        this(sideName, path, diagCol, javaHomeOpt,
+                executable, arguments, null);
+    }
+
+    /**
+     * Creates a runner with command-owned temporary storage.
+     *
+     * @param sideName side identifier
+     * @param path workspace root
+     * @param diagCol diagnostics
+     * @param javaHomeOpt JAVA_HOME, nullable
+     * @param executable Maven executable
+     * @param arguments safe Maven arguments
+     * @param tempDirectory command temporary directory
+     */
+    public BuildRunner(
+            final String sideName,
+            final Path path,
+            final DiagnosticCollector diagCol,
+            final File javaHomeOpt,
+            final Path executable,
+            final List<String> arguments,
+            final Path tempDirectory) {
         this.side = sideName;
         this.workspacePath = path;
         this.diag = diagCol;
         this.buildJavaHome = javaHomeOpt;
         this.mavenExecutable = executable;
         this.mavenArguments = List.copyOf(arguments);
+        this.temporaryDirectory = tempDirectory;
     }
 
     /**
@@ -131,10 +158,10 @@ public final class BuildRunner {
                 "Building workspace: "
                         + workspacePath
                         + " side=" + side);
-        final Path logFile =
-                Files.createTempFile(
-                        "cia-build-",
-                        ".log");
+        final Path logFile = temporaryDirectory == null
+                ? Files.createTempFile("cia-build-", ".log")
+                : Files.createTempFile(temporaryDirectory,
+                "build-" + side + "-", ".log");
         final String cmdStr =
                 "mvn compile -B";
         final int exitCode =

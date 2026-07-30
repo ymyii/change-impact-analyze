@@ -21,6 +21,8 @@
         <junit.version>5.10.2</junit.version>
         <assertj.version>3.25.3</assertj.version>
         <asm.version>9.7</asm.version>
+        <wala.version>1.8.0</wala.version>
+        <vineflower.version>1.12.0</vineflower.version>
 
         <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
         <maven-surefire-plugin.version>3.2.5</maven-surefire-plugin.version>
@@ -72,7 +74,14 @@
         <dependency>
             <groupId>com.ibm.wala</groupId>
             <artifactId>com.ibm.wala.core</artifactId>
-            <version>1.6.13</version>
+            <version>${wala.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.vineflower</groupId>
+            <artifactId>vineflower</artifactId>
+            <version>${vineflower.version}</version>
+            <classifier>slim</classifier>
         </dependency>
     </dependencies>
 

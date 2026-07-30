@@ -7,13 +7,15 @@ Dependency Analyzer 是 Java 17 CLI，面向 Maven project：
 - `impact`：比较 dependency 升级前后的 resolved dependency、bytecode 和业务调用影响，输出 HTML 或 Markdown。
 - `tree`：扫描一个 Git repository 内的 Maven reactor，输出 repository 级 offline HTML dependency tree report。
 
-当前版本为 `0.1.0-SNAPSHOT`。Root command 为 `dependency-analyzer`，旧的无 subcommand 调用不再支持。
+当前版本为 `0.1.0-SNAPSHOT`。Root command 为 `dependency-analyzer`。
 
 ## 2. 环境与运行
 
 要求：
 
-- Java 17 runtime。
+- Analyzer 使用 Java 17 runtime 启动。
+- `impact` 必须通过 `--java-home` 指定完整 JDK 8。
+- `tree` 可使用与 Maven/project 兼容的其他 JDK。
 - Git command 可运行。
 - Target Maven project 所需 repository、mirror、proxy、credential 和 local repository 已通过 Maven settings 配置。
 
@@ -34,7 +36,7 @@ Global options 可放在 subcommand 前或后：
 | Short | Long | 说明 |
 |---:|---|---|
 | `-m` | `--maven <executable>` | 指定 Maven executable，例如 `/opt/maven/bin/mvn` 或 `C:\tools\maven\bin\mvn.cmd`。必须为 executable path，不是 Maven home。 |
-| `-j` | `--maven-java-home <dir>` | 仅覆盖 Maven subprocess 的 `JAVA_HOME`。 |
+| `-j` | `--java-home <jdk-home>` | Maven subprocess 的 `JAVA_HOME`；`impact` 同时用它编译用户代码并构建 WALA target JDK scope。 |
 | `-c` | `--config-dir <dir>` | 覆盖完整 Dependency Analyzer config dir。 |
 | `-a` | `--maven-arg=<token>` | 重复传入一个 Maven option/property token，例如 `--maven-arg=-Pprod`。 |
 
@@ -56,12 +58,19 @@ ${user.home}/.dependency-analyzer/
 ├─ runtime/maven-dependency-plugin/3.6.1/<repository-zip-sha512>/
 ├─ runtime/maven-dependency-plugin/settings/<settings-sha512>.xml
 ├─ locks/
-└─ config.properties  # 预留，可不存在
+├─ impact/
+│  ├─ workspaces/<run-id>/
+│  └─ tmp/<run-id>/
+└─ tree/
+   ├─ workspaces/<run-id>/
+   └─ tmp/<run-id>/
 ```
 
 Apache Maven 3.6.3 已 EOL；preflight evidence 会展示该事实。工具仍支持该内嵌 version，以提供确定、offline 的默认 runtime。
 
 Config dir 中未知文件和用户文件不会被自动删除。Runtime 损坏时只重建明确归属工具的 version/SHA leaf。
+
+每次 command 使用 UUID `run-id`、owner marker 和 `<config-dir>/locks/` file lock。Detached worktree、GraphML probe 和 build/dependency log 只写入对应 subcommand run。正常和异常关闭只清理当前 run；启动时只回收 owner marker 有效且未被其他 process lock 的 stale run。
 
 `tree` 默认还会从 JAR 解压经过 SHA-512 校验的 Dependency Plugin 3.6.1 file repository。工具生成 global settings overlay，将该 repository 加入 active profile，并保留用户 `-gs` 中的 mirror、proxy、server 等配置以及独立 `-s` 参数；内置 repository 会从通配 mirror 中排除。Overlay 按内容 hash 复用，使用 file lock、owner-only permission 和 atomic publish，且不会在 Console 输出用户 settings 内容。
 
@@ -93,12 +102,14 @@ java -jar dependency-analyzer.jar \
 
 ```text
 dependency-analyzer impact \
+  -j, --java-home <jdk8-home> \
   [-p, --path <dir>] \
   -b, --baseline <local-ref> \
   [-t, --target <local-ref>] \
   -o, --output <file> \
   [-f, --format html|md] \
-  [-k, --include-change-kinds <csv>]
+  [-k, --include-change-kinds <csv>] \
+  [--call-graph-timeout-seconds <seconds>]
 ```
 
 - `-p, --path` 默认 current directory；定位所属 Git repository，并指定本次分析的 Maven project directory。该目录必须存在 readable root `pom.xml`。
@@ -107,8 +118,9 @@ dependency-analyzer impact \
 - `--output` parent 必须存在且可写。
 - `--format` 默认 `html`。
 - `--include-change-kinds` 控制 bytecode `ChangePointKind`。
-- 旧 `--build-java-home` 已 breaking rename 为 global `--maven-java-home`。
-- 旧 `--project` 已删除，不保留 alias。
+- `--java-home` 必填且必须是完整 JDK 8：Preflight 校验 `bin/java`、`bin/javac`、Java major、`rt.jar`，并读取 `sun.boot.class.path` 与 `java.ext.dirs`。
+- `--java-home` 同时决定 Maven subprocess `JAVA_HOME`、用户代码编译 JDK 和 WALA Primordial/Extension target runtime。
+- `--call-graph-timeout-seconds` 默认 `0`，表示无限等待；正数达到后 cooperative cancel 并终止 pipeline，不发布部分报告。
 
 | Short | Long | 含义 |
 |---:|---|---|
@@ -118,6 +130,7 @@ dependency-analyzer impact \
 | `-o` | `--output` | HTML/Markdown Index 文件。 |
 | `-f` | `--format` | `html` 或 `md`。 |
 | `-k` | `--include-change-kinds` | 纳入分析的 `ChangePointKind` CSV。 |
+|  | `--call-graph-timeout-seconds` | WALA RTA timeout；`0` 表示无限等待。 |
 
 ### 5.2 示例
 
@@ -125,6 +138,7 @@ dependency-analyzer impact \
 
 ```sh
 java -jar dependency-analyzer.jar impact \
+  --java-home /opt/jdk8 \
   --path . \
   --baseline release-1.2 \
   --output build/impact.html
@@ -134,6 +148,7 @@ java -jar dependency-analyzer.jar impact \
 
 ```sh
 java -jar dependency-analyzer.jar \
+  --java-home /opt/jdk8 \
   --maven /opt/apache-maven/bin/mvn \
   impact \
   --baseline main \
@@ -144,9 +159,11 @@ java -jar dependency-analyzer.jar \
 
 ### 5.3 Pipeline 与报告
 
-Preflight 全部通过后，pipeline 执行：workspace → Maven compile → GraphML dependency tree → dependency diff → JAR locator → bytecode diff → Call Graph → impact tracing → report。
+Preflight 全部通过后，pipeline 执行：config workspace → JDK 8 Maven compile → GraphML dependency tree → dependency diff → JAR locator → bytecode diff → exact ChangePoint seed scan。零 seed 直接跳过 JDK analysis、CHA 和 RTA；有 seed 时继续执行 `jdk-analysis` → WALA CHA → all-application RTA → impact tracing → method evidence → report。
 
-Report 包含 dependency changes、internal changes、impact paths、diagnostics、完整 preflight checks 和 Maven runtime metadata。
+`jdk-analysis` 将目标 JDK 8 boot jars 放入 WALA Primordial、extension jars 放入 Extension，不读取 analyzer Java 17 JRT。RTA 保留全部 application methods 作为 entrypoints，并分析可达 JDK method body；不使用 JDK bypass 或 seed-directed entrypoint。RTA 每 10 秒输出 elapsed、heap used/max 与 progress units。
+
+Report 包含 dependency changes、internal changes、impact paths、diagnostics、完整 preflight checks 和 Maven runtime metadata。实际进入 Impact Paths 的唯一 `METHOD_BODY_CHANGED` 使用稳定 `MB-xxx` ID 展示 old/new Java-like method evidence；HTML 为 escaped 双栏 code block，Markdown 为 old/new `java` fence。单侧 Vineflower 反编译失败时保留另一侧并显示 unavailable，不阻断报告。
 
 `impact` 没有可安全降级的核心分析阶段；build、dependency extraction、bytecode 或 Call Graph failure 为 pipeline failure。
 
@@ -164,11 +181,11 @@ dependency-analyzer tree \
 ```
 
 - `-p, --path` 默认 current directory；解析真实 directory、所属 Git root 及 Git-root-relative analysis path。
-- `--ref` 省略时分析 current checkout；提供时创建单个 local commit snapshot 的 detached temporary worktree，不 fetch。它不表示 impact comparison target。
+- `--ref` 省略时分析 current checkout；提供时在 `<config-dir>/tree/workspaces/<run-id>/` 创建单个 local commit snapshot 的 detached worktree，不 fetch。
 - `--output` 是 HTML report directory。
 - `--scopes` 默认 `compile,runtime,provided,test,system`。
 - `--dependency-plugin-version` 默认为 JAR 内置的 `3.6.1`；指定时作为高级 override，并必须通过完整 evidence capability check。
-- 旧 `--repository` 已删除，不保留 alias。
+- Global `--java-home` 仅设置 Maven subprocess `JAVA_HOME`；`tree` 不要求 JDK 8。
 
 | Short | Long | 含义 |
 |---:|---|---|
@@ -342,7 +359,21 @@ Exit code：
 
 ### Maven executable cannot run
 
-确认 `--maven` 是 executable file，不是 Maven home；Windows 应指向 `mvn.cmd`。若只需 Maven subprocess 使用另一 JDK，设置 `--maven-java-home`。
+确认 `--maven` 是 executable file，不是 Maven home；Windows 应指向 `mvn.cmd`。通过 `--java-home` 设置 Maven subprocess 的 `JAVA_HOME`。
+
+### `impact` target JDK Preflight failure
+
+`impact` 只接受完整 JDK 8。确认 `--java-home` 指向 JDK root 而不是 JRE，且存在 executable `bin/java`、`bin/javac` 与 runtime `rt.jar`。Analyzer JAR 本身继续由 Java 17 启动；不能把 analyzer 的 Java 17 home 作为 `impact` target。
+
+### Call Graph 长时间运行
+
+全 application entrypoint RTA 对大型工程可能运行较久。每 10 秒的 `[call-graph] RTA heartbeat` 包含 elapsed、heap 和 progress units，可用来确认 process 仍在工作。默认无 timeout；需要硬性上限时设置正数 `--call-graph-timeout-seconds`，达到上限会失败且不生成部分报告。
+
+`got NEW <Primordial,...>` 是 WALA `ClassBasedInstanceKeys` 的 debug 文本，不是业务异常。本工具使用等价的静默 allocation key factory，正常输出不应出现该文本；若仍出现，确认运行的是当前 uber JAR，并检查 packaged WALA version 为 1.8.0。
+
+### Method body evidence unavailable
+
+Vineflower 输出是 Java-like 反编译结果，不保证与原始 source 完全一致。某一侧 class 无法反编译时，该侧显示 unavailable 并产生 WARN，另一侧和其余报告仍保留。
 
 ### Maven dependency resolution failure
 
@@ -363,3 +394,5 @@ Dependency Analyzer 不把 project dependency local repository 放入 config dir
 ## 10. Third-Party Attribution
 
 Uber JAR 内包含未修改的 Apache Maven 3.6.3 binary distribution，以及 distribution 的 `LICENSE`、`NOTICE` 和官方 SHA-512；同时包含 Maven Dependency Plugin 3.6.1 的完整运行 dependency repository、SHA-512、`LICENSE`、`NOTICE` 和 `DEPENDENCIES`。Source repository 中对应文件位于 `src/main/resources/maven/`。
+
+WALA 1.8.0 以 EPL-2.0 使用，Vineflower 1.12.0 slim 以 Apache-2.0 使用；attribution 位于 `src/main/resources/licenses/` 并随 uber JAR 打包。Vineflower 代码和 runtime dependency 已内嵌，内网执行 `impact` 不下载 decompiler artifact；重新构建工程时仍需要 Maven mirror 或已缓存 artifact。

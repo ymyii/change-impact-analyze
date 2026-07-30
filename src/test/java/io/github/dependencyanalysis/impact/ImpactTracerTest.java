@@ -5,13 +5,18 @@ import io.github.dependencyanalysis.build.ModuleBuildOutput;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.callgraph.CallGraph;
-import io.github.dependencyanalysis.callgraph.CallGraphEngine;
+import io.github.dependencyanalysis.callgraph.CallEdge;
+import io.github.dependencyanalysis.callgraph.CallGraphStats;
+import io.github.dependencyanalysis.callgraph.EdgeKind;
+import io.github.dependencyanalysis.callgraph.MethodId;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
@@ -21,7 +26,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions
         .assertThat;
@@ -42,9 +51,6 @@ class ImpactTracerTest {
     /** Diagnostic collector. */
     private DiagnosticCollector diag;
 
-    /** Call graph engine. */
-    private CallGraphEngine cgEngine;
-
     /** Tracer under test. */
     private ImpactTracer tracer;
 
@@ -54,8 +60,6 @@ class ImpactTracerTest {
     @BeforeEach
     void setUp() {
         diag = new DiagnosticCollector();
-        cgEngine = new CallGraphEngine(
-                diag);
         tracer = new ImpactTracer(diag);
         artifact = new ArtifactCoord(
                 "com.dep", "deplib",
@@ -257,8 +261,7 @@ class ImpactTracerTest {
                 BuildResult.of(
                         List.of(outA,
                                 outB));
-        final CallGraph cg =
-                cgEngine.build(br);
+        final CallGraph cg = fixtureGraph(br);
         final ChangePoint cp =
                 new ChangePoint(
                         artifact,
@@ -409,6 +412,32 @@ class ImpactTracerTest {
                 .isGreaterThan(0);
     }
 
+    @Test
+    void sharedResolvedSeedRunsOneReverseBfs()
+            throws Exception {
+        final Path dir = tempDir.resolve("shared-seed");
+        Files.createDirectories(dir);
+        writeCallerClass(dir, "com/app/App",
+                DEP, "doWork", "()V");
+        final ChangePoint first = new ChangePoint(
+                artifact, ChangePointKind.METHOD_REMOVED,
+                DEP, "doWork", "()V", null, null);
+        final ChangePoint second = new ChangePoint(
+                new ArtifactCoord("other", "artifact",
+                        "jar", "2.0"),
+                ChangePointKind.METHOD_REMOVED,
+                DEP, "doWork", "()V", null, null);
+
+        final ImpactResult result = tracer.trace(
+                List.of(first, second), buildGraph(dir),
+                buildResult(dir));
+
+        assertThat(result.getPaths()).hasSize(2);
+        assertThat(diag.getEvents())
+                .extracting(event -> event.getMessage())
+                .contains("Reverse BFS executions: 1");
+    }
+
     /**
      * Builds a call graph for a
      * single directory.
@@ -417,10 +446,110 @@ class ImpactTracerTest {
      * @return call graph
      */
     private CallGraph buildGraph(
-            final Path dir) {
+            final Path dir) throws IOException {
         final BuildResult br =
                 buildResult(dir);
-        return cgEngine.build(br);
+        return fixtureGraph(br);
+    }
+
+    private CallGraph fixtureGraph(
+            final BuildResult build) throws IOException {
+        final Set<MethodId> methods = new HashSet<>();
+        final List<PendingEdge> pending = new ArrayList<>();
+        for (ModuleBuildOutput output : build.getOutputs()) {
+            final String module = output.getModulePath().toString();
+            try (java.util.stream.Stream<Path> files =
+                         Files.walk(output.getClassesDir())) {
+                for (Path file : files
+                        .filter(path -> path.toString()
+                                .endsWith(".class"))
+                        .toList()) {
+                    final ClassReader reader = new ClassReader(
+                            Files.readAllBytes(file));
+                    reader.accept(new ClassVisitor(Opcodes.ASM9) {
+                        private String owner;
+
+                        @Override
+                        public void visit(
+                                final int version,
+                                final int access,
+                                final String name,
+                                final String signature,
+                                final String superName,
+                                final String[] interfaces) {
+                            owner = name;
+                        }
+
+                        @Override
+                        public MethodVisitor visitMethod(
+                                final int access,
+                                final String name,
+                                final String descriptor,
+                                final String signature,
+                                final String[] exceptions) {
+                            final MethodId caller = new MethodId(
+                                    owner, name, descriptor,
+                                    module, owner + ".class");
+                            methods.add(caller);
+                            return new MethodVisitor(Opcodes.ASM9) {
+                                @Override
+                                public void visitMethodInsn(
+                                        final int opcode,
+                                        final String targetOwner,
+                                        final String targetName,
+                                        final String targetDescriptor,
+                                        final boolean isInterface) {
+                                    pending.add(new PendingEdge(
+                                            caller, targetOwner,
+                                            targetName,
+                                            targetDescriptor));
+                                }
+                            };
+                        }
+                    }, ClassReader.SKIP_FRAMES);
+                }
+            }
+        }
+        final Map<String, MethodId> index = new HashMap<>();
+        for (MethodId method : methods) {
+            index.put(key(method.owner(), method.name(),
+                    method.descriptor()), method);
+        }
+        final List<CallEdge> edges = new ArrayList<>();
+        for (PendingEdge item : pending) {
+            final MethodId callee = index.get(key(
+                    item.owner, item.name, item.descriptor));
+            if (callee != null && !callee.equals(item.caller)) {
+                edges.add(new CallEdge(item.caller, callee,
+                        EdgeKind.INVOKE_VIRTUAL,
+                        "fixture"));
+            }
+        }
+        return CallGraph.of(methods, edges, Map.of(),
+                new CallGraphStats(methods.size(),
+                        edges.size(), 0L, 0L));
+    }
+
+    private String key(
+            final String owner,
+            final String name,
+            final String descriptor) {
+        return owner + "#" + name + "#" + descriptor;
+    }
+
+    /**
+     * Deferred fixture edge.
+     *
+     * @param caller caller method
+     * @param owner callee owner
+     * @param name callee name
+     * @param descriptor callee descriptor
+     */
+    private record PendingEdge(
+            MethodId caller,
+            String owner,
+            String name,
+            String descriptor) {
     }
 
     /**

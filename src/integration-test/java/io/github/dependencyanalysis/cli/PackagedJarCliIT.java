@@ -98,6 +98,16 @@ class PackagedJarCliIT {
             assertThat(jar.getEntry(
                     "maven/dependency-plugin/DEPENDENCIES"))
                     .isNotNull();
+            assertThat(jar.getEntry(
+                    "licenses/vineflower-LICENSE.txt"))
+                    .isNotNull();
+            assertThat(jar.getEntry(
+                    "licenses/wala-LICENSE.txt"))
+                    .isNotNull();
+            assertThat(jar.getEntry(
+                    "org/jetbrains/java/decompiler/api/"
+                            + "Decompiler.class"))
+                    .isNotNull();
             assertEmbeddedChecksum(jar);
             assertPluginChecksum(jar);
         }
@@ -122,7 +132,7 @@ class PackagedJarCliIT {
         assertThat(rootHelp.exitCode).isZero();
         assertThat(rootHelp.output)
                 .contains("-m, --maven")
-                .contains("-j, --maven-java-home")
+                .contains("-j, --java-home")
                 .contains("-c, --config-dir")
                 .contains("-a, --maven-arg");
         assertThat(impactHelp.exitCode).isZero();
@@ -132,7 +142,8 @@ class PackagedJarCliIT {
                 .contains("-t, --target")
                 .contains("-o, --output")
                 .contains("-f, --format")
-                .contains("-k, --include-change-kinds");
+                .contains("-k, --include-change-kinds")
+                .contains("--call-graph-timeout-seconds");
         assertThat(treeHelp.exitCode).isZero();
         assertThat(treeHelp.output)
                 .contains("-p, --path")
@@ -153,26 +164,16 @@ class PackagedJarCliIT {
     }
 
     @Test
-    void jarRunsRealImpactAndTreeScenarios()
+    void jarRunsRealTreeScenarios()
             throws Exception {
         final Path repository = createRepository(
                 temporary.resolve("real-repository"),
                 true);
-        final Path impactReport = temporary.resolve(
-                "impact.html");
         final Path treeReport = temporary.resolve(
                 "tree-report");
         final Path scopedReport = temporary.resolve(
                 "scoped-tree-report");
 
-        final ProcessResult impact = runJar(
-                "-m", maven.toString(),
-                "-c", temporary.resolve("impact-config")
-                        .toString(),
-                "impact", "-p", repository.toString(),
-                "-b", "HEAD", "-t", "HEAD",
-                "-o", impactReport.toString(),
-                "-f", "html");
         final ProcessResult tree = runJar(
                 "tree", "-m", maven.toString(),
                 "-c", temporary.resolve("tree-config")
@@ -186,18 +187,14 @@ class PackagedJarCliIT {
                 "-o", scopedReport.toString(),
                 "-d", "3.6.1");
 
-        assertThat(impact.exitCode)
-                .as(impact.output).isZero();
-        assertThat(impactReport).content()
-                .contains("Impact Analysis Report")
-                .contains("Preflight");
         assertThat(tree.exitCode).as(tree.output).isZero();
         assertThat(tree.output)
                 .doesNotContain("evidence is incomplete")
                 .doesNotContain("INCOMPLETE_EVIDENCE");
         assertThat(treeReport.resolve("index.html"))
                 .content().contains("SUCCESS")
-                .contains("analysis path</dt><dd><code>.</code>");
+                .contains("<th>analysis path</th>"
+                        + "<td><code>.</code></td>");
         assertThat(readOnlyReactorPage(treeReport))
                 .contains("FULL_REACTOR")
                 .contains("test:module:jar:1")
@@ -216,6 +213,39 @@ class PackagedJarCliIT {
                 .contains("test:library:jar:1")
                 .doesNotContain("test:root:pom:1</h2>")
                 .doesNotContain("test:unrelated:jar:1");
+    }
+
+    @Test
+    void jarRunsRealJdk8ImpactScenario()
+            throws Exception {
+        final String jdk8Home = System.getenv(
+                "TEST_JDK8_HOME");
+        assumeTrue(jdk8Home != null && !jdk8Home.isBlank(),
+                "TEST_JDK8_HOME unavailable");
+        final Path repository = createRepository(
+                temporary.resolve("impact-repository"),
+                true);
+        final Path impactReport = temporary.resolve(
+                "impact.html");
+
+        final ProcessResult impact = runJar(
+                "-m", maven.toString(),
+                "-j", jdk8Home,
+                "-c", temporary.resolve("impact-config")
+                        .toString(),
+                "impact", "-p", repository.toString(),
+                "-b", "HEAD", "-t", "HEAD",
+                "-o", impactReport.toString(),
+                "-f", "html");
+
+        assertThat(impact.exitCode)
+                .as(impact.output).isZero();
+        assertThat(impact.output)
+                .doesNotContain("got NEW");
+        assertThat(impactReport).content()
+                .contains("Impact Analysis Report")
+                .contains("Preflight")
+                .contains("impact.java-runtime");
     }
 
     @Test
@@ -360,7 +390,7 @@ class PackagedJarCliIT {
                 .redirectOutput(log.toFile()).start();
         try {
             waitForCheckpoint(output.resolve("index.html"),
-                    "1/2 reactors", Duration.ofSeconds(20));
+                    "<td>1/2</td>", Duration.ofSeconds(20));
         } finally {
             process.destroyForcibly();
             process.waitFor();
@@ -368,7 +398,7 @@ class PackagedJarCliIT {
 
         assertThat(output.resolve("index.html"))
                 .content().contains("RUNNING")
-                .contains("1/2 reactors");
+                .contains("<td>1/2</td>");
         try (java.util.stream.Stream<Path> pages =
                      Files.list(output.resolve(
                              "dependency-report/reactors"))) {

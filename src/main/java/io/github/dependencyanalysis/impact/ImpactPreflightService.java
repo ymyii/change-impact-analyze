@@ -25,6 +25,12 @@ import io.github.dependencyanalysis.preflight
 import io.github.dependencyanalysis.preflight
         .SimplePreflightCheck;
 import io.github.dependencyanalysis.runtime
+        .CommandRunDirectory;
+import io.github.dependencyanalysis.runtime
+        .JavaRuntimeDescriptor;
+import io.github.dependencyanalysis.runtime
+        .Jdk8RuntimeProvider;
+import io.github.dependencyanalysis.runtime
         .MavenExecutionResult;
 import io.github.dependencyanalysis.runtime
         .MavenExecutor;
@@ -64,8 +70,15 @@ final class ImpactPreflightService {
     static final String MAVEN_RUNTIME =
             "impact.maven-runtime";
 
+    /** Prepared target Java runtime key. */
+    static final String JAVA_RUNTIME =
+            "impact.java-runtime";
+
     /** Prepared workspace key. */
     static final String WORKSPACE = "impact.workspace";
+
+    /** Command-owned workspace and temp run. */
+    static final String COMMAND_RUN = "impact.command-run";
 
     /** Root CLI options. */
     private final DependencyAnalyzerCli root;
@@ -204,8 +217,12 @@ final class ImpactPreflightService {
                             "Maven arguments are safe",
                             arguments.toString());
                 }));
-        checks.add(required("impact.maven-runtime",
+        checks.add(required("impact.java-runtime",
                 List.of("impact.path"),
+                context -> prepareJavaRuntime(
+                        context)));
+        checks.add(required("impact.maven-runtime",
+                List.of("impact.java-runtime"),
                 context -> prepareRuntime(context)));
         checks.add(required("impact.maven-version",
                 List.of("impact.maven-runtime"),
@@ -259,11 +276,11 @@ final class ImpactPreflightService {
             final PreflightContext context) {
         final File executable = root.getMaven();
         final File javaHome =
-                root.getMavenJavaHome();
+                root.getJavaHome();
         if (javaHome != null
                 && !javaHome.isDirectory()) {
             return PreflightOutcome.fail(
-                    "Maven JAVA_HOME is not a directory",
+                    "Java home is not a directory",
                     javaHome.getAbsolutePath(), "");
         }
         final MavenRuntimeDescriptor runtime =
@@ -281,6 +298,24 @@ final class ImpactPreflightService {
                 runtime.getSource() + ":"
                         + runtime.getExecutable()
                         + "; Maven 3.6.3 is EOL");
+    }
+
+    private PreflightOutcome prepareJavaRuntime(
+            final PreflightContext context) {
+        final File configured = root.getJavaHome();
+        final JavaRuntimeDescriptor descriptor =
+                new Jdk8RuntimeProvider().probe(
+                        configured == null
+                                ? null
+                                : configured.toPath());
+        context.put(JAVA_RUNTIME, descriptor);
+        return PreflightOutcome.pass(
+                "Target JDK 8 is available",
+                descriptor.getVersion() + "; home="
+                        + descriptor.getJavaHome()
+                        + "; bootEntries="
+                        + descriptor.getBootClassPath()
+                        .size());
     }
 
     private PreflightOutcome probeVersion(
@@ -320,12 +355,18 @@ final class ImpactPreflightService {
     private PreflightOutcome prepareWorkspace(
             final PreflightContext context) {
         try {
+            final CommandRunDirectory run =
+                    context.own(new CommandRunDirectory(
+                            root.getConfigDir().toPath(),
+                            "impact"));
+            context.put(COMMAND_RUN, run);
             final WorkspaceManager manager =
                     context.own(new WorkspaceManager(
                             context.get(
                                     ANALYSIS_PATH,
                                     Path.class),
-                            diagnostics));
+                            diagnostics,
+                            run.getWorkspaceDirectory()));
             final WorkspaceResult result =
                     manager.prepare(baseline, target);
             context.put(WORKSPACE, result);
@@ -345,7 +386,10 @@ final class ImpactPreflightService {
             final PreflightContext context)
             throws Exception {
         final Path probe = Files.createTempFile(
-                "dependency-analyzer-graphml-",
+                context.get(COMMAND_RUN,
+                        CommandRunDirectory.class)
+                        .getTemporaryDirectory(),
+                "graphml-probe-",
                 ".graphml");
         try {
             final List<String> arguments =

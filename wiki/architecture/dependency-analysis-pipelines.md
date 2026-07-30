@@ -25,6 +25,8 @@ code_refs:
     desc: "共享 DAG preflight 执行器"
   - path: "src/main/java/io/github/dependencyanalysis/runtime/MavenRuntimeManager.java"
     desc: "共享 Maven runtime preparation"
+  - path: "src/main/java/io/github/dependencyanalysis/runtime/CommandRunDirectory.java"
+    desc: "impact/tree config workspace ownership"
   - path: "src/main/java/io/github/dependencyanalysis/runtime/MavenDependencyPluginRuntimeManager.java"
     desc: "Tree 内置 Dependency Plugin repository boundary"
   - path: "src/main/java/io/github/dependencyanalysis/impact/ImpactPipeline.java"
@@ -50,7 +52,7 @@ Root CLI 提供 global Maven/config options，将请求分发给 `impact` 或 `t
 - Root CLI - 解析 global options 和 subcommand，不承载分析算法。
 - Maven Runtime - 选择用户 executable 或准备内嵌 Maven 3.6.3，产出只读 `MavenRuntimeDescriptor`。
 - Preflight - 稳定拓扑顺序执行 check DAG，产出 console、pipeline、report 共用的 `PreflightReport`。
-- Impact Pipeline - Git baseline/target workspace、build、GraphML dependency diff、bytecode diff、Call Graph、impact trace、report。
+- Impact Pipeline - Config-owned Git workspace、JDK 8 build、GraphML dependency diff、bytecode diff、pre-seed scan、JDK scope、Call Graph、impact trace、report。
 - Tree Pipeline - Git repository snapshot、POM/reactor inventory、module text collection、version analysis、repository/reactor HTML report。
 
 ## Architecture Diagram
@@ -99,6 +101,6 @@ flowchart LR
 
 ## Runtime Flow
 
-- `impact`：global options → runtime/preflight → prepared workspace → build → GraphML diff → bytecode/Call Graph/impact → report。
+- `impact`：global options → JDK 8/runtime/workspace Preflight → build → GraphML diff → bytecode diff → exact seed scan → 零 seed直接返回，或 JDK scope → CHA/RTA → impact → method evidence → report。
 - `tree`：global options → command snapshot/runtime/full-inventory Preflight → `RUNNING 0/N` → 每 reactor Maven/parser/analyzer/issue → atomic page → atomic Index checkpoint → summary → `SUCCESS`/`COMPLETED_WITH_ISSUES`/`FAILED`。
-- Preflight 创建的 snapshot、workspace 和 runtime metadata 通过 `PreflightContext` 交给 pipeline，并由 owner 在 finally/`AutoCloseable` 路径清理。
+- Preflight 创建的 snapshot、workspace、command tmp 和 runtime metadata 通过 `PreflightContext` 交给 pipeline；workspace/tmp 按 subcommand UUID run 隔离并由 owner 在 `AutoCloseable` 路径清理。

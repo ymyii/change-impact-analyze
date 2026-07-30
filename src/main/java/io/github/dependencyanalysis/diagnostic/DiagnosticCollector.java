@@ -2,7 +2,6 @@ package io.github.dependencyanalysis.diagnostic;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -50,7 +49,7 @@ public final class DiagnosticCollector {
      *
      * @param stage stage name
      */
-    public void startStage(final String stage) {
+    public synchronized void startStage(final String stage) {
         stageStarts.put(stage,
                 System.currentTimeMillis());
         emit(stage, DiagnosticLevel.INFO,
@@ -62,7 +61,7 @@ public final class DiagnosticCollector {
      *
      * @param stage stage name
      */
-    public void endStage(final String stage) {
+    public synchronized void endStage(final String stage) {
         final long elapsed = computeElapsed(stage);
         emit(stage, DiagnosticLevel.INFO,
                 "Stage ended: " + stage, elapsed);
@@ -74,7 +73,7 @@ public final class DiagnosticCollector {
      * @param stage  stage name
      * @param reason failure reason
      */
-    public void failStage(final String stage,
+    public synchronized void failStage(final String stage,
                           final String reason) {
         final long elapsed = computeElapsed(stage);
         emit(stage, DiagnosticLevel.ERROR,
@@ -87,7 +86,7 @@ public final class DiagnosticCollector {
      * @param stage   stage name
      * @param message message
      */
-    public void info(final String stage,
+    public synchronized void info(final String stage,
                      final String message) {
         emit(stage, DiagnosticLevel.INFO,
                 message, 0L);
@@ -99,7 +98,7 @@ public final class DiagnosticCollector {
      * @param stage   stage name
      * @param message message
      */
-    public void warn(final String stage,
+    public synchronized void warn(final String stage,
                      final String message) {
         emit(stage, DiagnosticLevel.WARN,
                 message, 0L);
@@ -111,7 +110,7 @@ public final class DiagnosticCollector {
      * @param stage   stage name
      * @param message message
      */
-    public void error(final String stage,
+    public synchronized void error(final String stage,
                       final String message) {
         emit(stage, DiagnosticLevel.ERROR,
                 message, 0L);
@@ -122,8 +121,8 @@ public final class DiagnosticCollector {
      *
      * @return event list
      */
-    public List<DiagnosticEvent> getEvents() {
-        return Collections.unmodifiableList(events);
+    public synchronized List<DiagnosticEvent> getEvents() {
+        return List.copyOf(events);
     }
 
     private long computeElapsed(final String stage) {

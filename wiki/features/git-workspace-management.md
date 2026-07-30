@@ -15,6 +15,8 @@ code_refs:
     desc: "impact Git command runner"
   - path: "src/main/java/io/github/dependencyanalysis/tree/GitSnapshotProvider.java"
     desc: "tree current checkout/local-ref repository snapshot"
+  - path: "src/main/java/io/github/dependencyanalysis/runtime/CommandRunDirectory.java"
+    desc: "subcommand UUID run、owner marker、file lock 和 stale cleanup"
   - path: "src/main/java/io/github/dependencyanalysis/tree/ReactorInventoryBuilder.java"
     desc: "tracked/non-ignored untracked POM 与 submodule filtering"
 ---
@@ -23,7 +25,7 @@ code_refs:
 
 ## Summary
 
-Git Workspace Management 为 `impact` 准备 baseline/target project workspace，为 `tree` 准备 current checkout 或 local-ref repository snapshot。临时 detached worktree 由 owner cleanup；current checkout 保留 dirty 与 eligible untracked POM。
+Git Workspace Management 为 `impact` 准备 baseline/target project workspace，为 `tree` 准备 current checkout 或 local-ref repository snapshot。Detached worktree 和 command temporary files 位于 subcommand 独立的 config subtree；current checkout 保留 dirty 与 eligible untracked POM。
 
 ## Design Decisions
 
@@ -33,11 +35,13 @@ Git Workspace Management 为 `impact` 准备 baseline/target project workspace�
 - Tree inventory 以 relative analysis path 计算 direct-match `requestedPoms`；命中 reactor root 时进入 full-reactor mode，否则由 collector 计算 bounded dependency closure。
 - Local ref 只通过 `rev-parse --verify <ref>^{commit}` 解析，不 fetch。
 - Git file discovery 使用 tracked + non-ignored untracked，并排除 stage mode `160000` Git submodule path。
+- 每次 command 使用 UUID run directory、有效 owner marker 和 `<config>/locks` file lock；cleanup 只能删除当前 owned run。
+- 启动时只回收 owner marker 有效且无法取得 active lock 的 stale run，随后执行 `git worktree prune` 清理对应 metadata；无 marker 目录和其他 run 不删除。
 
 ## Actors / Entrypoints
 
-- `impact` preflight 调用 `WorkspaceManager.prepare(baseline, target)`。
-- `tree` preflight 调用 `GitSnapshotProvider.open(path, ref)`。
+- `impact` preflight 创建 `CommandRunDirectory("impact")`，再调用 `WorkspaceManager.prepare(baseline, target)`。
+- `tree` preflight 创建 `CommandRunDirectory("tree")`，再调用 `GitSnapshotProvider.open(path, ref, workspaceDirectory)`。
 
 ## Behavior Contract
 
@@ -46,14 +50,25 @@ Git Workspace Management 为 `impact` 准备 baseline/target project workspace�
 - Tree snapshot metadata 同时包含 user input path、resolved Git root 与 relative analysis path。
 - Local-ref snapshot 只包含对应 commit，不包含 current dirty/untracked 文件。
 - 成功、失败和 command close 路径都 best-effort 执行 `git worktree remove --force`。
+- Config layout 固定为：
+
+```text
+<config-dir>/
+  runtime/
+  locks/
+  impact/workspaces/<run-id>/
+  impact/tmp/<run-id>/
+  tree/workspaces/<run-id>/
+  tree/tmp/<run-id>/
+```
 
 ## Core Flow
 
 - 将 input path `toRealPath()`，解析 Git root、relative analysis path 和 commit。
-- 对 local ref 创建 detached temporary worktree；current checkout 不 checkout/stash。
+- 创建 command run、owner marker 和 active lock；对 local ref 在 `workspaces/<run-id>` 内创建 detached worktree，current checkout 不 checkout/stash。
 - 将 relative analysis path 映射到 detached worktree；路径不存在时在 command Preflight 阻断。
 - Pipeline 复用 prepared path。
-- Owner close 时清理 worktree；Git remove 失败时清理 temporary directory。
+- Owner close 先清理 worktree，再删除当前 workspace/tmp run 和 lock。
 
 ## Acceptance Criteria
 
@@ -67,6 +82,7 @@ Git Workspace Management 为 `impact` 准备 baseline/target project workspace�
 
 - [ ] 不修改 current branch、index 或 tracked file。
 - [ ] Worktree cleanup 对成功和 failure path 生效。
+- [ ] 并发 run 不能互删；active locked run 不能被 stale recovery 回收。
 
 ## Edge Cases
 
