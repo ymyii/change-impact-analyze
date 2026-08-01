@@ -10,7 +10,7 @@ import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Tests RTA timeout cancellation and progress units. */
+/** Tests WALA timeout cancellation and progress units. */
 class CallGraphProgressMonitorTest {
 
     /** Wait long enough for the millisecond test deadline. */
@@ -64,7 +64,7 @@ class CallGraphProgressMonitorTest {
         assertThat(diagnostics.getEvents())
                 .extracting(event -> event.getMessage())
                 .anyMatch(message -> message.contains(
-                        "RTA heartbeat: elapsed=")
+                        "WALA heartbeat: elapsed=")
                         && message.contains("heap=")
                         && message.contains(
                         "progress=" + WORK_UNITS));

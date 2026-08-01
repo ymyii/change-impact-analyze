@@ -80,7 +80,7 @@ public final class RepositoryInventory {
      * @param pom relative POM
      * @return Maven packaging
      */
-    String packagingOf(
+    public String packagingOf(
             final java.nio.file.Path pom) {
         return poms.get(pom).getPackaging();
     }
@@ -96,7 +96,7 @@ public final class RepositoryInventory {
      * @param candidates candidate POMs
      * @return analysis-eligible POMs in candidate order
      */
-    List<Path> analysisPoms(
+    public List<Path> analysisPoms(
             final ReactorDescriptor reactor,
             final List<Path> candidates) {
         return candidates.stream()

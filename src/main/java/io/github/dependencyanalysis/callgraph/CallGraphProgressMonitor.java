@@ -11,7 +11,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
-/** Reports RTA liveness and supplies cooperative timeout cancellation. */
+/** Reports WALA liveness and supplies cooperative timeout cancellation. */
 final class CallGraphProgressMonitor
         implements MonitorUtil.IProgressMonitor, AutoCloseable {
 
@@ -119,8 +119,8 @@ final class CallGraphProgressMonitor
     @Override
     public String getCancelMessage() {
         return System.nanoTime() >= deadlineNanos
-                ? "RTA call graph timeout reached"
-                : "RTA call graph canceled";
+                ? "WALA call graph timeout reached"
+                : "WALA call graph canceled";
     }
 
     /** @return true when timeout caused cancellation */
@@ -135,7 +135,7 @@ final class CallGraphProgressMonitor
         final long elapsed = Duration.ofNanos(
                 System.nanoTime() - startedNanos).toSeconds();
         diagnostics.info("call-graph",
-                "RTA heartbeat: elapsed=" + elapsed
+                "WALA heartbeat: elapsed=" + elapsed
                         + "s, heap=" + toMiB(used)
                         + "/" + toMiB(runtime.maxMemory())
                         + " MiB, progress=" + workUnits.get());

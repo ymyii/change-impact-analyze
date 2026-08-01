@@ -25,8 +25,11 @@ public final class ChangePoint {
     /** Method or field name. */
     private final String name;
 
-    /** Method or field descriptor. */
-    private final String descriptor;
+    /** Old method or field descriptor. */
+    private final String oldDescriptor;
+
+    /** New method or field descriptor. */
+    private final String newDescriptor;
 
     /** Old body hash (nullable). */
     private final String oldHash;
@@ -53,6 +56,31 @@ public final class ChangePoint {
             final String desc,
             final String oh,
             final String nh) {
+        this(art, kd, own, nam,
+                new MemberDescriptors(desc, desc),
+                oh, nh);
+    }
+
+    /**
+     * Creates a change point with explicit
+     * old and new member descriptors.
+     *
+     * @param art artifact coordinate
+     * @param kd change point kind
+     * @param own internal class name
+     * @param nam member name or null
+     * @param descriptors old/new descriptors
+     * @param oh old body hash or null
+     * @param nh new body hash or null
+     */
+    private ChangePoint(
+            final ArtifactCoord art,
+            final ChangePointKind kd,
+            final String own,
+            final String nam,
+            final MemberDescriptors descriptors,
+            final String oh,
+            final String nh) {
         this.artifact =
                 Objects.requireNonNull(
                         art, "artifact");
@@ -63,9 +91,40 @@ public final class ChangePoint {
                 Objects.requireNonNull(
                         own, "owner");
         this.name = nam;
-        this.descriptor = desc;
+        final MemberDescriptors pair =
+                Objects.requireNonNull(
+                        descriptors,
+                        "descriptors");
+        this.oldDescriptor =
+                pair.getOldDescriptor();
+        this.newDescriptor =
+                pair.getNewDescriptor();
         this.oldHash = oh;
         this.newHash = nh;
+    }
+
+    /**
+     * Creates a change point with explicit old and new descriptors.
+     *
+     * @param art artifact coordinate
+     * @param kd change point kind
+     * @param own internal class name
+     * @param nam member name or null
+     * @param descriptors old/new descriptors
+     * @param oh old body hash or null
+     * @param nh new body hash or null
+     * @return change point
+     */
+    public static ChangePoint withDescriptors(
+            final ArtifactCoord art,
+            final ChangePointKind kd,
+            final String own,
+            final String nam,
+            final MemberDescriptors descriptors,
+            final String oh,
+            final String nh) {
+        return new ChangePoint(art, kd, own, nam,
+                descriptors, oh, nh);
     }
 
     /**
@@ -113,7 +172,27 @@ public final class ChangePoint {
      * @return descriptor or null
      */
     public String getDescriptor() {
-        return descriptor;
+        return newDescriptor == null
+                ? oldDescriptor
+                : newDescriptor;
+    }
+
+    /**
+     * Returns the old member descriptor.
+     *
+     * @return old descriptor or null
+     */
+    public String getOldDescriptor() {
+        return oldDescriptor;
+    }
+
+    /**
+     * Returns the new member descriptor.
+     *
+     * @return new descriptor or null
+     */
+    public String getNewDescriptor() {
+        return newDescriptor;
     }
 
     /**
@@ -155,8 +234,11 @@ public final class ChangePoint {
                 && Objects.equals(
                         name, that.name)
                 && Objects.equals(
-                        descriptor,
-                        that.descriptor)
+                        oldDescriptor,
+                        that.oldDescriptor)
+                && Objects.equals(
+                        newDescriptor,
+                        that.newDescriptor)
                 && Objects.equals(
                         oldHash, that.oldHash)
                 && Objects.equals(
@@ -167,7 +249,8 @@ public final class ChangePoint {
     public int hashCode() {
         return Objects.hash(
                 artifact, kind, owner,
-                name, descriptor,
+                name, oldDescriptor,
+                newDescriptor,
                 oldHash, newHash);
     }
 
@@ -184,8 +267,10 @@ public final class ChangePoint {
                 .append(owner)
                 .append(", name=")
                 .append(name)
-                .append(", descriptor=")
-                .append(descriptor)
+                .append(", oldDescriptor=")
+                .append(oldDescriptor)
+                .append(", newDescriptor=")
+                .append(newDescriptor)
                 .append(", oldHash=")
                 .append(oldHash)
                 .append(", newHash=")

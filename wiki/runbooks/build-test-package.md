@@ -74,7 +74,7 @@ Subdirectory `tree` fixture 必须包含 requested module、同 reactor dependen
 - `mvn verify` 的 Surefire 和 Failsafe tests 全部通过。
 - `target/dependency-analyzer.jar` 存在，manifest `Main-Class` 为 `io.github.dependencyanalysis.cli.DependencyAnalyzerCli`。
 - JAR 包含 Maven distribution 和 `maven-dependency-plugin:3.6.1` 完整 repository archive、SHA-512、LICENSE 和 NOTICE。
-- JAR 使用 WALA 1.8.0；JDK 8 smoke 覆盖 `jdk-analysis`、CHA/RTA，并断言 stdout/stderr 不含 `got NEW`。
+- JAR 使用 WALA 1.8.0；JDK 8 smoke 覆盖 per-Module scope、CHA、Vanilla 0-1-CFA、`FULL` Reflection 和 MethodHandle extension，并断言 stdout/stderr 不含 `got NEW`。
 - `impact` 缺少 JDK 8、传入 JDK 17、缺少 `javac`/`rt.jar` 时 Preflight 返回 exit `1`；`tree` 不受 JDK 8 限制。
 - JAR 内 Maven/plugin archive 的实际 SHA-512 与 packaged checksum 一致。
 - Root/两个 subcommand help 列出全部当前 option；无 subcommand或未知 option 返回 usage failure。

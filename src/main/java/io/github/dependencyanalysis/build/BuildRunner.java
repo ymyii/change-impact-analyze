@@ -4,6 +4,8 @@ import io.github.dependencyanalysis
         .diagnostic.DiagnosticCollector;
 import io.github.dependencyanalysis
         .util.CommandResolver;
+import io.github.dependencyanalysis
+        .util.ProcessTreeTerminator;
 
 import java.io.File;
 import java.io.IOException;
@@ -47,6 +49,9 @@ public final class BuildRunner {
 
     /** User Maven arguments. */
     private final List<String> mavenArguments;
+
+    /** Reactor project selection arguments. */
+    private List<String> projectArguments = List.of();
 
     /** Command-owned temporary directory, nullable. */
     private final Path temporaryDirectory;
@@ -138,6 +143,19 @@ public final class BuildRunner {
     }
 
     /**
+     * Selects a Maven reactor project closure, for example
+     * {@code -pl module -am}.
+     *
+     * @param arguments Maven project selection tokens
+     * @return this runner
+     */
+    public BuildRunner withProjectArguments(
+            final List<String> arguments) {
+        projectArguments = List.copyOf(arguments);
+        return this;
+    }
+
+    /**
      * Runs {@code mvn compile} and
      * collects module outputs.
      *
@@ -217,6 +235,7 @@ public final class BuildRunner {
                 new ArrayList<>();
         cmd.add(mavenExecutable.toString());
         cmd.addAll(mavenArguments);
+        cmd.addAll(projectArguments);
         cmd.add("compile");
         cmd.add("-B");
         final List<String> resolved =
@@ -241,7 +260,12 @@ public final class BuildRunner {
                             .getAbsolutePath());
         }
         final Process proc = pb.start();
-        return proc.waitFor();
+        try {
+            return proc.waitFor();
+        } catch (InterruptedException exception) {
+            ProcessTreeTerminator.terminate(proc);
+            throw exception;
+        }
     }
 
     /**

@@ -25,28 +25,28 @@
 - Summary: `impact`/`tree` config UUID workspace/tmp、owner lock、stale recovery 与 detached worktree cleanup。
 
 ### [Maven Build Runner](features/maven-build-runner.md)
-- Summary: 使用 preflight 选定 Maven runtime 编译 `impact` baseline/target 并收集 main classes。
+- Summary: 只编译 target；reactor root compile 一次，leaf 使用 `-pl/-am`；baseline dependency 与 target build 并行。
 
 ### [Dependency Tree Extraction](features/dependency-tree-extraction.md)
-- Summary: `impact` 使用 Maven dependency plugin GraphML 提取兼容的 resolved dependency tree。
+- Summary: GraphML 保留 mediated tree，pinned `dependency:list` 提供 custom repository/SNAPSHOT 可用的 absolute artifact path。
 
 ### [Dependency Diff Engine](features/dependency-diff-engine.md)
 - Summary: 对比 baseline/target resolved dependency tree，生成稳定排序的 dependency changes。
 
 ### [Jar Locator](features/jar-locator.md)
-- Summary: 为 VERSION_CHANGED dependency 定位 Maven local repository 中的 old/new JAR。
+- Summary: Legacy JAR path 计算说明；`impact` production path 已改用 Maven resolved absolute artifact path。
 
 ### [Bytecode Diff Engine](features/bytecode-diff-engine.md)
-- Summary: 对 VERSION_CHANGED JAR 执行 ASM bytecode diff，并用内嵌 Vineflower 为实际受影响的 method body 生成 old/new Java-like evidence。
+- Summary: physical JAR pair 并行去重 diff；MethodNode canonical hash覆盖 CFG/exception/bootstrap topology，SSA filtering 延迟到 candidate path 后。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
-- Summary: 使用目标 JDK 8 Primordial、all-application WALA 1.8.0 RTA、heartbeat/timeout 构建 Call Graph。
+- Summary: 每 Module 独立使用 target JDK 8、PROJECT-only all-method entrypoints、WALA Vanilla 0-1-CFA `FULL` Reflection。
 
 ### [Impact Tracing](features/impact-tracing.md)
-- Summary: Call Graph 前精确扫描 seed、复用唯一 seed reverse BFS，并选择进入调用链的 method body evidence。
+- Summary: Call Graph 后从 live WALA graph 解析 seed并直接 reverse query，保留 Context、Structural Impact 与 serial SSA filtering。
 
 ### [Report Generator](features/report-generator.md)
-- Summary: 生成带稳定 `MB-xxx` old/new method evidence 的 `impact` HTML/Markdown，以及完整 `tree` offline report。
+- Summary: `impact` 原子生成 HTML Index + per-Module pages；展示 model boundaries、partial status、paths、dispositions、SSA/metrics；Markdown 已移除。
 
 ## Rules
 

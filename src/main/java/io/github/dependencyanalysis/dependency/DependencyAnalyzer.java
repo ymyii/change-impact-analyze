@@ -4,15 +4,20 @@ import io.github.dependencyanalysis
         .diagnostic.DiagnosticCollector;
 import io.github.dependencyanalysis
         .util.CommandResolver;
+import io.github.dependencyanalysis
+        .util.ProcessTreeTerminator;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Stream;
 
 // Wiki: wiki/features/dependency-tree-extraction.md - 依赖树提取与 GraphML 解析
@@ -29,8 +34,17 @@ public final class DependencyAnalyzer {
             "dependency";
 
     /** GraphML output file name. */
-    private static final String GRAPHML_FILE =
-            "dep-tree.graphml";
+    private static final String GRAPHML_PREFIX =
+            "dep-tree-cia-";
+
+    /** Per-module resolved artifact list file name. */
+    private static final String ARTIFACT_LIST_PREFIX =
+            "resolved-artifacts-cia-";
+
+    /** Pinned dependency plugin goal used for physical paths. */
+    private static final String DEPENDENCY_LIST_GOAL =
+            "org.apache.maven.plugins:maven-dependency-plugin:"
+                    + "3.6.1:list";
 
     /** Log tail lines for error. */
     private static final int TAIL_LINES =
@@ -57,6 +71,9 @@ public final class DependencyAnalyzer {
 
     /** User Maven arguments. */
     private final List<String> mavenArguments;
+
+    /** Reactor project selection arguments. */
+    private List<String> projectArguments = List.of();
 
     /** Command-owned temporary directory, nullable. */
     private Path temporaryDirectory;
@@ -146,6 +163,19 @@ public final class DependencyAnalyzer {
     }
 
     /**
+     * Selects a Maven reactor project closure, for example
+     * {@code -pl module -am}.
+     *
+     * @param arguments Maven project selection tokens
+     * @return this analyzer
+     */
+    public DependencyAnalyzer withProjectArguments(
+            final List<String> arguments) {
+        projectArguments = List.copyOf(arguments);
+        return this;
+    }
+
+    /**
      * Runs Maven dependency plugin and
      * parses GraphML output.
      *
@@ -173,14 +203,16 @@ public final class DependencyAnalyzer {
                 ? Files.createTempFile("cia-dep-", ".log")
                 : Files.createTempFile(temporaryDirectory,
                 "dependency-" + side + "-", ".log");
+        final String outputName = GRAPHML_PREFIX
+                + UUID.randomUUID() + ".graphml";
         final String cmdStr =
                 "mvn dependency:tree "
                         + "-DoutputType=graphml "
                         + "-DoutputFile="
-                        + GRAPHML_FILE
+                        + outputName
                         + " -B";
         final int exitCode =
-                runDependencyTree(logFile);
+                runDependencyTree(logFile, outputName);
         if (exitCode != 0) {
             final String tail =
                     readLogTail(logFile);
@@ -202,8 +234,7 @@ public final class DependencyAnalyzer {
                 "Dependency tree generated, "
                         + "parsing GraphML");
         final List<Path> graphmlFiles =
-                findGraphMLFiles(
-                        workspacePath);
+                findNamedFiles(workspacePath, outputName);
         if (graphmlFiles.isEmpty()) {
             diag.failStage(STAGE,
                     "No GraphML files found "
@@ -216,14 +247,20 @@ public final class DependencyAnalyzer {
         }
         final List<ModuleDependencyTree>
                 trees = new ArrayList<>();
-        for (Path gFile : graphmlFiles) {
-            diag.info(STAGE,
-                    "Parsing: " + gFile);
-            final ModuleDependencyTree tree =
-                    GraphMLParser.parse(
-                            gFile,
-                            reactorModules);
-            trees.add(tree);
+        try {
+            for (Path gFile : graphmlFiles) {
+                diag.info(STAGE,
+                        "Parsing: " + gFile);
+                final ModuleDependencyTree tree =
+                        GraphMLParser.parse(
+                                gFile,
+                                reactorModules);
+                trees.add(tree);
+            }
+        } finally {
+            for (Path file : graphmlFiles) {
+                Files.deleteIfExists(file);
+            }
         }
         diag.info(STAGE,
                 "Parsed " + trees.size()
@@ -233,10 +270,258 @@ public final class DependencyAnalyzer {
     }
 
     /**
+     * Runs dependency tree extraction and binds every retained
+     * dependency to Maven's resolved absolute physical path.
+     *
+     * @return trees and physical artifact bindings
+     * @throws DependencyAnalysisException when Maven or binding fails
+     * @throws IOException when output cannot be read
+     * @throws InterruptedException when interrupted
+     */
+    public DependencyAnalysisResult analyzeResolved()
+            throws DependencyAnalysisException,
+            IOException,
+            InterruptedException {
+        final List<ModuleDependencyTree> trees = analyze();
+        final Set<String> reactorKeys = trees.stream()
+                .map(tree -> tree.getModule().diffKey())
+                .collect(java.util.stream.Collectors.toSet());
+        final Map<String, List<ResolvedArtifact>> cache =
+                new LinkedHashMap<>();
+        final List<ResolvedArtifact> artifacts = new ArrayList<>();
+        for (ModuleDependencyTree tree : trees.stream()
+                .sorted(Comparator.comparing(value ->
+                        value.getModulePath().toString())).toList()) {
+            final List<DependencyNode> dependencies =
+                    externalDependencies(tree, reactorKeys);
+            if (dependencies.isEmpty()) {
+                continue;
+            }
+            final String fingerprint = dependencyFingerprint(dependencies);
+            List<ResolvedArtifact> resolved = cache.get(fingerprint);
+            if (resolved == null) {
+                resolved = resolveExternalArtifacts(tree, dependencies);
+                cache.put(fingerprint, resolved);
+            } else {
+                resolved = rebindModule(resolved, tree.getModulePath());
+            }
+            artifacts.addAll(resolved);
+        }
+        return new DependencyAnalysisResult(trees, artifacts);
+    }
+
+    private List<ResolvedArtifact> resolveExternalArtifacts(
+            final ModuleDependencyTree tree,
+            final List<DependencyNode> dependencies)
+            throws DependencyAnalysisException,
+            IOException, InterruptedException {
+        final Path modelDirectory = temporaryDirectory == null
+                ? Files.createTempDirectory("cia-resolved-model-")
+                : Files.createTempDirectory(temporaryDirectory,
+                "resolved-model-" + side + "-");
+        final Path modelPom = modelDirectory.resolve("pom.xml");
+        final Path output = modelDirectory.resolve(
+                ARTIFACT_LIST_PREFIX + UUID.randomUUID() + ".txt");
+        final Path logFile = temporaryDirectory == null
+                ? Files.createTempFile("cia-dep-list-", ".log")
+                : Files.createTempFile(temporaryDirectory,
+                "dependency-list-" + side + "-", ".log");
+        try {
+            Files.writeString(modelPom, resolutionModel(dependencies));
+            final int exitCode = runDependencyList(
+                    logFile, modelPom, output);
+            if (exitCode != 0) {
+                throw new DependencyAnalysisException(
+                        side, tree.getModulePath().toString(),
+                        "mvn " + DEPENDENCY_LIST_GOAL
+                                + " -DoutputAbsoluteArtifactFilename=true"
+                                + " -DexcludeTransitive=true",
+                        exitCode, readLogTail(logFile), logFile);
+            }
+            if (!Files.isRegularFile(output)) {
+                throw new DependencyAnalysisException(
+                        "No resolved artifact list for module: "
+                                + tree.getModulePath());
+            }
+            final List<ResolvedArtifact> resolved =
+                    ResolvedArtifactListParser.parse(
+                            output, tree.getModulePath());
+            validateBindings(tree, dependencies, resolved);
+            return resolved;
+        } finally {
+            deleteTree(modelDirectory);
+        }
+    }
+
+    private int runDependencyList(
+            final Path logFile,
+            final Path modelPom,
+            final Path output)
+            throws IOException, InterruptedException {
+        final List<String> cmd = new ArrayList<>();
+        cmd.add(mavenExecutable.toString());
+        cmd.addAll(mavenArguments);
+        cmd.add("-f");
+        cmd.add(modelPom.toString());
+        cmd.add(DEPENDENCY_LIST_GOAL);
+        cmd.add("-DoutputFile=" + output);
+        cmd.add("-DoutputAbsoluteArtifactFilename=true");
+        cmd.add("-DappendOutput=false");
+        cmd.add("-DexcludeReactor=true");
+        cmd.add("-DexcludeTransitive=true");
+        cmd.add("-B");
+        final ProcessBuilder builder = new ProcessBuilder(
+                CommandResolver.resolve(cmd))
+                .directory(workspacePath.toFile())
+                .redirectOutput(logFile.toFile())
+                .redirectErrorStream(true);
+        if (buildJavaHome != null) {
+            builder.environment().put("JAVA_HOME",
+                    buildJavaHome.getAbsolutePath());
+        }
+        final Process process = builder.start();
+        try {
+            return process.waitFor();
+        } catch (InterruptedException exception) {
+            ProcessTreeTerminator.terminate(process);
+            throw exception;
+        }
+    }
+
+    private List<DependencyNode> externalDependencies(
+            final ModuleDependencyTree tree,
+            final Set<String> reactorKeys) {
+        final Map<String, DependencyNode> result = new LinkedHashMap<>();
+        collectDependencies(tree.getDependencies(), reactorKeys, result);
+        return result.values().stream()
+                .sorted(Comparator
+                        .comparing((DependencyNode value) ->
+                                value.getArtifact().toString())
+                        .thenComparing(value ->
+                                value.getScope().getValue()))
+                .toList();
+    }
+
+    private void collectDependencies(
+            final List<DependencyNode> nodes,
+            final Set<String> reactorKeys,
+            final Map<String, DependencyNode> result) {
+        for (DependencyNode node : nodes) {
+            if (!reactorKeys.contains(node.getArtifact().diffKey())) {
+                final String key = node.getArtifact().toString()
+                        + ":" + node.getScope().getValue();
+                result.putIfAbsent(key, node);
+            }
+            collectDependencies(node.getChildren(), reactorKeys, result);
+        }
+    }
+
+    private String dependencyFingerprint(
+            final List<DependencyNode> dependencies) {
+        return dependencies.stream().map(value ->
+                value.getArtifact() + ":" + value.getScope().getValue())
+                .sorted().collect(java.util.stream.Collectors.joining("|"));
+    }
+
+    private List<ResolvedArtifact> rebindModule(
+            final List<ResolvedArtifact> artifacts,
+            final Path modulePath) {
+        return artifacts.stream().map(value -> new ResolvedArtifact(
+                        modulePath, value.getArtifact(), value.getScope(),
+                        value.getPath()))
+                .toList();
+    }
+
+    private String resolutionModel(
+            final List<DependencyNode> dependencies) {
+        final StringBuilder value = new StringBuilder(
+                "<project xmlns=\"http://maven.apache.org/POM/4.0.0\">"
+                        + "<modelVersion>4.0.0</modelVersion>"
+                        + "<groupId>io.github.dependencyanalysis</groupId>"
+                        + "<artifactId>resolved-artifacts</artifactId>"
+                        + "<version>1</version><dependencies>");
+        for (DependencyNode dependency : dependencies) {
+            final ArtifactCoord artifact = dependency.getArtifact();
+            value.append("<dependency><groupId>")
+                    .append(xml(artifact.getGroupId()))
+                    .append("</groupId><artifactId>")
+                    .append(xml(artifact.getArtifactId()))
+                    .append("</artifactId><version>")
+                    .append(xml(artifact.getVersion()))
+                    .append("</version><type>")
+                    .append(xml(artifact.getType())).append("</type>");
+            if (!artifact.getClassifier().isEmpty()) {
+                value.append("<classifier>")
+                        .append(xml(artifact.getClassifier()))
+                        .append("</classifier>");
+            }
+            value.append("<scope>")
+                    .append(dependency.getScope().getValue())
+                    .append("</scope></dependency>");
+        }
+        return value.append("</dependencies></project>").toString();
+    }
+
+    private void validateBindings(
+            final ModuleDependencyTree tree,
+            final List<DependencyNode> expected,
+            final List<ResolvedArtifact> resolved)
+            throws DependencyAnalysisException {
+        for (DependencyNode dependency : expected) {
+            final long matches = resolved.stream()
+                    .filter(value -> value.getArtifact().equals(
+                            dependency.getArtifact()))
+                    .filter(value -> value.getScope()
+                            == dependency.getScope())
+                    .count();
+            if (matches != 1L) {
+                throw new DependencyAnalysisException(
+                        "Artifact path binding must be unique: module="
+                                + tree.getModule() + "; artifact="
+                                + dependency.getArtifact() + "; matches="
+                                + matches);
+            }
+        }
+    }
+
+    private String xml(final String value) {
+        return value.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&apos;");
+    }
+
+    private void deleteTree(final Path root) {
+        try (Stream<Path> paths = Files.walk(root)) {
+            for (Path path : paths.sorted(Comparator.reverseOrder())
+                    .toList()) {
+                Files.deleteIfExists(path);
+            }
+        } catch (IOException exception) {
+            diag.warn(STAGE, "Unable to remove resolution model: " + root);
+        }
+    }
+
+    private List<Path> findNamedFiles(
+            final Path root, final String name) throws IOException {
+        final List<Path> result = new ArrayList<>();
+        try (Stream<Path> stream = Files.walk(root)) {
+            stream.filter(Files::isRegularFile)
+                    .filter(path -> name.equals(
+                            path.getFileName().toString()))
+                    .forEach(result::add);
+        }
+        result.sort(java.util.Comparator.comparing(Path::toString));
+        return result;
+    }
+
+    /**
      * Executes mvn dependency:tree and
      * returns the process exit code.
      *
      * @param logFile path to log file
+     * @param outputName unique per-module GraphML filename
      * @return exit code
      * @throws IOException        if
      *  process start fails
@@ -244,17 +529,19 @@ public final class DependencyAnalyzer {
      *  interrupted
      */
     private int runDependencyTree(
-            final Path logFile)
+            final Path logFile,
+            final String outputName)
             throws IOException,
             InterruptedException {
         final List<String> cmd =
                 new ArrayList<>();
         cmd.add(mavenExecutable.toString());
         cmd.addAll(mavenArguments);
+        cmd.addAll(projectArguments);
         cmd.add("dependency:tree");
         cmd.add("-DoutputType=graphml");
         cmd.add("-DoutputFile="
-                + GRAPHML_FILE);
+                + outputName);
         cmd.add("-B");
         final List<String> resolved =
                 CommandResolver.resolve(
@@ -278,32 +565,12 @@ public final class DependencyAnalyzer {
                             .getAbsolutePath());
         }
         final Process proc = pb.start();
-        return proc.waitFor();
-    }
-
-    /**
-     * Finds all dep-tree.graphml files
-     * under the given root directory.
-     *
-     * @param root workspace root
-     * @return list of GraphML file paths
-     * @throws IOException if walk fails
-     */
-    private List<Path> findGraphMLFiles(
-            final Path root)
-            throws IOException {
-        final List<Path> result =
-                new ArrayList<>();
-        try (Stream<Path> stream =
-                Files.walk(root)) {
-            stream.filter(Files::isRegularFile)
-                    .filter(p -> GRAPHML_FILE
-                            .equals(p
-                                    .getFileName()
-                                    .toString()))
-                    .forEach(result::add);
+        try {
+            return proc.waitFor();
+        } catch (InterruptedException exception) {
+            ProcessTreeTerminator.terminate(proc);
+            throw exception;
         }
-        return result;
     }
 
     /**

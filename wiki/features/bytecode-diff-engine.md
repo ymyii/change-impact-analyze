@@ -2,122 +2,57 @@
 title: "Bytecode Diff Engine"
 type: feature
 relations:
-  - path: "wiki/architecture/dependency-analysis-pipelines.md"
-    desc: "Bytecode diff 是分析流水线的第七阶段"
-  - path: "wiki/features/cli-preflight-diagnostics.md"
-    desc: "CLI 将 ChangePointKind 过滤集合传递给 Bytecode Diff Engine"
-  - path: "wiki/features/dependency-diff-engine.md"
-    desc: "Bytecode diff 依赖前序阶段产出的 VERSION_CHANGED DependencyChange"
-  - path: "wiki/features/jar-locator.md"
-    desc: "Bytecode diff 依赖 Jar Locator 定位的 old/new jar 文件"
+  - path: "wiki/features/dependency-tree-extraction.md"
+    desc: "resolved physical old/new JAR path"
   - path: "wiki/features/impact-tracing.md"
-    desc: "Bytecode diff 产出的 ChangePoint 是影响追踪输入"
+    desc: "BoundChangePoint 与 deferred SSA filtering"
 code_refs:
   - path: "src/main/java/io/github/dependencyanalysis/bytecode/BytecodeDiffEngine.java"
-    desc: "Bytecode diff 核心引擎，编排 class、method 和 field diff"
-  - path: "src/main/java/io/github/dependencyanalysis/bytecode/ChangePoint.java"
-    desc: "不可变 bytecode 变化点数据类"
-  - path: "src/main/java/io/github/dependencyanalysis/bytecode/ChangePointKind.java"
-    desc: "9 种变化类型枚举和默认过滤集合"
-  - path: "src/main/java/io/github/dependencyanalysis/bytecode/BytecodeDiffException.java"
-    desc: "Bytecode diff checked exception，携带 jarPath 和 className"
-  - path: "src/main/java/io/github/dependencyanalysis/bytecode/JarClassIndexer.java"
-    desc: "Jar 到 class index 的两遍扫描索引器"
+    desc: "class/method/field diff"
   - path: "src/main/java/io/github/dependencyanalysis/bytecode/StableHashMethodVisitor.java"
-    desc: "忽略 debug 信息的 method body SHA-256 hash visitor"
-  - path: "src/main/java/io/github/dependencyanalysis/bytecode/MethodBodyDecompiler.java"
-    desc: "Vineflower in-memory 单 method 反编译入口"
-  - path: "src/main/java/io/github/dependencyanalysis/bytecode/MethodBodyEvidence.java"
-    desc: "METHOD_BODY_CHANGED 的 old/new Java-like evidence"
-  - path: "src/main/java/io/github/dependencyanalysis/bytecode/DecompiledMethod.java"
-    desc: "单侧反编译 source 或 unavailable reason"
-  - path: "src/main/java/io/github/dependencyanalysis/bytecode/ClassInfo.java"
-    desc: "包级内部 class 索引模型"
-  - path: "src/main/java/io/github/dependencyanalysis/bytecode/MethodInfo.java"
-    desc: "包级内部 method 索引模型，含 bodyHash"
-  - path: "src/main/java/io/github/dependencyanalysis/bytecode/FieldInfo.java"
-    desc: "包级内部 field 索引模型"
+    desc: "ASM MethodNode canonical encoder"
+  - path: "src/main/java/io/github/dependencyanalysis/bytecode/ChangePoint.java"
+    desc: "old/new descriptor 与 hash"
+  - path: "src/main/java/io/github/dependencyanalysis/impact/BoundChangePoint.java"
+    desc: "Module 与 dependency upgrade provenance"
 ---
 
 # Feature: Bytecode Diff Engine
 
 ## Summary
 
-Bytecode Diff Engine 对 `VERSION_CHANGED` 依赖的 old/new jar 执行 bytecode 级别 diff，生成 `ChangePoint` 清单。它使用 ASM 读取 class 文件，并通过稳定 SHA-256 method body hash 检测方法体变化；对实际进入 Impact Paths 的 `METHOD_BODY_CHANGED`，pipeline 再使用 Vineflower 生成 old/new Java-like method evidence。
+对唯一 physical `(oldJar,newJar)` pair 执行一次 ASM bytecode diff，再将 raw ChangePoint 重新绑定到各 Module 的 `DependencyUpgradeKey`。Pool 大小为 `max(1, availableProcessors / 2)`；merge 与排序 deterministic。
 
-## Design Decisions
+## Stable Method Hash
 
-- 无参构造默认使用 `ChangePointKind.DEFAULT_INCLUDED_KINDS`，默认排除 ADDED 类型，降低报告噪音并聚焦移除和变更风险。
-- `BytecodeDiffEngine(Set<ChangePointKind>)` 支持调用方显式过滤 kind，过滤在每个 ChangePoint 产生点执行。
-- Method body hash 忽略 debug 信息、line number、local variable table 和 stack map frames，只关注结构性指令。
-- Abstract 和 native 方法 bodyHash 为 null，不参与 method body 变化比较。
-- Vineflower 固定使用 `org.vineflower:vineflower:1.12.0:slim`，随 uber JAR 打包，在运行期不下载 decompiler artifact。
-- 单 method 选择使用 `owner + name + descriptor` JVM identifier，overloaded method 不按 name 模糊匹配；constructor 保留显式空 constructor 输出。
-- 反编译是 best-effort evidence，不作为 impact 判定依据；任一侧失败只产生 WARN Diagnostic 和 unavailable reason。
+`StableHashMethodVisitor` 使用 ASM `MethodNode` 生成 length-delimited canonical records：
 
-## Actors / Entrypoints
+- Label 按 method 内 semantic order 分配 stable ID。
+- 编码 jump/switch target topology、try/catch range/handler。
+- `Handle` 逐字段编码；`invokedynamic` 与 `ConstantDynamic` 递归编码 bootstrap handle/arguments。
+- Typed `LDC` 保留 type；float/double 保留 exact bits。
+- 忽略 line number、local variable table、stack map frame 和 debug-only metadata。
+- 禁止使用 `Object.toString()` 作为 canonical evidence。
 
-- CLI pipeline 在 Jar Locator 成功后创建 `BytecodeDiffEngine`。
-- `BytecodeDiffEngine.diff(jarLocationResult)` 是单个依赖版本变更的 diff 入口。
-- `JarClassIndexer.index()` 是 jar class/method/field 索引入口。
+因此 source 换行或 debug-only 变化不产生 `METHOD_BODY_CHANGED`；data/control dependency、exception path、bootstrap metadata 变化仍可检出。
 
-## Behavior Contract
+## Change Identity
 
-- 输入为 `JarLocationResult`，包含 `DependencyChange`、old jar path 和 new jar path。
-- 输出为不可变 `List<ChangePoint>`。
-- `ChangePoint` 携带 artifact、kind、owner、name、descriptor、oldHash 和 newHash。
-- 支持 9 种 `ChangePointKind`：`CLASS_ADDED`、`CLASS_REMOVED`、`METHOD_ADDED`、`METHOD_REMOVED`、`METHOD_DESCRIPTOR_CHANGED`、`METHOD_BODY_CHANGED`、`FIELD_ADDED`、`FIELD_REMOVED`、`FIELD_DESCRIPTOR_CHANGED`。
-- Class 级别只检测新增和移除。
-- Method 级别先按 `name:descriptor` 匹配增删和 body hash，再按 name 检测 descriptor 变化。
-- Field 级别按 name 匹配，检测增删和 descriptor 变化。
-- includedKinds 为空集合时不产出任何 ChangePoint。
-- Corrupt jar 或 class 读取失败时抛出 `BytecodeDiffException`。
-- `MethodBodyEvidence` 同时保留 ChangePoint、old/new artifact，以及每侧的 Java-like source 或 unavailable reason。
-- 反编译 input/output 全部在内存中完成，不产生持久化 `.java` 中间文件。
+- Removal 只保存 old descriptor；addition 只保存 new descriptor。
+- `METHOD_BODY_CHANGED` 两侧 descriptor 相同，并保留 old/new hash。
+- Descriptor change 同时保存 old/new descriptor，不重复产生同名 method 的 added/removed ChangePoint。
+- Output 按 class/member stable key 排序。
 
-## Core Flow
+## Failure Contract
 
-1. `diff()` 接收 `JarLocationResult`。
-2. `JarClassIndexer.index()` 对 old jar 和 new jar 分别构建 class index。
-3. `diffClasses()` 对两侧 class name 集合做 union。
-4. Class 只在一侧存在时按 includedKinds 产出 `CLASS_ADDED` 或 `CLASS_REMOVED`。
-5. Class 两侧都存在时调用 `diffMethods()` 和 `diffFields()`。
-6. Method diff 产出新增、移除、descriptor 变化和 body hash 变化。
-7. Field diff 产出新增、移除和 descriptor 变化。
-8. 返回不可变 ChangePoint 列表。
+- Corrupt JAR/class 抛出 `BytecodeDiffException`。
+- 单个 pair failure 不取消其他 JAR diff task；关联 Module 记录 `INCONCLUSIVE_BYTECODE_DIFF`。
+- Pair failure 且无其他可分析 ChangePoint 时不构建 Call Graph，但仍生成 Module detail page。
+- Raw bytecode diff 不对全部 changed method 构建 SSA；semantic filtering 延迟到 candidate path 之后。
 
-Impact Paths 生成后，pipeline 从路径中提取、排序并去重 `METHOD_BODY_CHANGED`，通过原 ChangePoint 到 `JarLocationResult` 的关联读取 old/new class，使用精确 JVM method identifier 反编译两侧。单侧失败不影响另一侧，也不阻断报告生成。
+## Acceptance
 
-## Acceptance Criteria
-
-### Functional
-
-- Given old jar 中 class 不存在于 new jar，When 执行 diff，Then 在 kind 允许时产出 `CLASS_REMOVED`。
-- Given new jar 中 class 不存在于 old jar，When 执行 diff，Then 在 kind 允许时产出 `CLASS_ADDED`。
-- Given 方法 descriptor 改变，When 执行 diff，Then 在 kind 允许时产出 `METHOD_DESCRIPTOR_CHANGED`。
-- Given 方法结构性指令改变，When 执行 diff，Then 在 kind 允许时产出 `METHOD_BODY_CHANGED`。
-- Given field descriptor 改变，When 执行 diff，Then 在 kind 允许时产出 `FIELD_DESCRIPTOR_CHANGED`。
-- Given includedKinds 为空，When 执行 diff，Then 返回空 ChangePoint 列表。
-- Given overloaded method body 变化，When 生成 evidence，Then 只输出 descriptor 精确匹配的方法。
-- Given old/new 任一侧反编译失败，When 生成 evidence，Then 失败侧为 unavailable，成功侧仍保留 source，并记录 WARN Diagnostic。
-
-### Non-Functional
-
-- [ ] Hash 结果必须忽略 debug-only 差异，避免报告无业务意义的 method body 变化。
-- [ ] 输出必须不可变，避免后续 call graph、impact 或 report 阶段修改变化点。
-- [ ] Diff 行为必须 deterministic，支撑报告 snapshot 和审计。
-
-## Edge Cases
-
-- Abstract 和 native 方法没有 body hash，不参与 body hash 比较。
-- 同名但 descriptor 不同的方法会产生 descriptor 变化，而不是被误判为两个无关方法。
-- Corrupt class 需要携带 jarPath 和 className，便于定位损坏输入。
-- ADDED 类型默认被过滤，但调用方可以通过 `--include-change-kinds` 显式纳入。
-- Decompiled source 是 Java-like evidence，不保证与原始 source 文本一致。
-
-## Implementation Boundaries
-
-- Bytecode Diff Engine 不定位 jar、不筛选 `VERSION_CHANGED`；这些由 Jar Locator 和 Dependency Diff Engine 保证。
-- `ChangePointKind.DEFAULT_INCLUDED_KINDS` 是 CLI 和 engine 共享的默认过滤合同。
-- `ChangePoint` 是 Impact Tracing 和 Report Generator 的输入边界。
-- Decompiler 只处理已有 Impact Paths 引用的 `METHOD_BODY_CHANGED`；无调用链的变化不触发反编译。
+- Jump、switch、try/catch、bootstrap-only、`ConstantDynamic`、typed constant 变化可检出。
+- Line/debug-only 变化不产生 body ChangePoint。
+- 同一 physical pair 只 diff 一次；结果可绑定多个 Module。
+- Parallel/sequential fixture 的 ChangePoint 集合和排序一致。

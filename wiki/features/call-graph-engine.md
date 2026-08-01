@@ -3,108 +3,81 @@ title: "Call Graph Engine"
 type: feature
 relations:
   - path: "wiki/architecture/dependency-analysis-pipelines.md"
-    desc: "Call Graph Engine 是影响追踪前的调用关系构建阶段"
+    desc: "per-Module pipeline 与并发边界"
   - path: "wiki/features/impact-tracing.md"
-    desc: "Impact Tracing 消费 Call Graph Engine 产物"
+    desc: "direct WALA query 消费 live session"
 code_refs:
-  - path: "src/main/java/io/github/dependencyanalysis/callgraph/CallGraphEngine.java"
-    desc: "WALA RTA Call Graph 构建引擎"
-  - path: "src/main/java/io/github/dependencyanalysis/callgraph/JdkAnalysisStage.java"
-    desc: "目标 JDK 8 Primordial/Extension scope 准备入口"
-  - path: "src/main/java/io/github/dependencyanalysis/callgraph/CallGraphProgressMonitor.java"
-    desc: "RTA heartbeat 与 cooperative timeout"
-  - path: "src/main/java/io/github/dependencyanalysis/callgraph/QuietClassBasedInstanceKeys.java"
-    desc: "无 debug 输出的 class-based InstanceKeyFactory"
-  - path: "src/main/java/io/github/dependencyanalysis/callgraph/CallGraph.java"
-    desc: "不可变 Call Graph 数据模型"
-  - path: "src/main/java/io/github/dependencyanalysis/callgraph/CallEdge.java"
-    desc: "调用边数据模型"
-  - path: "src/main/java/io/github/dependencyanalysis/callgraph/MethodId.java"
-    desc: "方法唯一标识"
-  - path: "src/main/java/io/github/dependencyanalysis/callgraph/EdgeKind.java"
-    desc: "调用边类型枚举"
-  - path: "src/main/java/io/github/dependencyanalysis/callgraph/CallGraphStats.java"
-    desc: "Call Graph 构建统计信息"
-  - path: "src/main/java/io/github/dependencyanalysis/callgraph/ServiceLoaderEnricher.java"
-    desc: "ServiceLoader 间接调用边补充"
-  - path: "src/main/java/io/github/dependencyanalysis/callgraph/ReflectionEnricher.java"
-    desc: "Reflection 间接调用边补充"
-  - path: "src/main/java/io/github/dependencyanalysis/callgraph/CallGraphException.java"
-    desc: "Call Graph 构建异常"
+  - path: "src/main/java/io/github/dependencyanalysis/callgraph/ModuleCallGraphEngine.java"
+    desc: "per-Module Vanilla 0-1-CFA builder"
+  - path: "src/main/java/io/github/dependencyanalysis/callgraph/ModuleCallGraphSession.java"
+    desc: "live graph、CHA、cache、ownership 与 metrics"
+  - path: "src/main/java/io/github/dependencyanalysis/callgraph/DeterministicSubtypesEntrypoint.java"
+    desc: "PROJECT all-method entrypoint 参数候选"
+  - path: "src/main/java/io/github/dependencyanalysis/callgraph/ClassOwnershipIndex.java"
+    desc: "binary-name ownership 与 duplicate validation"
+  - path: "src/main/java/io/github/dependencyanalysis/callgraph/ModuleScopeValidator.java"
+    desc: "excluded JDK reference validation"
+  - path: "src/main/java/io/github/dependencyanalysis/impact/ModuleServiceLoaderEnricher.java"
+    desc: "ServiceLoader conservative overlay"
 ---
 
 # Feature: Call Graph Engine
 
 ## Summary
 
-Call Graph Engine 基于 target build 的 main classes 使用 WALA RTA 构建应用方法调用图，并补充 ServiceLoader 与 Reflection 间接调用边。产物供 Impact Tracing 反向追踪受影响业务方法。
+每个 relevant target Module 构建一个独立 WALA Vanilla 0-1-CFA Call Graph。Builder 与 query 在 Module 内单线程；不同 Module 可并发。没有 CHA pre-graph、seed pre-scan、class-reference closure 或 full predecessor snapshot。
 
-## Design Decisions
+## Scope and Ownership
 
-- Call Graph 只基于 target/current workspace 的 main classes 构建，因为报告需要回答升级后业务代码中的受影响路径。
-- 使用 WALA RTA 作为核心调用图算法，避免手写 Java bytecode 调用解析。
-- Analyzer 由 Java 17 启动；CLI 分析 scope 只使用 `--java-home` 指定的 JDK 8 boot jars 和 extension jars，不读取 analyzer JRT。
-- 保留 `AllApplicationEntrypoints` 和完整 RTA，不按 ChangePoint seed 缩减 entrypoint，不启用 JDK method bypass。
-- RTA 使用与 WALA `ClassBasedInstanceKeys` allocation 语义等价的自有 `InstanceKeyFactory`，避免 WALA 对 method-handle allocation 的无条件 `got NEW` 输出。
-- 默认不设置 Call Graph 时限；正数 timeout 通过 WALA progress monitor cooperative cancel，不能生成部分报告。
-- ServiceLoader 和 Reflection enricher 在 WALA 结果之后补充间接调用边，提高常见动态调用场景的可见性。
-- `CallGraph` 对外暴露不可变 methods、edges、overrides 和 stats，避免 impact 阶段修改调用图。
+- `PROJECT`：当前 Module `target/classes`。
+- `REACTOR_DEPENDENCY`：当前 Module resolved reactor dependency closure 的 `target/classes`。
+- `DEPENDENCY`：Maven resolved external JAR absolute path。
+- `JDK`：显式 `--java-home` 的 JDK 8 boot/ext JAR。
+- `SYNTHETIC`：ServiceLoader overlay 与 ChangePoint terminal。
+- Scope load 前建立 binary-name ownership index。byte-identical duplicate 允许去重；内容不同的 duplicate class 使当前 Module fail，禁止 WALA first-wins。为避免对 JDK 8 全量 class 重复 hash，JDK JAR 只对已在 Application scope index 中出现的 binary name 读取 bytecode 并校验 duplicate；byte-identical JDK duplicate 按 bootstrap loader precedence 归属 `JDK`。
 
-## Actors / Entrypoints
+## Entrypoints
 
-- CLI pipeline 仅在至少存在一个 bytecode seed 时运行 `JdkAnalysisStage` 和 `CallGraphEngine`。
-- `CallGraphEngine.build(buildResult, targetJdkScope, timeoutSeconds)` 是 CLI Call Graph 构建入口；兼容 overload 不用于 CLI。
-- `CallGraph.getIncomingEdges()` 和 `CallGraph.getOutgoingEdges()` 是 Impact Tracing 查询调用关系的入口。
+- 当前 `PROJECT` 中全部 non-abstract declared methods，包括 interface default/static 与 concrete bridge/synthetic methods。
+- Reference 参数枚举 scope 内全部 concrete assignable types，按 type name 排序；primitive 保留 declared type；constructor receiver 保留 declaring type。
+- `REACTOR_DEPENDENCY`、`DEPENDENCY`、`JDK` 不作为 entrypoint，只由 reachability 进入。
+- 零 `PROJECT` entrypoint 使当前 Module fail。
 
-## Behavior Contract
+## WALA Builder
 
-- 输入为 target side 的 `BuildResult`，只读取其中的 main classes 目录。
-- Classes directory 不存在或不是目录时抛出 `CallGraphException`。
-- `impact` target runtime 必须是完整 JDK 8；boot class path 进入 Primordial loader，extension jars 进入 Extension loader，业务 main classes 进入 Application loader。
-- JDK method body 可沿可达调用参与分析，但最终只提取 application-to-application edges。
-- RTA 每 10 秒输出 elapsed、heap used/max 和 WALA progress units；`0` 表示无限等待。
-- 只保留 application methods 和 application-to-application call edges。
-- `EdgeKind` 根据 invoke instruction 分为 static、special、interface 和 virtual。
-- Override map 记录 parent method 到 overriding method 的关系。
-- 构建完成后记录 methods count、edges count、elapsed time 和 memory usage stats。
+```java
+AnalysisOptions options = new AnalysisOptions(scope, entrypoints);
+options.setReflectionOptions(AnalysisOptions.ReflectionOptions.FULL);
+SSAPropagationCallGraphBuilder builder =
+        Util.makeVanillaZeroOneCFABuilder(
+                Language.JAVA, options, cache, hierarchy);
+MethodHandles.analyzeMethodHandles(options, builder);
+```
 
-## Core Flow
+- Factory 已建立 selector/bypass 配置，不重复设置。
+- `AnalysisCacheImpl` 显式使用 `SSAOptions.defaultOptions()`。
+- `--call-graph-timeout-seconds` 从实际 Module build 开始计时，不含 pool queue time。
+- Timeout 只失败当前 Module；WALA fixed-point 不输出 partial graph。
 
-1. `build()` 接收 target `BuildResult` 并记录起始时间和内存基线。
-2. `[jdk-analysis]` 从目标 JDK descriptor 创建 Primordial/Extension base scope。
-3. `createScope()` 将各模块 classes dir 加入 Application scope。
-4. 构建 CHA 和全部 application entrypoints，并输出 checkpoint。
-5. 使用 WALA RTA builder、静默 allocation key factory 和 progress monitor 生成 Call Graph。
-6. 提取 application methods/edges，构建 override map并补齐 declared methods。
-7. 运行 ServiceLoader 和 Reflection enricher，返回不可变 `CallGraph`。
+## JDK Exclusions
 
-## Acceptance Criteria
+- Whole-JAR：`jfxrt.jar`、`deploy.jar`、`javaws.jar`、`plugin.jar`。
+- Class：Swing 与 Applet package 的最小规则。
+- `scope-validation` 扫描 `PROJECT`、`REACTOR_DEPENDENCY`、`DEPENDENCY` 对 excluded class 的显式 bytecode reference；命中、unreadable class、scanner failure 均 fail 当前 Module。
+- Validation 不发现 seed，不参与 Call Graph gate。
 
-### Functional
+## Reflection and ServiceLoader
 
-- Given target build 含有效 classes dir，When `build()` 执行，Then 返回包含 application methods 和 call edges 的 `CallGraph`。
-- Given classes dir 不存在，When `build()` 创建 WALA scope，Then 抛出 `CallGraphException`。
-- Given call site 是 static invoke，When 提取边，Then `EdgeKind` 为 `INVOKE_STATIC`。
-- Given application method override 另一个 application method，When 构建 override map，Then parent method 能查询到 overriding method。
-- Given ServiceLoader 或 Reflection 间接调用可识别，When enricher 执行，Then 对应边补充到 Call Graph。
+- Reflection 只采用 WALA `ReflectionOptions.FULL` 与 MethodHandle extension；不实现通用 Reflection target inference 或 completeness classifier。
+- ServiceLoader 只处理 reachable `load/loadInstalled` 且 service type 可解析的 callsite。
+- Provider 来自 scope 内 `META-INF/services/*`；必须可解析、assignable、public 且具有 public zero-arg constructor。
+- Overlay 包含 load caller→provider constructor，以及当前 Module graph 内兼容 interface invoke→registered implementation。
+- 缺少 WALA `CGNode` 时使用 `OverlayMethodNode`；edge 标记 `SERVICE_LOADER`、`CONSERVATIVE` evidence。
+- Unresolved service/provider 使 Module `INCONCLUSIVE`。
 
-### Non-Functional
+## Acceptance
 
-- [ ] Call Graph 产物必须不可变，保证 Impact Tracing 只读消费。
-- [ ] 目标 JDK scope 不完整时必须失败，不能回退到 analyzer JRT。
-- [ ] stdout/stderr 不得出现 WALA `got NEW` debug 行。
-- [ ] timeout 只能产生失败，不得发布不可信的部分报告。
-- [ ] 构建统计必须进入诊断，便于观察性能和图规模。
-
-## Edge Cases
-
-- 零 seed 在 pipeline 边界直接跳过 JDK analysis、CHA 和 RTA。
-- WALA RTA 构建失败时包装为 `CallGraphException`。
-- 自调用边不加入 edges，避免反向追踪中产生无意义循环。
-- 部分动态调用无法静态确认时，只能通过 enricher 覆盖已知模式。
-
-## Implementation Boundaries
-
-- Call Graph Engine 不扫描 ChangePoint，也不决定影响路径；前置 seed scanning 和后置路径计算属于 Impact Tracing。
-- Call Graph 只描述 target/current 业务代码内部调用关系，不展示第三方库内部调用链。
-- ServiceLoader 和 Reflection enricher 是调用图补充边界，不改变 WALA 原始 class hierarchy。
+- Vanilla 0-1-CFA、`FULL`、MethodHandle extension 可由 fixture 验证。
+- 不同 Module 的 classpath/version、CHA、graph、cache 相互隔离。
+- WALA build/query 单线程；Module pool 并发受 `--module-parallelism` 限制。
+- Report 记录 scope、exclusions、entrypoints、parameter candidates、nodes、edges、contexts、elapsed。

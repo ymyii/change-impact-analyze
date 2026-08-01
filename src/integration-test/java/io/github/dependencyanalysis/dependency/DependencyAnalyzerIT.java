@@ -169,6 +169,30 @@ class DependencyAnalyzerIT {
         }
     }
 
+    @Test
+    void resolvedArtifactsExcludeCleanReactorDependencies()
+            throws Exception {
+        final Path projectDir = tempDir.resolve("clean-reactor");
+        createMultiModuleProject(projectDir);
+        addReactorDependency(projectDir.resolve("mod-b/pom.xml"));
+        assertThat(projectDir.resolve("mod-a/target/classes"))
+                .doesNotExist();
+        final DependencyAnalysisResult result = new DependencyAnalyzer(
+                "baseline", projectDir, Set.of(), diag)
+                .analyzeResolved();
+
+        assertThat(result.getArtifacts())
+                .extracting(item -> item.getArtifact().getArtifactId())
+                .contains("slf4j-api")
+                .doesNotContain("mod-a", "mod-b");
+        assertThat(result.getArtifacts()).allSatisfy(item -> {
+            assertThat(item.getPath()).isAbsolute();
+            assertThat(item.getPath()).exists();
+        });
+        assertThat(projectDir.resolve("mod-a/target/classes"))
+                .doesNotExist();
+    }
+
     private void createSingleModuleProject(
             final Path dir)
             throws Exception {
@@ -390,5 +414,16 @@ class DependencyAnalyzerIT {
                         + "    return \"hi\";\n"
                         + "  }\n"
                         + "}\n");
+    }
+
+    private void addReactorDependency(final Path pom) throws Exception {
+        final String dependency = "<dependency>"
+                + "<groupId>test</groupId>"
+                + "<artifactId>mod-a</artifactId>"
+                + "<version>1.0-SNAPSHOT</version>"
+                + "</dependency>";
+        Files.writeString(pom, Files.readString(pom)
+                .replace("</dependencies>",
+                        dependency + "</dependencies>"));
     }
 }

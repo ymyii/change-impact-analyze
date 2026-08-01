@@ -112,7 +112,9 @@ class DependencyAnalyzerCliTest {
                 .contains("-t, --target")
                 .contains("-o, --output")
                 .contains("-f, --format")
-                .contains("-k, --include-change-kinds");
+                .contains("-k, --include-change-kinds")
+                .contains("--module-parallelism")
+                .contains("--analysis-target");
         assertThat(treeText.toString())
                 .contains("-p, --path")
                 .contains("-r, --ref")
@@ -163,5 +165,21 @@ class DependencyAnalyzerCliTest {
                         "--call-graph-timeout-seconds", "-1");
 
         assertThat(code).isEqualTo(1);
+    }
+
+    @Test
+    void markdownAndInvalidModuleParallelismAreRejected() {
+        final int markdown = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli())
+                .execute("impact", "--baseline", "HEAD",
+                        "--output", "report.md", "--format", "md");
+        final int parallelism = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli())
+                .execute("impact", "--baseline", "HEAD",
+                        "--output", "report.html",
+                        "--module-parallelism", "0");
+
+        assertThat(markdown).isEqualTo(1);
+        assertThat(parallelism).isEqualTo(1);
     }
 }

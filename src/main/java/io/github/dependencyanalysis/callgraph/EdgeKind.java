@@ -27,6 +27,21 @@ public enum EdgeKind {
     /** ServiceLoader provider edge. */
     SERVICE,
 
+    /** Conservative ServiceLoader overlay edge. */
+    SERVICE_LOADER,
+
     /** Literal Class.forName edge. */
     REFLECTION_LITERAL,
+
+    /** Terminal edge to an existing changed method. */
+    METHOD_CHANGE,
+
+    /** Terminal edge for a removed or changed declared invoke target. */
+    DECLARED_INVOKE_REFERENCE,
+
+    /** Terminal edge for a changed field reference. */
+    FIELD_REFERENCE,
+
+    /** Terminal edge for a changed type reference. */
+    TYPE_REFERENCE,
 }

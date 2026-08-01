@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Test;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Handle;
+import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
@@ -63,6 +65,31 @@ class StableHashMethodVisitorTest {
                 hashMethod(cls2);
         assertThat(hash1)
                 .isEqualTo(hash2);
+    }
+
+    @Test
+    void jumpTargetTopologyAffectsHash() throws Exception {
+        assertThat(hashMethod(classWithJumpTarget(false)))
+                .isNotEqualTo(hashMethod(classWithJumpTarget(true)));
+    }
+
+    @Test
+    void bootstrapArgumentsAffectHash() throws Exception {
+        assertThat(hashMethod(classWithInvokeDynamic("old")))
+                .isNotEqualTo(hashMethod(classWithInvokeDynamic("new")));
+    }
+
+    @Test
+    void tryCatchTypeAffectsHash() throws Exception {
+        assertThat(hashMethod(classWithTryCatch("java/lang/Exception")))
+                .isNotEqualTo(hashMethod(classWithTryCatch(
+                        "java/lang/RuntimeException")));
+    }
+
+    @Test
+    void switchTargetTopologyAffectsHash() throws Exception {
+        assertThat(hashMethod(classWithSwitch(false)))
+                .isNotEqualTo(hashMethod(classWithSwitch(true)));
     }
 
     @Test
@@ -212,5 +239,107 @@ class StableHashMethodVisitorTest {
         mv.visitEnd();
         cw.visitEnd();
         return cw.toByteArray();
+    }
+
+    private byte[] classWithJumpTarget(final boolean firstTarget) {
+        final ClassWriter writer = new ClassWriter(0);
+        writer.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC,
+                "com/Foo", null, "java/lang/Object", null);
+        final MethodVisitor method = writer.visitMethod(
+                Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "bar", "()I", null, null);
+        final Label first = new Label();
+        final Label second = new Label();
+        method.visitCode();
+        method.visitInsn(Opcodes.ICONST_0);
+        method.visitJumpInsn(Opcodes.IFEQ,
+                firstTarget ? first : second);
+        method.visitLabel(first);
+        method.visitInsn(Opcodes.ICONST_1);
+        method.visitInsn(Opcodes.IRETURN);
+        method.visitLabel(second);
+        method.visitInsn(Opcodes.ICONST_2);
+        method.visitInsn(Opcodes.IRETURN);
+        method.visitMaxs(1, 0);
+        method.visitEnd();
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
+    private byte[] classWithInvokeDynamic(final String argument) {
+        final ClassWriter writer = new ClassWriter(0);
+        writer.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC,
+                "com/Foo", null, "java/lang/Object", null);
+        final MethodVisitor method = writer.visitMethod(
+                Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "bar", "()Ljava/lang/String;", null, null);
+        final Handle bootstrap = new Handle(Opcodes.H_INVOKESTATIC,
+                "example/Bootstrap", "bootstrap",
+                "(Ljava/lang/invoke/MethodHandles$Lookup;"
+                        + "Ljava/lang/String;Ljava/lang/invoke/MethodType;"
+                        + "Ljava/lang/String;)Ljava/lang/invoke/CallSite;",
+                false);
+        method.visitCode();
+        method.visitInvokeDynamicInsn("value", "()Ljava/lang/String;",
+                bootstrap, argument);
+        method.visitInsn(Opcodes.ARETURN);
+        method.visitMaxs(1, 0);
+        method.visitEnd();
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
+    private byte[] classWithTryCatch(final String catchType) {
+        final ClassWriter writer = new ClassWriter(0);
+        writer.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC,
+                "com/Foo", null, "java/lang/Object", null);
+        final MethodVisitor method = writer.visitMethod(
+                Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "bar", "()V", null, null);
+        final Label start = new Label();
+        final Label end = new Label();
+        final Label handler = new Label();
+        method.visitCode();
+        method.visitTryCatchBlock(start, end, handler, catchType);
+        method.visitLabel(start);
+        method.visitInsn(Opcodes.RETURN);
+        method.visitLabel(end);
+        method.visitLabel(handler);
+        method.visitInsn(Opcodes.ATHROW);
+        method.visitMaxs(1, 0);
+        method.visitEnd();
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
+    private byte[] classWithSwitch(final boolean reversed) {
+        final ClassWriter writer = new ClassWriter(0);
+        writer.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC,
+                "com/Foo", null, "java/lang/Object", null);
+        final MethodVisitor method = writer.visitMethod(
+                Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "bar", "(I)I", null, null);
+        final Label first = new Label();
+        final Label second = new Label();
+        final Label otherwise = new Label();
+        method.visitCode();
+        method.visitVarInsn(Opcodes.ILOAD, 0);
+        method.visitLookupSwitchInsn(otherwise,
+                new int[]{1, 2}, reversed
+                        ? new Label[]{second, first}
+                        : new Label[]{first, second});
+        method.visitLabel(first);
+        method.visitInsn(Opcodes.ICONST_1);
+        method.visitInsn(Opcodes.IRETURN);
+        method.visitLabel(second);
+        method.visitInsn(Opcodes.ICONST_2);
+        method.visitInsn(Opcodes.IRETURN);
+        method.visitLabel(otherwise);
+        method.visitInsn(Opcodes.ICONST_0);
+        method.visitInsn(Opcodes.IRETURN);
+        method.visitMaxs(1, 1);
+        method.visitEnd();
+        writer.visitEnd();
+        return writer.toByteArray();
     }
 }

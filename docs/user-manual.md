@@ -4,7 +4,7 @@
 
 Dependency Analyzer 是 Java 17 CLI，面向 Maven project：
 
-- `impact`：比较 dependency 升级前后的 resolved dependency、bytecode 和业务调用影响，输出 HTML 或 Markdown。
+- `impact`：比较 dependency 升级前后的 resolved dependency、bytecode 和业务调用影响，输出 HTML Index 和 per-Module detail pages。
 - `tree`：扫描一个 Git repository 内的 Maven reactor，输出 repository 级 offline HTML dependency tree report。
 
 当前版本为 `0.1.0-SNAPSHOT`。Root command 为 `dependency-analyzer`。
@@ -107,7 +107,9 @@ dependency-analyzer impact \
   -b, --baseline <local-ref> \
   [-t, --target <local-ref>] \
   -o, --output <file> \
-  [-f, --format html|md] \
+  [-f, --format html] \
+  [--analysis-target spring-backend] \
+  [--module-parallelism <count>] \
   [-k, --include-change-kinds <csv>] \
   [--call-graph-timeout-seconds <seconds>]
 ```
@@ -116,21 +118,25 @@ dependency-analyzer impact \
 - `--baseline` 必填，只解析 local ref。
 - `--target` 省略时使用 current checkout；显式提供时使用 detached worktree。
 - `--output` parent 必须存在且可写。
-- `--format` 默认 `html`。
+- `--format` 仅接受 `html`；`md` compatibility token 会 fail fast。
+- `--analysis-target` 默认且首版只接受 `spring-backend`。
+- `--module-parallelism` 默认 `2`，必须 `>=1`；超过 CPU 数只输出 warning，不静默截断。
 - `--include-change-kinds` 控制 bytecode `ChangePointKind`。
 - `--java-home` 必填且必须是完整 JDK 8：Preflight 校验 `bin/java`、`bin/javac`、Java major、`rt.jar`，并读取 `sun.boot.class.path` 与 `java.ext.dirs`。
 - `--java-home` 同时决定 Maven subprocess `JAVA_HOME`、用户代码编译 JDK 和 WALA Primordial/Extension target runtime。
-- `--call-graph-timeout-seconds` 默认 `0`，表示无限等待；正数达到后 cooperative cancel 并终止 pipeline，不发布部分报告。
+- `--call-graph-timeout-seconds` 默认 `0`，表示无限等待；按 Module 从实际 WALA build 开始计时。Timeout 失败当前 Module，其他 Module 继续。
 
 | Short | Long | 含义 |
 |---:|---|---|
 | `-p` | `--path` | Git repository 内的 Maven project/分析目录。 |
 | `-b` | `--baseline` | 比较起点 local commit。 |
 | `-t` | `--target` | 比较终点 local commit；不是 tree snapshot ref。 |
-| `-o` | `--output` | HTML/Markdown Index 文件。 |
-| `-f` | `--format` | `html` 或 `md`。 |
+| `-o` | `--output` | HTML Index 文件。 |
+| `-f` | `--format` | 仅 `html`；`md` 已移除。 |
+|  | `--analysis-target` | 仅 `spring-backend`。 |
+|  | `--module-parallelism` | Module analysis 并发数，默认 `2`。 |
 | `-k` | `--include-change-kinds` | 纳入分析的 `ChangePointKind` CSV。 |
-|  | `--call-graph-timeout-seconds` | WALA RTA timeout；`0` 表示无限等待。 |
+|  | `--call-graph-timeout-seconds` | Per-Module WALA timeout；`0` 表示无限等待。 |
 
 ### 5.2 示例
 
@@ -144,7 +150,7 @@ java -jar dependency-analyzer.jar impact \
   --output build/impact.html
 ```
 
-比较两个 local ref，并输出 Markdown：
+比较两个 local ref，并指定 Module 并发数：
 
 ```sh
 java -jar dependency-analyzer.jar \
@@ -153,19 +159,21 @@ java -jar dependency-analyzer.jar \
   impact \
   --baseline main \
   --target feature/dependency-upgrade \
-  --output build/impact.md \
-  --format md
+  --output build/impact.html \
+  --module-parallelism 4
 ```
 
 ### 5.3 Pipeline 与报告
 
-Preflight 全部通过后，pipeline 执行：config workspace → JDK 8 Maven compile → GraphML dependency tree → dependency diff → JAR locator → bytecode diff → exact ChangePoint seed scan。零 seed 直接跳过 JDK analysis、CHA 和 RTA；有 seed 时继续执行 `jdk-analysis` → WALA CHA → all-application RTA → impact tracing → method evidence → report。
+Preflight 后先识别模式：选择 reactor root 时，全 reactor 只 compile 一次并逐 Module 分析；选择 leaf POM 时，从 reactor root 使用 `-pl <module> -am` compile，只报告该 Module。当前 Module 是 `PROJECT`，上游 reactor Module 是 `REACTOR_DEPENDENCY`。
 
-`jdk-analysis` 将目标 JDK 8 boot jars 放入 WALA Primordial、extension jars 放入 Extension，不读取 analyzer Java 17 JRT。RTA 保留全部 application methods 作为 entrypoints，并分析可达 JDK method body；不使用 JDK bypass 或 seed-directed entrypoint。RTA 每 10 秒输出 elapsed、heap used/max 与 progress units。
+前置阶段并行执行 baseline dependency resolution 与 target Maven compile；join 后执行 target dependency resolution。Baseline 不 compile、不构建 Call Graph。GraphML 提供 mediated tree；工具将每个 Module 的已 mediation external dependency 写入 isolated temporary POM，再使用 Maven Dependency Plugin `3.6.1:list`、`outputAbsoluteArtifactFilename=true`、`excludeReactor=true` 与 `excludeTransitive=true` 获取 exact absolute artifact path。这避免 clean baseline 因 reactor artifact 未构建而 resolution 失败，也不拼接 `~/.m2` 路径。
 
-Report 包含 dependency changes、internal changes、impact paths、diagnostics、完整 preflight checks 和 Maven runtime metadata。实际进入 Impact Paths 的唯一 `METHOD_BODY_CHANGED` 使用稳定 `MB-xxx` ID 展示 old/new Java-like method evidence；HTML 为 escaped 双栏 code block，Markdown 为 old/new `java` fence。单侧 Vineflower 反编译失败时保留另一侧并显示 unavailable，不阻断报告。
+Physical JAR pair 使用半数 CPU 并行 bytecode diff。存在 removal/modification ChangePoint 的 Module 独立执行 scope validation、JDK 8 CHA、WALA Vanilla 0-1-CFA、`ReflectionOptions.FULL`、MethodHandle extension和 direct WALA query。Module 内 build/query 单线程，Module 之间按 `--module-parallelism` 并行。没有 seed pre-scan、零 seed skip、CHA pre-graph 或 full predecessor copy。
 
-`impact` 没有可安全降级的核心分析阶段；build、dependency extraction、bytecode 或 Call Graph failure 为 pipeline failure。
+所有 Module query 完成后，全局串行比较 candidate path 中唯一 `METHOD_BODY_CHANGED` 的 old/new normalized WALA SSA/CFG。只有 `PROVEN_EQUIVALENT` 删除路径；`DIFFERENT` 与 `UNKNOWN` 保留，`UNKNOWN` 使 Module 为 `INCONCLUSIVE`。
+
+Report 仅为 HTML Index + per-Module detail pages。Index 顶部公开 Vanilla 0-1-CFA over-approximation、Reflection/MethodHandle best-effort、ServiceLoader conservative overlay、Spring dynamic semantics/custom classloader non-goals、JDK exclusions和 SSA model boundary，并汇总 scope/entrypoint、Call Graph、SSA、limitation 和 stage elapsed metrics。Module page 展示 `DependencyUpgradeKey` 的 old/new artifact 与 canonical physical path、`BoundChangePoint`、disposition、Impact Path、Structural Impact 及 Module Diagnostics。Module failure 不取消其他 Module；handled failure仍发布 partial Report。空态统一表示“在声明的analysis model内未发现Impact Path”。
 
 ## 6. `tree` Subcommand
 
@@ -347,9 +355,9 @@ Exit code：
 
 | Code | 含义 |
 |---|---|
-| `0` | `impact` 完整成功，或 `tree` 终态为 `SUCCESS`。 |
+| `0` | `impact` 为 `SUCCESS`/`INCONCLUSIVE`，或 `tree` 为 `SUCCESS`。 |
 | `1` | CLI parse/validation 或 command-level preflight failure；不生成 report。 |
-| `2` | `tree` 终态为 `COMPLETED_WITH_ISSUES`/`FAILED`，或其他 pipeline/report failure。 |
+| `2` | `impact` 为 `PARTIAL_SUCCESS`/`FAILED`；或 `tree` 为 `COMPLETED_WITH_ISSUES`/`FAILED`。 |
 
 ## 9. Troubleshooting
 
@@ -367,13 +375,11 @@ Exit code：
 
 ### Call Graph 长时间运行
 
-全 application entrypoint RTA 对大型工程可能运行较久。每 10 秒的 `[call-graph] RTA heartbeat` 包含 elapsed、heap 和 progress units，可用来确认 process 仍在工作。默认无 timeout；需要硬性上限时设置正数 `--call-graph-timeout-seconds`，达到上限会失败且不生成部分报告。
+Vanilla 0-1-CFA 对大型 Module 可能运行较久。每 10 秒的 `WALA heartbeat` 包含 elapsed、heap 和 progress units。默认无 timeout；设置正数 `--call-graph-timeout-seconds` 后，仅超时 Module fail，其他 Module 继续并发布 partial Report。
 
-`got NEW <Primordial,...>` 是 WALA `ClassBasedInstanceKeys` 的 debug 文本，不是业务异常。本工具使用等价的静默 allocation key factory，正常输出不应出现该文本；若仍出现，确认运行的是当前 uber JAR，并检查 packaged WALA version 为 1.8.0。
+### SSA equivalence 为 `UNKNOWN`
 
-### Method body evidence unavailable
-
-Vineflower 输出是 Java-like 反编译结果，不保证与原始 source 完全一致。某一侧 class 无法反编译时，该侧显示 unavailable 并产生 WARN，另一侧和其余报告仍保留。
+Old/new IR 缺失、unsupported instruction、bootstrap evidence 不足、CFG mapping ambiguity 或 exception 会返回 `UNKNOWN`。该结果不会缩小影响范围；相关 Impact Paths 保留，并在 Module page 的 SSA 与 Coverage Limitations 中展示原因。
 
 ### Maven dependency resolution failure
 

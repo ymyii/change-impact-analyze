@@ -13,6 +13,8 @@ import io.github.dependencyanalysis.preflight
         .PreflightContext;
 import io.github.dependencyanalysis.preflight
         .PreflightReport;
+import io.github.dependencyanalysis.report
+        .PerModuleHtmlReportGenerator;
 import io.github.dependencyanalysis.runtime
         .CommandRunDirectory;
 import io.github.dependencyanalysis.runtime
@@ -72,8 +74,20 @@ public final class ImpactCommand
     /** Report format. */
     @Option(names = {"-f", "--format"},
             defaultValue = "HTML",
-            description = "Output format: html or md.")
+            description = "Output format: HTML only; MD is rejected.")
     private OutputFormat format;
+
+    /** Analysis target profile. */
+    @Option(names = "--analysis-target",
+            defaultValue = "spring-backend",
+            description = "Analysis target: spring-backend.")
+    private String analysisTarget;
+
+    /** Concurrent module analyses. */
+    @Option(names = "--module-parallelism",
+            defaultValue = "2",
+            description = "Maximum concurrent Module analyses.")
+    private int moduleParallelism;
 
     /** Included change point kinds. */
     @Option(names = {"-k", "--include-change-kinds"},
@@ -86,7 +100,7 @@ public final class ImpactCommand
     /** Optional Call Graph timeout. */
     @Option(names = "--call-graph-timeout-seconds",
             defaultValue = "0",
-            description = "WALA RTA timeout in seconds;"
+            description = "Per-Module WALA Call Graph timeout in seconds;"
                     + " 0 means unlimited.")
     private long callGraphTimeoutSeconds;
 
@@ -99,6 +113,21 @@ public final class ImpactCommand
         if (callGraphTimeoutSeconds < 0) {
             diagnostics.error("preflight",
                     "--call-graph-timeout-seconds must be >= 0");
+            return 1;
+        }
+        if (moduleParallelism < 1) {
+            diagnostics.error("preflight",
+                    "--module-parallelism must be >= 1");
+            return 1;
+        }
+        if (!"spring-backend".equalsIgnoreCase(analysisTarget)) {
+            diagnostics.error("preflight",
+                    "--analysis-target currently accepts only spring-backend");
+            return 1;
+        }
+        if (format != OutputFormat.HTML) {
+            diagnostics.error("preflight",
+                    "Markdown output was removed; --format accepts only HTML");
             return 1;
         }
         if (path == null) {
@@ -117,32 +146,37 @@ public final class ImpactCommand
             if (report.blocksCommand()) {
                 return 1;
             }
-            new ImpactPipeline(
+            final MavenRuntimeDescriptor mavenRuntime = context.get(
+                    ImpactPreflightService.MAVEN_RUNTIME,
+                    MavenRuntimeDescriptor.class);
+            final JavaRuntimeDescriptor targetJava = context.get(
+                    ImpactPreflightService.JAVA_RUNTIME,
+                    JavaRuntimeDescriptor.class);
+            final AnalysisRunResult result = new PerModuleImpactPipeline(
                     diagnostics, kinds,
-                    context.get(
-                            ImpactPreflightService
-                                    .MAVEN_RUNTIME,
-                            MavenRuntimeDescriptor.class),
+                    mavenRuntime,
                     context.get(
                             ImpactPreflightService
                                     .MAVEN_ARGS,
                             List.class),
-                    context.get(
-                            ImpactPreflightService
-                                    .JAVA_RUNTIME,
-                            JavaRuntimeDescriptor.class),
-                    callGraphTimeoutSeconds,
-                    context.get(
-                            ImpactPreflightService
-                                    .COMMAND_RUN,
-                            CommandRunDirectory.class)
-                            .getTemporaryDirectory()).run(
+                    targetJava,
+                    new PerModulePipelineOptions(
+                            callGraphTimeoutSeconds,
+                            moduleParallelism,
+                            context.get(
+                                    ImpactPreflightService.COMMAND_RUN,
+                                    CommandRunDirectory.class)
+                                    .getTemporaryDirectory())).run(
                     context.get(
                             ImpactPreflightService
                                     .WORKSPACE,
-                            WorkspaceResult.class),
-                    output, format, report);
-            return 0;
+                            WorkspaceResult.class));
+            new PerModuleHtmlReportGenerator().generate(
+                    result, diagnostics.getEvents(), report,
+                    mavenRuntime, targetJava, output.toPath());
+            return result.getStatus() == AnalysisStatus.SUCCESS
+                    || result.getStatus() == AnalysisStatus.INCONCLUSIVE
+                    ? 0 : 2;
         } catch (Exception exception) {
             diagnostics.error("pipeline",
                     "Pipeline failed: "

@@ -216,8 +216,14 @@ class BytecodeDiffEngineTest {
         assertThat(pts)
                 .extracting(
                         ChangePoint::getKind)
-                .contains(ChangePointKind
+                .containsExactly(ChangePointKind
                         .METHOD_DESCRIPTOR_CHANGED);
+        final ChangePoint change = pts.stream()
+                .filter(point -> point.getKind()
+                        == ChangePointKind.METHOD_DESCRIPTOR_CHANGED)
+                .findFirst().orElseThrow();
+        assertThat(change.getOldDescriptor()).isEqualTo("()V");
+        assertThat(change.getNewDescriptor()).isEqualTo("(I)V");
     }
 
     @Test
@@ -316,6 +322,12 @@ class BytecodeDiffEngineTest {
                         ChangePoint::getKind)
                 .contains(ChangePointKind
                         .FIELD_DESCRIPTOR_CHANGED);
+        final ChangePoint change = pts.stream()
+                .filter(point -> point.getKind()
+                        == ChangePointKind.FIELD_DESCRIPTOR_CHANGED)
+                .findFirst().orElseThrow();
+        assertThat(change.getOldDescriptor()).isEqualTo("I");
+        assertThat(change.getNewDescriptor()).isEqualTo("J");
     }
 
     @Test

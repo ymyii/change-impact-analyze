@@ -9,11 +9,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
 
 // Wiki: wiki/features/bytecode-diff-engine.md - Bytecode diff engine
 /**
@@ -120,7 +121,7 @@ public final class BytecodeDiffEngine {
             final ArtifactCoord art,
             final List<ChangePoint> result) {
         final Set<String> allNames =
-                new HashSet<>();
+                new TreeSet<>();
         allNames.addAll(oldIdx.keySet());
         allNames.addAll(newIdx.keySet());
         for (final String name
@@ -133,12 +134,14 @@ public final class BytecodeDiffEngine {
                 if (includedKinds.contains(
                         ChangePointKind
                                 .CLASS_ADDED)) {
-                    result.add(new ChangePoint(
+                    result.add(ChangePoint.withDescriptors(
                             art,
                             ChangePointKind
                                     .CLASS_ADDED,
                             name,
-                            null, null,
+                            null,
+                            new MemberDescriptors(
+                                    null, null),
                             null, null));
                 }
                 continue;
@@ -147,12 +150,14 @@ public final class BytecodeDiffEngine {
                 if (includedKinds.contains(
                         ChangePointKind
                                 .CLASS_REMOVED)) {
-                    result.add(new ChangePoint(
+                    result.add(ChangePoint.withDescriptors(
                             art,
                             ChangePointKind
                                     .CLASS_REMOVED,
                             name,
-                            null, null,
+                            null,
+                            new MemberDescriptors(
+                                    null, null),
                             null, null));
                 }
                 continue;
@@ -188,8 +193,12 @@ public final class BytecodeDiffEngine {
         final Map<String, MethodInfo> newMap =
                 toMethodMap(
                         newC.getMethods());
+        final Set<String> descriptorChangedNames = includedKinds.contains(
+                ChangePointKind.METHOD_DESCRIPTOR_CHANGED)
+                ? descriptorChangedNames(
+                oldC.getMethods(), newC.getMethods()) : Set.of();
         final Set<String> allKeys =
-                new HashSet<>();
+                new TreeSet<>();
         allKeys.addAll(oldMap.keySet());
         allKeys.addAll(newMap.keySet());
         for (final String key
@@ -199,31 +208,41 @@ public final class BytecodeDiffEngine {
             final MethodInfo newM =
                     newMap.get(key);
             if (oldM == null) {
+                if (descriptorChangedNames.contains(newM.getName())) {
+                    continue;
+                }
                 if (includedKinds.contains(
                         ChangePointKind
                                 .METHOD_ADDED)) {
-                    result.add(new ChangePoint(
+                    result.add(ChangePoint.withDescriptors(
                             art,
                             ChangePointKind
                                     .METHOD_ADDED,
                             owner,
                             newM.getName(),
-                            newM.getDescriptor(),
+                            new MemberDescriptors(
+                                    null,
+                                    newM.getDescriptor()),
                             null, null));
                 }
                 continue;
             }
             if (newM == null) {
+                if (descriptorChangedNames.contains(oldM.getName())) {
+                    continue;
+                }
                 if (includedKinds.contains(
                         ChangePointKind
                                 .METHOD_REMOVED)) {
-                    result.add(new ChangePoint(
+                    result.add(ChangePoint.withDescriptors(
                             art,
                             ChangePointKind
                                     .METHOD_REMOVED,
                             owner,
                             oldM.getName(),
-                            oldM.getDescriptor(),
+                            new MemberDescriptors(
+                                    oldM.getDescriptor(),
+                                    null),
                             null, null));
                 }
                 continue;
@@ -237,13 +256,15 @@ public final class BytecodeDiffEngine {
                     && !oldM.getBodyHash()
                             .equals(newM
                                     .getBodyHash())) {
-                result.add(new ChangePoint(
+                result.add(ChangePoint.withDescriptors(
                         art,
                         ChangePointKind
                                 .METHOD_BODY_CHANGED,
                         owner,
                         oldM.getName(),
-                        oldM.getDescriptor(),
+                        new MemberDescriptors(
+                                oldM.getDescriptor(),
+                                newM.getDescriptor()),
                         oldM.getBodyHash(),
                         newM.getBodyHash()));
             }
@@ -284,31 +305,46 @@ public final class BytecodeDiffEngine {
                 oldByName = groupByName(oldMethods);
         final Map<String, List<MethodInfo>>
                 newByName = groupByName(newMethods);
-        for (final Map.Entry<String,
-                List<MethodInfo>> entry
+        for (String name : descriptorChangedNames(
+                oldMethods, newMethods)) {
+            final List<MethodInfo> oldList = oldByName.get(name);
+            final List<MethodInfo> newList = newByName.get(name);
+            result.add(ChangePoint.withDescriptors(
+                    art,
+                    ChangePointKind
+                            .METHOD_DESCRIPTOR_CHANGED,
+                    owner,
+                    name,
+                    new MemberDescriptors(
+                            oldList.get(0)
+                                    .getDescriptor(),
+                            newList.get(0)
+                                    .getDescriptor()),
+                    null, null));
+        }
+    }
+
+    private Set<String> descriptorChangedNames(
+            final List<MethodInfo> oldMethods,
+            final List<MethodInfo> newMethods) {
+        final Map<String, List<MethodInfo>> oldByName =
+                groupByName(oldMethods);
+        final Map<String, List<MethodInfo>> newByName =
+                groupByName(newMethods);
+        final Set<String> result = new TreeSet<>();
+        for (Map.Entry<String, List<MethodInfo>> entry
                 : oldByName.entrySet()) {
-            final String name = entry.getKey();
-            final List<MethodInfo> oldList =
-                    entry.getValue();
+            final List<MethodInfo> oldList = entry.getValue();
             final List<MethodInfo> newList =
-                    newByName.get(name);
-            if (oldList.size() == 1
-                    && newList != null
+                    newByName.get(entry.getKey());
+            if (oldList.size() == 1 && newList != null
                     && newList.size() == 1
-                    && !oldList.get(0)
-                            .getDescriptor()
-                            .equals(newList.get(0)
-                                    .getDescriptor())) {
-                result.add(new ChangePoint(
-                        art,
-                        ChangePointKind
-                                .METHOD_DESCRIPTOR_CHANGED,
-                        owner,
-                        name,
-                        newList.get(0).getDescriptor(),
-                        null, null));
+                    && !oldList.get(0).getDescriptor().equals(
+                    newList.get(0).getDescriptor())) {
+                result.add(entry.getKey());
             }
         }
+        return result;
     }
 
     /**
@@ -321,7 +357,7 @@ public final class BytecodeDiffEngine {
             groupByName(
             final List<MethodInfo> methods) {
         final Map<String, List<MethodInfo>>
-                result = new HashMap<>();
+                result = new TreeMap<>();
         for (final MethodInfo m : methods) {
             result.computeIfAbsent(
                     m.getName(),
@@ -354,7 +390,7 @@ public final class BytecodeDiffEngine {
                 toFieldMap(
                         newC.getFields());
         final Set<String> allNames =
-                new HashSet<>();
+                new TreeSet<>();
         allNames.addAll(oldMap.keySet());
         allNames.addAll(newMap.keySet());
         for (final String name
@@ -367,13 +403,15 @@ public final class BytecodeDiffEngine {
                 if (includedKinds.contains(
                         ChangePointKind
                                 .FIELD_ADDED)) {
-                    result.add(new ChangePoint(
+                    result.add(ChangePoint.withDescriptors(
                             art,
                             ChangePointKind
                                     .FIELD_ADDED,
                             owner,
                             newF.getName(),
-                            newF.getDescriptor(),
+                            new MemberDescriptors(
+                                    null,
+                                    newF.getDescriptor()),
                             null, null));
                 }
                 continue;
@@ -382,13 +420,15 @@ public final class BytecodeDiffEngine {
                 if (includedKinds.contains(
                         ChangePointKind
                                 .FIELD_REMOVED)) {
-                    result.add(new ChangePoint(
+                    result.add(ChangePoint.withDescriptors(
                             art,
                             ChangePointKind
                                     .FIELD_REMOVED,
                             owner,
                             oldF.getName(),
-                            oldF.getDescriptor(),
+                            new MemberDescriptors(
+                                    oldF.getDescriptor(),
+                                    null),
                             null, null));
                 }
                 continue;
@@ -399,13 +439,15 @@ public final class BytecodeDiffEngine {
                     && !oldF.getDescriptor()
                             .equals(newF
                                     .getDescriptor())) {
-                result.add(new ChangePoint(
+                result.add(ChangePoint.withDescriptors(
                         art,
                         ChangePointKind
                                 .FIELD_DESCRIPTOR_CHANGED,
                         owner,
                         newF.getName(),
-                        newF.getDescriptor(),
+                        new MemberDescriptors(
+                                oldF.getDescriptor(),
+                                newF.getDescriptor()),
                         null, null));
             }
         }

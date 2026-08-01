@@ -5,8 +5,11 @@ import com.ibm.wala.ipa.cha.ClassHierarchyFactory;
 import com.ibm.wala.types.ClassLoaderReference;
 
 import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
-import io.github.dependencyanalysis.build.BuildResult;
-import io.github.dependencyanalysis.build.ModuleBuildOutput;
+import io.github.dependencyanalysis.dependency.ArtifactCoord;
+import io.github.dependencyanalysis.impact.ModuleAnalysisUnit;
+import io.github.dependencyanalysis.impact.ModuleChangeSet;
+import io.github.dependencyanalysis.impact.ModuleId;
+import io.github.dependencyanalysis.impact.ModulePresence;
 import io.github.dependencyanalysis.runtime.Jdk8RuntimeProvider;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 
@@ -63,7 +66,7 @@ class JdkAnalysisStageTest {
     }
 
     @Test
-    void java17AnalyzerLoadsRealJdk8AndCancelsLambdaRta()
+    void java17AnalyzerLoadsRealJdk8AndCancelsVanillaZeroOneCfa()
             throws Exception {
         final String configured = System.getenv("TEST_JDK8_HOME");
         assumeTrue(configured != null && !configured.isBlank(),
@@ -104,14 +107,16 @@ class JdkAnalysisStageTest {
         assertThat(ClassHierarchyFactory.make(scope)
                 .getNumberOfClasses())
                 .isGreaterThan(MINIMUM_JDK_CLASSES);
+        final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                new ModuleId(new ArtifactCoord(
+                        "test", "app", "jar", "1"), Path.of(".")),
+                ModulePresence.BOTH, classes, List.of(), List.of(),
+                List.of(), new ModuleChangeSet(List.of(), List.of()));
         try {
             System.setErr(new PrintStream(stderr));
             assertThatThrownBy(() ->
-                    new CallGraphEngine(diagnostics()).build(
-                            BuildResult.of(List.of(
-                                    new ModuleBuildOutput(
-                                            temporary, classes))),
-                            scope, 1L))
+                    new ModuleCallGraphEngine(
+                            diagnostics(), runtime).build(unit, 1L))
                     .isInstanceOf(CallGraphException.class)
                     .hasMessageContaining("timed out");
         } finally {

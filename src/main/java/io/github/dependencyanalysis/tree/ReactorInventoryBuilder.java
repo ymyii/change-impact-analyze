@@ -33,8 +33,26 @@ public final class ReactorInventoryBuilder {
             final RepositorySnapshot snapshot,
             final List<String> mavenArguments)
             throws Exception {
+        return build(snapshot.getRoot(),
+                snapshot.getAnalysisPath(), mavenArguments);
+    }
+
+    /**
+     * Builds repository inventory for an existing checkout.
+     *
+     * @param repositoryRoot Git repository root
+     * @param analysisPath requested Git-root-relative path
+     * @param mavenArguments validated Maven arguments
+     * @return deterministic inventory
+     * @throws Exception on Git, XML, or model failure
+     */
+    public RepositoryInventory build(
+            final Path repositoryRoot,
+            final Path analysisPath,
+            final List<String> mavenArguments)
+            throws Exception {
         final List<Path> pomFiles =
-                listPomFiles(snapshot.getRoot());
+                listPomFiles(repositoryRoot);
         final SafePomParser parser =
                 new SafePomParser(mavenArguments);
         final Map<Path, PomDescriptor> poms =
@@ -42,7 +60,7 @@ public final class ReactorInventoryBuilder {
         for (Path pom : pomFiles) {
             try {
                 poms.put(pom, parser.parse(
-                        snapshot.getRoot(), pom));
+                        repositoryRoot, pom));
             } catch (Exception exception) {
                 poms.put(pom, malformed(pom,
                         exception));
@@ -66,7 +84,7 @@ public final class ReactorInventoryBuilder {
             if (!owned.contains(pom.getPath())) {
                 final ReactorDescriptor reactor =
                         buildReactor(pom, poms,
-                                snapshot.getAnalysisPath());
+                                analysisPath);
                 if (!reactor.getRequestedPoms()
                         .isEmpty()) {
                     reactors.add(reactor);
@@ -77,7 +95,7 @@ public final class ReactorInventoryBuilder {
                 .comparing(ReactorDescriptor::getId));
         return new RepositoryInventory(
                 reactors, poms,
-                snapshot.getAnalysisPath());
+                analysisPath);
     }
 
     private ReactorDescriptor buildReactor(

@@ -2,105 +2,77 @@
 title: "Dependency Analysis Pipelines"
 type: architecture
 relations:
-  - path: "wiki/project/dependency-analyzer.md"
-    desc: "项目范围、module map 和主要入口"
-  - path: "wiki/features/cli-preflight-diagnostics.md"
-    desc: "Public CLI、preflight Schema 和 decision 契约"
-  - path: "wiki/features/maven-runtime.md"
-    desc: "两个 pipeline 共享的 Maven runtime"
-  - path: "wiki/features/git-workspace-management.md"
-    desc: "Git worktree 与 repository snapshot 边界"
+  - path: "wiki/features/call-graph-engine.md"
+    desc: "impact 的 per-Module Vanilla 0-1-CFA 阶段"
+  - path: "wiki/features/impact-tracing.md"
+    desc: "ChangePoint、Impact Path、Structural Impact 与 SSA filtering"
   - path: "wiki/features/dependency-tree-extraction.md"
-    desc: "impact GraphML dependency tree"
-  - path: "wiki/features/repository-dependency-tree-report.md"
-    desc: "tree repository/reactor/module 数据流"
+    desc: "GraphML 与 resolved artifact path 输入"
   - path: "wiki/features/report-generator.md"
-    desc: "impact 和 tree report 输出边界"
-  - path: "wiki/rules/process-command-resolution.md"
-    desc: "外部 process 的跨平台约束"
+    desc: "impact/tree 的 HTML 输出边界"
 code_refs:
-  - path: "src/main/java/io/github/dependencyanalysis/cli/DependencyAnalyzerCli.java"
-    desc: "Root CLI 与 subcommand dispatch"
-  - path: "src/main/java/io/github/dependencyanalysis/preflight/PreflightRunner.java"
-    desc: "共享 DAG preflight 执行器"
-  - path: "src/main/java/io/github/dependencyanalysis/runtime/MavenRuntimeManager.java"
-    desc: "共享 Maven runtime preparation"
-  - path: "src/main/java/io/github/dependencyanalysis/runtime/CommandRunDirectory.java"
-    desc: "impact/tree config workspace ownership"
-  - path: "src/main/java/io/github/dependencyanalysis/runtime/MavenDependencyPluginRuntimeManager.java"
-    desc: "Tree 内置 Dependency Plugin repository boundary"
-  - path: "src/main/java/io/github/dependencyanalysis/impact/ImpactPipeline.java"
-    desc: "impact pipeline"
-  - path: "src/main/java/io/github/dependencyanalysis/tree/ReactorInventoryBuilder.java"
-    desc: "tree repository 到 reactor inventory 数据流"
-  - path: "src/main/java/io/github/dependencyanalysis/tree/TreeDependencyCollector.java"
-    desc: "tree reactor 到 dependency occurrence 数据流"
-  - path: "src/main/java/io/github/dependencyanalysis/tree/TreeReportRenderer.java"
-    desc: "tree reactor result 到 atomic static HTML 输出"
-  - path: "src/main/java/io/github/dependencyanalysis/tree/TreeReportSession.java"
-    desc: "tree incremental report checkpoint"
+  - path: "src/main/java/io/github/dependencyanalysis/impact/ImpactCommand.java"
+    desc: "impact CLI 编排"
+  - path: "src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
+    desc: "Spring backend per-Module pipeline"
+  - path: "src/main/java/io/github/dependencyanalysis/impact/ModuleScopePlanner.java"
+    desc: "REACTOR/SINGLE_MODULE 识别"
+  - path: "src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
+    desc: "独立 tree pipeline"
 ---
 
 # Architecture: Dependency Analysis Pipelines
 
 ## Summary
 
-Root CLI 提供 global Maven/config options，将请求分发给 `impact` 或 `tree`。两条 pipeline 共用 runtime 和 preflight 数据契约，但保留独立检查图与 domain result；Tree pipeline 逐 reactor 发布 Report，不聚合保存全部 reactor result。
+Root CLI 分发 `impact` 与 `tree`。`impact` 面向 Maven、Spring backend、JDK 8：只编译 target，只构建 target per-Module Call Graph；baseline 仅提供 dependency tree、old artifact path、old bytecode 和按需 old SSA。`tree` 保持独立 repository/reactor HTML pipeline。
 
-## Structure
-
-- Root CLI - 解析 global options 和 subcommand，不承载分析算法。
-- Maven Runtime - 选择用户 executable 或准备内嵌 Maven 3.6.3，产出只读 `MavenRuntimeDescriptor`。
-- Preflight - 稳定拓扑顺序执行 check DAG，产出 console、pipeline、report 共用的 `PreflightReport`。
-- Impact Pipeline - Config-owned Git workspace、JDK 8 build、GraphML dependency diff、bytecode diff、pre-seed scan、JDK scope、Call Graph、impact trace、report。
-- Tree Pipeline - Git repository snapshot、POM/reactor inventory、module text collection、version analysis、repository/reactor HTML report。
-
-## Architecture Diagram
+## Impact Runtime Flow
 
 ```mermaid
-flowchart LR
-  Root["DependencyAnalyzerCli"] --> Runtime["Maven Runtime"]
-  Root --> ImpactPreflight["impact Preflight DAG"]
-  Root --> TreePreflight["tree Preflight DAG"]
-  Runtime --> ImpactPreflight
-  Runtime --> TreePreflight
-  ImpactPreflight --> Impact["ImpactPipeline"]
-  TreePreflight --> Inventory["Repository → Reactor Selection"]
-  Inventory --> Mode{"rootSelected?"}
-  Mode -->|yes| Full["all activePoms execution scope"]
-  Mode -->|no| Bounded["-pl requested -am execution scope"]
-  Full --> MavenTree["Maven verbose tree"]
-  Bounded --> MavenTree
-  MavenTree --> ResultFilter["Module result selection"]
-  ResultFilter -->|exclude pure aggregator| Occurrence["DependencyOccurrence"]
-  Occurrence --> Page["Atomic Reactor Page"]
-  Page --> Checkpoint["RUNNING/SUCCESS/COMPLETED_WITH_ISSUES/FAILED Index"]
-  Impact --> ImpactReport["HTML / Markdown Report"]
+flowchart TD
+  Scope["REACTOR / SINGLE_MODULE planning"] --> Front
+  Front["parallel: baseline dependency + target compile"] --> TargetDep["target dependency"]
+  TargetDep --> DepDiff["dependency diff + resolved physical paths"]
+  DepDiff --> JarDiff["deduplicated parallel JAR diff"]
+  JarDiff --> Bind["BoundChangePoint per Module"]
+  Bind --> ModulePool["bounded Module pool; default 2"]
+  ModulePool --> ScopeValidation["scope validation"]
+  ScopeValidation --> CFA["per-Module Vanilla 0-1-CFA"]
+  CFA --> Query["single-thread direct WALA query"]
+  Query --> SSA["global serial candidate-only SSA equivalence"]
+  SSA --> Report["atomic HTML Index + Module pages"]
 ```
 
-## Key Terms
+## Module Contract
 
-- `PreflightResult` - 单个 check 的 scope、requirement、status、decision、evidence、fallback 和 elapsed time。
-- `MavenRuntimeDescriptor` - runtime source、executable、version、Java home、config dir 和 distribution SHA-512。
-- `ReactorDescriptor` - repository 内一个 reactor root、完整 `activePoms`、path direct-match `requestedPoms` 与 `rootSelected`；execution scope 与最终 Module result set 不等价。
-- `DependencyOccurrence` - selected/omitted dependency path 上的完整 version、scope、optional 和 mediation evidence。
-- `Version evidence` - `managedFrom` 表示 management 覆盖前值，effective 表示 management 后 node 值，selected 表示 conflict resolution 最终值；pipeline 不推断 management 来源 POM/BOM。
-- `ReactorReportSummary` - 已发布 reactor 的轻量 Index checkpoint 数据，不引用 module/occurrence result。
+- Reactor root：target reactor 执行一次 `mvn compile`；全部 active、analysis-eligible Module 独立分析。
+- Leaf Module：从所属 reactor root 执行 `-pl <relativePath> -am compile`；只报告当前 Module。
+- 当前 Module classes 为 `PROJECT`；上游 reactor Module 为 `REACTOR_DEPENDENCY`；外部 artifact 为 `DEPENDENCY`；JDK 8 为 `JDK`。
+- 只有 `PROJECT` method 成为 entrypoint。其他 origin 由 reachability 进入。
+- 每个 Module 拥有独立 scope、ownership index、CHA、WALA graph 和 cache。不同 Module 不共享可变 WALA 状态。
 
-## Architecture Decision Records
+## Concurrency Contract
 
-- Command Preflight 是 pipeline 启动 decision source；Reactor model、Maven collection 和 evidence failure 属于 Analysis issue，不再伪装成 Reactor Preflight。
-- Command-level `REQUIRED` failure 阻断整个 command；Analysis 中某 reactor failure 不阻止其他 reactor page 发布。
-- `tree` 以 Maven dependency plugin text + standard tokens + verbose 为 canonical input，以兼容多个 plugin version。
-- Scope filter 在 parser 边界应用，后续 tree、统计和 version analyzer 只消费同一 occurrence 集合。
-- `dependencyManagement` 只通过实际 resolved occurrence 的 verbose annotation 进入 pipeline；完整 managed entry/BOM inventory 和 management 来源定位不属于 Tree analysis contract。
-- Module conflict 比较实际 dependency path requested version 与实际应用的 dependencyManagement effective version；跨 Module conflict 仍只使用 selected resolved version 判定。Internal conflict 位于 Module tab，cross-module conflict 位于 Reactor-level section；management evidence 不伪造 dependency chain。
-- Tree full inventory、Maven execution scope 与 Module result selection 分离：root-selected 使用全部 `activePoms` 建立真实 reactor context，child-only 使用 `-pl/-am`；packaging 为 `pom` 且存在 active child 的纯 aggregator root 保留 execution，但不生成 Module result。Report 只展示产生 result 的 full-reactor module，或 bounded mode 的 requested 与 scoped same-reactor dependency closure。
-- Renderer 直接从 occurrence 生成 Maven-style verbose `<pre>` tree；tree 是无交互证据。Index table 与 Reactor/Module conflict component 只消费轻量 summary 或当前 reactor result，不改变 selection contract。
-- Reactor page 必须先于 Index checkpoint 发布；完成后完整 reactor result 不再由 command/session 持有。
+- baseline dependency 与 target build 两个 Maven process 并行；任一失败时取消另一 process tree。
+- 两者 join 后才运行 target dependency；同一 target workspace 不并发执行两个 Maven process。
+- JAR diff 使用 `max(1, availableProcessors / 2)` bounded pool，并按 physical old/new pair 去重。
+- 每个 Module 内 WALA build/query 单线程；Module 之间按 `--module-parallelism` 并行，默认 `2`。
+- SSA equivalence 全局串行。
+- Module 普通 failure/timeout 不取消其他 Module；global preparation failure 不替换旧 Report。
 
-## Runtime Flow
+## Failure and Publication
 
-- `impact`：global options → JDK 8/runtime/workspace Preflight → build → GraphML diff → bytecode diff → exact seed scan → 零 seed直接返回，或 JDK scope → CHA/RTA → impact → method evidence → report。
-- `tree`：global options → command snapshot/runtime/full-inventory Preflight → `RUNNING 0/N` → 每 reactor Maven/parser/analyzer/issue → atomic page → atomic Index checkpoint → summary → `SUCCESS`/`COMPLETED_WITH_ISSUES`/`FAILED`。
-- Preflight 创建的 snapshot、workspace、command tmp 和 runtime metadata 通过 `PreflightContext` 交给 pipeline；workspace/tmp 按 subcommand UUID run 隔离并由 owner 在 `AutoCloseable` 路径清理。
+- JAR pair failure：关联 Module 为 `INCONCLUSIVE_BYTECODE_DIFF`；其他 pair 继续。
+- Module failure：其他 Module 继续；生成 `PARTIAL_SUCCESS` 或 all-failed `FAILED` HTML Report。
+- `SUCCESS`/`INCONCLUSIVE` exit `0`；`PARTIAL_SUCCESS`/`FAILED` exit `2`；参数或 Preflight failure exit `1`。
+- Report 使用 staging，先写 Module pages，再写 Index，最后替换 command-owned output。
+
+## Analysis Model Boundaries
+
+- Call Graph 是 Vanilla 0-1-CFA over-approximation。
+- Reflection/MethodHandle 使用 WALA `FULL`/MethodHandle extension，属于 best-effort。
+- ServiceLoader 使用 conservative overlay，允许 false-positive。
+- Spring DI/AOP/annotation/XML/config、custom classloader 不完整建模。
+- 只允许 `PROVEN_EQUIVALENT` 删除 Impact Paths；`UNKNOWN` 保留路径。
+- “无路径”只表示在声明的 analysis model 内未发现 Impact Path。

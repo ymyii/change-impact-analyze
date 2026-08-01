@@ -1,0 +1,332 @@
+package io.github.dependencyanalysis.impact;
+
+import io.github.dependencyanalysis.callgraph.CallGraphStats;
+import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+/** Complete result and evidence for one target module. */
+public final class ModuleAnalysisResult {
+
+    /** Module input. */
+    private final ModuleAnalysisUnit unit;
+
+    /** Module status. */
+    private final ModuleAnalysisStatus status;
+
+    /** Structured status reason. */
+    private final ModuleAnalysisReason reason;
+
+    /** Human-readable detail. */
+    private final String detail;
+
+    /** Live session retained through SSA filtering. */
+    private final ModuleCallGraphSession session;
+
+    /** Candidate paths before SSA filtering. */
+    private final List<ImpactPath> candidatePaths;
+
+    /** Final paths after SSA filtering. */
+    private final List<ImpactPath> finalPaths;
+
+    /** Structural impacts. */
+    private final List<StructuralImpact> structuralImpacts;
+
+    /** ChangePoint dispositions. */
+    private final Map<BoundChangePoint, ChangePointDisposition> dispositions;
+
+    /** SSA comparison results. */
+    private final Map<BoundChangePoint,
+            MethodEquivalenceResult> equivalenceResults;
+
+    /** Coverage limitations. */
+    private final List<String> limitations;
+
+    /** Total module elapsed time. */
+    private final long elapsedMillis;
+
+    /** Stable per-module stage elapsed metrics. */
+    private final Map<String, Long> stageElapsedMillis;
+
+    private ModuleAnalysisResult(final Builder builder) {
+        unit = Objects.requireNonNull(builder.unit, "unit");
+        status = Objects.requireNonNull(builder.status, "status");
+        reason = Objects.requireNonNull(builder.reason, "reason");
+        detail = Objects.requireNonNull(builder.detail, "detail");
+        session = builder.session;
+        candidatePaths = immutable(builder.candidatePaths);
+        finalPaths = immutable(builder.finalPaths);
+        structuralImpacts = immutable(builder.structuralImpacts);
+        dispositions = immutableMap(builder.dispositions);
+        equivalenceResults = immutableMap(builder.equivalenceResults);
+        limitations = immutable(builder.limitations);
+        elapsedMillis = builder.elapsedMillis;
+        stageElapsedMillis = Collections.unmodifiableMap(
+                new LinkedHashMap<>(builder.stageElapsedMillis));
+    }
+
+    private static <T> List<T> immutable(final List<T> values) {
+        return Collections.unmodifiableList(new ArrayList<>(values));
+    }
+
+    private static <K, V> Map<K, V> immutableMap(
+            final Map<K, V> values) {
+        return Collections.unmodifiableMap(new LinkedHashMap<>(values));
+    }
+
+    /** @return module input */
+    public ModuleAnalysisUnit getUnit() {
+        return unit;
+    }
+
+    /** @return module identity */
+    public ModuleId getModuleId() {
+        return unit.getModuleId();
+    }
+
+    /** @return module status */
+    public ModuleAnalysisStatus getStatus() {
+        return status;
+    }
+
+    /** @return structured status reason */
+    public ModuleAnalysisReason getReason() {
+        return reason;
+    }
+
+    /** @return human-readable detail */
+    public String getDetail() {
+        return detail;
+    }
+
+    /** @return live Call Graph session, nullable */
+    public ModuleCallGraphSession getSession() {
+        return session;
+    }
+
+    /** @return pre-filter candidate paths */
+    public List<ImpactPath> getCandidatePaths() {
+        return candidatePaths;
+    }
+
+    /** @return final paths */
+    public List<ImpactPath> getFinalPaths() {
+        return finalPaths;
+    }
+
+    /** @return structural impacts */
+    public List<StructuralImpact> getStructuralImpacts() {
+        return structuralImpacts;
+    }
+
+    /** @return ChangePoint dispositions */
+    public Map<BoundChangePoint, ChangePointDisposition> getDispositions() {
+        return dispositions;
+    }
+
+    /** @return SSA comparison results */
+    public Map<BoundChangePoint, MethodEquivalenceResult>
+            getEquivalenceResults() {
+        return equivalenceResults;
+    }
+
+    /** @return coverage limitations */
+    public List<String> getLimitations() {
+        return limitations;
+    }
+
+    /** @return total module elapsed milliseconds */
+    public long getElapsedMillis() {
+        return elapsedMillis;
+    }
+
+    /** @return stable per-module stage elapsed metrics */
+    public Map<String, Long> getStageElapsedMillis() {
+        return stageElapsedMillis;
+    }
+
+    /** @return Call Graph metrics, nullable */
+    public CallGraphStats getCallGraphStats() {
+        return session == null ? null : session.getStats();
+    }
+
+    /** @return mutable builder initialized from this result */
+    public Builder toBuilder() {
+        return new Builder(unit)
+                .status(status, reason, detail)
+                .session(session)
+                .candidatePaths(candidatePaths)
+                .finalPaths(finalPaths)
+                .structuralImpacts(structuralImpacts)
+                .dispositions(dispositions)
+                .equivalenceResults(equivalenceResults)
+                .limitations(limitations)
+                .elapsedMillis(elapsedMillis)
+                .stageElapsedMillis(stageElapsedMillis);
+    }
+
+    /** Builder avoids wide public constructors. */
+    public static final class Builder {
+
+        /** Module input. */
+        private final ModuleAnalysisUnit unit;
+
+        /** Status. */
+        private ModuleAnalysisStatus status = ModuleAnalysisStatus.SUCCESS;
+
+        /** Reason. */
+        private ModuleAnalysisReason reason = ModuleAnalysisReason.NONE;
+
+        /** Detail. */
+        private String detail = "";
+
+        /** Session. */
+        private ModuleCallGraphSession session;
+
+        /** Candidate paths. */
+        private List<ImpactPath> candidatePaths = List.of();
+
+        /** Final paths. */
+        private List<ImpactPath> finalPaths = List.of();
+
+        /** Structural impacts. */
+        private List<StructuralImpact> structuralImpacts = List.of();
+
+        /** Dispositions. */
+        private Map<BoundChangePoint, ChangePointDisposition> dispositions =
+                Map.of();
+
+        /** Equivalence results. */
+        private Map<BoundChangePoint, MethodEquivalenceResult>
+                equivalenceResults = Map.of();
+
+        /** Limitations. */
+        private List<String> limitations = List.of();
+
+        /** Elapsed. */
+        private long elapsedMillis;
+
+        /** Per-module stage elapsed metrics. */
+        private Map<String, Long> stageElapsedMillis = Map.of();
+
+        /** @param value module input */
+        public Builder(final ModuleAnalysisUnit value) {
+            unit = Objects.requireNonNull(value, "unit");
+        }
+
+        /**
+         * Sets status.
+         *
+         * @param value status
+         * @param statusReason reason
+         * @param statusDetail detail
+         * @return this builder
+         */
+        public Builder status(
+                final ModuleAnalysisStatus value,
+                final ModuleAnalysisReason statusReason,
+                final String statusDetail) {
+            status = value;
+            reason = statusReason;
+            detail = statusDetail;
+            return this;
+        }
+
+        /**
+         * @param value session
+         * @return this builder
+         */
+        public Builder session(final ModuleCallGraphSession value) {
+            session = value;
+            return this;
+        }
+
+        /**
+         * @param values paths
+         * @return this builder
+         */
+        public Builder candidatePaths(final List<ImpactPath> values) {
+            candidatePaths = List.copyOf(values);
+            return this;
+        }
+
+        /**
+         * @param values paths
+         * @return this builder
+         */
+        public Builder finalPaths(final List<ImpactPath> values) {
+            finalPaths = List.copyOf(values);
+            return this;
+        }
+
+        /**
+         * @param values impacts
+         * @return this builder
+         */
+        public Builder structuralImpacts(
+                final List<StructuralImpact> values) {
+            structuralImpacts = List.copyOf(values);
+            return this;
+        }
+
+        /**
+         * @param values dispositions
+         * @return this builder
+         */
+        public Builder dispositions(
+                final Map<BoundChangePoint,
+                        ChangePointDisposition> values) {
+            dispositions = Map.copyOf(values);
+            return this;
+        }
+
+        /**
+         * @param values comparisons
+         * @return this builder
+         */
+        public Builder equivalenceResults(
+                final Map<BoundChangePoint,
+                        MethodEquivalenceResult> values) {
+            equivalenceResults = Map.copyOf(values);
+            return this;
+        }
+
+        /**
+         * @param values coverage limitations
+         * @return this builder
+         */
+        public Builder limitations(final List<String> values) {
+            limitations = List.copyOf(values);
+            return this;
+        }
+
+        /**
+         * @param value elapsed milliseconds
+         * @return this builder
+         */
+        public Builder elapsedMillis(final long value) {
+            elapsedMillis = value;
+            return this;
+        }
+
+        /**
+         * @param values stable per-module stage elapsed metrics
+         * @return this builder
+         */
+        public Builder stageElapsedMillis(
+                final Map<String, Long> values) {
+            stageElapsedMillis = new LinkedHashMap<>(values);
+            return this;
+        }
+
+        /** @return immutable result */
+        public ModuleAnalysisResult build() {
+            return new ModuleAnalysisResult(this);
+        }
+    }
+}

@@ -1,15 +1,11 @@
 package io.github.dependencyanalysis.impact;
 
-import io.github.dependencyanalysis.bytecode.ChangePoint;
-import io.github.dependencyanalysis.callgraph.CallEdge;
 import io.github.dependencyanalysis.callgraph.MethodId;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 
 /**
  * Immutable single impact path
@@ -19,62 +15,56 @@ import java.util.Set;
  */
 public final class ImpactPath {
 
-    /** Affected root method. */
-    private final MethodId
-            affectedMethod;
+    /** Exact ordered query nodes. */
+    private final List<QueryNode> nodes;
 
-    /** The change point. */
-    private final ChangePoint
-            changePoint;
+    /** Exact ordered query edges. */
+    private final List<QueryEdge> orderedEdges;
 
-    /** Call edges from root to
-     *  seed method. */
-    private final List<CallEdge>
-            edges;
+    /** Synthetic ChangePoint terminal. */
+    private final ChangePointTerminal terminal;
 
-    /** Modules traversed. */
-    private final Set<String>
-            modules;
-
-    /** Cross-module boundary
-     *  descriptions. */
-    private final List<String>
-            crossModuleBoundaries;
+    /** Directness classification. */
+    private final ImpactClassification classification;
 
     /**
-     * Creates a new impact path.
+     * Creates a Context-preserving path materialized directly from WALA.
      *
-     * @param affected affected root
-     * @param cp       change point
-     * @param edgs     call edges
-     * @param mods     modules traversed
-     * @param bounds   cross-module
-     *                 boundary descriptions
+     * @param orderedNodes path nodes from PROJECT method to seed
+     * @param pathEdges call edges between ordered nodes
+     * @param changeTerminal synthetic ChangePoint terminal
+     * @param impactClassification direct or transitive classification
      */
     public ImpactPath(
-            final MethodId affected,
-            final ChangePoint cp,
-            final List<CallEdge> edgs,
-            final Set<String> mods,
-            final List<String> bounds) {
-        this.affectedMethod =
-                Objects.requireNonNull(
-                        affected,
-                        "affectedMethod");
-        this.changePoint =
-                Objects.requireNonNull(
-                        cp, "changePoint");
-        this.edges = Collections
-                .unmodifiableList(
-                        new ArrayList<>(edgs));
-        this.modules = Collections
-                .unmodifiableSet(
-                        new LinkedHashSet<>(
-                                mods));
-        this.crossModuleBoundaries =
-                Collections.unmodifiableList(
-                        new ArrayList<>(
-                                bounds));
+            final List<QueryNode> orderedNodes,
+            final List<QueryEdge> pathEdges,
+            final ChangePointTerminal changeTerminal,
+            final ImpactClassification impactClassification) {
+        if (orderedNodes.isEmpty()) {
+            throw new IllegalArgumentException("orderedNodes is empty");
+        }
+        if (pathEdges.size() != orderedNodes.size() - 1) {
+            throw new IllegalArgumentException(
+                    "pathEdges must connect every ordered node");
+        }
+        for (int index = 0; index < pathEdges.size(); index++) {
+            final QueryEdge edge = pathEdges.get(index);
+            if (!orderedNodes.get(index).equals(edge.getCaller())
+                    || !orderedNodes.get(index + 1)
+                    .equals(edge.getCallee())) {
+                throw new IllegalArgumentException(
+                        "path edge does not match ordered nodes at "
+                                + index);
+            }
+        }
+        nodes = Collections.unmodifiableList(
+                new ArrayList<>(orderedNodes));
+        orderedEdges = Collections.unmodifiableList(
+                new ArrayList<>(pathEdges));
+        terminal = Objects.requireNonNull(
+                changeTerminal, "changeTerminal");
+        classification = Objects.requireNonNull(
+                impactClassification, "impactClassification");
     }
 
     /**
@@ -85,53 +75,27 @@ public final class ImpactPath {
      */
     public MethodId
             getAffectedMethod() {
-        return affectedMethod;
+        return nodes.get(0).methodId();
     }
 
-    /**
-     * Returns the change point.
-     *
-     * @return change point
-     */
-    public ChangePoint
-            getChangePoint() {
-        return changePoint;
+    /** @return exact ordered query nodes */
+    public List<QueryNode> getNodes() {
+        return nodes;
     }
 
-    /**
-     * Returns the call edges
-     * from root to seed.
-     *
-     * @return unmodifiable edge
-     *  list
-     */
-    public List<CallEdge>
-            getEdges() {
-        return edges;
+    /** @return exact ordered query edges */
+    public List<QueryEdge> getOrderedEdges() {
+        return orderedEdges;
     }
 
-    /**
-     * Returns the modules
-     * traversed.
-     *
-     * @return unmodifiable module
-     *  set
-     */
-    public Set<String>
-            getModules() {
-        return modules;
+    /** @return synthetic terminal */
+    public ChangePointTerminal getTerminal() {
+        return terminal;
     }
 
-    /**
-     * Returns cross-module
-     * boundary descriptions.
-     *
-     * @return unmodifiable list
-     *  of boundary strings
-     */
-    public List<String>
-            getCrossModuleBoundaries() {
-        return crossModuleBoundaries;
+    /** @return directness classification */
+    public ImpactClassification getClassification() {
+        return classification;
     }
 
     @Override
@@ -145,19 +109,16 @@ public final class ImpactPath {
         }
         final ImpactPath that =
                 (ImpactPath) o;
-        return affectedMethod.equals(
-                        that.affectedMethod)
-                && changePoint.equals(
-                        that.changePoint)
-                && edges.equals(
-                        that.edges);
+        return nodes.equals(that.nodes)
+                && orderedEdges.equals(that.orderedEdges)
+                && terminal.equals(that.terminal)
+                && classification == that.classification;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(
-                affectedMethod,
-                changePoint, edges);
+        return Objects.hash(nodes, orderedEdges,
+                terminal, classification);
     }
 
     @Override
@@ -166,16 +127,11 @@ public final class ImpactPath {
                 new StringBuilder();
         sb.append("ImpactPath{")
                 .append("affected=")
-                .append(affectedMethod)
+                .append(getAffectedMethod())
                 .append(", cp=")
-                .append(changePoint)
+                .append(terminal.getChangePoint())
                 .append(", edges=")
-                .append(edges.size())
-                .append(", modules=")
-                .append(modules)
-                .append(", boundaries=")
-                .append(
-                        crossModuleBoundaries)
+                .append(orderedEdges.size())
                 .append('}');
         return sb.toString();
     }
