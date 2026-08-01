@@ -7,6 +7,8 @@ import io.github.dependencyanalysis.cli
 import io.github.dependencyanalysis.cli.OutputFormat;
 import io.github.dependencyanalysis.diagnostic
         .DiagnosticCollector;
+import io.github.dependencyanalysis.diagnostic
+        .LogVerbosity;
 import io.github.dependencyanalysis.preflight
         .PreflightConsoleRenderer;
 import io.github.dependencyanalysis.preflight
@@ -110,6 +112,11 @@ public final class ImpactCommand
 
     @Override
     public Integer call() {
+        diagnostics.setVerbosity(
+                root.getLogVerbosity());
+        diagnostics.debug("cli",
+                "command=impact; verbosity="
+                        + root.getLogVerbosity());
         if (callGraphTimeoutSeconds < 0) {
             diagnostics.error("preflight",
                     "--call-graph-timeout-seconds must be >= 0");
@@ -134,6 +141,13 @@ public final class ImpactCommand
             path = new File(System.getProperty(
                     "user.dir"));
         }
+        diagnostics.trace("cli",
+                "path=" + path.toPath().toAbsolutePath().normalize()
+                        + "; baseline=" + baseline
+                        + "; target="
+                        + (target == null ? "CURRENT" : target)
+                        + "; output=" + output.toPath()
+                                .toAbsolutePath().normalize());
         try (PreflightContext context =
                      new PreflightContext()) {
             final PreflightReport report =
@@ -181,7 +195,10 @@ public final class ImpactCommand
             diagnostics.error("pipeline",
                     "Pipeline failed: "
                             + exception.getMessage());
-            exception.printStackTrace(System.err);
+            if (root.getLogVerbosity().includes(
+                    LogVerbosity.DEBUG)) {
+                exception.printStackTrace(System.err);
+            }
             return 2;
         }
     }

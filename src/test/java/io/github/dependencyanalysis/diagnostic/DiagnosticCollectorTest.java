@@ -2,6 +2,9 @@ package io.github.dependencyanalysis.diagnostic;
 
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -110,5 +113,63 @@ class DiagnosticCollectorTest {
                 .isEqualTo("b");
         assertThat(events.get(2).getStage())
                 .isEqualTo("c");
+    }
+
+    @Test
+    void defaultInfoHidesDebugAndTrace() {
+        final ByteArrayOutputStream bytes =
+                new ByteArrayOutputStream();
+        final PrintStream stream = new PrintStream(
+                bytes, true, StandardCharsets.UTF_8);
+        final DiagnosticCollector collector =
+                new DiagnosticCollector(stream, stream);
+
+        collector.info("stage", "info");
+        collector.debug("stage", "debug");
+        collector.trace("stage", "trace");
+
+        assertThat(collector.getEvents())
+                .extracting(DiagnosticEvent::getLevel)
+                .containsExactly(DiagnosticLevel.INFO);
+        assertThat(bytes.toString(StandardCharsets.UTF_8))
+                .contains("info")
+                .doesNotContain("debug", "trace");
+    }
+
+    @Test
+    void debugAndTraceVerbosityEnableExpectedDetail() {
+        final ByteArrayOutputStream debugBytes =
+                new ByteArrayOutputStream();
+        final ByteArrayOutputStream traceBytes =
+                new ByteArrayOutputStream();
+        final DiagnosticCollector debug =
+                new DiagnosticCollector(
+                        new PrintStream(debugBytes),
+                        new PrintStream(debugBytes),
+                        LogVerbosity.DEBUG);
+        final DiagnosticCollector trace =
+                new DiagnosticCollector(
+                        new PrintStream(traceBytes),
+                        new PrintStream(traceBytes),
+                        LogVerbosity.TRACE);
+
+        debug.debug("stage", "debug-message");
+        debug.trace("stage", "trace-message");
+        trace.debug("stage", "debug-message");
+        trace.trace("stage", "trace-message");
+
+        assertThat(debug.getEvents())
+                .extracting(DiagnosticEvent::getLevel)
+                .containsExactly(DiagnosticLevel.DEBUG);
+        assertThat(debugBytes.toString(StandardCharsets.UTF_8))
+                .contains("[DEBUG] debug-message")
+                .doesNotContain("trace-message");
+        assertThat(trace.getEvents())
+                .extracting(DiagnosticEvent::getLevel)
+                .containsExactly(DiagnosticLevel.DEBUG,
+                        DiagnosticLevel.TRACE);
+        assertThat(traceBytes.toString(StandardCharsets.UTF_8))
+                .contains("[DEBUG] debug-message")
+                .contains("[TRACE] trace-message");
     }
 }

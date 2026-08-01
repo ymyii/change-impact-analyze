@@ -39,6 +39,9 @@ Global options 可放在 subcommand 前或后：
 | `-j` | `--java-home <jdk-home>` | Maven subprocess 的 `JAVA_HOME`；`impact` 同时用它编译用户代码并构建 WALA target JDK scope。 |
 | `-c` | `--config-dir <dir>` | 覆盖完整 Dependency Analyzer config dir。 |
 | `-a` | `--maven-arg=<token>` | 重复传入一个 Maven option/property token，例如 `--maven-arg=-Pprod`。 |
+| `-v` | `--verbose` | 提升日志级别；默认 `INFO`，`-v` 为 `DEBUG`，`-vv` 为 `TRACE`。可放在 subcommand 前或后。 |
+
+`--verbose --verbose` 与 `-vv` 等价。`INFO` 输出稳定的 stage、progress、warning 和 error；`DEBUG` 额外输出 analysis option/decision，并在异常时输出 stack trace；`TRACE` 再输出 normalized path、ref 和 scope 等细粒度 evidence。
 
 ## 3. Maven Runtime
 

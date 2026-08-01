@@ -1,6 +1,7 @@
 package io.github.dependencyanalysis.cli;
 
 import io.github.dependencyanalysis.impact.ImpactCommand;
+import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis.runtime
         .MavenRuntimeManager;
 import io.github.dependencyanalysis.tree.TreeCommand;
@@ -66,6 +67,14 @@ public final class DependencyAnalyzerCli
     private List<String> mavenArguments =
             new ArrayList<>();
 
+    /** Repeated verbosity flags. */
+    @Option(
+            names = {"-v", "--verbose"},
+            scope = ScopeType.INHERIT,
+            description = "Increase log verbosity: -v DEBUG, -vv TRACE."
+    )
+    private boolean[] verbose = new boolean[0];
+
     /** CommandLine instance for root usage output. */
     private CommandLine commandLine;
 
@@ -103,6 +112,12 @@ public final class DependencyAnalyzerCli
     /** @return raw Maven argument tokens */
     public List<String> getMavenArguments() {
         return List.copyOf(mavenArguments);
+    }
+
+    /** @return selected log verbosity */
+    public LogVerbosity getLogVerbosity() {
+        return LogVerbosity.fromVerboseCount(
+                verbose.length);
     }
 
     /**

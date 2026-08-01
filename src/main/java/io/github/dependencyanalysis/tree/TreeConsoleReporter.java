@@ -1,5 +1,6 @@
 package io.github.dependencyanalysis.tree;
 
+import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis.preflight
         .PreflightConsoleRenderer;
 import io.github.dependencyanalysis.preflight
@@ -25,15 +26,47 @@ final class TreeConsoleReporter {
     /** Heartbeat interval. */
     private final long heartbeatMillis;
 
+    /** Active verbosity. */
+    private final LogVerbosity verbosity;
+
     TreeConsoleReporter(final PrintStream destination) {
-        this(destination, HEARTBEAT_MILLIS);
+        this(destination, HEARTBEAT_MILLIS,
+                LogVerbosity.INFO);
     }
 
     TreeConsoleReporter(
             final PrintStream destination,
             final long intervalMillis) {
+        this(destination, intervalMillis,
+                LogVerbosity.INFO);
+    }
+
+    TreeConsoleReporter(
+            final PrintStream destination,
+            final LogVerbosity logVerbosity) {
+        this(destination, HEARTBEAT_MILLIS,
+                logVerbosity);
+    }
+
+    TreeConsoleReporter(
+            final PrintStream destination,
+            final long intervalMillis,
+            final LogVerbosity logVerbosity) {
         output = destination;
         heartbeatMillis = intervalMillis;
+        verbosity = logVerbosity;
+    }
+
+    void debug(final String message) {
+        if (verbosity.includes(LogVerbosity.DEBUG)) {
+            output.println("[DEBUG] " + oneLine(message));
+        }
+    }
+
+    void trace(final String message) {
+        if (verbosity.includes(LogVerbosity.TRACE)) {
+            output.println("[TRACE] " + oneLine(message));
+        }
     }
 
     void preflight(final PreflightReport report) {

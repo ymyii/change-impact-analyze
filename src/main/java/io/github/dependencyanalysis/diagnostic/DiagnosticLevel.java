@@ -5,6 +5,12 @@ package io.github.dependencyanalysis.diagnostic;
  */
 public enum DiagnosticLevel {
 
+    /** Fine-grained analysis evidence. */
+    TRACE,
+
+    /** Analysis decisions and configuration. */
+    DEBUG,
+
     /** Informational. */
     INFO,
 

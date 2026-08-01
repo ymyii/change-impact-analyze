@@ -1,5 +1,7 @@
 package io.github.dependencyanalysis.cli;
 
+import io.github.dependencyanalysis.diagnostic.LogVerbosity;
+
 import org.junit.jupiter.api.Test;
 import picocli.CommandLine;
 
@@ -105,7 +107,8 @@ class DependencyAnalyzerCliTest {
                 .contains("-m, --maven")
                 .contains("-j, --java-home")
                 .contains("-c, --config-dir")
-                .contains("-a, --maven-arg");
+                .contains("-a, --maven-arg")
+                .contains("-v, --verbose");
         assertThat(impactText.toString())
                 .contains("-p, --path")
                 .contains("-b, --baseline")
@@ -181,5 +184,29 @@ class DependencyAnalyzerCliTest {
 
         assertThat(markdown).isEqualTo(1);
         assertThat(parallelism).isEqualTo(1);
+    }
+
+    @Test
+    void repeatedVerboseFlagSelectsLogLevel() {
+        final DependencyAnalyzerCli defaultRoot =
+                new DependencyAnalyzerCli();
+        final DependencyAnalyzerCli debugRoot =
+                new DependencyAnalyzerCli();
+        final DependencyAnalyzerCli traceRoot =
+                new DependencyAnalyzerCli();
+
+        DependencyAnalyzerCli.newCommandLine(defaultRoot)
+                .parseArgs("tree", "--help");
+        DependencyAnalyzerCli.newCommandLine(debugRoot)
+                .parseArgs("tree", "-v", "--help");
+        DependencyAnalyzerCli.newCommandLine(traceRoot)
+                .parseArgs("tree", "-vv", "--help");
+
+        assertThat(defaultRoot.getLogVerbosity())
+                .isEqualTo(LogVerbosity.INFO);
+        assertThat(debugRoot.getLogVerbosity())
+                .isEqualTo(LogVerbosity.DEBUG);
+        assertThat(traceRoot.getLogVerbosity())
+                .isEqualTo(LogVerbosity.TRACE);
     }
 }

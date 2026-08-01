@@ -19,7 +19,14 @@ code_refs:
 
 ## Summary
 
-CLI 在昂贵分析前执行结构化 Preflight。`impact` 首版只支持 `--analysis-target spring-backend`、JDK 8、Maven project；`tree` 保持独立 contract。
+CLI 在昂贵分析前执行结构化 Preflight。全局 verbosity 默认为 `INFO`，`-v` 选择 `DEBUG`，`-vv` 选择 `TRACE`。`impact` 首版只支持 `--analysis-target spring-backend`、JDK 8、Maven project；`tree` 保持独立 contract。
+
+## Global Verbosity
+
+- 未传 `-v`：`INFO`，输出稳定的 stage、progress、warning 和 error。
+- `-v` 或一个 `--verbose`：`DEBUG`，增加 analysis option/decision；command failure 同时输出 stack trace。
+- `-vv` 或两个 `--verbose`：`TRACE`，增加 normalized path、ref、scope 等细粒度 evidence。
+- `-v` 是 inherited global option，可位于 subcommand 前或后。`DEBUG`/`TRACE` event 只有相应级别启用时才进入 console 与 `impact` HTML Diagnostics；默认 Report 不携带被过滤的详细 event。
 
 ## Impact Options
 
@@ -50,4 +57,5 @@ CLI 在昂贵分析前执行结构化 Preflight。`impact` 首版只支持 `--an
 
 - Pipeline stage 记录 start/end/failure、elapsed、worker count和 graph metrics。
 - WALA heartbeat 使用 `WALA heartbeat`，不再出现 RTA-specific wording。
+- `INFO` message 保持原有无 level tag 格式；额外日志显式使用 `[DEBUG]`、`[TRACE]` tag。
 - Console 与 HTML Report 消费同一 result/status，不重新推断结论。

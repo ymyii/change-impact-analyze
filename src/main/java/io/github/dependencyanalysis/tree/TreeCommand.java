@@ -2,6 +2,8 @@ package io.github.dependencyanalysis.tree;
 
 import io.github.dependencyanalysis.cli
         .DependencyAnalyzerCli;
+import io.github.dependencyanalysis.diagnostic
+        .LogVerbosity;
 import io.github.dependencyanalysis.preflight
         .PreflightContext;
 import io.github.dependencyanalysis.preflight
@@ -76,7 +78,15 @@ public final class TreeCommand
         final Set<String> includedScopes =
                 parseScopes(scopes);
         final TreeConsoleReporter console =
-                new TreeConsoleReporter(System.err);
+                new TreeConsoleReporter(System.err,
+                        root.getLogVerbosity());
+        console.debug("command=tree; verbosity="
+                + root.getLogVerbosity());
+        console.trace("path=" + path.toPath().toAbsolutePath().normalize()
+                + "; ref=" + (ref == null ? "CURRENT" : ref)
+                + "; output=" + output.toPath()
+                        .toAbsolutePath().normalize()
+                + "; scopes=" + includedScopes);
         TreeReportSession reportSession = null;
         int totalReactors = 0;
         try (PreflightContext context =
@@ -158,7 +168,10 @@ public final class TreeCommand
             console.summary(new TreeRunSummary(
                     TreeReportState.FAILED,
                     reportPath()));
-            exception.printStackTrace(System.err);
+            if (root.getLogVerbosity().includes(
+                    LogVerbosity.DEBUG)) {
+                exception.printStackTrace(System.err);
+            }
             return 2;
         }
     }

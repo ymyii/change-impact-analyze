@@ -1,5 +1,6 @@
 package io.github.dependencyanalysis.tree;
 
+import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis.preflight
         .PreflightReport;
 
@@ -118,6 +119,46 @@ class TreeConsoleReporterTest {
                 "pom.xml", ReactorStatus.SUCCESS, ""))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("SUCCESS");
+    }
+
+    @Test
+    void verbosityFiltersDebugAndTraceMessages() {
+        final ByteArrayOutputStream infoBytes =
+                new ByteArrayOutputStream();
+        final ByteArrayOutputStream debugBytes =
+                new ByteArrayOutputStream();
+        final ByteArrayOutputStream traceBytes =
+                new ByteArrayOutputStream();
+        final TreeConsoleReporter info = reporter(
+                infoBytes, LogVerbosity.INFO);
+        final TreeConsoleReporter debug = reporter(
+                debugBytes, LogVerbosity.DEBUG);
+        final TreeConsoleReporter trace = reporter(
+                traceBytes, LogVerbosity.TRACE);
+
+        info.debug("debug-message");
+        info.trace("trace-message");
+        debug.debug("debug-message");
+        debug.trace("trace-message");
+        trace.debug("debug-message");
+        trace.trace("trace-message");
+
+        assertThat(infoBytes.toString(StandardCharsets.UTF_8))
+                .isEmpty();
+        assertThat(debugBytes.toString(StandardCharsets.UTF_8))
+                .contains("[DEBUG] debug-message")
+                .doesNotContain("trace-message");
+        assertThat(traceBytes.toString(StandardCharsets.UTF_8))
+                .contains("[DEBUG] debug-message")
+                .contains("[TRACE] trace-message");
+    }
+
+    private TreeConsoleReporter reporter(
+            final ByteArrayOutputStream bytes,
+            final LogVerbosity verbosity) {
+        return new TreeConsoleReporter(new PrintStream(
+                bytes, true, StandardCharsets.UTF_8),
+                TEST_HEARTBEAT_MILLIS, verbosity);
     }
 
     private ReactorTreeResult degraded() {

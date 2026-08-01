@@ -13,7 +13,7 @@
 ## Features
 
 ### [CLI Preflight and Diagnostics](features/cli-preflight-diagnostics.md)
-- Summary: `--java-home`、impact JDK 8 boundary、Command Preflight、Tree Analysis issue 与 exit code 契约。
+- Summary: 全局 `INFO`/`DEBUG`/`TRACE` verbosity、`--java-home`、impact JDK 8 boundary、Command Preflight、Tree Analysis issue 与 exit code 契约。
 
 ### [Maven Runtime](features/maven-runtime.md)
 - Summary: 用户 executable、跨平台 JAR 内嵌 Maven 3.6.3、Windows `mvn.cmd` contract 与 Dependency Plugin repository 的离线准备。
