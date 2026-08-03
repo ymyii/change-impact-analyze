@@ -6,6 +6,8 @@ relations:
     desc: "项目 stack、module map 和 artifact 名称"
   - path: "wiki/features/maven-runtime.md"
     desc: "打入 uber JAR 的 Maven distribution resources"
+  - path: "wiki/runbooks/impact-benchmark.md"
+    desc: "使用打包后 JAR 执行持续 impact benchmark"
 code_refs:
   - path: "pom.xml"
     desc: "Maven build、Surefire、Failsafe、Checkstyle 和 Shade 配置"

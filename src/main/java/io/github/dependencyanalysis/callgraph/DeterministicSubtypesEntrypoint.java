@@ -12,9 +12,6 @@ import java.util.Comparator;
 public final class DeterministicSubtypesEntrypoint
         extends DefaultEntrypoint {
 
-    /** Owning class hierarchy. */
-    private final IClassHierarchy hierarchy;
-
     /**
      * Creates a deterministic all-subtypes entrypoint.
      *
@@ -24,7 +21,6 @@ public final class DeterministicSubtypesEntrypoint
     public DeterministicSubtypesEntrypoint(
             final IMethod method, final IClassHierarchy cha) {
         super(method, cha);
-        hierarchy = cha;
     }
 
     @Override
@@ -37,6 +33,7 @@ public final class DeterministicSubtypesEntrypoint
         if (declared.isPrimitiveType()) {
             return new TypeReference[]{declared};
         }
+        final IClassHierarchy hierarchy = getCha();
         final IClass declaredClass = hierarchy.lookupClass(declared);
         if (declaredClass == null) {
             return new TypeReference[]{declared};

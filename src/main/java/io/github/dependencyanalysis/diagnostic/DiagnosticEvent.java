@@ -9,6 +9,9 @@ public final class DiagnosticEvent {
     /** Stage name. */
     private final String stage;
 
+    /** Task name. */
+    private final String task;
+
     /** Severity level. */
     private final DiagnosticLevel level;
 
@@ -32,6 +35,7 @@ public final class DiagnosticEvent {
 
     private DiagnosticEvent(final Builder builder) {
         this.stage = builder.stage;
+        this.task = builder.task;
         this.level = builder.level;
         this.message = builder.message;
         this.side = builder.side;
@@ -48,6 +52,15 @@ public final class DiagnosticEvent {
      */
     public String getStage() {
         return stage;
+    }
+
+    /**
+     * Returns the task name.
+     *
+     * @return task
+     */
+    public String getTask() {
+        return task;
     }
 
     /**
@@ -117,6 +130,7 @@ public final class DiagnosticEvent {
     public String toString() {
         return "DiagnosticEvent{"
                 + "stage='" + stage + '\''
+                + ", task='" + task + '\''
                 + ", level=" + level
                 + ", message='" + message + '\''
                 + ", side='" + side + '\''
@@ -134,6 +148,9 @@ public final class DiagnosticEvent {
 
         /** Stage name. */
         private String stage;
+
+        /** Task name. */
+        private String task;
 
         /** Severity level. */
         private DiagnosticLevel level;
@@ -164,6 +181,17 @@ public final class DiagnosticEvent {
          */
         public Builder stage(final String value) {
             this.stage = value;
+            return this;
+        }
+
+        /**
+         * Sets the task.
+         *
+         * @param value task name
+         * @return this builder
+         */
+        public Builder task(final String value) {
+            this.task = value;
             return this;
         }
 

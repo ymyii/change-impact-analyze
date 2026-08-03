@@ -6,6 +6,8 @@ relations:
     desc: "resolved physical old/new JAR path"
   - path: "wiki/features/impact-tracing.md"
     desc: "BoundChangePoint 与 deferred SSA filtering"
+  - path: "wiki/runbooks/impact-benchmark.md"
+    desc: "固定 9 类 raw ChangePoint 的持续 benchmark fixture"
 code_refs:
   - path: "src/main/java/io/github/dependencyanalysis/bytecode/BytecodeDiffEngine.java"
     desc: "class/method/field diff"

@@ -3,6 +3,7 @@ package io.github.dependencyanalysis.callgraph;
 import com.ibm.wala.util.MonitorUtil;
 
 import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
+import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 
 import java.time.Duration;
 import java.util.concurrent.Executors;
@@ -23,6 +24,9 @@ final class CallGraphProgressMonitor
 
     /** Diagnostics. */
     private final DiagnosticCollector diagnostics;
+
+    /** Owning Module Call Graph task. */
+    private final DiagnosticContext diagnosticContext;
 
     /** Start time. */
     private final long startedNanos = System.nanoTime();
@@ -49,6 +53,7 @@ final class CallGraphProgressMonitor
             final DiagnosticCollector collector,
             final long timeoutSeconds) {
         this(collector,
+                DiagnosticContext.stage("call-graph"),
                 timeoutSeconds == 0
                         ? Duration.ZERO
                         : Duration.ofSeconds(timeoutSeconds),
@@ -66,7 +71,25 @@ final class CallGraphProgressMonitor
             final DiagnosticCollector collector,
             final Duration timeout,
             final Duration heartbeatInterval) {
+        this(collector, DiagnosticContext.stage("call-graph"),
+                timeout, heartbeatInterval);
+    }
+
+    /**
+     * Creates a monitor with an inherited concurrent task context.
+     *
+     * @param collector diagnostics
+     * @param context diagnostic context
+     * @param timeout timeout, zero for unlimited
+     * @param heartbeatInterval heartbeat interval
+     */
+    CallGraphProgressMonitor(
+            final DiagnosticCollector collector,
+            final DiagnosticContext context,
+            final Duration timeout,
+            final Duration heartbeatInterval) {
         diagnostics = collector;
+        diagnosticContext = context;
         deadlineNanos = timeout.isZero()
                 ? Long.MAX_VALUE
                 : startedNanos
@@ -134,7 +157,7 @@ final class CallGraphProgressMonitor
                 - runtime.freeMemory();
         final long elapsed = Duration.ofNanos(
                 System.nanoTime() - startedNanos).toSeconds();
-        diagnostics.info("call-graph",
+        diagnostics.info(diagnosticContext,
                 "WALA heartbeat: elapsed=" + elapsed
                         + "s, heap=" + toMiB(used)
                         + "/" + toMiB(runtime.maxMemory())

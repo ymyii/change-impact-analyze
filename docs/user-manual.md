@@ -4,7 +4,7 @@
 
 Dependency Analyzer 是 Java 17 CLI，面向 Maven project：
 
-- `impact`：比较 dependency 升级前后的 resolved dependency、bytecode 和业务调用影响，输出 HTML Index 和 per-Module detail pages。
+- `impact`：比较 dependency 升级前后的 resolved dependency、bytecode 和业务调用影响，输出 Overall HTML Index；每个非 `SKIPPED` Module 输出 Module Index、Affected Call Chains、Dependency Changes 三个英文页面。
 - `tree`：扫描一个 Git repository 内的 Maven reactor，输出 repository 级 offline HTML dependency tree report。
 
 当前版本为 `0.1.0-SNAPSHOT`。Root command 为 `dependency-analyzer`。
@@ -41,7 +41,7 @@ Global options 可放在 subcommand 前或后：
 | `-a` | `--maven-arg=<token>` | 重复传入一个 Maven option/property token，例如 `--maven-arg=-Pprod`。 |
 | `-v` | `--verbose` | 提升日志级别；默认 `INFO`，`-v` 为 `DEBUG`，`-vv` 为 `TRACE`。可放在 subcommand 前或后。 |
 
-`--verbose --verbose` 与 `-vv` 等价。`INFO` 输出稳定的 stage、progress、warning 和 error；`DEBUG` 额外输出 analysis option/decision，并在异常时输出 stack trace；`TRACE` 再输出 normalized path、ref 和 scope 等细粒度 evidence。
+`--verbose --verbose` 与 `-vv` 等价。`INFO` 输出稳定的 stage、progress、warning 和 error；`DEBUG` 额外输出 analysis option/decision，并在异常时输出 stack trace；`TRACE` 再输出 normalized path、ref 和 scope 等细粒度 evidence。并发任务使用业务 context 前缀，例如 `[front][baseline-dependency]`、`[jar-diff][pair][artifact=…]`、`[module-analysis][call-graph][module=…]`，不依赖 thread name。
 
 ## 3. Maven Runtime
 
@@ -75,7 +75,7 @@ Config dir 中未知文件和用户文件不会被自动删除。Runtime 损坏�
 
 每次 command 使用 UUID `run-id`、owner marker 和 `<config-dir>/locks/` file lock。Detached worktree、GraphML probe 和 build/dependency log 只写入对应 subcommand run。正常和异常关闭只清理当前 run；启动时只回收 owner marker 有效且未被其他 process lock 的 stale run。
 
-`tree` 默认还会从 JAR 解压经过 SHA-512 校验的 Dependency Plugin 3.6.1 file repository。工具生成 global settings overlay，将该 repository 加入 active profile，并保留用户 `-gs` 中的 mirror、proxy、server 等配置以及独立 `-s` 参数；内置 repository 会从通配 mirror 中排除。Overlay 按内容 hash 复用，使用 file lock、owner-only permission 和 atomic publish，且不会在 Console 输出用户 settings 内容。
+`impact` 固定使用 JAR 内嵌 Maven Dependency Plugin `3.6.1`；`tree` 默认也使用该 runtime，但保留高级 version override。工具从 JAR 解压经过 SHA-512 校验的 Plugin file repository，并生成 global settings overlay：将内嵌 repository 加入 active profile，保留用户 `-gs` 中的 mirror、proxy、server、local repository 等配置以及独立 `-s` 参数；内置 repository会从通配 mirror 中排除。Overlay 按内容 hash 复用，使用 file lock、owner-only permission 和 atomic publish，且不会在 Console 输出用户 settings 内容。Overlay 仅用于 Dependency Plugin `tree`/`list`，不应用于 target `compile`。
 
 ## 4. Maven Argument 安全规则
 
@@ -170,13 +170,23 @@ java -jar dependency-analyzer.jar \
 
 Preflight 后先识别模式：选择 reactor root 时，全 reactor 只 compile 一次并逐 Module 分析；选择 leaf POM 时，从 reactor root 使用 `-pl <module> -am` compile，只报告该 Module。当前 Module 是 `PROJECT`，上游 reactor Module 是 `REACTOR_DEPENDENCY`。
 
-前置阶段并行执行 baseline dependency resolution 与 target Maven compile；join 后执行 target dependency resolution。Baseline 不 compile、不构建 Call Graph。GraphML 提供 mediated tree；工具将每个 Module 的已 mediation external dependency 写入 isolated temporary POM，再使用 Maven Dependency Plugin `3.6.1:list`、`outputAbsoluteArtifactFilename=true`、`excludeReactor=true` 与 `excludeTransitive=true` 获取 exact absolute artifact path。这避免 clean baseline 因 reactor artifact 未构建而 resolution 失败，也不拼接 `~/.m2` 路径。
+前置阶段并行执行 baseline dependency resolution 与 target Maven compile；join 后执行 target dependency resolution。Baseline 不 compile、不构建 Call Graph。Dependency analysis 的 `tree` 与 `list` 都使用内嵌 runtime、settings overlay 和 fully-qualified `org.apache.maven.plugins:maven-dependency-plugin:3.6.1:<goal>`；target `compile` 仍只使用普通 user Maven arguments。GraphML 提供 mediated tree；工具将每个 Module 的已 mediation external dependency 写入 isolated temporary POM，再使用 `list`、`outputAbsoluteArtifactFilename=true`、`excludeReactor=true` 与 `excludeTransitive=true` 获取 exact absolute artifact path。这避免 clean baseline 因 reactor artifact 未构建而 resolution 失败，也不拼接 `~/.m2` 路径。
 
 Physical JAR pair 使用半数 CPU 并行 bytecode diff。存在 removal/modification ChangePoint 的 Module 独立执行 scope validation、JDK 8 CHA、WALA Vanilla 0-1-CFA、`ReflectionOptions.FULL`、MethodHandle extension和 direct WALA query。Module 内 build/query 单线程，Module 之间按 `--module-parallelism` 并行。没有 seed pre-scan、零 seed skip、CHA pre-graph 或 full predecessor copy。
 
 所有 Module query 完成后，全局串行比较 candidate path 中唯一 `METHOD_BODY_CHANGED` 的 old/new normalized WALA SSA/CFG。只有 `PROVEN_EQUIVALENT` 删除路径；`DIFFERENT` 与 `UNKNOWN` 保留，`UNKNOWN` 使 Module 为 `INCONCLUSIVE`。
 
-Report 仅为 HTML Index + per-Module detail pages。Index 顶部公开 Vanilla 0-1-CFA over-approximation、Reflection/MethodHandle best-effort、ServiceLoader conservative overlay、Spring dynamic semantics/custom classloader non-goals、JDK exclusions和 SSA model boundary，并汇总 scope/entrypoint、Call Graph、SSA、limitation 和 stage elapsed metrics。Module page 展示 `DependencyUpgradeKey` 的 old/new artifact 与 canonical physical path、`BoundChangePoint`、disposition、Impact Path、Structural Impact 及 Module Diagnostics。Module failure 不取消其他 Module；handled failure仍发布 partial Report。空态统一表示“在声明的analysis model内未发现Impact Path”。
+`--output` 指向 Overall Index；同级 `<output-stem>-modules/` 为每个非 `SKIPPED` Module 生成三页：
+
+```text
+<module-base>.html          Module Index
+<module-base>-impact.html   Affected Call Chains
+<module-base>-changes.html  Dependency Changes
+```
+
+Overall Index 提供 `How to read this report`、`Analysis scope and limitations`、`Terminology` 与 Module 汇总。Module Index 展示易懂的 status、scope、metrics、coverage limitations 和 Module Diagnostics；Affected Call Chains 按 changed JAR 展示 application method call sequence 与 class structure references；Dependency Changes 按 dependency/JAR 展示 dependency、method、field 和 class change。WALA/SSA、descriptor/hash、raw enum、physical path 等原始 evidence 保留在默认折叠的 `Technical details`。所有页面为英文，并提供 top breadcrumbs、Module sibling navigation 和 responsive sticky TOC；不使用 JavaScript 或外部 asset。
+
+Module failure 不取消其他 Module；handled failure 仍发布 partial Report。空态固定为 `No affected call chain was found within the documented analysis scope.`，不表示已经证明没有业务影响。
 
 ## 6. `tree` Subcommand
 
@@ -400,7 +410,19 @@ Dependency Analyzer 不把 project dependency local repository 放入 config dir
 
 再次执行 command 会自动校验并只重建对应 Maven 或 Dependency Plugin version/SHA leaf；损坏的 generated settings 也会按内容重建。不要整体删除 config dir；其中可能包含未来配置或用户文件。
 
-## 10. Third-Party Attribution
+## 10. 持续 Impact Benchmark
+
+Repository 内置 Git 管理的中型 `impact` benchmark。它从 source 生成 42 个 compile-scope external dependencies、带 `impact-baseline`/`impact-target` refs 的临时 Git project，并校验 9 类 `ChangePointKind`、6 条最终 call chains、Structural Impact 和四页 HTML report。
+
+```sh
+mvn package
+JAVA8_HOME=/absolute/path/to/jdk8 \
+  benchmarks/impact-medium/run-benchmark.sh candidate-01
+```
+
+运行生成物进入 `tmp-files/impact-medium-benchmark/candidate-01/`，不会写入 Git 管理目录。完整 prerequisites、环境变量、measurement contract、成功条件和 troubleshooting 见 [`benchmarks/impact-medium/README.md`](../benchmarks/impact-medium/README.md)。
+
+## 11. Third-Party Attribution
 
 Uber JAR 内包含未修改的 Apache Maven 3.6.3 binary distribution，以及 distribution 的 `LICENSE`、`NOTICE` 和官方 SHA-512；同时包含 Maven Dependency Plugin 3.6.1 的完整运行 dependency repository、SHA-512、`LICENSE`、`NOTICE` 和 `DEPENDENCIES`。Source repository 中对应文件位于 `src/main/resources/maven/`。
 

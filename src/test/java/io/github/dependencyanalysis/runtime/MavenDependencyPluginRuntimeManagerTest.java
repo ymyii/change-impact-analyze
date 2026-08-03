@@ -46,6 +46,9 @@ class MavenDependencyPluginRuntimeManagerTest {
         assertThat(first.getGoal()).isEqualTo(
                 "org.apache.maven.plugins:"
                         + "maven-dependency-plugin:3.6.1:tree");
+        assertThat(first.getGoal("list")).isEqualTo(
+                "org.apache.maven.plugins:"
+                        + "maven-dependency-plugin:3.6.1:list");
         assertThat(first.getRepository().resolve(
                 "org/apache/maven/plugins/"
                         + "maven-dependency-plugin/3.6.1/"

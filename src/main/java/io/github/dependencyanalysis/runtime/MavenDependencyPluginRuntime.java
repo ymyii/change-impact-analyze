@@ -7,6 +7,14 @@ import java.util.Objects;
 /** Prepared Maven Dependency Plugin execution contract. */
 public final class MavenDependencyPluginRuntime {
 
+    /** Maven Dependency Plugin group. */
+    private static final String PLUGIN_GROUP =
+            "org.apache.maven.plugins";
+
+    /** Maven Dependency Plugin artifact. */
+    private static final String PLUGIN_ARTIFACT =
+            "maven-dependency-plugin";
+
     /** Selected plugin version. */
     private final String version;
 
@@ -57,6 +65,22 @@ public final class MavenDependencyPluginRuntime {
     /** @return fully-qualified goal */
     public String getGoal() {
         return goal;
+    }
+
+    /**
+     * Returns a fully-qualified goal for the selected Plugin version.
+     *
+     * @param goalName Maven goal name
+     * @return fully-qualified Maven goal
+     */
+    public String getGoal(final String goalName) {
+        if (goalName == null
+                || !goalName.matches("[A-Za-z][A-Za-z0-9-]*")) {
+            throw new IllegalArgumentException(
+                    "Invalid Maven Dependency Plugin goal: " + goalName);
+        }
+        return PLUGIN_GROUP + ":" + PLUGIN_ARTIFACT
+                + ":" + version + ":" + goalName;
     }
 
     /** @return Maven arguments including settings overlay */

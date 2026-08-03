@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Collects diagnostic events and tracks stage timing.
+ * Collects diagnostic events and tracks task timing.
  */
 public final class DiagnosticCollector {
 
@@ -15,7 +15,7 @@ public final class DiagnosticCollector {
     private final List<DiagnosticEvent> events =
             new ArrayList<>();
 
-    /** Stage start timestamps. */
+    /** Context start timestamps. */
     private final Map<String, Long> stageStarts =
             new HashMap<>();
 
@@ -28,9 +28,7 @@ public final class DiagnosticCollector {
     /** Active verbosity. */
     private LogVerbosity verbosity;
 
-    /**
-     * Creates a collector using system streams.
-     */
+    /** Creates a collector using system streams. */
     public DiagnosticCollector() {
         this(System.out, System.err,
                 LogVerbosity.INFO);
@@ -73,131 +71,199 @@ public final class DiagnosticCollector {
         verbosity = value;
     }
 
-    /**
-     * Starts a stage and emits an INFO event.
-     *
-     * @param stage stage name
-     */
-    public synchronized void startStage(final String stage) {
-        stageStarts.put(stage,
+    /** @param stage stage name */
+    public synchronized void startStage(
+            final String stage) {
+        final DiagnosticContext context = DiagnosticContext.stage(stage);
+        stageStarts.put(context.stableKey(),
                 System.currentTimeMillis());
-        emit(stage, DiagnosticLevel.INFO,
+        emit(context, DiagnosticLevel.INFO,
                 "Stage started: " + stage, 0L);
     }
 
-    /**
-     * Ends a stage and emits an INFO event.
-     *
-     * @param stage stage name
-     */
-    public synchronized void endStage(final String stage) {
-        final long elapsed = computeElapsed(stage);
-        emit(stage, DiagnosticLevel.INFO,
+    /** @param context task context */
+    public synchronized void startStage(
+            final DiagnosticContext context) {
+        stageStarts.put(context.stableKey(),
+                System.currentTimeMillis());
+        emit(context, DiagnosticLevel.INFO,
+                "Task started", 0L);
+    }
+
+    /** @param stage stage name */
+    public synchronized void endStage(
+            final String stage) {
+        final DiagnosticContext context = DiagnosticContext.stage(stage);
+        final long elapsed = computeElapsed(context);
+        emit(context, DiagnosticLevel.INFO,
                 "Stage ended: " + stage, elapsed);
     }
 
+    /** @param context task context */
+    public synchronized void endStage(
+            final DiagnosticContext context) {
+        final long elapsed = computeElapsed(context);
+        emit(context, DiagnosticLevel.INFO,
+                "Task completed", elapsed);
+    }
+
     /**
-     * Fails a stage and emits an ERROR event.
-     *
-     * @param stage  stage name
+     * @param stage stage name
      * @param reason failure reason
      */
-    public synchronized void failStage(final String stage,
-                          final String reason) {
-        final long elapsed = computeElapsed(stage);
-        emit(stage, DiagnosticLevel.ERROR,
+    public synchronized void failStage(
+            final String stage, final String reason) {
+        failStage(DiagnosticContext.stage(stage),
+                reason);
+    }
+
+    /**
+     * @param context task context
+     * @param reason failure reason
+     */
+    public synchronized void failStage(
+            final DiagnosticContext context,
+            final String reason) {
+        final long elapsed = computeElapsed(context);
+        emit(context, DiagnosticLevel.ERROR,
                 reason, elapsed);
     }
 
     /**
-     * Emits an INFO event.
-     *
-     * @param stage   stage name
+     * @param stage stage
      * @param message message
      */
     public synchronized void info(final String stage,
-                     final String message) {
-        emit(stage, DiagnosticLevel.INFO,
+                                  final String message) {
+        info(DiagnosticContext.stage(stage), message);
+    }
+
+    /**
+     * @param context context
+     * @param message message
+     */
+    public synchronized void info(
+            final DiagnosticContext context,
+            final String message) {
+        emit(context, DiagnosticLevel.INFO,
                 message, 0L);
     }
 
     /**
-     * Emits a DEBUG event when DEBUG is enabled.
-     *
-     * @param stage stage name
+     * @param stage stage
      * @param message message
      */
     public synchronized void debug(final String stage,
                                    final String message) {
-        emit(stage, DiagnosticLevel.DEBUG,
+        debug(DiagnosticContext.stage(stage), message);
+    }
+
+    /**
+     * @param context context
+     * @param message message
+     */
+    public synchronized void debug(
+            final DiagnosticContext context,
+            final String message) {
+        emit(context, DiagnosticLevel.DEBUG,
                 message, 0L);
     }
 
     /**
-     * Emits a TRACE event when TRACE is enabled.
-     *
-     * @param stage stage name
+     * @param stage stage
      * @param message message
      */
     public synchronized void trace(final String stage,
                                    final String message) {
-        emit(stage, DiagnosticLevel.TRACE,
+        trace(DiagnosticContext.stage(stage), message);
+    }
+
+    /**
+     * @param context context
+     * @param message message
+     */
+    public synchronized void trace(
+            final DiagnosticContext context,
+            final String message) {
+        emit(context, DiagnosticLevel.TRACE,
                 message, 0L);
     }
 
     /**
-     * Emits a WARN event.
-     *
-     * @param stage   stage name
+     * @param stage stage
      * @param message message
      */
     public synchronized void warn(final String stage,
-                     final String message) {
-        emit(stage, DiagnosticLevel.WARN,
+                                  final String message) {
+        warn(DiagnosticContext.stage(stage), message);
+    }
+
+    /**
+     * @param context context
+     * @param message message
+     */
+    public synchronized void warn(
+            final DiagnosticContext context,
+            final String message) {
+        emit(context, DiagnosticLevel.WARN,
                 message, 0L);
     }
 
     /**
-     * Emits an ERROR event.
-     *
-     * @param stage   stage name
+     * @param stage stage
      * @param message message
      */
     public synchronized void error(final String stage,
-                      final String message) {
-        emit(stage, DiagnosticLevel.ERROR,
+                                   final String message) {
+        error(DiagnosticContext.stage(stage), message);
+    }
+
+    /**
+     * @param context context
+     * @param message message
+     */
+    public synchronized void error(
+            final DiagnosticContext context,
+            final String message) {
+        emit(context, DiagnosticLevel.ERROR,
                 message, 0L);
     }
 
     /**
-     * Returns an unmodifiable view of events.
-     *
-     * @return event list
+     * @return immutable event snapshot
      */
     public synchronized List<DiagnosticEvent> getEvents() {
         return List.copyOf(events);
     }
 
-    private long computeElapsed(final String stage) {
-        final Long start = stageStarts.get(stage);
+    private long computeElapsed(
+            final DiagnosticContext context) {
+        final Long start = stageStarts.remove(
+                context.stableKey());
         if (start == null) {
             return 0L;
         }
         return System.currentTimeMillis() - start;
     }
 
-    private void emit(final String stage,
-                      final DiagnosticLevel level,
-                      final String message,
-                      final long elapsed) {
+    private void emit(
+            final DiagnosticContext context,
+            final DiagnosticLevel level,
+            final String message,
+            final long elapsed) {
         if (!isEnabled(level)) {
             return;
         }
         final DiagnosticEvent event =
                 new DiagnosticEvent.Builder()
-                        .stage(stage)
+                        .stage(context.stage())
+                        .task(context.task())
                         .level(level)
                         .message(message)
+                        .side(context.side())
+                        .module(context.module())
+                        .artifact(context.artifact())
+                        .path(context.path())
                         .elapsedMillis(elapsed)
                         .build();
         events.add(event);
@@ -206,8 +272,7 @@ public final class DiagnosticCollector {
 
     private void printToConsole(
             final DiagnosticEvent event) {
-        final String line = "["
-                + event.getStage() + "] "
+        final String line = prefix(event) + " "
                 + detailPrefix(event.getLevel())
                 + event.getMessage();
         if (event.getLevel()
@@ -215,6 +280,35 @@ public final class DiagnosticCollector {
             err.println(line);
         } else {
             out.println(line);
+        }
+    }
+
+    private String prefix(
+            final DiagnosticEvent event) {
+        final StringBuilder value = new StringBuilder()
+                .append('[').append(event.getStage())
+                .append(']');
+        appendPlain(value, event.getTask());
+        appendNamed(value, "side", event.getSide());
+        appendNamed(value, "module", event.getModule());
+        appendNamed(value, "artifact",
+                event.getArtifact());
+        return value.toString();
+    }
+
+    private void appendPlain(final StringBuilder value,
+                             final String field) {
+        if (field != null && !field.isBlank()) {
+            value.append('[').append(field).append(']');
+        }
+    }
+
+    private void appendNamed(final StringBuilder value,
+                             final String name,
+                             final String field) {
+        if (field != null && !field.isBlank()) {
+            value.append('[').append(name).append('=')
+                    .append(field).append(']');
         }
     }
 

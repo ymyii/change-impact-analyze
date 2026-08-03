@@ -22,8 +22,10 @@ import io.github.dependencyanalysis.dependency.DependencyNode;
 import io.github.dependencyanalysis.dependency.ModuleDependencyTree;
 import io.github.dependencyanalysis.dependency.ResolvedArtifact;
 import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
+import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 import io.github.dependencyanalysis.jar.JarLocationResult;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
+import io.github.dependencyanalysis.runtime.MavenDependencyPluginRuntime;
 import io.github.dependencyanalysis.runtime.MavenRuntimeDescriptor;
 import io.github.dependencyanalysis.workspace.WorkspaceResult;
 
@@ -63,6 +65,9 @@ final class PerModuleImpactPipeline {
     /** Maven runtime. */
     private final MavenRuntimeDescriptor mavenRuntime;
 
+    /** Embedded Maven Dependency Plugin runtime. */
+    private final MavenDependencyPluginRuntime pluginRuntime;
+
     /** Safe Maven arguments. */
     private final List<String> mavenArguments;
 
@@ -84,6 +89,7 @@ final class PerModuleImpactPipeline {
      * @param collector diagnostics
      * @param includedKinds bytecode changes
      * @param runtime Maven runtime
+     * @param dependencyPlugin embedded Dependency Plugin runtime
      * @param arguments Maven arguments
      * @param targetJava target JDK
      * @param options runtime controls
@@ -92,12 +98,15 @@ final class PerModuleImpactPipeline {
             final DiagnosticCollector collector,
             final Set<ChangePointKind> includedKinds,
             final MavenRuntimeDescriptor runtime,
+            final MavenDependencyPluginRuntime dependencyPlugin,
             final List<String> arguments,
             final JavaRuntimeDescriptor targetJava,
             final PerModulePipelineOptions options) {
         diagnostics = Objects.requireNonNull(collector, "collector");
         kinds = Set.copyOf(includedKinds);
         mavenRuntime = Objects.requireNonNull(runtime, "mavenRuntime");
+        pluginRuntime = Objects.requireNonNull(
+                dependencyPlugin, "dependencyPlugin");
         mavenArguments = List.copyOf(arguments);
         javaRuntime = Objects.requireNonNull(targetJava, "javaRuntime");
         callGraphTimeoutSeconds = options.callGraphTimeoutSeconds();
@@ -163,7 +172,7 @@ final class PerModuleImpactPipeline {
                 new PreparedAnalysis(baselineScope, targetScope,
                         front.targetBuild(), front.baselineDependencies(),
                         targetDependencies, baselineTrees, targetTrees),
-                bindings);
+                bindings, changes);
         final int relevantCount = (int) units.stream()
                 .filter(unit -> !unit.getChangePoints().isEmpty()
                         || bindings.failedModules().contains(
@@ -296,8 +305,18 @@ final class PerModuleImpactPipeline {
         return new DependencyAnalyzer(side, scope.getReactorRoot(),
                 Collections.emptySet(), diagnostics, javaHome,
                 mavenRuntime.getExecutable(), mavenArguments)
+                .withPluginRuntime(pluginRuntime)
                 .withTemporaryDirectory(temporaryDirectory)
-                .withProjectArguments(scope.getProjectArguments());
+                .withProjectArguments(scope.getProjectArguments())
+                .withDiagnosticContext("baseline".equals(side)
+                        ? DiagnosticContext.task(
+                        "front", "baseline-dependency")
+                        .withSide(side)
+                        .withPath(scope.getReactorRoot().toString())
+                        : DiagnosticContext.task(
+                        "dependency", "target-dependency")
+                        .withSide(side)
+                        .withPath(scope.getReactorRoot().toString()));
     }
 
     private BuildResult build(final ReactorAnalysisScope scope)
@@ -308,6 +327,10 @@ final class PerModuleImpactPipeline {
                 diagnostics, javaHome, mavenRuntime.getExecutable(),
                 mavenArguments, temporaryDirectory)
                 .withProjectArguments(scope.getProjectArguments())
+                .withDiagnosticContext(DiagnosticContext.task(
+                        "front", "target-build")
+                        .withSide("target")
+                        .withPath(scope.getReactorRoot().toString()))
                 .build();
     }
 
@@ -418,7 +441,7 @@ final class PerModuleImpactPipeline {
         final Map<String, List<ChangePoint>> pairPoints =
                 new LinkedHashMap<>();
         final Set<String> failedModules = new LinkedHashSet<>();
-        final Map<String, List<String>> failuresByModule =
+        final Map<String, List<JarDiffFailure>> failuresByModule =
                 new LinkedHashMap<>();
         try {
             for (Future<PairDiff> future : futures) {
@@ -439,12 +462,8 @@ final class PerModuleImpactPipeline {
                         failedModules.add(moduleKey);
                         failuresByModule.computeIfAbsent(moduleKey,
                                 ignored -> new ArrayList<>()).add(
-                                "Skipped physical JAR pair " + pair.key()
-                                        + ": " + pair.failure());
+                                new JarDiffFailure(key, pair.failure()));
                     }
-                    diagnostics.warn("jar-diff",
-                            "Skipped JAR pair " + pair.key() + ": "
-                                    + pair.failure());
                 }
             }
         } finally {
@@ -471,7 +490,7 @@ final class PerModuleImpactPipeline {
         byModule.values().forEach(values -> values.sort(
                 Comparator.comparing(BoundChangePoint::stableKey)));
         failuresByModule.values().forEach(values -> values.sort(
-                String::compareTo));
+                Comparator.comparing(JarDiffFailure::stableKey)));
         return new BindingResult(byModule, failedModules, failuresByModule,
                 configuredWorkers, workers);
     }
@@ -484,6 +503,15 @@ final class PerModuleImpactPipeline {
     private PairDiff diffPair(
             final String key,
             final DependencyUpgradeKey upgrade) {
+        final String artifact = upgrade.getOldArtifact().getGroupId()
+                + ":" + upgrade.getOldArtifact().getArtifactId()
+                + ":" + upgrade.getOldArtifact().getVersion()
+                + "->" + upgrade.getNewArtifact().getVersion();
+        final DiagnosticContext context = DiagnosticContext.task(
+                "jar-diff", "pair").withArtifact(artifact);
+        diagnostics.debug(context, "JAR comparison started");
+        diagnostics.trace(context, "old=" + upgrade.getOldPath()
+                + "; new=" + upgrade.getNewPath());
         try {
             final DependencyChange change = new DependencyChange(
                     ChangeType.VERSION_CHANGED,
@@ -492,8 +520,12 @@ final class PerModuleImpactPipeline {
             final List<ChangePoint> points = new BytecodeDiffEngine(kinds)
                     .diff(new JarLocationResult(change,
                             upgrade.getOldPath(), upgrade.getNewPath()));
+            diagnostics.debug(context, "JAR comparison completed; changes="
+                    + points.size());
             return new PairDiff(key, points, null);
         } catch (Exception exception) {
+            diagnostics.warn(context, "JAR comparison failed: "
+                    + exception.getClass().getSimpleName());
             return new PairDiff(key, List.of(),
                     exception.getClass().getSimpleName() + ": "
                             + exception.getMessage());
@@ -535,7 +567,8 @@ final class PerModuleImpactPipeline {
 
     private List<ModuleAnalysisUnit> units(
             final PreparedAnalysis prepared,
-            final BindingResult bindings) {
+            final BindingResult bindings,
+            final List<DependencyChange> changes) {
         final ReactorAnalysisScope baselineScope = prepared.baselineScope();
         final ReactorAnalysisScope targetScope = prepared.targetScope();
         final BuildResult build = prepared.targetBuild();
@@ -560,6 +593,8 @@ final class PerModuleImpactPipeline {
                 treeMap(targetTrees);
         final Map<String, ModuleBuildOutput> outputs = outputMap(
                 build.getOutputs(), targetScope);
+        final Map<String, List<DependencyChange>> changesByModule =
+                changesByModule(changes);
         final List<ModuleAnalysisUnit> result = new ArrayList<>();
         for (String key : allKeys.stream().sorted().toList()) {
             final ModuleId target = targetModules.get(key);
@@ -587,6 +622,7 @@ final class PerModuleImpactPipeline {
             result.add(new ModuleAnalysisUnit(identity, presence, classes,
                     reactorClasses, targetArtifacts, baselineArtifacts,
                     new ModuleChangeSet(
+                            changesByModule.getOrDefault(key, List.of()),
                             bindings.pointsByModule().getOrDefault(
                                     key, List.of()),
                             bindings.failuresByModule().getOrDefault(
@@ -629,7 +665,7 @@ final class PerModuleImpactPipeline {
                 Math.max(1, actualParallelism));
         final List<Future<ModuleAnalysisResult>> futures = new ArrayList<>();
         for (ModuleAnalysisUnit unit : active) {
-            futures.add(executor.submit(() -> analyzeModule(
+            futures.add(executor.submit(() -> analyzeModuleTask(
                     unit, failedDiffModules.contains(
                             unit.getModuleId().coordinateKey()))));
         }
@@ -650,6 +686,20 @@ final class PerModuleImpactPipeline {
         return List.copyOf(result);
     }
 
+    private ModuleAnalysisResult analyzeModuleTask(
+            final ModuleAnalysisUnit unit,
+            final boolean diffFailed) {
+        final DiagnosticContext context = DiagnosticContext.task(
+                "module-analysis", "module").withModule(
+                unit.getModuleId().stableKey());
+        diagnostics.startStage(context);
+        try {
+            return analyzeModule(unit, diffFailed);
+        } finally {
+            diagnostics.endStage(context);
+        }
+    }
+
     private ModuleAnalysisResult analyzeModule(
             final ModuleAnalysisUnit unit,
             final boolean diffFailed) {
@@ -660,7 +710,7 @@ final class PerModuleImpactPipeline {
                     .status(ModuleAnalysisStatus.INCONCLUSIVE,
                             ModuleAnalysisReason.INCONCLUSIVE_BYTECODE_DIFF,
                             "All relevant physical JAR diffs failed")
-                    .limitations(unit.getJarDiffFailures())
+                    .limitations(unit.getJarDiffFailureSummaries())
                     .elapsedMillis(System.currentTimeMillis() - start)
                     .stageElapsedMillis(stageElapsed)
                     .build();
@@ -683,7 +733,7 @@ final class PerModuleImpactPipeline {
                             "No removal or modification ChangePoint")
                     .dispositions(dispositions)
                     .limitations(diffFailed
-                            ? unit.getJarDiffFailures()
+                            ? unit.getJarDiffFailureSummaries()
                             : List.of())
                     .elapsedMillis(System.currentTimeMillis() - start)
                     .stageElapsedMillis(stageElapsed)
@@ -713,7 +763,7 @@ final class PerModuleImpactPipeline {
             final List<String> limitations = new ArrayList<>(
                     session.getServiceLoaderOverlay().getLimitations());
             if (diffFailed) {
-                limitations.addAll(unit.getJarDiffFailures());
+                limitations.addAll(unit.getJarDiffFailureSummaries());
             }
             final boolean inconclusive = diffFailed
                     || session.getServiceLoaderOverlay().isInconclusive();
@@ -759,7 +809,9 @@ final class PerModuleImpactPipeline {
             final RuntimeException failure,
             final long start,
             final Map<String, Long> completedStages) {
-        diagnostics.error("module-analysis",
+        diagnostics.error(DiagnosticContext.task(
+                        "module-analysis", "module")
+                        .withModule(unit.getModuleId().stableKey()),
                 unit.getModuleId() + ": " + failure.getMessage());
         final Map<String, Long> stageElapsed = new LinkedHashMap<>(
                 completedStages);
@@ -816,6 +868,21 @@ final class PerModuleImpactPipeline {
                                 + module.coordinateKey());
             }
         }
+        return result;
+    }
+
+    private Map<String, List<DependencyChange>> changesByModule(
+            final List<DependencyChange> changes) {
+        final Map<String, List<DependencyChange>> result =
+                new LinkedHashMap<>();
+        for (DependencyChange change : changes) {
+            final String key = ArtifactCoord.parse(
+                    change.getModule()).diffKey();
+            result.computeIfAbsent(key, ignored ->
+                    new ArrayList<>()).add(change);
+        }
+        result.values().forEach(values -> values.sort(
+                Comparator.comparing(DependencyChange::toString)));
         return result;
     }
 
@@ -972,7 +1039,7 @@ final class PerModuleImpactPipeline {
     private record BindingResult(
             Map<String, List<BoundChangePoint>> pointsByModule,
             Set<String> failedModules,
-            Map<String, List<String>> failuresByModule,
+            Map<String, List<JarDiffFailure>> failuresByModule,
             int configuredWorkers,
             int actualWorkers) {
     }

@@ -13,7 +13,7 @@
 ## Features
 
 ### [CLI Preflight and Diagnostics](features/cli-preflight-diagnostics.md)
-- Summary: 全局 `INFO`/`DEBUG`/`TRACE` verbosity、`--java-home`、impact JDK 8 boundary、Command Preflight、Tree Analysis issue 与 exit code 契约。
+- Summary: 全局 `INFO`/`DEBUG`/`TRACE` verbosity、stable concurrent task context、impact JDK 8/内嵌 Plugin Preflight 与 exit code 契约。
 
 ### [Maven Runtime](features/maven-runtime.md)
 - Summary: 用户 executable、跨平台 JAR 内嵌 Maven 3.6.3、Windows `mvn.cmd` contract 与 Dependency Plugin repository 的离线准备。
@@ -28,7 +28,7 @@
 - Summary: 只编译 target；reactor root compile 一次，leaf 使用 `-pl/-am`；baseline dependency 与 target build 并行。
 
 ### [Dependency Tree Extraction](features/dependency-tree-extraction.md)
-- Summary: GraphML 保留 mediated tree，pinned `dependency:list` 提供 custom repository/SNAPSHOT 可用的 absolute artifact path。
+- Summary: `impact` 固定使用内嵌 Dependency Plugin `3.6.1` fully-qualified `tree`/`list`，保留 mediated tree 并绑定 absolute artifact path。
 
 ### [Dependency Diff Engine](features/dependency-diff-engine.md)
 - Summary: 对比 baseline/target resolved dependency tree，生成稳定排序的 dependency changes。
@@ -46,7 +46,7 @@
 - Summary: Call Graph 后从 live WALA graph 解析 seed并直接 reverse query，保留 Context、Structural Impact 与 serial SSA filtering。
 
 ### [Report Generator](features/report-generator.md)
-- Summary: `impact` 原子生成 HTML Index + per-Module pages；展示 model boundaries、partial status、paths、dispositions、SSA/metrics；Markdown 已移除。
+- Summary: `impact` 原子生成英文 Overall Index + 每个非-skip Module 三页；plain-language 主视图、折叠 technical evidence、responsive TOC 与 cross-page navigation。
 
 ## Rules
 
@@ -57,5 +57,8 @@
 
 ### [Build, Test, Package](runbooks/build-test-package.md)
 - Summary: Checkstyle、unit/integration tests、全量 quality gate、uber JAR 和 CLI smoke commands。
+
+### [Impact Benchmark](runbooks/impact-benchmark.md)
+- Summary: 从 Git 管理的 source fixture 生成 42 个 dependencies 与 9 类 ChangePoint，执行 impact、采集资源并校验四页 HTML report。
 
 ## Glossary

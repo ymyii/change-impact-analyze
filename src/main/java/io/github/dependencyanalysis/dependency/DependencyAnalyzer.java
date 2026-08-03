@@ -3,9 +3,13 @@ package io.github.dependencyanalysis.dependency;
 import io.github.dependencyanalysis
         .diagnostic.DiagnosticCollector;
 import io.github.dependencyanalysis
+        .diagnostic.DiagnosticContext;
+import io.github.dependencyanalysis
         .util.CommandResolver;
 import io.github.dependencyanalysis
         .util.ProcessTreeTerminator;
+import io.github.dependencyanalysis.runtime
+        .MavenDependencyPluginRuntime;
 
 import java.io.File;
 import java.io.IOException;
@@ -41,10 +45,10 @@ public final class DependencyAnalyzer {
     private static final String ARTIFACT_LIST_PREFIX =
             "resolved-artifacts-cia-";
 
-    /** Pinned dependency plugin goal used for physical paths. */
-    private static final String DEPENDENCY_LIST_GOAL =
+    /** Pinned fallback Plugin prefix outside the Impact pipeline. */
+    private static final String FALLBACK_PLUGIN_PREFIX =
             "org.apache.maven.plugins:maven-dependency-plugin:"
-                    + "3.6.1:list";
+                    + "3.6.1:";
 
     /** Log tail lines for error. */
     private static final int TAIL_LINES =
@@ -72,11 +76,18 @@ public final class DependencyAnalyzer {
     /** User Maven arguments. */
     private final List<String> mavenArguments;
 
+    /** Prepared embedded Plugin runtime, nullable for legacy constructors. */
+    private MavenDependencyPluginRuntime pluginRuntime;
+
     /** Reactor project selection arguments. */
     private List<String> projectArguments = List.of();
 
     /** Command-owned temporary directory, nullable. */
     private Path temporaryDirectory;
+
+    /** Stable concurrent diagnostic context. */
+    private DiagnosticContext diagnosticContext =
+            DiagnosticContext.stage(STAGE);
 
     /**
      * Creates a new dependency analyzer.
@@ -147,6 +158,7 @@ public final class DependencyAnalyzer {
         this.buildJavaHome = javaHomeOpt;
         this.mavenExecutable = executable;
         this.mavenArguments = List.copyOf(arguments);
+        this.pluginRuntime = null;
         this.temporaryDirectory = null;
     }
 
@@ -176,6 +188,30 @@ public final class DependencyAnalyzer {
     }
 
     /**
+     * Selects the diagnostic task context.
+     *
+     * @param context context
+     * @return this analyzer
+     */
+    public DependencyAnalyzer withDiagnosticContext(
+            final DiagnosticContext context) {
+        diagnosticContext = context;
+        return this;
+    }
+
+    /**
+     * Selects the prepared Maven Dependency Plugin runtime.
+     *
+     * @param runtime prepared runtime
+     * @return this analyzer
+     */
+    public DependencyAnalyzer withPluginRuntime(
+            final MavenDependencyPluginRuntime runtime) {
+        pluginRuntime = runtime;
+        return this;
+    }
+
+    /**
      * Runs Maven dependency plugin and
      * parses GraphML output.
      *
@@ -193,8 +229,8 @@ public final class DependencyAnalyzer {
             throws DependencyAnalysisException,
             IOException,
             InterruptedException {
-        diag.startStage(STAGE);
-        diag.info(STAGE,
+        diag.startStage(diagnosticContext);
+        diag.info(diagnosticContext,
                 "Analyzing dependencies: "
                         + "workspace="
                         + workspacePath
@@ -206,17 +242,21 @@ public final class DependencyAnalyzer {
         final String outputName = GRAPHML_PREFIX
                 + UUID.randomUUID() + ".graphml";
         final String cmdStr =
-                "mvn dependency:tree "
+                "mvn " + dependencyGoal("tree") + " "
                         + "-DoutputType=graphml "
                         + "-DoutputFile="
                         + outputName
                         + " -B";
+        diag.trace(diagnosticContext,
+                "Executing " + dependencyGoal("tree")
+                        + "; workspace=" + workspacePath
+                        + "; log=" + logFile);
         final int exitCode =
                 runDependencyTree(logFile, outputName);
         if (exitCode != 0) {
             final String tail =
                     readLogTail(logFile);
-            diag.failStage(STAGE,
+            diag.failStage(diagnosticContext,
                     "Dependency tree "
                             + "generation failed "
                             + "side=" + side
@@ -230,13 +270,13 @@ public final class DependencyAnalyzer {
                     tail,
                     logFile);
         }
-        diag.info(STAGE,
+        diag.info(diagnosticContext,
                 "Dependency tree generated, "
                         + "parsing GraphML");
         final List<Path> graphmlFiles =
                 findNamedFiles(workspacePath, outputName);
         if (graphmlFiles.isEmpty()) {
-            diag.failStage(STAGE,
+            diag.failStage(diagnosticContext,
                     "No GraphML files found "
                             + "in "
                             + workspacePath);
@@ -249,7 +289,7 @@ public final class DependencyAnalyzer {
                 trees = new ArrayList<>();
         try {
             for (Path gFile : graphmlFiles) {
-                diag.info(STAGE,
+                diag.info(diagnosticContext,
                         "Parsing: " + gFile);
                 final ModuleDependencyTree tree =
                         GraphMLParser.parse(
@@ -262,10 +302,10 @@ public final class DependencyAnalyzer {
                 Files.deleteIfExists(file);
             }
         }
-        diag.info(STAGE,
+        diag.info(diagnosticContext,
                 "Parsed " + trees.size()
                         + " module(s)");
-        diag.endStage(STAGE);
+        diag.endStage(diagnosticContext);
         return trees;
     }
 
@@ -328,12 +368,16 @@ public final class DependencyAnalyzer {
                 "dependency-list-" + side + "-", ".log");
         try {
             Files.writeString(modelPom, resolutionModel(dependencies));
+            diag.trace(diagnosticContext,
+                    "Executing " + dependencyGoal("list")
+                            + "; model=" + modelPom
+                            + "; output=" + output);
             final int exitCode = runDependencyList(
                     logFile, modelPom, output);
             if (exitCode != 0) {
                 throw new DependencyAnalysisException(
                         side, tree.getModulePath().toString(),
-                        "mvn " + DEPENDENCY_LIST_GOAL
+                        "mvn " + dependencyGoal("list")
                                 + " -DoutputAbsoluteArtifactFilename=true"
                                 + " -DexcludeTransitive=true",
                         exitCode, readLogTail(logFile), logFile);
@@ -360,10 +404,10 @@ public final class DependencyAnalyzer {
             throws IOException, InterruptedException {
         final List<String> cmd = new ArrayList<>();
         cmd.add(mavenExecutable.toString());
-        cmd.addAll(mavenArguments);
+        cmd.addAll(dependencyArguments());
         cmd.add("-f");
         cmd.add(modelPom.toString());
-        cmd.add(DEPENDENCY_LIST_GOAL);
+        cmd.add(dependencyGoal("list"));
         cmd.add("-DoutputFile=" + output);
         cmd.add("-DoutputAbsoluteArtifactFilename=true");
         cmd.add("-DappendOutput=false");
@@ -499,7 +543,8 @@ public final class DependencyAnalyzer {
                 Files.deleteIfExists(path);
             }
         } catch (IOException exception) {
-            diag.warn(STAGE, "Unable to remove resolution model: " + root);
+            diag.warn(diagnosticContext,
+                    "Unable to remove resolution model: " + root);
         }
     }
 
@@ -517,7 +562,7 @@ public final class DependencyAnalyzer {
     }
 
     /**
-     * Executes mvn dependency:tree and
+     * Executes the Maven Dependency Plugin tree goal and
      * returns the process exit code.
      *
      * @param logFile path to log file
@@ -536,9 +581,9 @@ public final class DependencyAnalyzer {
         final List<String> cmd =
                 new ArrayList<>();
         cmd.add(mavenExecutable.toString());
-        cmd.addAll(mavenArguments);
+        cmd.addAll(dependencyArguments());
         cmd.addAll(projectArguments);
-        cmd.add("dependency:tree");
+        cmd.add(dependencyGoal("tree"));
         cmd.add("-DoutputType=graphml");
         cmd.add("-DoutputFile="
                 + outputName);
@@ -571,6 +616,19 @@ public final class DependencyAnalyzer {
             ProcessTreeTerminator.terminate(proc);
             throw exception;
         }
+    }
+
+    private List<String> dependencyArguments() {
+        return pluginRuntime == null
+                ? mavenArguments
+                : pluginRuntime.getMavenArguments();
+    }
+
+    private String dependencyGoal(final String goalName) {
+        if (pluginRuntime != null) {
+            return pluginRuntime.getGoal(goalName);
+        }
+        return FALLBACK_PLUGIN_PREFIX + goalName;
     }
 
     /**

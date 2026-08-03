@@ -20,6 +20,7 @@ import com.ibm.wala.types.ClassLoaderReference;
 
 import io.github.dependencyanalysis.dependency.ResolvedArtifact;
 import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
+import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 import io.github.dependencyanalysis.impact.ModuleAnalysisUnit;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 
@@ -65,9 +66,10 @@ public final class ModuleCallGraphEngine {
     public ModuleCallGraphSession build(
             final ModuleAnalysisUnit unit,
             final long timeoutSeconds) {
-        final String stage = "module-call-graph:"
-                + unit.getModuleId().stableKey();
-        diagnostics.startStage(stage);
+        final DiagnosticContext context = DiagnosticContext.task(
+                "module-analysis", "call-graph").withModule(
+                unit.getModuleId().stableKey());
+        diagnostics.startStage(context);
         final long start = System.currentTimeMillis();
         final long startedNanos = System.nanoTime();
         final long initialMemory = usedMemory();
@@ -104,7 +106,7 @@ public final class ModuleCallGraphEngine {
             }
             try (CallGraphProgressMonitor monitor =
                          new CallGraphProgressMonitor(
-                                 diagnostics, remaining,
+                                 diagnostics, context, remaining,
                                  Duration.ofSeconds(
                                          CallGraphProgressMonitor
                                                  .HEARTBEAT_SECONDS))) {
@@ -126,20 +128,20 @@ public final class ModuleCallGraphEngine {
                     Math.max(0L, usedMemory() - initialMemory));
             final int parameterCandidates = parameterCandidateCount(
                     entrypoints);
-            diagnostics.info(stage, "algorithm=vanilla-0-1-cfa; nodes="
+            diagnostics.info(context, "algorithm=vanilla-0-1-cfa; nodes="
                     + stats.methodCount() + "; edges="
                     + stats.edgeCount() + "; entrypoints="
                     + entrypoints.size());
-            diagnostics.endStage(stage);
+            diagnostics.endStage(context);
             return new ModuleCallGraphSession(graph, hierarchy, scope,
                     ownership, cache, stats,
                     new EntrypointMetrics(
                             entrypoints.size(), parameterCandidates));
         } catch (CallGraphException exception) {
-            diagnostics.failStage(stage, exception.getMessage());
+            diagnostics.failStage(context, exception.getMessage());
             throw exception;
         } catch (Exception exception) {
-            diagnostics.failStage(stage, exception.getMessage());
+            diagnostics.failStage(context, exception.getMessage());
             throw new CallGraphException(
                     "Module Call Graph construction failed", exception);
         }

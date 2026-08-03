@@ -1,6 +1,5 @@
 tmp-files/
 .playwright-cli/
-demo-project
 
 # Maven
 target/

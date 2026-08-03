@@ -1,0 +1,10 @@
+package com.acme.benchmark.vendor.lib@INDEX@;
+
+public final class VendorMarker@INDEX@ {
+    private VendorMarker@INDEX@() {
+    }
+
+    public static String id() {
+        return "@ARTIFACT@";
+    }
+}

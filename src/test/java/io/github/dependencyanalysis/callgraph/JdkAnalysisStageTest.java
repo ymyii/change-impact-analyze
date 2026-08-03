@@ -26,7 +26,6 @@ import java.util.jar.JarOutputStream;
 import javax.tools.ToolProvider;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /** Tests target JDK archive scope placement. */
@@ -66,7 +65,7 @@ class JdkAnalysisStageTest {
     }
 
     @Test
-    void java17AnalyzerLoadsRealJdk8AndCancelsVanillaZeroOneCfa()
+    void java17AnalyzerLoadsRealJdk8AndBuildsVanillaZeroOneCfa()
             throws Exception {
         final String configured = System.getenv("TEST_JDK8_HOME");
         assumeTrue(configured != null && !configured.isBlank(),
@@ -114,11 +113,12 @@ class JdkAnalysisStageTest {
                 List.of(), new ModuleChangeSet(List.of(), List.of()));
         try {
             System.setErr(new PrintStream(stderr));
-            assertThatThrownBy(() ->
+            final ModuleCallGraphSession session =
                     new ModuleCallGraphEngine(
-                            diagnostics(), runtime).build(unit, 1L))
-                    .isInstanceOf(CallGraphException.class)
-                    .hasMessageContaining("timed out");
+                            diagnostics(), runtime).build(unit, 0L);
+            assertThat(session.getEntrypointCount()).isPositive();
+            assertThat(session.getStats().methodCount()).isPositive();
+            assertThat(session.getStats().edgeCount()).isPositive();
         } finally {
             System.setErr(original);
         }

@@ -1,5 +1,6 @@
 package io.github.dependencyanalysis.impact;
 
+import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.dependency.ResolvedArtifact;
 
 import java.nio.file.Path;
@@ -29,11 +30,14 @@ public final class ModuleAnalysisUnit {
     /** Baseline resolved external dependencies for old-side SSA. */
     private final List<ResolvedArtifact> baselineArtifacts;
 
+    /** Complete module dependency changes. */
+    private final List<DependencyChange> dependencyChanges;
+
     /** Module-bound ChangePoints. */
     private final List<BoundChangePoint> changePoints;
 
     /** Isolated physical JAR diff failures for this module. */
-    private final List<String> jarDiffFailures;
+    private final List<JarDiffFailure> jarDiffFailures;
 
     /**
      * Creates a module analysis unit.
@@ -61,6 +65,7 @@ public final class ModuleAnalysisUnit {
         reactorDependencyClasses = immutable(reactorClasses);
         targetArtifacts = immutable(targetDependencies);
         baselineArtifacts = immutable(baselineDependencies);
+        dependencyChanges = immutable(changes.dependencyChanges());
         changePoints = immutable(changes.changePoints());
         jarDiffFailures = immutable(changes.jarDiffFailures());
     }
@@ -100,13 +105,24 @@ public final class ModuleAnalysisUnit {
         return baselineArtifacts;
     }
 
+    /** @return complete module dependency changes */
+    public List<DependencyChange> getDependencyChanges() {
+        return dependencyChanges;
+    }
+
     /** @return module-bound ChangePoints */
     public List<BoundChangePoint> getChangePoints() {
         return changePoints;
     }
 
     /** @return isolated physical JAR diff failure evidence */
-    public List<String> getJarDiffFailures() {
+    public List<JarDiffFailure> getJarDiffFailures() {
         return jarDiffFailures;
+    }
+
+    /** @return concise JAR comparison failure diagnostics */
+    public List<String> getJarDiffFailureSummaries() {
+        return jarDiffFailures.stream()
+                .map(JarDiffFailure::summary).toList();
     }
 }

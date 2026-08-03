@@ -3,6 +3,8 @@ package io.github.dependencyanalysis.build;
 import io.github.dependencyanalysis
         .diagnostic.DiagnosticCollector;
 import io.github.dependencyanalysis
+        .diagnostic.DiagnosticContext;
+import io.github.dependencyanalysis
         .util.CommandResolver;
 import io.github.dependencyanalysis
         .util.ProcessTreeTerminator;
@@ -55,6 +57,9 @@ public final class BuildRunner {
 
     /** Command-owned temporary directory, nullable. */
     private final Path temporaryDirectory;
+
+    /** Stable concurrent diagnostic context. */
+    private DiagnosticContext diagnosticContext;
 
     /**
      * Creates a new build runner.
@@ -156,6 +161,18 @@ public final class BuildRunner {
     }
 
     /**
+     * Selects the diagnostic task context.
+     *
+     * @param context context
+     * @return this runner
+     */
+    public BuildRunner withDiagnosticContext(
+            final DiagnosticContext context) {
+        diagnosticContext = context;
+        return this;
+    }
+
+    /**
      * Runs {@code mvn compile} and
      * collects module outputs.
      *
@@ -171,8 +188,8 @@ public final class BuildRunner {
             throws BuildException,
             IOException,
             InterruptedException {
-        diag.startStage(STAGE);
-        diag.info(STAGE,
+        startDiagnostics();
+        info(
                 "Building workspace: "
                         + workspacePath
                         + " side=" + side);
@@ -182,12 +199,15 @@ public final class BuildRunner {
                 "build-" + side + "-", ".log");
         final String cmdStr =
                 "mvn compile -B";
+        trace(
+                "Executing Maven compile; workspace="
+                        + workspacePath + "; log=" + logFile);
         final int exitCode =
                 runMvnCompile(logFile);
         if (exitCode != 0) {
             final String tail =
                     readLogTail(logFile);
-            diag.failStage(STAGE,
+            fail(
                     "Build failed side="
                             + side
                             + " exitCode="
@@ -201,7 +221,7 @@ public final class BuildRunner {
                     tail,
                     logFile);
         }
-        diag.info(STAGE,
+        info(
                 "Build succeeded, "
                         + "discovering "
                         + "modules");
@@ -209,11 +229,51 @@ public final class BuildRunner {
                 mods =
                 discoverModules(
                         workspacePath);
-        diag.info(STAGE,
+        info(
                 "Found " + mods.size()
                         + " module(s)");
-        diag.endStage(STAGE);
+        endDiagnostics();
         return BuildResult.of(mods);
+    }
+
+    private void startDiagnostics() {
+        if (diagnosticContext == null) {
+            diag.startStage(STAGE);
+        } else {
+            diag.startStage(diagnosticContext);
+        }
+    }
+
+    private void endDiagnostics() {
+        if (diagnosticContext == null) {
+            diag.endStage(STAGE);
+        } else {
+            diag.endStage(diagnosticContext);
+        }
+    }
+
+    private void info(final String message) {
+        if (diagnosticContext == null) {
+            diag.info(STAGE, message);
+        } else {
+            diag.info(diagnosticContext, message);
+        }
+    }
+
+    private void trace(final String message) {
+        if (diagnosticContext == null) {
+            diag.trace(STAGE, message);
+        } else {
+            diag.trace(diagnosticContext, message);
+        }
+    }
+
+    private void fail(final String message) {
+        if (diagnosticContext == null) {
+            diag.failStage(STAGE, message);
+        } else {
+            diag.failStage(diagnosticContext, message);
+        }
     }
 
     /**

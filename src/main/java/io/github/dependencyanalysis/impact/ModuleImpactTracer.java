@@ -25,6 +25,7 @@ import io.github.dependencyanalysis.callgraph.EdgeKind;
 import io.github.dependencyanalysis.callgraph.MethodId;
 import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
 import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
+import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -65,9 +66,10 @@ public final class ModuleImpactTracer {
     public ModuleImpactQueryResult trace(
             final ModuleAnalysisUnit unit,
             final ModuleCallGraphSession session) {
-        final String stage = "module-query:"
-                + unit.getModuleId().stableKey();
-        diagnostics.startStage(stage);
+        final DiagnosticContext context = DiagnosticContext.task(
+                "module-analysis", "impact-query").withModule(
+                unit.getModuleId().stableKey());
+        diagnostics.startStage(context);
         final List<ImpactPath> paths = new ArrayList<>();
         final Map<BoundChangePoint, ChangePointDisposition> dispositions =
                 new LinkedHashMap<>();
@@ -109,10 +111,10 @@ public final class ModuleImpactTracer {
                     : ChangePointDisposition.NO_PROJECT_PATH);
         }
         paths.sort(pathComparator());
-        diagnostics.info(stage, "candidatePaths=" + paths.size()
+        diagnostics.info(context, "candidatePaths=" + paths.size()
                 + "; structuralImpacts=" + structures.impacts().size()
                 + "; reverseBfs=" + traceCache.size());
-        diagnostics.endStage(stage);
+        diagnostics.endStage(context);
         return new ModuleImpactQueryResult(
                 paths, structures.impacts(), dispositions);
     }

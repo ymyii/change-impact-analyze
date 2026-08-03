@@ -23,6 +23,8 @@ import io.github.dependencyanalysis.runtime
         .JavaRuntimeDescriptor;
 import io.github.dependencyanalysis.runtime
         .MavenRuntimeDescriptor;
+import io.github.dependencyanalysis.runtime
+        .MavenDependencyPluginRuntime;
 import io.github.dependencyanalysis.workspace
         .WorkspaceResult;
 
@@ -166,9 +168,13 @@ public final class ImpactCommand
             final JavaRuntimeDescriptor targetJava = context.get(
                     ImpactPreflightService.JAVA_RUNTIME,
                     JavaRuntimeDescriptor.class);
+            final MavenDependencyPluginRuntime pluginRuntime = context.get(
+                    ImpactPreflightService.DEPENDENCY_PLUGIN_RUNTIME,
+                    MavenDependencyPluginRuntime.class);
             final AnalysisRunResult result = new PerModuleImpactPipeline(
                     diagnostics, kinds,
                     mavenRuntime,
+                    pluginRuntime,
                     context.get(
                             ImpactPreflightService
                                     .MAVEN_ARGS,
@@ -187,7 +193,8 @@ public final class ImpactCommand
                             WorkspaceResult.class));
             new PerModuleHtmlReportGenerator().generate(
                     result, diagnostics.getEvents(), report,
-                    mavenRuntime, targetJava, output.toPath());
+                    mavenRuntime, pluginRuntime,
+                    targetJava, output.toPath());
             return result.getStatus() == AnalysisStatus.SUCCESS
                     || result.getStatus() == AnalysisStatus.INCONCLUSIVE
                     ? 0 : 2;

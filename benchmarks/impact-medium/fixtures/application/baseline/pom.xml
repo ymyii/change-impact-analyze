@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.acme.benchmark</groupId>
+  <artifactId>impact-medium-app</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.source>1.8</maven.compiler.source>
+    <maven.compiler.target>1.8</maven.compiler.target>
+    <scenario.api.version>1.0.0</scenario.api.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.acme.impact</groupId>
+      <artifactId>scenario-api</artifactId>
+      <version>${scenario.api.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.acme.impact</groupId>
+      <artifactId>legacy-impact-bridge</artifactId>
+      <version>1.0.0</version>
+    </dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-01</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-02</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-03</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-04</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-05</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-06</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-07</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-08</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-09</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-10</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-11</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-12</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-13</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-14</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-15</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-16</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-17</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-18</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-19</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-20</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-21</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-22</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-23</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-24</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-25</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-26</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-27</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-28</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-29</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-30</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-31</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-32</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-33</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-34</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-35</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-36</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-37</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-38</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-39</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-40</artifactId><version>1.0.0</version></dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+      </plugin>
+    </plugins>
+  </build>
+</project>

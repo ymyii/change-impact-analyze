@@ -8,6 +8,8 @@ relations:
     desc: "BoundChangePoint 输入"
   - path: "wiki/features/report-generator.md"
     desc: "Impact Path、Structural Impact 与 disposition 输出"
+  - path: "wiki/runbooks/impact-benchmark.md"
+    desc: "固定 Call Chain、Structural Impact 与 SSA 结果的持续验证"
 code_refs:
   - path: "src/main/java/io/github/dependencyanalysis/impact/ModuleImpactTracer.java"
     desc: "seed resolution 与 direct WALA reverse query"

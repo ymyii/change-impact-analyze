@@ -33,6 +33,10 @@ import io.github.dependencyanalysis.runtime
 import io.github.dependencyanalysis.runtime
         .MavenExecutionResult;
 import io.github.dependencyanalysis.runtime
+        .MavenDependencyPluginRuntime;
+import io.github.dependencyanalysis.runtime
+        .MavenDependencyPluginRuntimeManager;
+import io.github.dependencyanalysis.runtime
         .MavenExecutor;
 import io.github.dependencyanalysis.runtime
         .MavenRuntimeDescriptor;
@@ -69,6 +73,10 @@ final class ImpactPreflightService {
     /** Prepared Maven runtime key. */
     static final String MAVEN_RUNTIME =
             "impact.maven-runtime";
+
+    /** Prepared embedded Maven Dependency Plugin runtime key. */
+    static final String DEPENDENCY_PLUGIN_RUNTIME =
+            "impact.dependency-plugin-runtime";
 
     /** Prepared target Java runtime key. */
     static final String JAVA_RUNTIME =
@@ -215,7 +223,7 @@ final class ImpactPreflightService {
                     context.put(MAVEN_ARGS, arguments);
                     return PreflightOutcome.pass(
                             "Maven arguments are safe",
-                            arguments.toString());
+                            "accepted option count=" + arguments.size());
                 }));
         checks.add(required("impact.java-runtime",
                 List.of("impact.path"),
@@ -227,14 +235,17 @@ final class ImpactPreflightService {
         checks.add(required("impact.maven-version",
                 List.of("impact.maven-runtime"),
                 context -> probeVersion(context)));
+        checks.add(required("impact.dependency-plugin-runtime",
+                List.of("impact.maven-version",
+                        "impact.maven-arguments"),
+                context -> prepareDependencyPlugin(context)));
         checks.add(required("impact.workspace",
                 List.of("impact.git-repository",
                         "impact.root-pom"),
                 context -> prepareWorkspace(context)));
         checks.add(required("impact.graphml-capability",
                 List.of("impact.workspace",
-                        "impact.maven-version",
-                        "impact.maven-arguments"),
+                        "impact.dependency-plugin-runtime"),
                 context -> probeGraphMl(context)));
         return checks;
     }
@@ -352,6 +363,21 @@ final class ImpactPreflightService {
                 version.toString());
     }
 
+    private PreflightOutcome prepareDependencyPlugin(
+            final PreflightContext context) {
+        final MavenRuntimeDescriptor runtime = context.get(
+                MAVEN_RUNTIME, MavenRuntimeDescriptor.class);
+        final MavenDependencyPluginRuntime plugin =
+                new MavenDependencyPluginRuntimeManager().prepare(
+                        runtime.getConfigDir(),
+                        context.get(MAVEN_ARGS, List.class),
+                        null);
+        context.put(DEPENDENCY_PLUGIN_RUNTIME, plugin);
+        return PreflightOutcome.pass(
+                "Maven Dependency Plugin runtime prepared",
+                "embedded:" + plugin.getVersion());
+    }
+
     private PreflightOutcome prepareWorkspace(
             final PreflightContext context) {
         try {
@@ -394,9 +420,14 @@ final class ImpactPreflightService {
         try {
             final List<String> arguments =
                     new ArrayList<>(context.get(
-                            MAVEN_ARGS, List.class));
+                            DEPENDENCY_PLUGIN_RUNTIME,
+                            MavenDependencyPluginRuntime.class)
+                            .getMavenArguments());
             arguments.add("-B");
-            arguments.add("dependency:tree");
+            arguments.add(context.get(
+                            DEPENDENCY_PLUGIN_RUNTIME,
+                            MavenDependencyPluginRuntime.class)
+                    .getGoal("tree"));
             arguments.add("-DoutputType=graphml");
             arguments.add("-DoutputFile=" + probe);
             final MavenExecutionResult result =

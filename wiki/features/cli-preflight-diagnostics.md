@@ -13,6 +13,10 @@ code_refs:
     desc: "spring-backend options、validation、exit code"
   - path: "src/main/java/io/github/dependencyanalysis/preflight/PreflightRunner.java"
     desc: "check DAG"
+  - path: "src/main/java/io/github/dependencyanalysis/diagnostic/DiagnosticContext.java"
+    desc: "并发任务 stable context"
+  - path: "src/main/java/io/github/dependencyanalysis/diagnostic/DiagnosticCollector.java"
+    desc: "context-aware timing、event 与 Console prefix"
 ---
 
 # Feature: CLI Preflight and Diagnostics
@@ -48,14 +52,17 @@ CLI 在昂贵分析前执行结构化 Preflight。全局 verbosity 默认为 `IN
 
 ## Preflight Boundary
 
-- 校验 path/Git/root POM/output/JDK 8/Maven version/Maven arguments/workspace/GraphML capability。
+- 校验 path/Git/root POM/output/JDK 8/Maven version/Maven arguments、内嵌 Dependency Plugin `3.6.1` runtime、workspace/GraphML capability。
 - Preflight failure 不启动 pipeline，不触碰旧 Report。
 - Reactor/leaf mode、Module coordinate collision、physical artifact ambiguity 属于 preparation failure。
 - Module scope/Call Graph failure属于 handled Module result，可产生 partial Report。
 
 ## Diagnostics
 
-- Pipeline stage 记录 start/end/failure、elapsed、worker count和 graph metrics。
-- WALA heartbeat 使用 `WALA heartbeat`，不再出现 RTA-specific wording。
+- `DiagnosticContext` 是 immutable task identity，字段为 `stage`、`task`、`side`、`module`、`artifact`、`path`；`DiagnosticEvent` 原样保存这些字段。
+- Console prefix 固定为 `[stage][task][side=…][module=…][artifact=…]`，空字段省略；不使用 thread name。`path` 仅作为 event/TRACE evidence，不进入默认 prefix。
+- `stageStarts` 以完整 context stable key 计时，同一 stage 的并发任务不会覆盖 elapsed。
+- `INFO` 输出 front branch、Module task start/end；`DEBUG` 输出每个 physical JAR pair start/end；`TRACE` 输出筛选后的 command/path evidence，不输出 credential、settings 内容或完整 user arguments。
+- WALA heartbeat 继承 `[module-analysis][call-graph][module=…]` context。
 - `INFO` message 保持原有无 level tag 格式；额外日志显式使用 `[DEBUG]`、`[TRACE]` tag。
-- Console 与 HTML Report 消费同一 result/status，不重新推断结论。
+- Console 与 HTML Report 消费同一 result/status，不重新推断结论；Module Diagnostics 只按 `DiagnosticEvent.module` 精确归属。

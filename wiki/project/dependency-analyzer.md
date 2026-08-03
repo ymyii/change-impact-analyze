@@ -12,6 +12,8 @@ relations:
     desc: "外部命令执行的跨平台约束"
   - path: "wiki/runbooks/build-test-package.md"
     desc: "构建、测试、打包和本地运行操作"
+  - path: "wiki/runbooks/impact-benchmark.md"
+    desc: "打包后 impact 的持续性能与场景完整性验证"
 code_refs:
   - path: "pom.xml"
     desc: "Maven coordinates、依赖、测试和 uber JAR 配置"
@@ -21,6 +23,8 @@ code_refs:
     desc: "Spring backend per-Module impact pipeline 编排"
   - path: "src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
     desc: "tree pipeline 编排"
+  - path: "benchmarks/impact-medium/run-benchmark.sh"
+    desc: "Git 管理的 impact benchmark 总入口"
 ---
 
 # Project: Dependency Analyzer
@@ -47,6 +51,7 @@ Dependency Analyzer 是 Java 17 analyzer + Maven + picocli CLI。`impact` 使用
 - `src/main/java/io/github/dependencyanalysis/tree/` - Git snapshot、reactor inventory、text parser、version analysis 和 HTML report。
 - `src/main/java/io/github/dependencyanalysis/{build,dependency,bytecode,callgraph,jar,report,workspace}/` - `impact` pipeline 的稳定阶段实现。
 - `src/test/java/` - unit tests；`src/integration-test/java/` - Failsafe integration tests。
+- `benchmarks/impact-medium/` - 可复现的中型 impact fixture、资源采样脚本与报告 contract verification。
 
 ## Technical Stack
 
@@ -66,4 +71,5 @@ Dependency Analyzer 是 Java 17 analyzer + Maven + picocli CLI。`impact` 使用
 - 所有外部 process token 都先经过 `CommandResolver.resolve()`，并使用 `ProcessBuilder`，不经过 shell 拼接。
 - 用户 Maven argument 必须逐 token 传入，禁止覆盖工具控制的 POM、module selection、output、verbose 和 token 参数。
 - `tmp-files/` 仅用于临时产物，不提交 Git。
+- 可复用 benchmark source 和脚本进入 `benchmarks/`；运行生成的 nested Git repository、JAR、HTML 和日志进入 `tmp-files/`。
 - wiki 描述当前稳定工程事实；用户操作写入 `docs/user-manual.md`。

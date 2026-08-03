@@ -1,6 +1,7 @@
 package io.github.dependencyanalysis.callgraph;
 
 import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
+import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 
 import org.junit.jupiter.api.Test;
 
@@ -68,6 +69,30 @@ class CallGraphProgressMonitorTest {
                         && message.contains("heap=")
                         && message.contains(
                         "progress=" + WORK_UNITS));
+    }
+
+    @Test
+    void heartbeatInheritsModuleTaskContext()
+            throws Exception {
+        final DiagnosticCollector diagnostics = diagnostics();
+        final DiagnosticContext context = DiagnosticContext.task(
+                "module-analysis", "call-graph")
+                .withModule("example:app:jar@app");
+        try (CallGraphProgressMonitor monitor =
+                     new CallGraphProgressMonitor(
+                             diagnostics, context, Duration.ZERO,
+                             Duration.ofMillis(HEARTBEAT_MILLIS))) {
+            Thread.sleep(TIMEOUT_WAIT_MILLIS);
+        }
+
+        assertThat(diagnostics.getEvents())
+                .anySatisfy(event -> {
+                    assertThat(event.getStage())
+                            .isEqualTo("module-analysis");
+                    assertThat(event.getTask()).isEqualTo("call-graph");
+                    assertThat(event.getModule())
+                            .isEqualTo("example:app:jar@app");
+                });
     }
 
     private DiagnosticCollector diagnostics() {

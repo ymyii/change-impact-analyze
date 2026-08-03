@@ -18,6 +18,9 @@ class DiagnosticCollectorTest {
     /** Expected event count in multi-event tests. */
     private static final int THREE_EVENTS = 3;
 
+    /** Expected independent context event count. */
+    private static final int FOUR_EVENTS = 4;
+
     @Test
     void startStageEmitsEvent() {
         final DiagnosticCollector c =
@@ -171,5 +174,32 @@ class DiagnosticCollectorTest {
         assertThat(traceBytes.toString(StandardCharsets.UTF_8))
                 .contains("[DEBUG] debug-message")
                 .contains("[TRACE] trace-message");
+    }
+
+    @Test
+    void concurrentContextsUseStablePrefixAndIndependentTiming() {
+        final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        final PrintStream stream = new PrintStream(bytes);
+        final DiagnosticCollector collector =
+                new DiagnosticCollector(stream, stream);
+        final DiagnosticContext first = DiagnosticContext.task(
+                "front", "baseline-dependency").withSide("baseline");
+        final DiagnosticContext second = DiagnosticContext.task(
+                "front", "target-build").withSide("target");
+
+        collector.startStage(first);
+        collector.startStage(second);
+        collector.endStage(first);
+        collector.endStage(second);
+
+        assertThat(collector.getEvents()).hasSize(FOUR_EVENTS);
+        assertThat(collector.getEvents().stream()
+                .filter(event -> "Task completed".equals(
+                        event.getMessage()))
+                .map(DiagnosticEvent::getTask))
+                .containsExactly("baseline-dependency", "target-build");
+        assertThat(bytes.toString(StandardCharsets.UTF_8))
+                .contains("[front][baseline-dependency][side=baseline]")
+                .contains("[front][target-build][side=target]");
     }
 }
