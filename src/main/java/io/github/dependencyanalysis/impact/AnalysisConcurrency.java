@@ -3,14 +3,14 @@ package io.github.dependencyanalysis.impact;
 /**
  * Worker configuration recorded for one analysis run.
  *
- * @param configuredModuleParallelism configured Module limit
+ * @param configuredAnalysisParallelism configured safe-stage limit
  * @param actualModuleParallelism actual Module workers
- * @param configuredJarDiffWorkers configured JAR diff workers
  * @param actualJarDiffWorkers actual JAR diff workers
+ * @param actualDecompileWorkers actual code evidence workers
  */
 public record AnalysisConcurrency(
-        int configuredModuleParallelism,
+        int configuredAnalysisParallelism,
         int actualModuleParallelism,
-        int configuredJarDiffWorkers,
-        int actualJarDiffWorkers) {
+        int actualJarDiffWorkers,
+        int actualDecompileWorkers) {
 }

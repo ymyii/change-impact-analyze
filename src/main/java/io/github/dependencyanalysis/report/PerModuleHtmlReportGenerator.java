@@ -3,24 +3,25 @@ package io.github.dependencyanalysis.report;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.callgraph.CallGraphStats;
+import io.github.dependencyanalysis.callgraph.MethodId;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
-import io.github.dependencyanalysis.dependency.ChangeType;
-import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.diagnostic.DiagnosticEvent;
 import io.github.dependencyanalysis.impact.AnalysisRunResult;
 import io.github.dependencyanalysis.impact.BoundChangePoint;
+import io.github.dependencyanalysis.impact.CodeComparisonEvidence;
+import io.github.dependencyanalysis.impact.CodeComparisonStatus;
 import io.github.dependencyanalysis.impact.ChangePointDisposition;
 import io.github.dependencyanalysis.impact.DependencyUpgradeKey;
 import io.github.dependencyanalysis.impact.ImpactClassification;
 import io.github.dependencyanalysis.impact.ImpactPath;
-import io.github.dependencyanalysis.impact.JarDiffFailure;
 import io.github.dependencyanalysis.impact.MethodEquivalenceResult;
 import io.github.dependencyanalysis.impact.MethodEquivalenceStatus;
 import io.github.dependencyanalysis.impact.ModuleAnalysisResult;
 import io.github.dependencyanalysis.impact.ModuleAnalysisStatus;
 import io.github.dependencyanalysis.impact.QueryEdge;
 import io.github.dependencyanalysis.impact.QueryNode;
-import io.github.dependencyanalysis.impact.StructuralImpact;
+import io.github.dependencyanalysis.impact.StructuralReferencePath;
+import io.github.dependencyanalysis.impact.WalaQueryNode;
 import io.github.dependencyanalysis.preflight.PreflightReport;
 import io.github.dependencyanalysis.preflight.PreflightResult;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
@@ -79,6 +80,11 @@ public final class PerModuleHtmlReportGenerator {
             + ".warn{color:#9a6700}"
             + ".fail{color:#cf222e}.muted{color:#59636e}details{margin:10px 0;"
             + "padding:9px;border:1px solid var(--line);border-radius:6px}"
+            + ".badge{display:inline-block;margin-left:7px;padding:1px 7px;"
+            + "border-radius:999px;background:#ddf4ff;color:#0550ae;"
+            + "font-size:12px;font-weight:700}.badge.filtered{background:"
+            + "#fff8c5;color:#7d4e00}.badge.structural{background:#dafbe1;"
+            + "color:#116329}.diff{white-space:pre;tab-size:4}"
             + "summary{cursor:pointer;font-weight:600}.sequence{font-size:14px}"
             + "@media(max-width:800px){.layout{display:block;padding:14px}"
             + ".toc{position:static;margin-bottom:20px}"
@@ -117,6 +123,8 @@ public final class PerModuleHtmlReportGenerator {
             Files.createDirectories(modules);
             final ModuleRuntime moduleRuntime = new ModuleRuntime(
                     javaRuntime.getVersion(), maven.getVersion().toString(),
+                    maven.getSource().toString(),
+                    entrypointSelectionLabel(run),
                     "embedded " + plugin.getVersion());
             final Map<ModuleAnalysisResult, ModulePages> pages =
                     writeModulePages(run, modules, events,
@@ -194,14 +202,19 @@ public final class PerModuleHtmlReportGenerator {
                 .append("built. Baseline artifacts supply dependency, ")
                 .append("bytecode ")
                 .append("and method-comparison evidence.</li></ul></section>");
+        body.append("<p>Code comparisons are generated locally from dependency "
+                + "bytecode and may differ from the original source code.</p>");
         appendTerminology(body);
         body.append("<section id=\"run\"><h2>Run summary</h2><table>")
                 .append(row("Status", statusText(run.getStatus().name())))
                 .append(row("Analysis mode", run.getMode()))
+                .append(row("Application entrypoint boundary",
+                        entrypointSelectionLabel(run)))
                 .append(row("Target JDK",
                         context.javaRuntime().getVersion()))
                 .append(row("Apache Maven runtime",
-                        context.maven().getVersion()))
+                        context.maven().getVersion() + " ("
+                                + context.maven().getSource() + ")"))
                 .append(row("Maven Dependency Plugin",
                         "embedded " + context.plugin().getVersion()))
                 .append(row("Modules analyzed in parallel",
@@ -210,6 +223,9 @@ public final class PerModuleHtmlReportGenerator {
                 .append(row("JAR comparisons in parallel",
                         run.getActualJarDiffWorkers() + " (configured "
                                 + run.getConfiguredJarDiffWorkers() + ")"))
+                .append(row("Code comparisons in parallel",
+                        run.getActualDecompileWorkers() + " (configured "
+                                + run.getConfiguredParallelism() + ")"))
                 .append(row("Dependency changes",
                         run.getDependencyChanges().size()))
                 .append(row("Candidate / final call chains",
@@ -222,6 +238,12 @@ public final class PerModuleHtmlReportGenerator {
                 .append(row("WALA", walaVersion()))
                 .append(row("SSA equivalence workers", 1))
                 .append(row("Raw changed members", rawChangeCount(run)))
+                .append(row("Entrypoint includes",
+                        run.getEntrypointSelection().includes()))
+                .append(row("Entrypoint excludes",
+                        run.getEntrypointSelection().excludes()))
+                .append(row("Maven executable",
+                        context.maven().getExecutable()))
                 .append(row("SSA equivalent / different / unknown",
                         ssaCounts(run.getModuleResults())))
                 .append("</table></details></section>")
@@ -234,13 +256,13 @@ public final class PerModuleHtmlReportGenerator {
             final ModulePages modulePages = context.pages().get(module);
             body.append("<tr><td>");
             if (modulePages == null) {
-                body.append(escape(module.getModuleId().stableKey()));
+                body.append(escape(moduleLabel(module)));
             } else {
                 body.append("<a href=\"")
                         .append(attribute(context.ownedName() + "/"
                                 + modulePages.index()))
                         .append("\">")
-                        .append(escape(module.getModuleId().stableKey()))
+                        .append(escape(moduleLabel(module)))
                         .append("</a>");
             }
             body.append("</td><td>")
@@ -270,7 +292,7 @@ public final class PerModuleHtmlReportGenerator {
             final ModuleRuntime runtime) {
         final StringBuilder body = new StringBuilder()
                 .append("<h1 id=\"top\">Module summary: ")
-                .append(escape(module.getModuleId().stableKey()))
+                .append(escape(moduleLabel(module)))
                 .append("</h1><section id=\"summary\"><h2>Summary</h2>")
                 .append("<p class=\"")
                 .append(statusClass(module.getStatus().name()))
@@ -288,13 +310,14 @@ public final class PerModuleHtmlReportGenerator {
                                 - module.getFinalPaths().size()) + " / "
                                 + module.getFinalPaths().size()))
                 .append(row("Class structure references",
-                        module.getStructuralImpacts().size()))
+                        module.getStructuralPaths().size()))
                 .append(row("Dependency / member changes",
                         module.getUnit().getDependencyChanges().size()
                                 + " / "
                                 + module.getUnit().getChangePoints().size()))
                 .append(row("Target JDK", runtime.jdkVersion()))
                 .append(row("Apache Maven runtime", runtime.mavenVersion()))
+                .append(row("Maven runtime source", runtime.mavenSource()))
                 .append(row("Maven Dependency Plugin",
                         runtime.pluginVersion()))
                 .append(row("Module analysis worker",
@@ -303,14 +326,18 @@ public final class PerModuleHtmlReportGenerator {
                 .append(row("Analysis elapsed", module.getElapsedMillis()
                         + " ms")).append("</table></section>")
                 .append("<section id=\"scope\"><h2>Analysis scope</h2><p>")
-                .append("Application classes: <code>")
-                .append(escape(module.getUnit().getProjectClasses().toString()))
+                .append("Application module: <code>")
+                .append(escape(module.getModuleId().getCoordinate().toString()))
                 .append("</code>. Reactor dependencies: ")
                 .append(module.getUnit().getReactorDependencyClasses().size())
                 .append(". External dependencies: ")
                 .append(module.getUnit().getTargetArtifacts().size())
+                .append(". Entrypoint boundary: ")
+                .append(escape(runtime.entrypointBoundary()))
                 .append(".</p><details><summary>Technical details</summary>")
-                .append("<ul>");
+                .append("<ul><li>Application classes path: <code>")
+                .append(escape(module.getUnit().getProjectClasses().toString()))
+                .append("</code></li>");
         module.getUnit().getReactorDependencyClasses().forEach(path -> body
                 .append("<li>Reactor dependency: <code>")
                 .append(escape(path.toString())).append("</code></li>"));
@@ -327,6 +354,10 @@ public final class PerModuleHtmlReportGenerator {
                 .append(row("Entry methods", module.getSession() == null
                         ? "Not available"
                         : module.getSession().getEntrypointCount()))
+                .append(row("Selected application classes",
+                        module.getSession() == null ? "Not available"
+                                : module.getSession()
+                                .getSelectedEntrypointClassCount()))
                 .append(row("Call relationships", module.getCallGraphStats()
                         == null ? "Not available"
                         : module.getCallGraphStats().edgeCount()))
@@ -338,15 +369,25 @@ public final class PerModuleHtmlReportGenerator {
                 .append(row("Raw reason", module.getReason()))
                 .append(row("SSA equivalent / different / unknown",
                         ssaCounts(List.of(module))))
+                .append(row("Raw dependency / member changes",
+                        module.getUnit().getDependencyChanges().size() + " / "
+                                + module.getUnit().getChangePoints().size()))
                 .append("</table></details></section>")
                 .append("<section id=\"limits\"><h2>Coverage limitations")
                 .append("</h2>");
-        appendList(body, module.getLimitations(),
+        final List<String> limitations = new ArrayList<>(
+                module.getLimitations());
+        module.getUnit().getJarDiffFailures().forEach(failure -> limitations
+                .add("JAR member comparison unavailable for "
+                        + jarLabel(failure.dependencyUpgradeKey()) + ": "
+                        + failure.reason()));
+        appendList(body, limitations,
                 "No module-specific limitation was recorded.");
         body.append("</section><section id=\"diagnostics\"><h2>Module ")
-                .append("Diagnostics</h2>");
+                .append("Diagnostics</h2><details><summary>Technical details")
+                .append("</summary>");
         appendDiagnosticList(body, moduleEvents(module, events));
-        body.append("</section>");
+        body.append("</details></section>");
         return document("Module summary", "Module Index",
                 breadcrumbs(overallFile, module, pages.index(),
                         "Module Index"), siblingLinks(pages, "index"),
@@ -359,70 +400,40 @@ public final class PerModuleHtmlReportGenerator {
             final String overallFile) {
         final StringBuilder body = new StringBuilder()
                 .append("<h1 id=\"top\">Affected Call Chains: ")
-                .append(escape(module.getModuleId().stableKey()))
-                .append("</h1><p>A call chain starts at an application method ")
-                .append("and ends at a changed dependency member.</p>")
-                .append("<section id=\"chains\"><h2>Affected call chains")
-                .append("</h2>");
-        final List<DependencyUpgradeKey> jars = module.getUnit()
-                .getChangePoints().stream()
-                .map(BoundChangePoint::getDependencyUpgradeKey).distinct()
-                .sorted(Comparator.comparing(DependencyUpgradeKey::stableKey))
-                .toList();
-        boolean reported = false;
-        for (DependencyUpgradeKey jar : jars) {
-            final List<BoundChangePoint> points = module.getUnit()
-                    .getChangePoints().stream()
-                    .filter(point -> point.getDependencyUpgradeKey()
-                            .equals(jar))
-                    .sorted(Comparator.comparing(BoundChangePoint::stableKey))
-                    .toList();
-            final boolean hasEvidence = points.stream().anyMatch(point ->
-                    hasFinalEvidence(module, point));
-            if (!hasEvidence) {
-                continue;
-            }
-            reported = true;
-            body.append("<article class=\"card\" id=\"")
-                    .append(attribute(jarAnchor(jar)))
-                    .append("\"><h3>")
-                    .append(escape(jarLabel(jar))).append("</h3>");
-            for (BoundChangePoint point : points) {
-                appendImpactMember(body, module, point, pages);
-            }
-            body.append("</article>");
-        }
+                .append(escape(moduleLabel(module)))
+                .append("</h1><section id=\"chains\"><h2>Affected call ")
+                .append("chains</h2>");
+        final boolean reported = appendCallPathGroups(body,
+                module.getFinalPaths(), pages, "final");
         if (!reported) {
             body.append("<p>No affected call chain was found within the ")
                     .append("documented analysis scope.</p>");
         }
-        body.append("</section><section id=\"structures\"><h2>Class ")
-                .append("structure references</h2>");
-        if (module.getStructuralImpacts().isEmpty()) {
-            body.append("<p>No class structure reference was reported.</p>");
+        body.append("</section><section id=\"filtered\"><h2>Equivalent ")
+                .append("candidate chains</h2>");
+        final List<ImpactPath> filtered = module.getCandidatePaths().stream()
+                .filter(path -> isEquivalent(module,
+                        path.getTerminal().getChangePoint()))
+                .toList();
+        if (filtered.isEmpty()) {
+            body.append("<p>No candidate chain was filtered by method ")
+                    .append("equivalence.</p>");
         } else {
-            body.append("<ul>");
-            module.getStructuralImpacts().stream()
-                    .sorted(Comparator.comparing(value ->
-                            value.getChangePoint().stableKey() + ":"
-                                    + value.getReferencingClass()))
-                    .forEach(value -> body.append("<li><code>")
-                            .append(escape(value.getReferencingClass()))
-                            .append("</code> references <a href=\"")
-                            .append(attribute(pages.changes() + "#"
-                                    + changeAnchor(
-                                    value.getChangePoint())))
-                            .append("\">")
-                            .append(escape(memberLabel(
-                                    value.getChangePoint().getChangePoint())))
-                            .append("</a>")
-                            .append("<details><summary>Technical details")
-                            .append("</summary><code>")
-                            .append(escape(value.getOrigin().name()))
-                            .append("</code>: ")
-                            .append(escape(value.getEvidence()))
-                            .append("</details></li>"));
-            body.append("</ul>");
+            body.append("<details><summary>View candidate chains filtered ")
+                    .append("as equivalent</summary>");
+            appendCallPathGroups(body, filtered, pages, "filtered");
+            body.append("</details>");
+        }
+        body.append("</section><section id=\"structures\"><h2>Structural ")
+                .append("reference chains</h2>");
+        if (module.getStructuralPaths().isEmpty()) {
+            body.append("<p>No Structural Reference Path was found within ")
+                    .append("the documented analysis scope.</p>");
+        } else {
+            module.getStructuralPaths().stream()
+                    .sorted(structuralComparator())
+                    .forEach(value -> appendStructuralPath(
+                            body, value, pages));
         }
         body.append("</section>");
         return document("Affected Call Chains", "Affected Call Chains",
@@ -431,24 +442,43 @@ public final class PerModuleHtmlReportGenerator {
                 siblingLinks(pages, "impact"), impactToc(), body.toString());
     }
 
-    private void appendImpactMember(
+    private boolean appendCallPathGroups(
             final StringBuilder body,
-            final ModuleAnalysisResult module,
+            final List<ImpactPath> paths,
+            final ModulePages pages,
+            final String anchorPrefix) {
+        final List<DependencyUpgradeKey> jars = paths.stream()
+                .map(path -> path.getTerminal().getChangePoint()
+                        .getDependencyUpgradeKey()).distinct()
+                .sorted(Comparator.comparing(DependencyUpgradeKey::stableKey))
+                .toList();
+        for (DependencyUpgradeKey jar : jars) {
+            body.append("<article class=\"card\" id=\"")
+                    .append(attribute(anchorPrefix + "-" + jarAnchor(jar)))
+                    .append("\"><h3>")
+                    .append(escape(jarLabel(jar))).append("</h3>");
+            paths.stream().map(path -> path.getTerminal().getChangePoint())
+                    .filter(point -> point.getDependencyUpgradeKey()
+                            .equals(jar)).distinct()
+                    .sorted(Comparator.comparing(BoundChangePoint::stableKey))
+                    .forEach(point -> appendCallPathMember(
+                            body, paths, point, pages));
+            body.append("</article>");
+        }
+        return !jars.isEmpty();
+    }
+
+    private void appendCallPathMember(
+            final StringBuilder body,
+            final List<ImpactPath> allPaths,
             final BoundChangePoint point,
             final ModulePages pages) {
-        final List<ImpactPath> paths = module.getFinalPaths().stream()
+        final List<ImpactPath> paths = allPaths.stream()
                 .filter(path -> path.getTerminal().getChangePoint()
                         .equals(point))
                 .sorted(Comparator.comparing(path ->
-                        path.getAffectedMethod().toString()))
+                        humanMethod(path.getAffectedMethod())))
                 .toList();
-        final List<StructuralImpact> structures = module
-                .getStructuralImpacts().stream()
-                .filter(value -> value.getChangePoint().equals(point))
-                .toList();
-        if (paths.isEmpty() && structures.isEmpty()) {
-            return;
-        }
         body.append("<section id=\"")
                 .append(attribute("impact-" + stableHash(point.stableKey())))
                 .append("\"><h4><a href=\"")
@@ -464,11 +494,11 @@ public final class PerModuleHtmlReportGenerator {
                             ? "Direct dependency impact"
                             : "Transitive dependency impact")
                     .append("</strong><p>Affected application method: <code>")
-                    .append(escape(path.getAffectedMethod().toString()))
+                    .append(escape(humanMethod(path.getAffectedMethod())))
                     .append("</code></p><ol class=\"sequence\">");
             for (QueryNode node : path.getNodes()) {
                 body.append("<li><code>")
-                        .append(escape(node.methodId().toString()))
+                        .append(escape(humanMethod(node.methodId())))
                         .append("</code></li>");
             }
             body.append("<li>Changed member: <code>")
@@ -490,43 +520,75 @@ public final class PerModuleHtmlReportGenerator {
         body.append("</section>");
     }
 
+    private void appendStructuralPath(
+            final StringBuilder body,
+            final StructuralReferencePath path,
+            final ModulePages pages) {
+        body.append("<article class=\"card\"><strong>")
+                .append(path.getClassification() == ImpactClassification.DIRECT
+                        ? "Direct structural impact"
+                        : "Transitive structural impact")
+                .append("</strong><ol class=\"sequence\">");
+        for (QueryNode node : path.getNodes()) {
+            body.append("<li><code>")
+                    .append(escape(humanMethod(node.methodId())))
+                    .append("</code></li>");
+        }
+        body.append("<li>Application class/member: <code>")
+                .append(escape(structuralOwner(path)))
+                .append("</code></li><li>")
+                .append(escape(path.getReference().getKind().getLabel()))
+                .append("</li><li>Changed dependency class: <a href=\"")
+                .append(attribute(pages.changes() + "#"
+                        + changeAnchor(path.getChangePoint())))
+                .append("\"><code>")
+                .append(escape(path.getReference().getChangedClass()
+                        .replace('/', '.')))
+                .append("</code></a></li></ol><details><summary>Technical ")
+                .append("details</summary><ul><li>Origin: ")
+                .append(escape(path.getReference().getOrigin().name()))
+                .append("</li><li>Raw evidence: ")
+                .append(escape(path.getReference().getEvidence()))
+                .append("</li>");
+        for (QueryNode node : path.getNodes()) {
+            body.append("<li>Context: ")
+                    .append(escape(contextEvidence(node))).append("</li>");
+        }
+        body.append("</ul></details></article>");
+    }
+
     private String changesPage(
             final ModuleAnalysisResult module,
             final ModulePages pages,
             final String overallFile) {
         final StringBuilder body = new StringBuilder()
                 .append("<h1 id=\"top\">Dependency Changes: ")
-                .append(escape(module.getModuleId().stableKey()))
+                .append(escape(moduleLabel(module)))
                 .append("</h1><section id=\"dependencies\"><h2>Changed ")
                 .append("dependencies</h2>");
-        final Map<String, List<DependencyChange>> groups =
-                dependencyGroups(module.getUnit().getDependencyChanges());
+        final List<BoundChangePoint> relevant = module.getCodeComparisons()
+                .keySet().stream().sorted(Comparator.comparing(
+                        BoundChangePoint::stableKey)).toList();
         final Map<String, List<BoundChangePoint>> memberGroups =
-                memberGroups(module.getUnit().getChangePoints());
-        final Map<String, List<JarDiffFailure>> failureGroups =
-                failureGroups(module.getUnit().getJarDiffFailures());
-        final List<String> keys = new ArrayList<>();
-        keys.addAll(groups.keySet());
-        memberGroups.keySet().stream().filter(key -> !keys.contains(key))
-                .forEach(keys::add);
-        failureGroups.keySet().stream().filter(key -> !keys.contains(key))
-                .forEach(keys::add);
-        keys.sort(String::compareTo);
-        if (keys.isEmpty()) {
-            body.append("<p>No dependency change was recorded for this ")
-                    .append("module.</p>");
+                memberGroups(relevant);
+        if (memberGroups.isEmpty()) {
+            body.append("<p>No dependency member associated with a candidate ")
+                    .append("or final impact path was found within the ")
+                    .append("documented analysis scope.</p>");
         }
-        for (String key : keys) {
-            final List<DependencyChange> dependencies = groups.getOrDefault(
-                    key, List.of());
-            final List<BoundChangePoint> points = memberGroups.getOrDefault(
-                    key, List.of());
-            final List<JarDiffFailure> failures = failureGroups.getOrDefault(
-                    key, List.of());
-            appendDependencySection(body, module, key, dependencies, points,
-                    failures);
+        for (Map.Entry<String, List<BoundChangePoint>> group
+                : memberGroups.entrySet()) {
+            appendDependencySection(body, module, group.getKey(),
+                    group.getValue());
         }
-        body.append("</section>");
+        body.append("<details><summary>Technical details</summary><table>")
+                .append(row("Raw changed members",
+                        module.getUnit().getChangePoints().size()))
+                .append(row("Members shown", relevant.size()))
+                .append(row("Raw members not shown",
+                        Math.max(0, module.getUnit().getChangePoints().size()
+                                - relevant.size())))
+                .append("</table></details></section>");
         return document("Dependency Changes", "Dependency Changes",
                 breadcrumbs(overallFile, module, pages.changes(),
                         "Dependency Changes"),
@@ -538,58 +600,15 @@ public final class PerModuleHtmlReportGenerator {
             final StringBuilder body,
             final ModuleAnalysisResult module,
             final String key,
-            final List<DependencyChange> dependencies,
-            final List<BoundChangePoint> points,
-            final List<JarDiffFailure> failures) {
-        final DependencyUpgradeKey upgrade = points.isEmpty()
-                ? failures.isEmpty() ? null
-                : failures.get(0).dependencyUpgradeKey()
-                : points.get(0).getDependencyUpgradeKey();
-        final DependencyChange dependency = dependencies.isEmpty()
-                ? null : dependencies.get(0);
+            final List<BoundChangePoint> points) {
+        final DependencyUpgradeKey upgrade = points.get(0)
+                .getDependencyUpgradeKey();
         body.append("<article class=\"card\" id=\"")
                 .append(attribute("dependency-" + stableHash(key)))
                 .append("\"><h3>")
-                .append(escape(upgrade == null
-                        ? dependencyLabel(dependency)
-                        : jarLabel(upgrade))).append("</h3>");
-        if (dependency != null) {
-            body.append("<p>").append(escape(dependencyChangeText(dependency)))
-                    .append(" Scope: <code>")
-                    .append(escape(dependency.getScope().getValue()))
-                    .append("</code>.</p>");
-            final ArtifactCoord artifact = dependency.getNewArtifact() == null
-                    ? dependency.getOldArtifact()
-                    : dependency.getNewArtifact();
-            if (!"jar".equals(artifact.getType())) {
-                body.append("<p>This dependency is not a JAR, so member-level ")
-                        .append("comparison does not apply.</p>");
-            } else if (dependency.getChangeType()
-                    != ChangeType.VERSION_CHANGED) {
-                body.append("<p>Member-level comparison is not available for ")
-                        .append("added or removed dependencies.</p>");
-            }
-        }
-        if (upgrade != null) {
-            body.append("<p>Member comparison status: <strong>")
-                    .append(failures.isEmpty()
-                            ? "Completed" : "Incomplete")
-                    .append("</strong>.</p>");
-        }
-        if (!failures.isEmpty()) {
-            body.append("<p class=\"warn\">Member-level comparison did not ")
-                    .append("complete for this JAR.</p>");
-            failures.forEach(failure -> body
-                    .append("<details><summary>Technical details</summary>")
-                    .append("<p>").append(escape(failure.reason()))
-                    .append("</p><p>Old path: <code>")
-                    .append(escape(failure.dependencyUpgradeKey()
-                            .getOldPath().toString()))
-                    .append("</code><br>New path: <code>")
-                    .append(escape(failure.dependencyUpgradeKey()
-                            .getNewPath().toString()))
-                    .append("</code></p></details>"));
-        }
+                .append(escape(jarLabel(upgrade))).append("</h3><p>Scope: ")
+                .append("<code>").append(escape(upgrade.getScope().getValue()))
+                .append("</code>.</p>");
         appendMemberCategory(body, module, "Methods", points,
                 kind -> kind.name().startsWith("METHOD_"));
         appendMemberCategory(body, module, "Fields", points,
@@ -613,22 +632,76 @@ public final class PerModuleHtmlReportGenerator {
         if (selected.isEmpty()) {
             return;
         }
-        body.append("<h4>").append(title).append("</h4><ul>");
+        body.append("<h4>").append(title).append("</h4>");
         for (BoundChangePoint bound : selected) {
             final ChangePoint point = bound.getChangePoint();
-            body.append("<li id=\"")
+            body.append("<details class=\"member\" id=\"")
                     .append(attribute(changeAnchor(bound)))
-                    .append("\"><strong>")
+                    .append("\"><summary><strong>")
                     .append(escape(changeKindText(point.getKind())))
                     .append(":</strong> <code>")
                     .append(escape(memberLabel(point)))
-                    .append("</code><br>")
-                    .append(escape(dispositionText(
-                            module.getDispositions().get(bound))))
+                    .append("</code>")
+                    .append(memberBadges(module, bound))
+                    .append("</summary>")
+                    .append(codeComparison(module, bound))
                     .append(memberTechnicalDetails(module, bound))
-                    .append("</li>");
+                    .append("</details>");
         }
-        body.append("</ul>");
+    }
+
+    private String memberBadges(
+            final ModuleAnalysisResult module,
+            final BoundChangePoint point) {
+        final StringBuilder result = new StringBuilder();
+        if (module.getFinalPaths().stream().anyMatch(path -> path.getTerminal()
+                .getChangePoint().equals(point))) {
+            result.append("<span class=\"badge\">Affected</span>");
+        }
+        if (isEquivalent(module, point)) {
+            result.append("<span class=\"badge filtered\">Equivalent ")
+                    .append("(filtered)</span>");
+        }
+        if (module.getStructuralPaths().stream().anyMatch(path ->
+                path.getChangePoint().equals(point))) {
+            result.append("<span class=\"badge structural\">Structural ")
+                    .append("impact</span>");
+        }
+        return result.toString();
+    }
+
+    private String codeComparison(
+            final ModuleAnalysisResult module,
+            final BoundChangePoint bound) {
+        final CodeComparisonEvidence evidence = module.getCodeComparisons()
+                .get(bound);
+        if (evidence == null) {
+            return "";
+        }
+        final StringBuilder result = new StringBuilder()
+                .append("<details><summary>View code changes</summary>")
+                .append("<p class=\"muted\">Decompiled Java ")
+                .append("representation</p>");
+        if (evidence.getStatus() == CodeComparisonStatus.AVAILABLE) {
+            result.append("<pre class=\"diff\"><code>")
+                    .append(escape(evidence.getUnifiedDiff()))
+                    .append("</code></pre>");
+        } else if (evidence.getStatus()
+                == CodeComparisonStatus.ASM_FALLBACK) {
+            result.append("<p>Decompiled Java text is identical. Bytecode ")
+                    .append("evidence is available in Technical details.</p>");
+        } else {
+            result.append("<p class=\"warn\">Code comparison unavailable: ")
+                    .append(escape(evidence.getReason())).append("</p>");
+        }
+        if (!evidence.getAsmFallback().isBlank()) {
+            result.append("<details><summary>Technical details: ASM ")
+                    .append("instruction diff</summary><pre class=\"diff\">")
+                    .append("<code>")
+                    .append(escape(evidence.getAsmFallback()))
+                    .append("</code></pre></details>");
+        }
+        return result.append("</details>").toString();
     }
 
     private String memberTechnicalDetails(
@@ -640,6 +713,8 @@ public final class PerModuleHtmlReportGenerator {
         return "<details><summary>Technical details</summary><table>"
                 + row("Raw ChangePointKind", point.getKind())
                 + row("Raw disposition", module.getDispositions().get(bound))
+                + row("Disposition explanation", dispositionText(
+                module.getDispositions().get(bound)))
                 + row("Old descriptor", point.getOldDescriptor())
                 + row("New descriptor", point.getNewDescriptor())
                 + row("Old hash", point.getOldHash())
@@ -686,9 +761,9 @@ public final class PerModuleHtmlReportGenerator {
                 + "<a href=\"../" + attribute(overallFile)
                 + "\">Overall</a><span>›</span>"
                 + ("Module Index".equals(currentPage)
-                ? "<span>" + escape(module.getModuleId().stableKey())
+                ? "<span>" + escape(moduleLabel(module))
                 + "</span>" : "<a href=\"" + attribute(moduleIndex)
-                + "\">" + escape(module.getModuleId().stableKey())
+                + "\">" + escape(moduleLabel(module))
                 + "</a><span>›</span><span>" + escape(currentPage)
                 + "</span>") + "</nav>";
     }
@@ -749,6 +824,7 @@ public final class PerModuleHtmlReportGenerator {
             final StringBuilder body,
             final PreflightReport preflight) {
         body.append("<section id=\"preflight\"><h2>Preflight checks</h2>")
+                .append("<details><summary>Technical details</summary>")
                 .append("<table><tr><th>Check</th><th>Status</th>")
                 .append("<th>Evidence</th></tr>");
         for (PreflightResult result : preflight.getResults()) {
@@ -759,15 +835,16 @@ public final class PerModuleHtmlReportGenerator {
                     .append(escape(result.getEvidence()))
                     .append("</td></tr>");
         }
-        body.append("</table></section>");
+        body.append("</table></details></section>");
     }
 
     private void appendDiagnostics(
             final StringBuilder body,
             final List<DiagnosticEvent> events) {
         body.append("<section id=\"diagnostics\"><h2>Diagnostics</h2>");
+        body.append("<details><summary>Technical details</summary>");
         appendDiagnosticList(body, events);
-        body.append("</section>");
+        body.append("</details></section>");
     }
 
     private void appendDiagnosticList(
@@ -831,18 +908,6 @@ public final class PerModuleHtmlReportGenerator {
         body.append("</ul>");
     }
 
-    private Map<String, List<DependencyChange>> dependencyGroups(
-            final List<DependencyChange> changes) {
-        final Map<String, List<DependencyChange>> result =
-                new LinkedHashMap<>();
-        changes.stream().sorted(Comparator.comparing(
-                        DependencyChange::toString))
-                .forEach(change -> result.computeIfAbsent(
-                        dependencyGroupKey(change), ignored ->
-                                new ArrayList<>()).add(change));
-        return result;
-    }
-
     private Map<String, List<BoundChangePoint>> memberGroups(
             final List<BoundChangePoint> points) {
         final Map<String, List<BoundChangePoint>> result =
@@ -855,57 +920,12 @@ public final class PerModuleHtmlReportGenerator {
         return result;
     }
 
-    private Map<String, List<JarDiffFailure>> failureGroups(
-            final List<JarDiffFailure> failures) {
-        final Map<String, List<JarDiffFailure>> result =
-                new LinkedHashMap<>();
-        failures.stream().sorted(Comparator.comparing(
-                        JarDiffFailure::stableKey))
-                .forEach(failure -> result.computeIfAbsent(
-                        upgradeGroupKey(failure.dependencyUpgradeKey()),
-                        ignored -> new ArrayList<>()).add(failure));
-        return result;
-    }
-
-    private String dependencyGroupKey(final DependencyChange change) {
-        final ArtifactCoord old = change.getOldArtifact();
-        final ArtifactCoord target = change.getNewArtifact();
-        final ArtifactCoord representative = target == null ? old : target;
-        return representative.getGroupId() + ":"
-                + representative.getArtifactId() + ":"
-                + representative.getType() + ":"
-                + representative.getClassifier() + ":"
-                + (old == null ? "" : old.getVersion()) + ":"
-                + (target == null ? "" : target.getVersion());
-    }
-
     private String upgradeGroupKey(final DependencyUpgradeKey key) {
         final ArtifactCoord old = key.getOldArtifact();
         final ArtifactCoord target = key.getNewArtifact();
         return old.getGroupId() + ":" + old.getArtifactId() + ":"
                 + old.getType() + ":" + old.getClassifier() + ":"
                 + old.getVersion() + ":" + target.getVersion();
-    }
-
-    private String dependencyLabel(final DependencyChange change) {
-        if (change == null) {
-            return "Dependency change";
-        }
-        final ArtifactCoord value = change.getNewArtifact() == null
-                ? change.getOldArtifact() : change.getNewArtifact();
-        return value.getGroupId() + ":" + value.getArtifactId();
-    }
-
-    private String dependencyChangeText(final DependencyChange change) {
-        return switch (change.getChangeType()) {
-            case ADDED -> "Dependency added at version "
-                    + change.getNewArtifact().getVersion() + ".";
-            case REMOVED -> "Dependency removed from version "
-                    + change.getOldArtifact().getVersion() + ".";
-            case VERSION_CHANGED -> "Dependency updated from "
-                    + change.getOldArtifact().getVersion() + " to "
-                    + change.getNewArtifact().getVersion() + ".";
-        };
     }
 
     private String jarLabel(final DependencyUpgradeKey key) {
@@ -978,6 +998,8 @@ public final class PerModuleHtmlReportGenerator {
                         + "target revision.";
                 case SKIPPED_NO_RELEVANT_CHANGE -> "No relevant changed "
                         + "dependency member was found.";
+                case SKIPPED_USER_ENTRYPOINT_SCOPE -> "No application class "
+                        + "matched the configured entrypoint boundary.";
                 default -> module.getDetail();
             };
         }
@@ -991,13 +1013,37 @@ public final class PerModuleHtmlReportGenerator {
                 : "FAILED".equals(status) ? "fail" : "warn";
     }
 
-    private boolean hasFinalEvidence(
+    private boolean isEquivalent(
             final ModuleAnalysisResult module,
             final BoundChangePoint point) {
-        return module.getFinalPaths().stream().anyMatch(path ->
-                path.getTerminal().getChangePoint().equals(point))
-                || module.getStructuralImpacts().stream().anyMatch(value ->
-                value.getChangePoint().equals(point));
+        final MethodEquivalenceResult result = module
+                .getEquivalenceResults().get(point);
+        return result != null && result.getStatus()
+                == MethodEquivalenceStatus.PROVEN_EQUIVALENT;
+    }
+
+    private Comparator<StructuralReferencePath> structuralComparator() {
+        return Comparator.comparing((StructuralReferencePath path) ->
+                        path.getChangePoint().stableKey())
+                .thenComparing(path -> path.getReference().stableKey())
+                .thenComparing(path -> path.getAffectedMethod() == null ? ""
+                        : humanMethod(path.getAffectedMethod()));
+    }
+
+    private String structuralOwner(final StructuralReferencePath path) {
+        final String member = path.getReference().getReferencingMember();
+        return path.getReference().getReferencingClass().replace('/', '.')
+                + (member.isBlank() ? "" : "#" + member);
+    }
+
+    private String humanMethod(final MethodId method) {
+        return method.owner().replace('/', '.') + "#" + method.name();
+    }
+
+    private String contextEvidence(final QueryNode node) {
+        return node instanceof WalaQueryNode
+                ? ((WalaQueryNode) node).walaNode().getContext().toString()
+                : node.origin() + " overlay";
     }
 
     private long pathCount(
@@ -1013,14 +1059,28 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private long affectedMethodCount(final ModuleAnalysisResult module) {
-        return module.getFinalPaths().stream()
-                .map(ImpactPath::getAffectedMethod).distinct().count();
+        final java.util.Set<MethodId> methods = new java.util.LinkedHashSet<>();
+        module.getFinalPaths().stream().map(ImpactPath::getAffectedMethod)
+                .forEach(methods::add);
+        module.getStructuralPaths().stream()
+                .map(StructuralReferencePath::getAffectedMethod)
+                .filter(java.util.Objects::nonNull).forEach(methods::add);
+        return methods.size();
     }
 
     private long affectedClassCount(final ModuleAnalysisResult module) {
-        return module.getFinalPaths().stream()
+        final java.util.Set<String> classes = new java.util.LinkedHashSet<>();
+        module.getFinalPaths().stream()
                 .map(path -> path.getAffectedMethod().owner())
-                .distinct().count();
+                .forEach(classes::add);
+        module.getStructuralPaths().stream().forEach(path -> {
+            if (path.getAffectedMethod() == null) {
+                classes.add(path.getReference().getReferencingClass());
+            } else {
+                classes.add(path.getAffectedMethod().owner());
+            }
+        });
+        return classes.size();
     }
 
     private String ssaCounts(final List<ModuleAnalysisResult> modules) {
@@ -1080,6 +1140,18 @@ public final class PerModuleHtmlReportGenerator {
                 module.getModuleId().stableKey());
     }
 
+    private String moduleLabel(final ModuleAnalysisResult module) {
+        return module.getModuleId().getCoordinate().toString();
+    }
+
+    private String entrypointSelectionLabel(final AnalysisRunResult run) {
+        if (!run.getEntrypointSelection().isFiltered()) {
+            return "All application classes";
+        }
+        return "include=" + run.getEntrypointSelection().includes()
+                + "; exclude=" + run.getEntrypointSelection().excludes();
+    }
+
     private String changeAnchor(final BoundChangePoint point) {
         return "change-" + stableHash(point.stableKey());
     }
@@ -1127,8 +1199,9 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private String impactToc() {
-        return toc("chains", "Affected call chains", "structures",
-                "Class structure references");
+        return toc("chains", "Affected call chains", "filtered",
+                "Equivalent candidates", "structures",
+                "Structural reference chains");
     }
 
     private String changesToc() {
@@ -1258,11 +1331,15 @@ public final class PerModuleHtmlReportGenerator {
      *
      * @param jdkVersion target JDK version
      * @param mavenVersion Apache Maven version
+     * @param mavenSource selected Maven runtime source
+     * @param entrypointBoundary selected PROJECT entrypoint boundary
      * @param pluginVersion Maven Dependency Plugin source/version
      */
     private record ModuleRuntime(
             String jdkVersion,
             String mavenVersion,
+            String mavenSource,
+            String entrypointBoundary,
             String pluginVersion) {
     }
 }

@@ -74,8 +74,10 @@ public final class ModuleImpactTracer {
         final Map<BoundChangePoint, ChangePointDisposition> dispositions =
                 new LinkedHashMap<>();
         final Map<QueryNode, ReverseTrace> traceCache = new HashMap<>();
-        final StructuralScanResult structures =
-                new StructuralImpactScanner().scan(unit, session);
+        final StructuralScanResult structuralScan =
+                new StructuralImpactScanner().scan(unit);
+        final StructuralPathResult structures = materializeStructuralPaths(
+                unit.getModuleId(), structuralScan, session, traceCache);
         final InvokeDynamicEvidenceIndex bootstrapEvidence =
                 requiresBootstrapEvidence(unit)
                         ? InvokeDynamicEvidenceIndex.build(unit, session)
@@ -106,17 +108,160 @@ public final class ModuleImpactTracer {
                         seed, reverse, session));
             }
             dispositions.put(point, paths.size() > before
-                    || structures.hasImpact(point)
+                    || structures.hasPath(point)
                     ? ChangePointDisposition.IMPACT_REPORTED
                     : ChangePointDisposition.NO_PROJECT_PATH);
         }
         paths.sort(pathComparator());
         diagnostics.info(context, "candidatePaths=" + paths.size()
-                + "; structuralImpacts=" + structures.impacts().size()
+                + "; structuralPaths=" + structures.paths().size()
                 + "; reverseBfs=" + traceCache.size());
         diagnostics.endStage(context);
         return new ModuleImpactQueryResult(
-                paths, structures.impacts(), dispositions);
+                paths, structures.paths(), dispositions);
+    }
+
+    private StructuralPathResult materializeStructuralPaths(
+            final ModuleId moduleId,
+            final StructuralScanResult scan,
+            final ModuleCallGraphSession session,
+            final Map<QueryNode, ReverseTrace> traceCache) {
+        final Map<String, StructuralReferencePath> selected =
+                new LinkedHashMap<>();
+        final Set<BoundChangePoint> unreachable = new LinkedHashSet<>();
+        for (StructuralReferenceMatch match : scan.references()) {
+            final StructuralReference reference = match.reference();
+            if (reference.getOrigin() == CodeOrigin.PROJECT) {
+                final StructuralReferencePath path =
+                        new StructuralReferencePath(match.changePoint(),
+                                reference, List.of(), List.of(),
+                                ImpactClassification.DIRECT);
+                selected.putIfAbsent(referenceKey(match), path);
+                continue;
+            }
+            boolean recovered = false;
+            for (QueryNode seed : structuralSeeds(
+                    moduleId, reference, session)) {
+                final ReverseTrace reverse = traceCache.computeIfAbsent(
+                        seed, node -> reverse(moduleId, node, session));
+                for (StructuralReferencePath path : materializeStructural(
+                        match.changePoint(), reference, reverse, session)) {
+                    recovered = true;
+                    final String key = referenceKey(match) + "|"
+                            + methodIdentity(path.getAffectedMethod());
+                    final StructuralReferencePath existing = selected.get(key);
+                    if (existing == null
+                            || structuralPathComparator().compare(
+                            path, existing) < 0) {
+                        selected.put(key, path);
+                    }
+                }
+            }
+            if (!recovered) {
+                unreachable.add(match.changePoint());
+            }
+        }
+        final List<StructuralReferencePath> paths =
+                new ArrayList<>(selected.values());
+        paths.sort(structuralReportComparator());
+        return new StructuralPathResult(paths, unreachable);
+    }
+
+    private List<QueryNode> structuralSeeds(
+            final ModuleId moduleId,
+            final StructuralReference reference,
+            final ModuleCallGraphSession session) {
+        final Set<QueryNode> result = new LinkedHashSet<>();
+        for (CGNode node : session.getGraph()) {
+            if (!isSyntheticRoot(node, session)
+                    && reference.getReferencingClass().equals(
+                    owner(node.getMethod().getReference()))
+                    && matchesStructuralMember(reference,
+                    node.getMethod().getReference())) {
+                result.add(queryNode(moduleId, node, session));
+            }
+        }
+        for (QueryNode node : session.getServiceLoaderOverlay().nodes()) {
+            if (reference.getReferencingClass().equals(
+                    node.methodId().owner())
+                    && matchesStructuralMember(reference,
+                    node.methodId())) {
+                result.add(node);
+            }
+        }
+        return result.stream().sorted(queryNodeComparator()).toList();
+    }
+
+    private boolean matchesStructuralMember(
+            final StructuralReference reference,
+            final MethodReference method) {
+        return matchesStructuralMember(reference,
+                new MethodId(owner(method), method.getName().toString(),
+                        method.getDescriptor().toString(), "", ""));
+    }
+
+    private boolean matchesStructuralMember(
+            final StructuralReference reference,
+            final MethodId method) {
+        final String member = reference.getReferencingMember();
+        final int descriptor = member.indexOf('(');
+        if (descriptor < 0) {
+            return true;
+        }
+        return member.startsWith(method.name() + method.descriptor());
+    }
+
+    private List<StructuralReferencePath> materializeStructural(
+            final BoundChangePoint point,
+            final StructuralReference reference,
+            final ReverseTrace reverse,
+            final ModuleCallGraphSession session) {
+        final Map<String, StructuralReferencePath> result =
+                new LinkedHashMap<>();
+        for (QueryNode root : reverse.visited().stream()
+                .filter(node -> node.origin() == CodeOrigin.PROJECT)
+                .sorted(queryNodeComparator()).toList()) {
+            final List<QueryNode> nodes = pathNodes(root, reverse);
+            if (nodes.isEmpty()) {
+                continue;
+            }
+            final List<QueryEdge> edges = pathEdges(nodes, session);
+            result.putIfAbsent(methodIdentity(root.methodId()),
+                    new StructuralReferencePath(point, reference,
+                            nodes, edges, ImpactClassification.TRANSITIVE));
+        }
+        return List.copyOf(result.values());
+    }
+
+    private List<QueryNode> pathNodes(
+            final QueryNode root, final ReverseTrace reverse) {
+        final List<QueryNode> nodes = new ArrayList<>();
+        QueryNode current = root;
+        nodes.add(current);
+        while (!current.equals(reverse.seed())) {
+            current = reverse.next().get(current);
+            if (current == null) {
+                return List.of();
+            }
+            nodes.add(current);
+        }
+        return nodes;
+    }
+
+    private List<QueryEdge> pathEdges(
+            final List<QueryNode> nodes,
+            final ModuleCallGraphSession session) {
+        final List<QueryEdge> edges = new ArrayList<>();
+        for (int index = 0; index + 1 < nodes.size(); index++) {
+            edges.add(queryEdge(nodes.get(index), nodes.get(index + 1),
+                    session));
+        }
+        return edges;
+    }
+
+    private String referenceKey(final StructuralReferenceMatch match) {
+        return match.changePoint().stableKey() + "|"
+                + match.reference().stableKey();
     }
 
     private List<Seed> resolveSeeds(
@@ -501,11 +646,11 @@ public final class ModuleImpactTracer {
     private ChangePointDisposition structuralDisposition(
             final BoundChangePoint point,
             final ChangePoint change,
-            final StructuralScanResult structures) {
-        if (structures.hasImpact(point)) {
+            final StructuralPathResult structures) {
+        if (structures.hasPath(point)) {
             return ChangePointDisposition.IMPACT_REPORTED;
         }
-        if (structures.hasUnreachable(point)) {
+        if (structures.unreachable().contains(point)) {
             return ChangePointDisposition.UNREACHABLE_STRUCTURAL_REFERENCE;
         }
         return missingDisposition(change);
@@ -540,6 +685,41 @@ public final class ModuleImpactTracer {
                         path.getAffectedMethod().descriptor())
                 .thenComparing(path -> path.getTerminal()
                         .getChangePoint().stableKey());
+    }
+
+    private Comparator<StructuralReferencePath> structuralPathComparator() {
+        return Comparator
+                .comparingInt((StructuralReferencePath path) ->
+                        path.getOrderedEdges().size())
+                .thenComparing(this::structuralPathStableKey);
+    }
+
+    private Comparator<StructuralReferencePath> structuralReportComparator() {
+        return Comparator
+                .comparing((StructuralReferencePath path) ->
+                        path.getChangePoint().stableKey())
+                .thenComparing(path -> path.getReference().stableKey())
+                .thenComparing(this::affectedMethodKey)
+                .thenComparing(this::structuralPathStableKey);
+    }
+
+    private String affectedMethodKey(final StructuralReferencePath path) {
+        return path.getAffectedMethod() == null ? ""
+                : methodIdentity(path.getAffectedMethod());
+    }
+
+    private String structuralPathStableKey(
+            final StructuralReferencePath path) {
+        final StringBuilder result = new StringBuilder();
+        for (QueryNode node : path.getNodes()) {
+            result.append(methodIdentity(node.methodId())).append('|');
+        }
+        for (QueryEdge edge : path.getOrderedEdges()) {
+            result.append(edge.getBytecodePc()).append(':')
+                    .append(edge.getKind()).append(':')
+                    .append(edge.getEvidence()).append('|');
+        }
+        return result.toString();
     }
 
     private EdgeKind invocationKind(
@@ -628,6 +808,22 @@ public final class ModuleImpactTracer {
             QueryNode seed,
             Map<QueryNode, QueryNode> next,
             Set<QueryNode> visited) {
+    }
+
+    /**
+     * Materialized structural paths and unreachable metadata evidence.
+     *
+     * @param paths reportable structural paths
+     * @param unreachable references without a PROJECT boundary
+     */
+    private record StructuralPathResult(
+            List<StructuralReferencePath> paths,
+            Set<BoundChangePoint> unreachable) {
+
+        boolean hasPath(final BoundChangePoint point) {
+            return paths.stream().anyMatch(path ->
+                    path.getChangePoint().equals(point));
+        }
     }
 
     /** Instruction callback. */

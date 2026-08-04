@@ -2,6 +2,8 @@ package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.bytecode
         .ChangePointKind;
+import io.github.dependencyanalysis.callgraph
+        .EntrypointSelection;
 import io.github.dependencyanalysis.cli
         .DependencyAnalyzerCli;
 import io.github.dependencyanalysis.cli.OutputFormat;
@@ -87,11 +89,24 @@ public final class ImpactCommand
             description = "Analysis target: spring-backend.")
     private String analysisTarget;
 
-    /** Concurrent module analyses. */
-    @Option(names = "--module-parallelism",
+    /** Concurrent safe analysis tasks. */
+    @Option(names = "--analysis-parallelism",
             defaultValue = "2",
-            description = "Maximum concurrent Module analyses.")
-    private int moduleParallelism;
+            description = "Maximum concurrent Module, JAR diff, and "
+                    + "decompilation tasks.")
+    private int analysisParallelism;
+
+    /** Included PROJECT entrypoint classes. */
+    @Option(names = "--entrypoint-include",
+            description = "Repeatable package-pattern:class-pattern "
+                    + "PROJECT entrypoint include.")
+    private List<String> entrypointIncludes = new java.util.ArrayList<>();
+
+    /** Excluded PROJECT entrypoint classes. */
+    @Option(names = "--entrypoint-exclude",
+            description = "Repeatable package-pattern:class-pattern "
+                    + "PROJECT entrypoint exclude.")
+    private List<String> entrypointExcludes = new java.util.ArrayList<>();
 
     /** Included change point kinds. */
     @Option(names = {"-k", "--include-change-kinds"},
@@ -124,9 +139,17 @@ public final class ImpactCommand
                     "--call-graph-timeout-seconds must be >= 0");
             return 1;
         }
-        if (moduleParallelism < 1) {
+        if (analysisParallelism < 1) {
             diagnostics.error("preflight",
-                    "--module-parallelism must be >= 1");
+                    "--analysis-parallelism must be >= 1");
+            return 1;
+        }
+        final EntrypointSelection entrypointSelection;
+        try {
+            entrypointSelection = EntrypointSelection.parse(
+                    entrypointIncludes, entrypointExcludes);
+        } catch (IllegalArgumentException exception) {
+            diagnostics.error("preflight", exception.getMessage());
             return 1;
         }
         if (!"spring-backend".equalsIgnoreCase(analysisTarget)) {
@@ -182,11 +205,12 @@ public final class ImpactCommand
                     targetJava,
                     new PerModulePipelineOptions(
                             callGraphTimeoutSeconds,
-                            moduleParallelism,
+                            analysisParallelism,
                             context.get(
                                     ImpactPreflightService.COMMAND_RUN,
                                     CommandRunDirectory.class)
-                                    .getTemporaryDirectory())).run(
+                                    .getTemporaryDirectory(),
+                            entrypointSelection)).run(
                     context.get(
                             ImpactPreflightService
                                     .WORKSPACE,
@@ -198,6 +222,9 @@ public final class ImpactCommand
             return result.getStatus() == AnalysisStatus.SUCCESS
                     || result.getStatus() == AnalysisStatus.INCONCLUSIVE
                     ? 0 : 2;
+        } catch (EntrypointSelectionException exception) {
+            diagnostics.error("entrypoint-selection", exception.getMessage());
+            return 1;
         } catch (Exception exception) {
             diagnostics.error("pipeline",
                     "Pipeline failed: "

@@ -8,6 +8,9 @@ import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.bytecode.MemberDescriptors;
 import io.github.dependencyanalysis.callgraph.CallGraphException;
+import io.github.dependencyanalysis.callgraph.EntrypointClassScanner;
+import io.github.dependencyanalysis.callgraph.EntrypointSelection;
+import io.github.dependencyanalysis.callgraph.EntrypointSelectionMetrics;
 import io.github.dependencyanalysis.callgraph.ModuleCallGraphEngine;
 import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
 import io.github.dependencyanalysis.callgraph.ModuleScopeValidator;
@@ -77,8 +80,11 @@ final class PerModuleImpactPipeline {
     /** Module Call Graph timeout. */
     private final long callGraphTimeoutSeconds;
 
-    /** Configured module parallelism. */
-    private final int moduleParallelism;
+    /** Configured safe analysis-stage parallelism. */
+    private final int analysisParallelism;
+
+    /** User-selected PROJECT entrypoint boundary. */
+    private final EntrypointSelection entrypointSelection;
 
     /** Command temporary directory. */
     private final Path temporaryDirectory;
@@ -92,7 +98,7 @@ final class PerModuleImpactPipeline {
      * @param dependencyPlugin embedded Dependency Plugin runtime
      * @param arguments Maven arguments
      * @param targetJava target JDK
-     * @param options runtime controls
+     * @param options runtime controls and entrypoint selection
      */
     PerModuleImpactPipeline(
             final DiagnosticCollector collector,
@@ -110,8 +116,10 @@ final class PerModuleImpactPipeline {
         mavenArguments = List.copyOf(arguments);
         javaRuntime = Objects.requireNonNull(targetJava, "javaRuntime");
         callGraphTimeoutSeconds = options.callGraphTimeoutSeconds();
-        moduleParallelism = options.moduleParallelism();
+        analysisParallelism = options.analysisParallelism();
         temporaryDirectory = options.temporaryDirectory();
+        entrypointSelection = Objects.requireNonNull(
+                options.entrypointSelection(), "entrypointSelection");
     }
 
     /**
@@ -173,22 +181,27 @@ final class PerModuleImpactPipeline {
                         front.targetBuild(), front.baselineDependencies(),
                         targetDependencies, baselineTrees, targetTrees),
                 bindings, changes);
+        final Set<String> unmatchedEntrypointModules =
+                unmatchedEntrypointModules(units, bindings.failedModules());
         final int relevantCount = (int) units.stream()
                 .filter(unit -> !unit.getChangePoints().isEmpty()
                         || bindings.failedModules().contains(
                         unit.getModuleId().coordinateKey()))
+                .filter(unit -> !unmatchedEntrypointModules.contains(
+                        unit.getModuleId().coordinateKey()))
                 .count();
         final int actualParallelism = relevantCount == 0 ? 0
-                : Math.min(moduleParallelism, relevantCount);
-        if (moduleParallelism
+                : Math.min(analysisParallelism, relevantCount);
+        if (analysisParallelism
                 > Runtime.getRuntime().availableProcessors()) {
             diagnostics.warn("module-analysis",
-                    "--module-parallelism exceeds availableProcessors: "
-                            + moduleParallelism);
+                    "--analysis-parallelism exceeds availableProcessors: "
+                            + analysisParallelism);
         }
         final long modulesStart = System.currentTimeMillis();
         final List<ModuleAnalysisResult> analyzed = analyzeModules(
-                units, bindings.failedModules(), actualParallelism);
+                units, bindings.failedModules(), unmatchedEntrypointModules,
+                actualParallelism);
         elapsed.put("module-analysis",
                 System.currentTimeMillis() - modulesStart);
         final long ssaStart = System.currentTimeMillis();
@@ -197,12 +210,161 @@ final class PerModuleImpactPipeline {
                         .filter(analyzed);
         elapsed.put("ssa-equivalence",
                 System.currentTimeMillis() - ssaStart);
+        final long codeStart = System.currentTimeMillis();
+        final CodeEvidenceResult codeEvidence = buildCodeComparisons(filtered);
+        elapsed.put("code-comparison",
+                System.currentTimeMillis() - codeStart);
         return new AnalysisRunResult(targetScope.getMode(),
-                overallStatus(filtered), changes,
-                filtered, new AnalysisConcurrency(
-                        moduleParallelism, actualParallelism,
-                        bindings.configuredWorkers(),
-                        bindings.actualWorkers()), elapsed);
+                overallStatus(codeEvidence.modules()), changes,
+                codeEvidence.modules(), new AnalysisConcurrency(
+                        analysisParallelism, actualParallelism,
+                        bindings.actualWorkers(),
+                        codeEvidence.actualWorkers()), elapsed,
+                entrypointSelection);
+    }
+
+    private CodeEvidenceResult buildCodeComparisons(
+            final List<ModuleAnalysisResult> modules)
+            throws InterruptedException {
+        final Map<String, List<BoundChangePoint>> requests =
+                new LinkedHashMap<>();
+        for (ModuleAnalysisResult module : modules) {
+            final Set<BoundChangePoint> relevant = new LinkedHashSet<>();
+            module.getCandidatePaths().forEach(path -> relevant.add(
+                    path.getTerminal().getChangePoint()));
+            module.getStructuralPaths().forEach(path -> relevant.add(
+                    path.getChangePoint()));
+            relevant.stream().sorted(Comparator.comparing(
+                    BoundChangePoint::stableKey)).forEach(point -> requests
+                    .computeIfAbsent(codeEvidenceKey(point), ignored ->
+                            new ArrayList<>()).add(point));
+        }
+        if (requests.isEmpty()) {
+            return new CodeEvidenceResult(modules, 0);
+        }
+        final int workers = Math.min(analysisParallelism, requests.size());
+        final ExecutorService executor = Executors.newFixedThreadPool(workers);
+        final List<Future<PhysicalCodeEvidence>> futures = new ArrayList<>();
+        for (Map.Entry<String, List<BoundChangePoint>> request
+                : requests.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey()).toList()) {
+            futures.add(executor.submit(() -> codeComparison(
+                    request.getKey(), request.getValue().get(0))));
+        }
+        final Map<String, CodeComparisonEvidence> evidence =
+                new LinkedHashMap<>();
+        try {
+            for (Future<PhysicalCodeEvidence> future : futures) {
+                try {
+                    final PhysicalCodeEvidence value = future.get();
+                    evidence.put(value.key(), value.evidence());
+                } catch (ExecutionException exception) {
+                    throw new IllegalStateException(
+                            "Unexpected code comparison task failure",
+                            exception.getCause());
+                }
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+        final List<ModuleAnalysisResult> enriched = new ArrayList<>();
+        for (ModuleAnalysisResult module : modules) {
+            final Map<BoundChangePoint, CodeComparisonEvidence> bound =
+                    new LinkedHashMap<>();
+            final Set<BoundChangePoint> relevant = new LinkedHashSet<>();
+            module.getCandidatePaths().forEach(path -> relevant.add(
+                    path.getTerminal().getChangePoint()));
+            module.getStructuralPaths().forEach(path -> relevant.add(
+                    path.getChangePoint()));
+            relevant.stream().sorted(Comparator.comparing(
+                    BoundChangePoint::stableKey)).forEach(point -> bound.put(
+                    point, evidence.get(codeEvidenceKey(point))));
+            enriched.add(module.toBuilder().codeComparisons(bound).build());
+        }
+        return new CodeEvidenceResult(enriched, workers);
+    }
+
+    private PhysicalCodeEvidence codeComparison(
+            final String key, final BoundChangePoint point) {
+        final DiagnosticContext context = DiagnosticContext.task(
+                "code-comparison", "decompile")
+                .withModule(point.getDependencyUpgradeKey().getModuleId()
+                        .stableKey())
+                .withArtifact(point.getDependencyUpgradeKey()
+                        .getNewArtifact().toString());
+        diagnostics.debug(context, "started");
+        final CodeComparisonEvidence evidence;
+        try {
+            evidence = new CodeComparisonBuilder(
+                    diagnostics, javaRuntime).build(point);
+        } catch (RuntimeException exception) {
+            diagnostics.warn(context, "unavailable: "
+                    + exception.getClass().getSimpleName());
+            return new PhysicalCodeEvidence(key,
+                    new CodeComparisonEvidence(
+                            CodeComparisonStatus.UNAVAILABLE, List.of(), "",
+                            exception.getMessage() == null
+                                    ? exception.getClass().getSimpleName()
+                                    : exception.getMessage()));
+        }
+        if (evidence.getStatus() == CodeComparisonStatus.UNAVAILABLE) {
+            diagnostics.warn(context, "completed; status=UNAVAILABLE; reason="
+                    + evidence.getReason());
+        } else {
+            diagnostics.debug(context, "completed; status="
+                    + evidence.getStatus());
+        }
+        return new PhysicalCodeEvidence(key, evidence);
+    }
+
+    private String codeEvidenceKey(final BoundChangePoint bound) {
+        final DependencyUpgradeKey key = bound.getDependencyUpgradeKey();
+        final ChangePoint point = bound.getChangePoint();
+        return key.getOldPath() + "->" + key.getNewPath() + "|"
+                + point.getKind() + "|" + point.getOwner() + "|"
+                + point.getName() + "|" + point.getOldDescriptor() + "|"
+                + point.getNewDescriptor() + "|" + point.getOldHash() + "|"
+                + point.getNewHash();
+    }
+
+    private Set<String> unmatchedEntrypointModules(
+            final List<ModuleAnalysisUnit> units,
+            final Set<String> failedDiffModules) {
+        if (!entrypointSelection.isFiltered()) {
+            return Set.of();
+        }
+        final Set<String> unmatched = new LinkedHashSet<>();
+        int relevant = 0;
+        int matched = 0;
+        final EntrypointClassScanner scanner = new EntrypointClassScanner();
+        for (ModuleAnalysisUnit unit : units) {
+            if (unit.getPresence() != ModulePresence.BOTH
+                    || unit.getChangePoints().isEmpty()
+                    && !failedDiffModules.contains(
+                    unit.getModuleId().coordinateKey())) {
+                continue;
+            }
+            relevant++;
+            final DiagnosticContext context = DiagnosticContext.task(
+                    "module-analysis", "entrypoint-selection").withModule(
+                    unit.getModuleId().stableKey());
+            final EntrypointSelectionMetrics metrics = scanner.scan(
+                    unit.getProjectClasses(), entrypointSelection);
+            diagnostics.info(context, "selectedClasses="
+                    + metrics.selectedClassCount() + "; entrypoints="
+                    + metrics.entrypointCount());
+            if (metrics.entrypointCount() == 0) {
+                unmatched.add(unit.getModuleId().coordinateKey());
+            } else {
+                matched++;
+            }
+        }
+        if (relevant > 0 && matched == 0) {
+            throw new EntrypointSelectionException(
+                    "No relevant Module matched the configured PROJECT "
+                            + "entrypoint selectors");
+        }
+        return Set.copyOf(unmatched);
     }
 
     private FrontPreparation prepareFront(
@@ -496,8 +658,7 @@ final class PerModuleImpactPipeline {
     }
 
     private int jarDiffWorkerLimit() {
-        return Math.max(1,
-                Runtime.getRuntime().availableProcessors() / 2);
+        return analysisParallelism;
     }
 
     private PairDiff diffPair(
@@ -636,6 +797,7 @@ final class PerModuleImpactPipeline {
     private List<ModuleAnalysisResult> analyzeModules(
             final List<ModuleAnalysisUnit> units,
             final Set<String> failedDiffModules,
+            final Set<String> unmatchedEntrypointModules,
             final int actualParallelism) throws InterruptedException {
         final Map<String, ModuleAnalysisUnit> unitsByKey = new HashMap<>();
         units.forEach(unit -> unitsByKey.put(
@@ -654,6 +816,10 @@ final class PerModuleImpactPipeline {
                     unit.getModuleId().coordinateKey())) {
                 result.add(skipped(unit,
                         ModuleAnalysisReason.SKIPPED_NO_RELEVANT_CHANGE));
+            } else if (unmatchedEntrypointModules.contains(
+                    unit.getModuleId().coordinateKey())) {
+                result.add(skipped(unit,
+                        ModuleAnalysisReason.SKIPPED_USER_ENTRYPOINT_SCOPE));
             } else {
                 active.add(unit);
             }
@@ -746,7 +912,8 @@ final class PerModuleImpactPipeline {
                     System.currentTimeMillis() - stageStart);
             stageStart = System.currentTimeMillis();
             final ModuleCallGraphSession session =
-                    new ModuleCallGraphEngine(diagnostics, javaRuntime)
+                    new ModuleCallGraphEngine(diagnostics, javaRuntime,
+                            entrypointSelection)
                             .build(unit, callGraphTimeoutSeconds);
             stageElapsed.put("call-graph",
                     System.currentTimeMillis() - stageStart);
@@ -781,7 +948,7 @@ final class PerModuleImpactPipeline {
                     .session(session)
                     .candidatePaths(query.getPaths())
                     .finalPaths(query.getPaths())
-                    .structuralImpacts(query.getStructuralImpacts())
+                    .structuralPaths(query.getStructuralPaths())
                     .dispositions(query.getDispositions())
                     .limitations(limitations)
                     .elapsedMillis(System.currentTimeMillis() - start)
@@ -1042,6 +1209,28 @@ final class PerModuleImpactPipeline {
             Map<String, List<JarDiffFailure>> failuresByModule,
             int configuredWorkers,
             int actualWorkers) {
+    }
+
+    /**
+     * Module results enriched with code comparison evidence.
+     *
+     * @param modules enriched module results
+     * @param actualWorkers actual decompilation workers
+     */
+    private record CodeEvidenceResult(
+            List<ModuleAnalysisResult> modules,
+            int actualWorkers) {
+    }
+
+    /**
+     * One unique physical code comparison result.
+     *
+     * @param key physical member identity
+     * @param evidence comparison evidence
+     */
+    private record PhysicalCodeEvidence(
+            String key,
+            CodeComparisonEvidence evidence) {
     }
 
     /**

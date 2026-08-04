@@ -43,6 +43,9 @@ public final class ModuleCallGraphEngine {
     /** Target JDK 8. */
     private final JavaRuntimeDescriptor javaRuntime;
 
+    /** User-selected PROJECT root boundary. */
+    private final EntrypointSelection entrypointSelection;
+
     /**
      * Creates a module Call Graph engine.
      *
@@ -52,8 +55,23 @@ public final class ModuleCallGraphEngine {
     public ModuleCallGraphEngine(
             final DiagnosticCollector collector,
             final JavaRuntimeDescriptor runtime) {
+        this(collector, runtime, EntrypointSelection.allProjectClasses());
+    }
+
+    /**
+     * Creates an engine with a user-selected PROJECT root boundary.
+     *
+     * @param collector diagnostics
+     * @param runtime target JDK runtime
+     * @param selection entrypoint class selection
+     */
+    public ModuleCallGraphEngine(
+            final DiagnosticCollector collector,
+            final JavaRuntimeDescriptor runtime,
+            final EntrypointSelection selection) {
         diagnostics = Objects.requireNonNull(collector, "collector");
         javaRuntime = Objects.requireNonNull(runtime, "runtime");
+        entrypointSelection = Objects.requireNonNull(selection, "selection");
     }
 
     /**
@@ -128,6 +146,8 @@ public final class ModuleCallGraphEngine {
                     Math.max(0L, usedMemory() - initialMemory));
             final int parameterCandidates = parameterCandidateCount(
                     entrypoints);
+            final int selectedClasses = selectedProjectClassCount(
+                    hierarchy, ownership);
             diagnostics.info(context, "algorithm=vanilla-0-1-cfa; nodes="
                     + stats.methodCount() + "; edges="
                     + stats.edgeCount() + "; entrypoints="
@@ -135,7 +155,7 @@ public final class ModuleCallGraphEngine {
             diagnostics.endStage(context);
             return new ModuleCallGraphSession(graph, hierarchy, scope,
                     ownership, cache, stats,
-                    new EntrypointMetrics(
+                    new EntrypointSelectionMetrics(selectedClasses,
                             entrypoints.size(), parameterCandidates));
         } catch (CallGraphException exception) {
             diagnostics.failStage(context, exception.getMessage());
@@ -240,6 +260,10 @@ public final class ModuleCallGraphEngine {
             if (value == null || value.getOrigin() != CodeOrigin.PROJECT) {
                 continue;
             }
+            if (!entrypointSelection.matchesInternalName(
+                    type.getName().toString())) {
+                continue;
+            }
             for (IMethod method : type.getDeclaredMethods()) {
                 if (!method.isAbstract()) {
                     methods.add(method);
@@ -253,6 +277,22 @@ public final class ModuleCallGraphEngine {
                         new DeterministicSubtypesEntrypoint(
                                 method, hierarchy))
                 .toList();
+    }
+
+    private int selectedProjectClassCount(
+            final IClassHierarchy hierarchy,
+            final ClassOwnershipIndex ownership) {
+        int result = 0;
+        for (IClass type : hierarchy) {
+            final ClassOwnership value = ownership.ownershipOf(
+                    type.getName().toString());
+            if (value != null && value.getOrigin() == CodeOrigin.PROJECT
+                    && entrypointSelection.matchesInternalName(
+                    type.getName().toString())) {
+                result++;
+            }
+        }
+        return result;
     }
 
     private int parameterCandidateCount(

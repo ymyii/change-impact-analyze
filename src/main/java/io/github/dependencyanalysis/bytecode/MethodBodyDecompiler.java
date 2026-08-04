@@ -40,6 +40,9 @@ public final class MethodBodyDecompiler {
     /** Diagnostics. */
     private final DiagnosticCollector diagnostics;
 
+    /** Exact dependency/JDK library context. */
+    private final List<Path> libraries;
+
     /**
      * Creates a method body decompiler.
      *
@@ -47,8 +50,21 @@ public final class MethodBodyDecompiler {
      */
     public MethodBodyDecompiler(
             final DiagnosticCollector collector) {
-        this.diagnostics = Objects.requireNonNull(
+        this(collector, List.of());
+    }
+
+    /**
+     * Creates a method body decompiler with library context.
+     *
+     * @param collector diagnostics
+     * @param libraryPaths exact dependency and JDK paths
+     */
+    public MethodBodyDecompiler(
+            final DiagnosticCollector collector,
+            final List<Path> libraryPaths) {
+        diagnostics = Objects.requireNonNull(
                 collector, "diagnostics");
+        libraries = List.copyOf(libraryPaths);
     }
 
     /**
@@ -77,21 +93,60 @@ public final class MethodBodyDecompiler {
         final ArtifactCoord newArtifact =
                 location.getChange().getNewArtifact();
         final DecompiledMethod oldResult =
-                decompileSide("old", oldArtifact,
-                        location.getOldJar(), point);
+                decompileMethod(location.getOldJar(), point,
+                        point.getOldDescriptor(), "old", oldArtifact);
         final DecompiledMethod newResult =
-                decompileSide("new", newArtifact,
-                        location.getNewJar(), point);
+                decompileMethod(location.getNewJar(), point,
+                        point.getNewDescriptor(), "new", newArtifact);
         return new MethodBodyEvidence(point,
                 oldArtifact, newArtifact,
                 oldResult, newResult);
     }
 
+    /**
+     * Decompiles one exact method descriptor in memory.
+     *
+     * @param jar physical artifact
+     * @param point changed member
+     * @param descriptor exact side descriptor
+     * @param side evidence side label
+     * @param artifact side artifact coordinate
+     * @return best-effort Java representation
+     */
+    public DecompiledMethod decompileMethod(
+            final Path jar,
+            final ChangePoint point,
+            final String descriptor,
+            final String side,
+            final ArtifactCoord artifact) {
+        Objects.requireNonNull(descriptor, "descriptor");
+        return decompileSide(jar, point, side, artifact,
+                point.getOwner() + "." + point.getName() + descriptor);
+    }
+
+    /**
+     * Decompiles one complete class in memory.
+     *
+     * @param jar physical artifact
+     * @param point changed class
+     * @param side evidence side label
+     * @param artifact side artifact coordinate
+     * @return best-effort Java representation
+     */
+    public DecompiledMethod decompileClass(
+            final Path jar,
+            final ChangePoint point,
+            final String side,
+            final ArtifactCoord artifact) {
+        return decompileSide(jar, point, side, artifact, null);
+    }
+
     private DecompiledMethod decompileSide(
+            final Path jar,
+            final ChangePoint point,
             final String side,
             final ArtifactCoord artifact,
-            final Path jar,
-            final ChangePoint point) {
+            final String methodId) {
         try {
             final byte[] classBytes = readClass(
                     jar, point.getOwner());
@@ -99,20 +154,14 @@ public final class MethodBodyDecompiler {
                     new CapturingSaver();
             final CapturingLogger logger =
                     new CapturingLogger();
-            final String methodId = point.getOwner()
-                    + "." + point.getName()
-                    + point.getDescriptor();
             final IContextSource source =
                     new SingleClassSource(
                             point.getOwner(),
                             classBytes);
-            Decompiler.builder()
+            final Decompiler.Builder builder = Decompiler.builder()
                     .inputs(source)
                     .output(saver)
                     .logger(logger)
-                    .option(IFernflowerPreferences
-                            .METHOD_TO_DECOMPILE,
-                            methodId)
                     .option(IFernflowerPreferences
                             .THREADS, "1")
                     .option(IFernflowerPreferences
@@ -129,8 +178,20 @@ public final class MethodBodyDecompiler {
                             false)
                     .option(IFernflowerPreferences
                             .DUMP_EXCEPTION_ON_ERROR,
-                            false)
-                    .build().decompile();
+                            false);
+            final List<Path> sideLibraries = new java.util.ArrayList<>();
+            sideLibraries.add(jar);
+            libraries.stream().filter(value -> !value.equals(jar))
+                    .forEach(sideLibraries::add);
+            if (!sideLibraries.isEmpty()) {
+                builder.libraries(sideLibraries.stream().map(Path::toFile)
+                        .toArray(java.io.File[]::new));
+            }
+            if (methodId != null) {
+                builder.option(IFernflowerPreferences.METHOD_TO_DECOMPILE,
+                        methodId);
+            }
+            builder.build().decompile();
             if (logger.getError() != null) {
                 return unavailable(side, artifact,
                         point, logger.getError());
@@ -166,11 +227,11 @@ public final class MethodBodyDecompiler {
         final String value = compact(reason);
         diagnostics.warn(STAGE,
                 "Unable to decompile " + side
-                        + " method: artifact="
+                        + " method/class code: artifact="
                         + artifact + ", method="
                         + point.getOwner() + "."
-                        + point.getName()
-                        + point.getDescriptor()
+                        + String.valueOf(point.getName())
+                        + String.valueOf(point.getDescriptor())
                         + ", reason=" + value);
         return DecompiledMethod.unavailable(value);
     }

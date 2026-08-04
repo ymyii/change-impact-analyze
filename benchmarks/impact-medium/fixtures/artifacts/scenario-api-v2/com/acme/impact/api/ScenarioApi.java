@@ -5,7 +5,8 @@ public class ScenarioApi {
     public long addedField;
 
     public int bodyChanged(final int value) {
-        return value + 2;
+        final int result = value + 1;
+        return result;
     }
 
     public String descriptorChanged(final Object value) {

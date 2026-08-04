@@ -25,6 +25,6 @@ exec "$ANALYZER_JAVA" \
   --output "$BENCHMARK_REPORT" \
   --format html \
   --analysis-target spring-backend \
-  --module-parallelism 2 \
+  --analysis-parallelism 2 \
   --include-change-kinds CLASS_ADDED,CLASS_REMOVED,METHOD_ADDED,METHOD_REMOVED,METHOD_DESCRIPTOR_CHANGED,METHOD_BODY_CHANGED,FIELD_ADDED,FIELD_REMOVED,FIELD_DESCRIPTOR_CHANGED \
   --call-graph-timeout-seconds 120

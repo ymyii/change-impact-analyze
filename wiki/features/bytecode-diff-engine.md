@@ -17,13 +17,17 @@ code_refs:
     desc: "old/new descriptor 与 hash"
   - path: "src/main/java/io/github/dependencyanalysis/impact/BoundChangePoint.java"
     desc: "Module 与 dependency upgrade provenance"
+  - path: "src/main/java/io/github/dependencyanalysis/bytecode/MethodBodyDecompiler.java"
+    desc: "path-related exact member/class Vineflower decompilation"
+  - path: "src/main/java/io/github/dependencyanalysis/impact/UnifiedDiffGenerator.java"
+    desc: "3 行 context 的完整 Unified diff"
 ---
 
 # Feature: Bytecode Diff Engine
 
 ## Summary
 
-对唯一 physical `(oldJar,newJar)` pair 执行一次 ASM bytecode diff，再将 raw ChangePoint 重新绑定到各 Module 的 `DependencyUpgradeKey`。Pool 大小为 `max(1, availableProcessors / 2)`；merge 与排序 deterministic。
+对唯一 physical `(oldJar,newJar)` pair 执行一次 ASM bytecode diff，再将 raw ChangePoint 重新绑定到各 Module 的 `DependencyUpgradeKey`。Pool 大小使用 `--analysis-parallelism`，再按 task 数计算 actual workers；merge 与排序 deterministic。
 
 ## Stable Method Hash
 
@@ -51,6 +55,7 @@ code_refs:
 - 单个 pair failure 不取消其他 JAR diff task；关联 Module 记录 `INCONCLUSIVE_BYTECODE_DIFF`。
 - Pair failure 且无其他可分析 ChangePoint 时不构建 Call Graph，但仍生成 Module detail page。
 - Raw bytecode diff 不对全部 changed method 构建 SSA；semantic filtering 延迟到 candidate path 之后。
+- 反编译同样延迟到 candidate/Structural path 完成后，只处理 Report 相关 member；pool 使用 `--analysis-parallelism`，每个 Vineflower task 内固定单线程。
 
 ## Acceptance
 

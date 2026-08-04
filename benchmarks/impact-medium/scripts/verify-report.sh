@@ -35,10 +35,12 @@ grep -q '<th>Status</th><td>Completed</td>' "$report" \
   || fail "Overall status is not Completed"
 grep -q '<th>Raw changed members</th><td>9</td>' "$report" \
   || fail "raw changed member count is not 9"
-grep -q '<th>Candidate / final call chains</th><td>6 / 6</td>' "$report" \
-  || fail "candidate/final call chains are not 6 / 6"
-grep -q 'Class structure references' "$impact_page" \
-  || fail "class structure reference is missing"
+grep -q '<th>Candidate / final call chains</th><td>6 / 5</td>' "$report" \
+  || fail "candidate/final call chains are not 6 / 5"
+grep -q 'Structural reference chains' "$impact_page" \
+  || fail "structural reference chain is missing"
+grep -q 'View candidate chains filtered as equivalent' "$impact_page" \
+  || fail "filtered candidate chain is missing"
 
 dependency_count=$(awk '
   /<dependencies>/ { in_dependencies = 1; next }
@@ -49,26 +51,40 @@ dependency_count=$(awk '
 [ "$dependency_count" -eq 42 ] \
   || fail "expected 42 direct dependencies; found $dependency_count"
 
-change_kind_count=0
+visible_change_kind_count=0
 for change_kind in \
-  CLASS_ADDED \
   CLASS_REMOVED \
-  METHOD_ADDED \
   METHOD_REMOVED \
   METHOD_DESCRIPTOR_CHANGED \
   METHOD_BODY_CHANGED \
-  FIELD_ADDED \
   FIELD_REMOVED \
   FIELD_DESCRIPTOR_CHANGED; do
   grep -q "<td>$change_kind</td>" "$changes_page" \
     || fail "missing Raw ChangePointKind: $change_kind"
-  change_kind_count=$((change_kind_count + 1))
+  visible_change_kind_count=$((visible_change_kind_count + 1))
 done
+
+for hidden_kind in CLASS_ADDED METHOD_ADDED FIELD_ADDED; do
+  ! grep -q "<td>$hidden_kind</td>" "$changes_page" \
+    || fail "no-path change should be hidden: $hidden_kind"
+done
+
+grep -q 'Equivalent (filtered)' "$changes_page" \
+  || fail "filtered change badge is missing"
+grep -q 'View code changes' "$changes_page" \
+  || fail "code comparison controls are missing"
+grep -q 'Decompiled Java representation' "$changes_page" \
+  || fail "decompiled Java evidence is missing"
+grep -q 'Method removed' "$changes_page" \
+  || fail "final impacted member is missing"
+grep -q 'Structural impact' "$changes_page" \
+  || fail "structural impact badge is missing"
 
 echo "status=SUCCESS"
 echo "direct_dependencies=$dependency_count"
-echo "raw_change_kinds=$change_kind_count"
-echo "candidate_final_call_chains=6/6"
+echo "raw_change_kinds=9"
+echo "visible_change_kinds=$visible_change_kind_count"
+echo "candidate_final_call_chains=6/5"
 echo "structural_impact=present"
 echo "overall_report=$report"
 echo "module_report=$module_page"

@@ -37,7 +37,8 @@ CLI 在昂贵分析前执行结构化 Preflight。全局 verbosity 默认为 `IN
 - `--baseline <ref>` required；`--target <ref>` 默认 current checkout。
 - `--path <path>`：reactor root 或 leaf Module。
 - `--analysis-target spring-backend`：默认且唯一 target。
-- `--module-parallelism <N>`：默认 `2`，必须 `>=1`；不按 CPU 数静默截断，超过 CPU 输出 warning。
+- `--analysis-parallelism <N>`：默认 `2`，必须 `>=1`；统一控制 Module analysis、JAR diff、反编译 pool，不按 CPU 数静默截断，超过 CPU 输出 warning。
+- `--entrypoint-include '<package-pattern>:<class-pattern>'` 与 `--entrypoint-exclude ...`：可重复；include 取并集，exclude 优先。Package 支持精确值或尾部 `**`，class simple binary name 支持 `*`。
 - `--call-graph-timeout-seconds <N>`：默认 `0`；按 Module、从实际 WALA build 开始计时。
 - `--format html`：唯一有效格式；`md` fail fast。
 - `--java-home`：必须是完整 JDK 8；analyzer JVM 可为 Java 17。
@@ -55,6 +56,7 @@ CLI 在昂贵分析前执行结构化 Preflight。全局 verbosity 默认为 `IN
 - 校验 path/Git/root POM/output/JDK 8/Maven version/Maven arguments、内嵌 Dependency Plugin `3.6.1` runtime、workspace/GraphML capability。
 - Preflight failure 不启动 pipeline，不触碰旧 Report。
 - Reactor/leaf mode、Module coordinate collision、physical artifact ambiguity 属于 preparation failure。
+- entrypoint selector 使用轻量 target class index；relevant Module 无匹配时为 `SKIPPED_USER_ENTRYPOINT_SCOPE`。所有 relevant Module 均无匹配时 command exit `1`，不替换旧 Report。
 - Module scope/Call Graph failure属于 handled Module result，可产生 partial Report。
 
 ## Diagnostics

@@ -5,7 +5,7 @@ relations:
   - path: "wiki/features/call-graph-engine.md"
     desc: "impact 的 per-Module Vanilla 0-1-CFA 阶段"
   - path: "wiki/features/impact-tracing.md"
-    desc: "ChangePoint、Impact Path、Structural Impact 与 SSA filtering"
+    desc: "ChangePoint、Impact Path、Structural Reference Path、SSA 与代码 evidence"
   - path: "wiki/features/dependency-tree-extraction.md"
     desc: "GraphML 与 resolved artifact path 输入"
   - path: "wiki/features/report-generator.md"
@@ -37,12 +37,14 @@ flowchart TD
   TargetDep --> DepDiff["dependency diff + resolved physical paths"]
   DepDiff --> JarDiff["deduplicated parallel JAR diff"]
   JarDiff --> Bind["BoundChangePoint per Module"]
-  Bind --> ModulePool["bounded Module pool; default 2"]
+  Bind --> EntrySelection["lightweight PROJECT entrypoint class index"]
+  EntrySelection --> ModulePool["bounded Module pool; analysis parallelism"]
   ModulePool --> ScopeValidation["scope validation"]
   ScopeValidation --> CFA["per-Module Vanilla 0-1-CFA"]
   CFA --> Query["single-thread direct WALA query"]
   Query --> SSA["global serial candidate-only SSA equivalence"]
-  SSA --> Report["atomic Overall Index + three pages per analyzed Module"]
+  SSA --> Decompile["parallel path-related code comparison"]
+  Decompile --> Report["atomic Overall Index + three pages per analyzed Module"]
 ```
 
 ## Module Contract
@@ -50,7 +52,7 @@ flowchart TD
 - Reactor root：target reactor 执行一次 `mvn compile`；全部 active、analysis-eligible Module 独立分析。
 - Leaf Module：从所属 reactor root 执行 `-pl <relativePath> -am compile`；只报告当前 Module。
 - 当前 Module classes 为 `PROJECT`；上游 reactor Module 为 `REACTOR_DEPENDENCY`；外部 artifact 为 `DEPENDENCY`；JDK 8 为 `JDK`。
-- 只有 `PROJECT` method 成为 entrypoint。其他 origin 由 reachability 进入。
+- 只有 `PROJECT` method 成为 entrypoint。默认选择全部 non-abstract declared methods；用户可通过 repeatable package/class include/exclude selector 缩小 roots。Selector 不裁剪 scope、subtype candidates 或其他 origin reachability。
 - 每个 Module 拥有独立 scope、ownership index、CHA、WALA graph 和 cache。不同 Module 不共享可变 WALA 状态。
 
 ## Concurrency Contract
@@ -58,10 +60,12 @@ flowchart TD
 - baseline dependency 与 target build 两个 Maven process 并行；任一失败时取消另一 process tree。
 - 两者 join 后才运行 target dependency；同一 target workspace 不并发执行两个 Maven process。
 - Baseline/target dependency 使用同一内嵌 `3.6.1` Plugin runtime、fully-qualified `tree`/`list` goal 与 settings overlay；target compile 不使用 overlay。
-- JAR diff 使用 `max(1, availableProcessors / 2)` bounded pool，并按 physical old/new pair 去重。
-- 每个 Module 内 WALA build/query 单线程；Module 之间按 `--module-parallelism` 并行，默认 `2`。
+- `--analysis-parallelism` 默认 `2`，分别控制 Module analysis、JAR diff 和 decompile bounded pool；各阶段再按 task 数计算 actual workers。超过 CPU 只 warning。
+- JAR diff 按 physical old/new pair 去重；code comparison 按 physical pair/member 去重并跨 Module 复用。
+- 每个 Module 内 WALA build/query 单线程；Module 之间并行。
 - SSA equivalence 全局串行。
 - Module 普通 failure/timeout 不取消其他 Module；global preparation failure 不替换旧 Report。
+- relevant Module 未匹配用户 entrypoint selector 时为 `SKIPPED_USER_ENTRYPOINT_SCOPE`；所有 relevant Module 都未匹配时属于 command failure，不替换旧 Report。
 
 ## Failure and Publication
 
@@ -77,4 +81,5 @@ flowchart TD
 - ServiceLoader 使用 conservative overlay，允许 false-positive。
 - Spring DI/AOP/annotation/XML/config、custom classloader 不完整建模。
 - 只允许 `PROVEN_EQUIVALENT` 删除 Impact Paths；`UNKNOWN` 保留路径。
+- Dependency Changes 只展示 candidate/final Impact Path 或 Structural Reference Path 关联 member；SSA-filtered candidate 仍保留调用链和 decompiled code evidence。
 - “无路径”只表示在声明的 analysis model 内未发现 Impact Path。

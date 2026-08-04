@@ -35,6 +35,8 @@ import io.github.dependencyanalysis.runtime
         .MavenRuntimeDescriptor;
 import io.github.dependencyanalysis.runtime
         .MavenRuntimeManager;
+import io.github.dependencyanalysis.runtime
+        .MavenRuntimeEvidence;
 import io.github.dependencyanalysis.runtime.MavenVersion;
 
 import java.io.File;
@@ -286,9 +288,7 @@ final class TreePreflightService {
         context.put(MAVEN_RUNTIME, runtime);
         return PreflightOutcome.pass(
                 "Maven runtime prepared",
-                runtime.getSource() + ":"
-                        + runtime.getExecutable()
-                        + "; Maven 3.6.3 is EOL");
+                MavenRuntimeEvidence.source(runtime));
     }
 
     private PreflightOutcome probeVersion(
@@ -323,7 +323,7 @@ final class TreePreflightService {
                 runtime.withVersion(version));
         return PreflightOutcome.pass(
                 "Maven version is supported",
-                version.toString());
+                MavenRuntimeEvidence.version(version));
     }
 
     private PreflightOutcome prepareDependencyPlugin(

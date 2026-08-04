@@ -1,6 +1,7 @@
 package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.dependency.DependencyChange;
+import io.github.dependencyanalysis.callgraph.EntrypointSelection;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -29,6 +30,9 @@ public final class AnalysisRunResult {
     /** Stable stage elapsed metrics. */
     private final Map<String, Long> stageElapsedMillis;
 
+    /** User-selected PROJECT entrypoint boundary. */
+    private final EntrypointSelection entrypointSelection;
+
     /**
      * Creates a completed run result.
      *
@@ -38,6 +42,7 @@ public final class AnalysisRunResult {
      * @param modules per-module results
      * @param workers worker configuration
      * @param stageMetrics elapsed metrics
+     * @param selection user-selected PROJECT entrypoint boundary
      */
     public AnalysisRunResult(
             final AnalysisMode analysisMode,
@@ -45,7 +50,8 @@ public final class AnalysisRunResult {
             final List<DependencyChange> changes,
             final List<ModuleAnalysisResult> modules,
             final AnalysisConcurrency workers,
-            final Map<String, Long> stageMetrics) {
+            final Map<String, Long> stageMetrics,
+            final EntrypointSelection selection) {
         mode = analysisMode;
         status = analysisStatus;
         dependencyChanges = Collections.unmodifiableList(
@@ -56,6 +62,8 @@ public final class AnalysisRunResult {
                 workers, "concurrency");
         stageElapsedMillis = Collections.unmodifiableMap(
                 new LinkedHashMap<>(stageMetrics));
+        entrypointSelection = java.util.Objects.requireNonNull(
+                selection, "entrypointSelection");
     }
 
     /** @return analysis mode */
@@ -80,7 +88,7 @@ public final class AnalysisRunResult {
 
     /** @return configured module parallelism */
     public int getConfiguredParallelism() {
-        return concurrency.configuredModuleParallelism();
+        return concurrency.configuredAnalysisParallelism();
     }
 
     /** @return actual module parallelism */
@@ -90,12 +98,27 @@ public final class AnalysisRunResult {
 
     /** @return configured JAR diff workers */
     public int getConfiguredJarDiffWorkers() {
-        return concurrency.configuredJarDiffWorkers();
+        return concurrency.configuredAnalysisParallelism();
     }
 
     /** @return actual JAR diff workers */
     public int getActualJarDiffWorkers() {
         return concurrency.actualJarDiffWorkers();
+    }
+
+    /** @return configured safe-stage analysis parallelism */
+    public int getConfiguredAnalysisParallelism() {
+        return concurrency.configuredAnalysisParallelism();
+    }
+
+    /** @return actual code evidence workers */
+    public int getActualDecompileWorkers() {
+        return concurrency.actualDecompileWorkers();
+    }
+
+    /** @return configured PROJECT entrypoint boundary */
+    public EntrypointSelection getEntrypointSelection() {
+        return entrypointSelection;
     }
 
     /** @return stage elapsed metrics */

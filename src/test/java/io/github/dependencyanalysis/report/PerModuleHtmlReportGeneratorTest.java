@@ -12,6 +12,19 @@ import io.github.dependencyanalysis.impact.AnalysisMode;
 import io.github.dependencyanalysis.impact.AnalysisConcurrency;
 import io.github.dependencyanalysis.impact.AnalysisRunResult;
 import io.github.dependencyanalysis.impact.AnalysisStatus;
+import io.github.dependencyanalysis.callgraph.EntrypointSelection;
+import io.github.dependencyanalysis.callgraph.CodeOrigin;
+import io.github.dependencyanalysis.callgraph.EdgeKind;
+import io.github.dependencyanalysis.callgraph.MethodId;
+import io.github.dependencyanalysis.impact.ChangePointTerminal;
+import io.github.dependencyanalysis.impact.CodeComparisonEvidence;
+import io.github.dependencyanalysis.impact.CodeComparisonStatus;
+import io.github.dependencyanalysis.impact.ImpactClassification;
+import io.github.dependencyanalysis.impact.ImpactPath;
+import io.github.dependencyanalysis.impact.MethodEquivalenceResult;
+import io.github.dependencyanalysis.impact.MethodEquivalenceStatus;
+import io.github.dependencyanalysis.impact.OverlayMethodNode;
+import io.github.dependencyanalysis.impact.UnifiedDiffHunk;
 import io.github.dependencyanalysis.impact.ModuleAnalysisReason;
 import io.github.dependencyanalysis.impact.ModuleAnalysisResult;
 import io.github.dependencyanalysis.impact.ModuleAnalysisStatus;
@@ -121,7 +134,8 @@ class PerModuleHtmlReportGeneratorTest {
                 AnalysisMode.REACTOR, AnalysisStatus.SUCCESS,
                 List.of(dependencyChange), List.of(module, skipped),
                 new AnalysisConcurrency(2, 1, 4, 1),
-                Map.of("module-analysis", 10L));
+                Map.of("module-analysis", 10L),
+                EntrypointSelection.allProjectClasses());
 
         final MavenDependencyPluginRuntime plugin =
                 new MavenDependencyPluginRuntimeManager().prepare(
@@ -145,8 +159,8 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("Terminology")
                 .contains("Maven Dependency Plugin")
                 .contains("embedded 3.6.1")
-                .contains("example:app:jar@app")
-                .contains("example:new-module:jar@new-module")
+                .contains("example:app:jar:1")
+                .contains("example:new-module:jar:1")
                 .contains("Skipped");
         assertThat(owned.resolve("stale.html")).doesNotExist();
         try (Stream<Path> pages = Files.list(owned)) {
@@ -176,21 +190,111 @@ class PerModuleHtmlReportGeneratorTest {
                     .contains("aria-label=\"Table of contents\"")
                     .contains("exact module event")
                     .contains("complete &lt;unsafe&gt;")
+                    .contains("fixture comparison failure")
                     .doesNotContain("<unsafe>")
                     .doesNotContain("substring event");
             assertThat(Files.readString(impact))
                     .contains("No affected call chain was found within the "
                             + "documented analysis scope.")
-                    .contains("Class structure references");
+                    .contains("Structural reference chains");
             assertThat(Files.readString(changes))
-                    .contains("example:library 1 → 2")
-                    .contains("Method removed")
-                    .contains("No application method was found")
-                    .contains("fixture comparison failure")
-                    .contains("Old path")
-                    .contains("Raw ChangePointKind")
+                    .contains("No dependency member associated with a "
+                            + "candidate or final impact path")
+                    .doesNotContain("Method removed")
+                    .doesNotContain("fixture comparison failure")
                     .contains("Module Index");
         }
+    }
+
+    @Test
+    void showsOnlyPathAssociatedChangesAndFoldsFilteredCodeEvidence()
+            throws Exception {
+        final Path output = temporary.resolve("filtered.html");
+        final ModuleId moduleId = new ModuleId(new ArtifactCoord(
+                "example", "app", "jar", "1"), Path.of("app"));
+        final ArtifactCoord oldArtifact = new ArtifactCoord(
+                "example", "library", "jar", "1");
+        final ArtifactCoord newArtifact = new ArtifactCoord(
+                "example", "library", "jar", "2");
+        final DependencyUpgradeKey upgrade = new DependencyUpgradeKey(
+                moduleId, DependencyScope.COMPILE, oldArtifact, newArtifact,
+                temporary.resolve("secret-old.jar"),
+                temporary.resolve("secret-new.jar"));
+        final BoundChangePoint affected = new BoundChangePoint(upgrade,
+                new ChangePoint(newArtifact,
+                        ChangePointKind.METHOD_BODY_CHANGED,
+                        "example/library/Api", "changed", "()I",
+                        "old", "new"));
+        final BoundChangePoint hidden = new BoundChangePoint(upgrade,
+                new ChangePoint(newArtifact,
+                        ChangePointKind.METHOD_REMOVED,
+                        "example/library/Api", "hidden", "()V",
+                        null, null));
+        final OverlayMethodNode root = new OverlayMethodNode(new MethodId(
+                "example/app/Controller", "handle", "()V", "app",
+                "/secret/work/classes"), CodeOrigin.PROJECT);
+        final ImpactPath candidate = new ImpactPath(List.of(root), List.of(),
+                new ChangePointTerminal(affected, EdgeKind.METHOD_CHANGE,
+                        "fixture"), ImpactClassification.TRANSITIVE);
+        final CodeComparisonEvidence code = new CodeComparisonEvidence(
+                CodeComparisonStatus.AVAILABLE,
+                List.of(new UnifiedDiffHunk(1, 1, 1, 1,
+                        List.of("-return 1;", "+return 2;"))), "", "");
+        final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                moduleId, ModulePresence.BOTH, temporary.resolve("classes"),
+                List.of(), List.of(), List.of(),
+                new ModuleChangeSet(List.of(affected, hidden), List.of()));
+        final ModuleAnalysisResult module =
+                new ModuleAnalysisResult.Builder(unit)
+                        .candidatePaths(List.of(candidate))
+                        .finalPaths(List.of())
+                        .equivalenceResults(Map.of(affected,
+                                new MethodEquivalenceResult(
+                                        MethodEquivalenceStatus
+                                                .PROVEN_EQUIVALENT,
+                                        "fixture")))
+                        .dispositions(Map.of(
+                                affected,
+                                ChangePointDisposition.FILTERED_EQUIVALENT,
+                                hidden,
+                                ChangePointDisposition.NO_PROJECT_PATH))
+                        .codeComparisons(Map.of(affected, code)).build();
+        final AnalysisRunResult run = new AnalysisRunResult(
+                AnalysisMode.REACTOR, AnalysisStatus.SUCCESS, List.of(),
+                List.of(module), new AnalysisConcurrency(2, 1, 1, 1),
+                Map.of(), EntrypointSelection.allProjectClasses());
+        final MavenDependencyPluginRuntime plugin =
+                new MavenDependencyPluginRuntimeManager().prepare(
+                        temporary.resolve("config-filtered"),
+                        List.of(), null);
+
+        new PerModuleHtmlReportGenerator().generate(run, List.of(),
+                new PreflightReport(List.of()), maven(), plugin,
+                java(), output);
+
+        final Path owned = temporary.resolve("filtered-modules");
+        final String impact;
+        final String changes;
+        try (Stream<Path> pages = Files.list(owned)) {
+            final List<Path> values = pages.toList();
+            impact = Files.readString(values.stream().filter(path ->
+                    path.getFileName().toString().contains("-impact"))
+                    .findFirst().orElseThrow());
+            changes = Files.readString(values.stream().filter(path ->
+                    path.getFileName().toString().contains("-changes"))
+                    .findFirst().orElseThrow());
+        }
+        assertThat(impact)
+                .contains("View candidate chains filtered as equivalent")
+                .contains("example.app.Controller#handle")
+                .doesNotContain("/secret/work/classes");
+        assertThat(changes)
+                .contains("example:library 1 → 2")
+                .contains("Equivalent (filtered)")
+                .contains("View code changes")
+                .contains("Decompiled Java representation")
+                .contains("-return 1;")
+                .doesNotContain("#hidden");
     }
 
     private MavenRuntimeDescriptor maven() {

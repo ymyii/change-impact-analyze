@@ -7,7 +7,7 @@ relations:
   - path: "wiki/features/bytecode-diff-engine.md"
     desc: "fixture 固定产生 9 类 raw ChangePoint"
   - path: "wiki/features/impact-tracing.md"
-    desc: "fixture 验证 Call Graph path、Structural Impact 与 SSA filtering"
+    desc: "fixture 验证 Call Graph path、Structural Reference Path、SSA filtering 与代码 evidence"
   - path: "wiki/features/report-generator.md"
     desc: "报告完整性校验依赖 Overall 与三个 Module pages contract"
   - path: "wiki/runbooks/build-test-package.md"
@@ -67,15 +67,17 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 - application POM 固定包含 42 个 compile-scope direct dependencies：40 个 class-bearing vendor JAR、`scenario-api`、`legacy-impact-bridge`。
 - preparation 先提交/tag `impact-baseline`，再应用 target source overlay 并提交/tag `impact-target`；commit identity 和 timestamp 固定。
 - `scenario-api:1.0.0 -> 2.0.0` 固定产生 `CLASS_ADDED`、`CLASS_REMOVED`、`METHOD_ADDED`、`METHOD_REMOVED`、`METHOD_DESCRIPTOR_CHANGED`、`METHOD_BODY_CHANGED`、`FIELD_ADDED`、`FIELD_REMOVED`、`FIELD_DESCRIPTOR_CHANGED`。
-- `legacy-impact-bridge` 以 API v1 编译，target application 通过 bridge 保留 removed/old binary references；bridge field descriptor 提供 removed class Structural Impact。
-- Analyzer 以 `module-parallelism=2`、120 秒 per-Module Call Graph timeout、offline Maven 和全部 9 类 `include-change-kinds` 执行。
+- `legacy-impact-bridge` 以 API v1 编译，target application 通过 bridge 保留 removed/old binary references；bridge field descriptor 提供 removed class Structural Reference Path。
+- `METHOD_BODY_CHANGED` fixture 在 bytecode 层不同、normalized SSA 层等价，用于验证 filtered candidate 仍保留调用链和反编译代码 evidence。
+- Analyzer 以 `analysis-parallelism=2`、120 秒 per-Module Call Graph timeout、offline Maven 和全部 9 类 `include-change-kinds` 执行。
 
 ## Success Criteria
 
 - Analyzer exit code 为 `0`；Overall status 为 `Completed`。
 - POM direct dependency count 为 `42`；raw changed member count 为 `9`。
-- Dependency Changes 页面包含全部 9 个 `Raw ChangePointKind`。
-- Candidate / final call chains 为 `6 / 6`；Affected Call Chains 页面存在 class structure reference。
+- Dependency Changes 页面只展示有 candidate/final/Structural path 的 6 类 raw change；`CLASS_ADDED`、`METHOD_ADDED`、`FIELD_ADDED` 不逐项展示。
+- Candidate / final call chains 为 `6 / 5`；Affected Call Chains 页面同时存在 filtered candidate 与 Structural Reference Path。
+- Dependency Changes 页面包含 `Affected`、`Equivalent (filtered)`、`Structural impact` badge，以及默认折叠的 `Decompiled Java representation` Unified diff。
 - Overall、Module Index、Affected Call Chains、Dependency Changes 四个 HTML 页面全部存在。
 - `logs/verification.txt` 第一行为 `status=SUCCESS`，总入口返回 `0`。
 

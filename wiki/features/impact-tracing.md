@@ -7,20 +7,24 @@ relations:
   - path: "wiki/features/bytecode-diff-engine.md"
     desc: "BoundChangePoint 输入"
   - path: "wiki/features/report-generator.md"
-    desc: "Impact Path、Structural Impact 与 disposition 输出"
+    desc: "Impact Path、Structural Reference Path 与代码 evidence 输出"
   - path: "wiki/runbooks/impact-benchmark.md"
-    desc: "固定 Call Chain、Structural Impact 与 SSA 结果的持续验证"
+    desc: "固定 Call Chain、Structural Reference Path、SSA 与代码 evidence 的持续验证"
 code_refs:
   - path: "src/main/java/io/github/dependencyanalysis/impact/ModuleImpactTracer.java"
     desc: "seed resolution 与 direct WALA reverse query"
   - path: "src/main/java/io/github/dependencyanalysis/impact/ImpactPath.java"
     desc: "ordered nodes/edges/terminal"
   - path: "src/main/java/io/github/dependencyanalysis/impact/StructuralImpactScanner.java"
-    desc: "class metadata Structural Impact"
+    desc: "class metadata Structural Reference 扫描"
+  - path: "src/main/java/io/github/dependencyanalysis/impact/StructuralReferencePath.java"
+    desc: "带 PROJECT boundary 的结构引用链"
   - path: "src/main/java/io/github/dependencyanalysis/impact/SsaEquivalenceEngine.java"
     desc: "global serial candidate-only filtering"
   - path: "src/main/java/io/github/dependencyanalysis/impact/NormalizedSsaComparator.java"
     desc: "conservative normalized SSA/CFG comparison"
+  - path: "src/main/java/io/github/dependencyanalysis/impact/CodeComparisonBuilder.java"
+    desc: "path-related old/new decompiled Java 与 ASM fallback"
 ---
 
 # Feature: Impact Tracing
@@ -47,12 +51,13 @@ Impact Tracing 在 target Call Graph 完成后解析 ChangePoint seed，直接�
 - Callsite evidence 通过 WALA possible-site API 恢复；equal-length path 按 method identity、bytecode PC、declared target、edge kind 稳定选择。
 - Seed origin 为 `PROJECT` 时 `DIRECT`；其他 code origin 为 `TRANSITIVE`。
 
-## Structural Impact
+## Structural Reference Path
 
-- Class metadata 的 superclass、interface、annotation、generic signature、method/field descriptor、throws reference 单独形成 `StructuralImpact`。
-- `PROJECT` metadata reference 是 direct structural impact。
-- `REACTOR_DEPENDENCY`/`DEPENDENCY` reference 仅在 referencing class 有 reachable CG evidence 时报告 transitive structural impact。
-- 无 reachability evidence 时 disposition 为 `UNREACHABLE_STRUCTURAL_REFERENCE`，不伪造 method path。
+- Class metadata 的 superclass、interface、annotation、generic signature、method/field descriptor、throws reference 先形成结构化 `StructuralReference`。
+- `PROJECT` metadata reference 直接展示 `application class/member -> structural relation -> changed dependency class`，不会虚构 method call。
+- `REACTOR_DEPENDENCY`/`DEPENDENCY` reference 复用 live WALA graph 和 ServiceLoader overlay reverse traversal，恢复 `affected PROJECT method -> shortest call chain -> referencing class/member -> structural relation -> changed class`。
+- 每个 affected PROJECT method 保留一条 deterministic shortest representative path；traversal 使用 exact `CGNode` identity并保留 Context。
+- 无法回到 PROJECT boundary 时 disposition 为 `UNREACHABLE_STRUCTURAL_REFERENCE`，不输出伪造链。
 
 ## ChangePoint Disposition
 
@@ -75,6 +80,14 @@ Impact Tracing 在 target Call Graph 完成后解析 ChangePoint seed，直接�
 - Model 比较 typed constants、Def-Use、normal/exception CFG、catch type、declared references、phi/pi/catch、invoke/return/throw/monitor 与 side-effect order。
 - `PROVEN_EQUIVALENT` 删除该 ChangePoint 的全部 paths；`DIFFERENT`、`UNKNOWN` 保留。
 - `UNKNOWN` 使原 `SUCCESS` Module 转为 `INCONCLUSIVE`。
+
+## Code Comparison Evidence
+
+- 只为至少关联 candidate/final Impact Path 或 Structural Reference Path 的 `BoundChangePoint` 构建 evidence；无路径 raw change 不反编译、不逐项进入 Dependency Changes 页面。
+- `METHOD_BODY_CHANGED`、`METHOD_REMOVED`、`METHOD_DESCRIPTOR_CHANGED` 使用 exact descriptor；field change 生成 bytecode-derived Java declaration；有路径的 `CLASS_REMOVED` 反编译 old class。
+- Vineflower 在内存中、单线程使用 exact old/new artifact 与 JDK 8 context；多个 Module 复用相同 physical JAR pair/member 结果。
+- 输出是完整 Git-style Unified diff，每个 hunk 3 行 context，并明确标记为 `Decompiled Java representation`。反编译失败或 bytecode 不同但文本相同时保留 ASM instruction diff fallback。
+- SSA `PROVEN_EQUIVALENT` 的 candidate path 仍生成代码 evidence，供用户复核；代码 evidence 不参与 Impact 或 SSA 判定，失败也不改变 Module status。
 
 ## Boundary
 

@@ -40,13 +40,13 @@
 - Summary: physical JAR pair 并行去重 diff；MethodNode canonical hash覆盖 CFG/exception/bootstrap topology，SSA filtering 延迟到 candidate path 后。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
-- Summary: 每 Module 独立使用 target JDK 8、PROJECT-only all-method entrypoints、WALA Vanilla 0-1-CFA `FULL` Reflection。
+- Summary: 每 Module 独立使用 target JDK 8、可配置 PROJECT package/class entrypoints、WALA Vanilla 0-1-CFA `FULL` Reflection。
 
 ### [Impact Tracing](features/impact-tracing.md)
-- Summary: Call Graph 后从 live WALA graph 解析 seed并直接 reverse query，保留 Context、Structural Impact 与 serial SSA filtering。
+- Summary: Call Graph 后从 live WALA graph 直接 reverse query，保留 Context、Structural Reference Path、serial SSA filtering 与 path-related code evidence。
 
 ### [Report Generator](features/report-generator.md)
-- Summary: `impact` 原子生成英文 Overall Index + 每个非-skip Module 三页；plain-language 主视图、折叠 technical evidence、responsive TOC 与 cross-page navigation。
+- Summary: `impact` 原子生成英文 Overall Index + 每个非-skip Module 三页；只突出有路径证据的 dependency changes，提供折叠 Unified diff、technical evidence 与 responsive navigation。
 
 ## Rules
 

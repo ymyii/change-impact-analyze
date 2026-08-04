@@ -116,7 +116,9 @@ class DependencyAnalyzerCliTest {
                 .contains("-o, --output")
                 .contains("-f, --format")
                 .contains("-k, --include-change-kinds")
-                .contains("--module-parallelism")
+                .contains("--analysis-parallelism")
+                .contains("--entrypoint-include")
+                .contains("--entrypoint-exclude")
                 .contains("--analysis-target");
         assertThat(treeText.toString())
                 .contains("-p, --path")
@@ -171,19 +173,25 @@ class DependencyAnalyzerCliTest {
     }
 
     @Test
-    void markdownAndInvalidModuleParallelismAreRejected() {
+    void markdownAndInvalidOrRemovedParallelismAreRejected() {
         final int markdown = DependencyAnalyzerCli
                 .newCommandLine(new DependencyAnalyzerCli())
                 .execute("impact", "--baseline", "HEAD",
                         "--output", "report.md", "--format", "md");
-        final int parallelism = DependencyAnalyzerCli
+        final int removed = DependencyAnalyzerCli
                 .newCommandLine(new DependencyAnalyzerCli())
                 .execute("impact", "--baseline", "HEAD",
                         "--output", "report.html",
                         "--module-parallelism", "0");
+        final int invalid = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli())
+                .execute("impact", "--baseline", "HEAD",
+                        "--output", "report.html",
+                        "--analysis-parallelism", "0");
 
         assertThat(markdown).isEqualTo(1);
-        assertThat(parallelism).isEqualTo(1);
+        assertThat(removed).isEqualTo(1);
+        assertThat(invalid).isEqualTo(1);
     }
 
     @Test

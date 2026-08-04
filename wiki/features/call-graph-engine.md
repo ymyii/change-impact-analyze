@@ -13,6 +13,10 @@ code_refs:
     desc: "live graph、CHA、cache、ownership 与 metrics"
   - path: "src/main/java/io/github/dependencyanalysis/callgraph/DeterministicSubtypesEntrypoint.java"
     desc: "PROJECT all-method entrypoint 参数候选"
+  - path: "src/main/java/io/github/dependencyanalysis/callgraph/EntrypointSelection.java"
+    desc: "用户 include/exclude selector 与默认 all-method boundary"
+  - path: "src/main/java/io/github/dependencyanalysis/callgraph/EntrypointClassScanner.java"
+    desc: "WALA 前轻量 target PROJECT class index"
   - path: "src/main/java/io/github/dependencyanalysis/callgraph/ClassOwnershipIndex.java"
     desc: "binary-name ownership 与 duplicate validation"
   - path: "src/main/java/io/github/dependencyanalysis/callgraph/ModuleScopeValidator.java"
@@ -38,7 +42,10 @@ code_refs:
 
 ## Entrypoints
 
-- 当前 `PROJECT` 中全部 non-abstract declared methods，包括 interface default/static 与 concrete bridge/synthetic methods。
+- 未配置 selector 时，当前 `PROJECT` 中全部 non-abstract declared methods成为 entrypoints，包括 interface default/static 与 concrete bridge/synthetic methods。
+- `--entrypoint-include '<package-pattern>:<class-pattern>'`/`--entrypoint-exclude ...` 可重复；include 取并集，exclude 优先。Package 只支持精确匹配与尾部 `**` 递归匹配；class pattern 匹配 simple binary class name，`*` 为 wildcard，nested class 使用 `$`。
+- 命中 class 的全部 non-abstract declared methods成为 entrypoints；不自动加入 inherited method 或 subclass。Selector 只限制 `PROJECT` roots，不裁剪 Module scope、CHA、Reflection、ServiceLoader 或 Reference 参数 subtype candidates。
+- 轻量 ASM class index 在 WALA 前计算匹配 metrics；无匹配的 relevant Module 为 `SKIPPED_USER_ENTRYPOINT_SCOPE`。所有 relevant Module 均无匹配时 command fail，不发布新 Report。
 - Reference 参数枚举 scope 内全部 concrete assignable types，按 type name 排序；primitive 保留 declared type；constructor receiver 保留 declaring type。
 - `REACTOR_DEPENDENCY`、`DEPENDENCY`、`JDK` 不作为 entrypoint，只由 reachability 进入。
 - 零 `PROJECT` entrypoint 使当前 Module fail。
@@ -79,5 +86,5 @@ MethodHandles.analyzeMethodHandles(options, builder);
 
 - Vanilla 0-1-CFA、`FULL`、MethodHandle extension 可由 fixture 验证。
 - 不同 Module 的 classpath/version、CHA、graph、cache 相互隔离。
-- WALA build/query 单线程；Module pool 并发受 `--module-parallelism` 限制。
-- Report 记录 scope、exclusions、entrypoints、parameter candidates、nodes、edges、contexts、elapsed。
+- WALA build/query 单线程；Module pool 并发受 `--analysis-parallelism` 限制。
+- Report 记录 selector boundary、matched classes、scope、exclusions、entrypoints、parameter candidates、nodes、edges、contexts、elapsed。

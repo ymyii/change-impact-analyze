@@ -1,10 +1,7 @@
 package io.github.dependencyanalysis.impact;
 
-import com.ibm.wala.ipa.callgraph.CGNode;
-
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
-import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
 import io.github.dependencyanalysis.dependency.ResolvedArtifact;
 
 import org.objectweb.asm.AnnotationVisitor;
@@ -70,43 +67,37 @@ final class StructuralImpactScanner {
      * Scans target scope metadata for removed classes.
      *
      * @param unit module input
-     * @param session live module graph
      * @return classified structural references
      */
-    StructuralScanResult scan(
-            final ModuleAnalysisUnit unit,
-            final ModuleCallGraphSession session) {
+    StructuralScanResult scan(final ModuleAnalysisUnit unit) {
         final Map<String, List<BoundChangePoint>> targets = targets(unit);
         if (targets.isEmpty()) {
             return StructuralScanResult.empty();
         }
-        final Set<String> reachable = reachableClasses(session);
-        final List<StructuralImpact> impacts = new ArrayList<>();
-        final Set<BoundChangePoint> unreachable = new LinkedHashSet<>();
+        final List<StructuralReferenceMatch> references = new ArrayList<>();
         final Set<String> seen = new LinkedHashSet<>();
         try {
             scanDirectory(unit.getProjectClasses(), CodeOrigin.PROJECT,
-                    targets, reachable, impacts, unreachable, seen);
+                    targets, references, seen);
             for (Path path : unit.getReactorDependencyClasses()) {
                 scanDirectory(path, CodeOrigin.REACTOR_DEPENDENCY,
-                        targets, reachable, impacts, unreachable, seen);
+                        targets, references, seen);
             }
             for (ResolvedArtifact artifact : unit.getTargetArtifacts()) {
                 if ("jar".equals(artifact.getArtifact().getType())) {
                     scanJar(artifact.getPath(), CodeOrigin.DEPENDENCY,
-                            targets, reachable, impacts, unreachable, seen);
+                            targets, references, seen);
                 }
             }
         } catch (IOException | RuntimeException exception) {
             throw new ImpactException(
                     "Unable to scan structural metadata", exception);
         }
-        impacts.sort(Comparator
-                .comparing((StructuralImpact value) ->
-                        value.getChangePoint().stableKey())
-                .thenComparing(StructuralImpact::getReferencingClass)
-                .thenComparing(StructuralImpact::getEvidence));
-        return new StructuralScanResult(impacts, unreachable);
+        references.sort(Comparator
+                .comparing((StructuralReferenceMatch value) ->
+                        value.changePoint().stableKey())
+                .thenComparing(value -> value.reference().stableKey()));
+        return new StructuralScanResult(references);
     }
 
     private Map<String, List<BoundChangePoint>> targets(
@@ -124,25 +115,11 @@ final class StructuralImpactScanner {
         return result;
     }
 
-    private Set<String> reachableClasses(
-            final ModuleCallGraphSession session) {
-        final Set<String> result = new LinkedHashSet<>();
-        for (CGNode node : session.getGraph()) {
-            final String value = node.getMethod().getDeclaringClass()
-                    .getName().toString();
-            result.add(value.startsWith("L")
-                    ? value.substring(1) : value);
-        }
-        return result;
-    }
-
     private void scanDirectory(
             final Path directory,
             final CodeOrigin origin,
             final Map<String, List<BoundChangePoint>> targets,
-            final Set<String> reachable,
-            final List<StructuralImpact> impacts,
-            final Set<BoundChangePoint> unreachable,
+            final List<StructuralReferenceMatch> references,
             final Set<String> seen) throws IOException {
         final List<Path> files;
         try (Stream<Path> stream = Files.walk(directory)) {
@@ -153,7 +130,7 @@ final class StructuralImpactScanner {
         }
         for (Path file : files) {
             scanClass(Files.readAllBytes(file), origin, targets,
-                    reachable, impacts, unreachable, seen);
+                    references, seen);
         }
     }
 
@@ -161,9 +138,7 @@ final class StructuralImpactScanner {
             final Path jarPath,
             final CodeOrigin origin,
             final Map<String, List<BoundChangePoint>> targets,
-            final Set<String> reachable,
-            final List<StructuralImpact> impacts,
-            final Set<BoundChangePoint> unreachable,
+            final List<StructuralReferenceMatch> references,
             final Set<String> seen) throws IOException {
         try (JarFile jar = new JarFile(jarPath.toFile(), false)) {
             final List<JarEntry> entries = jar.stream()
@@ -176,7 +151,7 @@ final class StructuralImpactScanner {
             for (JarEntry entry : entries) {
                 try (InputStream input = jar.getInputStream(entry)) {
                     scanClass(input.readAllBytes(), origin, targets,
-                            reachable, impacts, unreachable, seen);
+                            references, seen);
                 }
             }
         }
@@ -186,35 +161,84 @@ final class StructuralImpactScanner {
             final byte[] bytes,
             final CodeOrigin origin,
             final Map<String, List<BoundChangePoint>> targets,
-            final Set<String> reachable,
-            final List<StructuralImpact> impacts,
-            final Set<BoundChangePoint> unreachable,
+            final List<StructuralReferenceMatch> references,
             final Set<String> seen) {
         final MetadataCollector collector = new MetadataCollector(targets);
         new ClassReader(bytes).accept(collector,
                 ClassReader.SKIP_CODE
                         | ClassReader.SKIP_DEBUG
                         | ClassReader.SKIP_FRAMES);
-        final boolean reportable = origin == CodeOrigin.PROJECT
-                || reachable.contains(collector.owner());
         for (MetadataReference reference : collector.references()) {
             for (BoundChangePoint point
                     : targets.get(reference.target())) {
-                if (!reportable) {
-                    unreachable.add(point);
-                    continue;
-                }
                 final String key = point.stableKey() + "|"
                         + collector.owner() + "|" + origin + "|"
                         + reference.evidence();
                 if (seen.add(key)) {
-                    impacts.add(new StructuralImpact(
-                            point.getDependencyUpgradeKey().getModuleId(),
-                            point, collector.owner(), origin,
-                            reference.evidence()));
+                    references.add(new StructuralReferenceMatch(
+                            point, structuralReference(collector.owner(),
+                            origin, reference)));
                 }
             }
         }
+    }
+
+    private StructuralReference structuralReference(
+            final String owner,
+            final CodeOrigin origin,
+            final MetadataReference metadata) {
+        final String evidence = metadata.evidence();
+        final int separator = evidence.indexOf(':');
+        final String prefix = separator < 0 ? evidence
+                : evidence.substring(0, separator);
+        final String member = separator < 0 ? ""
+                : evidence.substring(separator + 1);
+        return new StructuralReference(owner, origin,
+                structuralKind(prefix, evidence, metadata.target()), member,
+                metadata.target(), evidence);
+    }
+
+    private StructuralReferenceKind structuralKind(
+            final String prefix,
+            final String evidence,
+            final String target) {
+        if ("SUPERCLASS".equals(prefix)) {
+            return StructuralReferenceKind.SUPERCLASS;
+        }
+        if ("INTERFACE".equals(prefix)) {
+            return StructuralReferenceKind.INTERFACE;
+        }
+        if (prefix.contains("ANNOTATION")) {
+            return StructuralReferenceKind.ANNOTATION;
+        }
+        if (prefix.startsWith("FIELD")) {
+            return StructuralReferenceKind.FIELD_TYPE;
+        }
+        if ("THROWS".equals(prefix)) {
+            return StructuralReferenceKind.THROWS;
+        }
+        if (prefix.contains("SIGNATURE")) {
+            return StructuralReferenceKind.SIGNATURE;
+        }
+        if ("METHOD_DESCRIPTOR".equals(prefix)) {
+            final int descriptor = evidence.indexOf('(');
+            if (descriptor >= 0) {
+                final String value = evidence.substring(descriptor);
+                if (Type.getReturnType(value).getSort() != Type.VOID
+                        && containsTarget(Type.getReturnType(value), target)) {
+                    return StructuralReferenceKind.METHOD_RETURN;
+                }
+            }
+            return StructuralReferenceKind.METHOD_PARAMETER;
+        }
+        return StructuralReferenceKind.METADATA;
+    }
+
+    private boolean containsTarget(final Type type, final String target) {
+        final Type value = type.getSort() == Type.ARRAY
+                ? type.getElementType() : type;
+        return value.getSort() == Type.OBJECT
+                && target.equals(value.getInternalName());
     }
 
     /** Metadata collection visitor. */
@@ -474,33 +498,30 @@ final class StructuralImpactScanner {
 /** Structural scan output. */
 final class StructuralScanResult {
 
-    /** Reportable references. */
-    private final List<StructuralImpact> impacts;
+    /** All module-scope structural references. */
+    private final List<StructuralReferenceMatch> references;
 
-    /** Changed types referenced only by unreachable non-project classes. */
-    private final Set<BoundChangePoint> unreachable;
-
-    StructuralScanResult(
-            final List<StructuralImpact> values,
-            final Set<BoundChangePoint> unreachablePoints) {
-        impacts = List.copyOf(values);
-        unreachable = Set.copyOf(unreachablePoints);
+    StructuralScanResult(final List<StructuralReferenceMatch> values) {
+        references = List.copyOf(values);
     }
 
     static StructuralScanResult empty() {
-        return new StructuralScanResult(List.of(), Set.of());
+        return new StructuralScanResult(List.of());
     }
 
-    List<StructuralImpact> impacts() {
-        return impacts;
+    List<StructuralReferenceMatch> references() {
+        return references;
     }
 
-    boolean hasImpact(final BoundChangePoint point) {
-        return impacts.stream().anyMatch(value ->
-                value.getChangePoint().equals(point));
-    }
+}
 
-    boolean hasUnreachable(final BoundChangePoint point) {
-        return unreachable.contains(point);
-    }
+/**
+ * Binds one metadata reference to the changed dependency class.
+ *
+ * @param changePoint changed dependency class
+ * @param reference structured metadata reference
+ */
+record StructuralReferenceMatch(
+        BoundChangePoint changePoint,
+        StructuralReference reference) {
 }

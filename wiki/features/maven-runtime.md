@@ -47,7 +47,7 @@ code_refs:
 
 ## Summary
 
-Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个 subcommand 提供 Maven 3.6.3–3.x executable。默认从 JAR resource 离线准备 Apache Maven 3.6.3；`tree` 还会离线准备 evidence-complete Dependency Plugin repository。
+Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个 subcommand 提供 Maven 3.6.3–3.x executable。默认从 JAR resource 离线准备 Apache Maven 3.6.3；`impact` 固定、`tree` 默认离线准备 evidence-complete Dependency Plugin repository。
 
 ## Design Decisions
 
@@ -55,7 +55,7 @@ Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个
 - Runtime leaf 同时包含 Maven version 和 ZIP SHA-512；completion marker 与 executable 共同判定可复用。
 - 解压前校验官方 SHA-512，并拒绝 normalized path 越出 staging directory 的 ZIP entry。
 - Config dir cleanup 只允许删除 `runtime/apache-maven/<version>/<sha>` leaf，不整体删除 config dir。
-- Maven 3.6.3 已 EOL，preflight evidence 明确展示，但版本仍在支持范围内。
+- Maven 3.6.3 已 EOL，但 warning 只在实际 probe version 为 `3.6.3` 时展示；用户指定较新 Maven 时不会混入内嵌 runtime version/EOL 文案。
 - Dependency Plugin cache 与 Maven distribution 使用相同的 checksum、leaf lock、staging 和 atomic move 安全模型，但两者是独立 resource。
 - 内嵌 Maven ZIP 同时携带 `mvn`、`mvn.cmd`、`mvnDebug` 和 `mvnDebug.cmd`；launcher selection 提取为可测试的 OS contract。
 
@@ -68,6 +68,8 @@ Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个
 
 - 默认 config dir 为 `${user.home}/.dependency-analyzer`，结构包含 Maven runtime、Dependency Plugin repository 和 `locks/`。
 - 用户 executable 优先级最高，descriptor source 为 `USER_CONFIGURED`；内嵌 runtime source 为 `EMBEDDED`。
+- `*.maven-runtime` evidence 只报告 runtime source；`*.maven-version` 报告实际 `--version` probe 结果。Report 主视图展示实际 Maven version/source，executable path 只进入 `Technical details`。
+- 显式 `--maven` 时 version probe、GraphML probe、target build、baseline/target dependency analysis 都使用同一 executable；未指定时才使用内嵌 3.6.3。
 - 内嵌 preparation 使用 file lock、staging 和 atomic move，其他进程不会看到半解压 runtime。
 - 损坏 runtime 只重建对应 leaf；未知 config/user 文件保持不变。
 - POSIX/macOS 依靠 `.` 前缀隐藏默认目录；Windows best-effort 设置 DOS hidden attribute。
@@ -81,7 +83,7 @@ Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个
 - 否则读取 SHA-512、获取 leaf lock、校验 marker/executable。
 - 需要重建时，校验 resource checksum、Zip Slip 防护解压、写 completion marker、atomic replace。
 - Preflight 以 `--version` probe 填充 descriptor version，并验证 `>=3.6.3 && <4.0.0`。
-- Tree 为 Maven 生成 effective global settings，保留用户 `-gs`、`-s`、mirror、proxy 和 server，同时注入内置 file plugin repository；不输出 settings 中的敏感值。
+- Dependency Plugin runtime 为选中的同一个 Maven executable 生成 effective global settings，保留用户 `-gs`、`-s`、mirror、proxy 和 server，同时注入内置 file plugin repository；不输出 settings 中的敏感值。Overlay 只用于 fully-qualified `tree`/`list`，不应用于 target `compile`。
 
 ## Acceptance Criteria
 

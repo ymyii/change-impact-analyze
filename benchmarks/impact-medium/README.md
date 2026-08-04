@@ -9,7 +9,7 @@
 - `fixtures/artifacts/`：`scenario-api`、`legacy-impact-bridge` 和 vendor artifact source。
 - `scripts/prepare-fixture.sh`：编译并安装 fixture artifacts，生成临时 Git project。
 - `scripts/invoke-impact.sh`：唯一的 `impact` CLI 参数入口。
-- `scripts/verify-report.sh`：校验 exit code、42 个 dependencies、9 类 changes、call chains 和 structural impact。
+- `scripts/verify-report.sh`：校验 exit code、42 个 dependencies、raw changes、final/filtered call chains、Structural Reference Path 和反编译代码证据。
 - `run-benchmark.sh`：准备 fixture、采样资源、执行分析和校验报告。
 
 所有生成物默认位于 `tmp-files/impact-medium-benchmark/<label>/`。
@@ -78,9 +78,9 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 
 - Analyzer exit code 为 `0`，Overall status 为 `Completed`。
 - application POM 包含 42 个 direct dependencies。
-- report 包含全部 9 个 `Raw ChangePointKind`，raw changed members 为 `9`。
-- Candidate / final call chains 为 `6 / 6`。
-- Affected Call Chains 页面包含 class structure reference。
+- Overall technical details 中 raw changed members 为 `9`；Changes 页面仅展示有 candidate/final/Structural Reference Path 的变更，并隐藏三类 added change。
+- Candidate / final call chains 为 `6 / 5`，`METHOD_BODY_CHANGED` 作为 SSA equivalent candidate 保留在折叠区。
+- Affected Call Chains 页面包含 Structural Reference Path；Changes 页面包含 final、filtered、structural badge 与反编译 Unified diff。
 - Overall、Module Index、Affected Call Chains、Dependency Changes 四个 HTML 页面均存在。
 
 ## 结果目录
@@ -104,7 +104,7 @@ tmp-files/impact-medium-benchmark/<label>/
 
 `time.txt` 的 `real/user/sys` 是总耗时与 CPU time。`process-tree.csv` 每 250 ms 采样 Analyzer 及 Maven/Javac 子进程的 aggregate RSS/CPU。macOS `time` 的 maximum resident set size 单位为 byte，GNU `time` 为 KiB。
 
-建议相同 JAR 至少执行三次并对比中位数；保留 JVM、JDK 8、Maven、CPU 核数与 `module-parallelism` 一致。`front-parallel` 包含并发的 `baseline-dependency` 与 `target-build`，阶段时间不能全部相加推导 Wall time。
+建议相同 JAR 至少执行三次并对比中位数；保留 JVM、JDK 8、Maven、CPU 核数与 `analysis-parallelism` 一致。`front-parallel` 包含并发的 `baseline-dependency` 与 `target-build`，阶段时间不能全部相加推导 Wall time。
 
 ## Failure Entrypoints
 

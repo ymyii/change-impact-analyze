@@ -15,6 +15,9 @@ public enum ModuleAnalysisReason {
     /** Module has no relevant dependency ChangePoint. */
     SKIPPED_NO_RELEVANT_CHANGE,
 
+    /** User entrypoint selectors matched no executable PROJECT method. */
+    SKIPPED_USER_ENTRYPOINT_SCOPE,
+
     /** At least one physical JAR pair could not be diffed. */
     INCONCLUSIVE_BYTECODE_DIFF,
 

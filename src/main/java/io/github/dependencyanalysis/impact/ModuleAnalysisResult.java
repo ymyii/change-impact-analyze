@@ -34,8 +34,8 @@ public final class ModuleAnalysisResult {
     /** Final paths after SSA filtering. */
     private final List<ImpactPath> finalPaths;
 
-    /** Structural impacts. */
-    private final List<StructuralImpact> structuralImpacts;
+    /** Structural Reference Paths. */
+    private final List<StructuralReferencePath> structuralPaths;
 
     /** ChangePoint dispositions. */
     private final Map<BoundChangePoint, ChangePointDisposition> dispositions;
@@ -43,6 +43,10 @@ public final class ModuleAnalysisResult {
     /** SSA comparison results. */
     private final Map<BoundChangePoint,
             MethodEquivalenceResult> equivalenceResults;
+
+    /** User-reviewable code comparisons by relevant changed member. */
+    private final Map<BoundChangePoint,
+            CodeComparisonEvidence> codeComparisons;
 
     /** Coverage limitations. */
     private final List<String> limitations;
@@ -61,9 +65,10 @@ public final class ModuleAnalysisResult {
         session = builder.session;
         candidatePaths = immutable(builder.candidatePaths);
         finalPaths = immutable(builder.finalPaths);
-        structuralImpacts = immutable(builder.structuralImpacts);
+        structuralPaths = immutable(builder.structuralPaths);
         dispositions = immutableMap(builder.dispositions);
         equivalenceResults = immutableMap(builder.equivalenceResults);
+        codeComparisons = immutableMap(builder.codeComparisons);
         limitations = immutable(builder.limitations);
         elapsedMillis = builder.elapsedMillis;
         stageElapsedMillis = Collections.unmodifiableMap(
@@ -119,9 +124,9 @@ public final class ModuleAnalysisResult {
         return finalPaths;
     }
 
-    /** @return structural impacts */
-    public List<StructuralImpact> getStructuralImpacts() {
-        return structuralImpacts;
+    /** @return Structural Reference Paths */
+    public List<StructuralReferencePath> getStructuralPaths() {
+        return structuralPaths;
     }
 
     /** @return ChangePoint dispositions */
@@ -133,6 +138,12 @@ public final class ModuleAnalysisResult {
     public Map<BoundChangePoint, MethodEquivalenceResult>
             getEquivalenceResults() {
         return equivalenceResults;
+    }
+
+    /** @return path-associated code comparison evidence */
+    public Map<BoundChangePoint, CodeComparisonEvidence>
+            getCodeComparisons() {
+        return codeComparisons;
     }
 
     /** @return coverage limitations */
@@ -162,9 +173,10 @@ public final class ModuleAnalysisResult {
                 .session(session)
                 .candidatePaths(candidatePaths)
                 .finalPaths(finalPaths)
-                .structuralImpacts(structuralImpacts)
+                .structuralPaths(structuralPaths)
                 .dispositions(dispositions)
                 .equivalenceResults(equivalenceResults)
+                .codeComparisons(codeComparisons)
                 .limitations(limitations)
                 .elapsedMillis(elapsedMillis)
                 .stageElapsedMillis(stageElapsedMillis);
@@ -194,8 +206,8 @@ public final class ModuleAnalysisResult {
         /** Final paths. */
         private List<ImpactPath> finalPaths = List.of();
 
-        /** Structural impacts. */
-        private List<StructuralImpact> structuralImpacts = List.of();
+        /** Structural Reference Paths. */
+        private List<StructuralReferencePath> structuralPaths = List.of();
 
         /** Dispositions. */
         private Map<BoundChangePoint, ChangePointDisposition> dispositions =
@@ -204,6 +216,10 @@ public final class ModuleAnalysisResult {
         /** Equivalence results. */
         private Map<BoundChangePoint, MethodEquivalenceResult>
                 equivalenceResults = Map.of();
+
+        /** Code comparisons. */
+        private Map<BoundChangePoint, CodeComparisonEvidence>
+                codeComparisons = Map.of();
 
         /** Limitations. */
         private List<String> limitations = List.of();
@@ -265,12 +281,12 @@ public final class ModuleAnalysisResult {
         }
 
         /**
-         * @param values impacts
+         * @param values structural paths
          * @return this builder
          */
-        public Builder structuralImpacts(
-                final List<StructuralImpact> values) {
-            structuralImpacts = List.copyOf(values);
+        public Builder structuralPaths(
+                final List<StructuralReferencePath> values) {
+            structuralPaths = List.copyOf(values);
             return this;
         }
 
@@ -293,6 +309,17 @@ public final class ModuleAnalysisResult {
                 final Map<BoundChangePoint,
                         MethodEquivalenceResult> values) {
             equivalenceResults = Map.copyOf(values);
+            return this;
+        }
+
+        /**
+         * @param values path-associated code comparisons
+         * @return this builder
+         */
+        public Builder codeComparisons(
+                final Map<BoundChangePoint,
+                        CodeComparisonEvidence> values) {
+            codeComparisons = Map.copyOf(values);
             return this;
         }
 

@@ -69,7 +69,7 @@ ${user.home}/.dependency-analyzer/
    └─ tmp/<run-id>/
 ```
 
-Apache Maven 3.6.3 已 EOL；preflight evidence 会展示该事实。工具仍支持该内嵌 version，以提供确定、offline 的默认 runtime。
+Apache Maven 3.6.3 已 EOL；只有实际选择内嵌 3.6.3 时，version evidence 才展示该 warning。显式 `--maven` 时，所有 Maven process 和 Report 使用用户 executable 的实际 probe version；runtime evidence 只描述 `USER_CONFIGURED` 或 `EMBEDDED` source。
 
 Config dir 中未知文件和用户文件不会被自动删除。Runtime 损坏时只重建明确归属工具的 version/SHA leaf。
 
@@ -112,7 +112,9 @@ dependency-analyzer impact \
   -o, --output <file> \
   [-f, --format html] \
   [--analysis-target spring-backend] \
-  [--module-parallelism <count>] \
+  [--analysis-parallelism <count>] \
+  [--entrypoint-include '<package-pattern>:<class-pattern>']... \
+  [--entrypoint-exclude '<package-pattern>:<class-pattern>']... \
   [-k, --include-change-kinds <csv>] \
   [--call-graph-timeout-seconds <seconds>]
 ```
@@ -123,7 +125,9 @@ dependency-analyzer impact \
 - `--output` parent 必须存在且可写。
 - `--format` 仅接受 `html`；`md` compatibility token 会 fail fast。
 - `--analysis-target` 默认且首版只接受 `spring-backend`。
-- `--module-parallelism` 默认 `2`，必须 `>=1`；超过 CPU 数只输出 warning，不静默截断。
+- `--analysis-parallelism` 默认 `2`，必须 `>=1`；统一控制 Module analysis、JAR diff 和代码反编译各自的 bounded pool。超过 CPU 数只输出 warning，不静默截断。
+- `--entrypoint-include`/`--entrypoint-exclude` 可重复。Package 支持精确值和尾部 `**` 递归匹配；class 匹配 simple binary class name，支持 `*`，nested class 使用 `$`。多个 include 取并集，exclude 优先。
+- 命中 class 的全部 non-abstract declared methods成为 entrypoints；不自动加入 inherited method 或 subclass。Relevant Module 没有匹配时标记 `SKIPPED_USER_ENTRYPOINT_SCOPE`；所有 relevant Module 都没有匹配时 exit `1`，不替换旧 Report。
 - `--include-change-kinds` 控制 bytecode `ChangePointKind`。
 - `--java-home` 必填且必须是完整 JDK 8：Preflight 校验 `bin/java`、`bin/javac`、Java major、`rt.jar`，并读取 `sun.boot.class.path` 与 `java.ext.dirs`。
 - `--java-home` 同时决定 Maven subprocess `JAVA_HOME`、用户代码编译 JDK 和 WALA Primordial/Extension target runtime。
@@ -137,7 +141,9 @@ dependency-analyzer impact \
 | `-o` | `--output` | HTML Index 文件。 |
 | `-f` | `--format` | 仅 `html`；`md` 已移除。 |
 |  | `--analysis-target` | 仅 `spring-backend`。 |
-|  | `--module-parallelism` | Module analysis 并发数，默认 `2`。 |
+|  | `--analysis-parallelism` | Module analysis、JAR diff、代码反编译并发数，默认 `2`。 |
+|  | `--entrypoint-include` | 只选择匹配 PROJECT class 的 declared methods 作为 entrypoints；可重复。 |
+|  | `--entrypoint-exclude` | 从 include/default selection 中排除匹配 PROJECT class；可重复且优先。 |
 | `-k` | `--include-change-kinds` | 纳入分析的 `ChangePointKind` CSV。 |
 |  | `--call-graph-timeout-seconds` | Per-Module WALA timeout；`0` 表示无限等待。 |
 
@@ -153,7 +159,7 @@ java -jar dependency-analyzer.jar impact \
   --output build/impact.html
 ```
 
-比较两个 local ref，并指定 Module 并发数：
+比较两个 local ref，并将 analysis 并发数设为 `4`，同时将 entrypoints 限定到 payment package，但排除 generated class：
 
 ```sh
 java -jar dependency-analyzer.jar \
@@ -163,7 +169,9 @@ java -jar dependency-analyzer.jar \
   --baseline main \
   --target feature/dependency-upgrade \
   --output build/impact.html \
-  --module-parallelism 4
+  --analysis-parallelism 4 \
+  --entrypoint-include 'com.acme.payment.**:*' \
+  --entrypoint-exclude 'com.acme.payment.generated.**:*'
 ```
 
 ### 5.3 Pipeline 与报告
@@ -172,7 +180,7 @@ Preflight 后先识别模式：选择 reactor root 时，全 reactor 只 compile
 
 前置阶段并行执行 baseline dependency resolution 与 target Maven compile；join 后执行 target dependency resolution。Baseline 不 compile、不构建 Call Graph。Dependency analysis 的 `tree` 与 `list` 都使用内嵌 runtime、settings overlay 和 fully-qualified `org.apache.maven.plugins:maven-dependency-plugin:3.6.1:<goal>`；target `compile` 仍只使用普通 user Maven arguments。GraphML 提供 mediated tree；工具将每个 Module 的已 mediation external dependency 写入 isolated temporary POM，再使用 `list`、`outputAbsoluteArtifactFilename=true`、`excludeReactor=true` 与 `excludeTransitive=true` 获取 exact absolute artifact path。这避免 clean baseline 因 reactor artifact 未构建而 resolution 失败，也不拼接 `~/.m2` 路径。
 
-Physical JAR pair 使用半数 CPU 并行 bytecode diff。存在 removal/modification ChangePoint 的 Module 独立执行 scope validation、JDK 8 CHA、WALA Vanilla 0-1-CFA、`ReflectionOptions.FULL`、MethodHandle extension和 direct WALA query。Module 内 build/query 单线程，Module 之间按 `--module-parallelism` 并行。没有 seed pre-scan、零 seed skip、CHA pre-graph 或 full predecessor copy。
+Physical JAR pair 按 `--analysis-parallelism` 并行 bytecode diff。用户配置 entrypoint selector 时，轻量 target class index 会先识别没有匹配 PROJECT class 的 Module；该步骤只缩小 root methods，不裁剪 Module scope、CHA、Reflection、ServiceLoader 或 Reference 参数 subtype candidates。存在 removal/modification ChangePoint 且命中 entrypoint scope 的 Module 独立执行 scope validation、JDK 8 CHA、WALA Vanilla 0-1-CFA、`ReflectionOptions.FULL`、MethodHandle extension 和 direct WALA query。Module 内 build/query 单线程，Module 之间按 `--analysis-parallelism` 并行。没有 seed pre-scan、零 seed skip、CHA pre-graph 或 full predecessor copy。
 
 所有 Module query 完成后，全局串行比较 candidate path 中唯一 `METHOD_BODY_CHANGED` 的 old/new normalized WALA SSA/CFG。只有 `PROVEN_EQUIVALENT` 删除路径；`DIFFERENT` 与 `UNKNOWN` 保留，`UNKNOWN` 使 Module 为 `INCONCLUSIVE`。
 
@@ -184,7 +192,9 @@ Physical JAR pair 使用半数 CPU 并行 bytecode diff。存在 removal/modific
 <module-base>-changes.html  Dependency Changes
 ```
 
-Overall Index 提供 `How to read this report`、`Analysis scope and limitations`、`Terminology` 与 Module 汇总。Module Index 展示易懂的 status、scope、metrics、coverage limitations 和 Module Diagnostics；Affected Call Chains 按 changed JAR 展示 application method call sequence 与 class structure references；Dependency Changes 按 dependency/JAR 展示 dependency、method、field 和 class change。WALA/SSA、descriptor/hash、raw enum、physical path 等原始 evidence 保留在默认折叠的 `Technical details`。所有页面为英文，并提供 top breadcrumbs、Module sibling navigation 和 responsive sticky TOC；不使用 JavaScript 或外部 asset。
+Overall Index 提供 `How to read this report`、`Analysis scope and limitations`、`Terminology` 与 Module 汇总。Module Index 展示易懂的 status、scope、metrics、coverage limitations 和 Module Diagnostics；Affected Call Chains 分别展示最终 call chains、默认折叠的 SSA-equivalent candidate chains，以及带 PROJECT boundary 的 Structural Reference Chains。Dependency Changes 只列出至少关联 candidate/final Impact Path 或 Structural Reference Path 的 member；其他 raw changes 仅计数，不逐项展示。
+
+相关 method、field 与 class 提供默认折叠的 old/new Unified diff。内容来自 local dependency bytecode 的 Vineflower decompiled Java representation，不保证与原始 source 相同；反编译失败或文本相同时保留 ASM instruction fallback。Filesystem path、WALA/SSA、descriptor/hash、raw enum、Maven executable、JDK/config/output path 等 evidence 只放在 `Technical details`。所有页面为英文，并提供 top breadcrumbs、Module sibling navigation 和 responsive sticky TOC；不使用 JavaScript 或外部 asset。
 
 Module failure 不取消其他 Module；handled failure 仍发布 partial Report。空态固定为 `No affected call chain was found within the documented analysis scope.`，不表示已经证明没有业务影响。
 
@@ -412,7 +422,7 @@ Dependency Analyzer 不把 project dependency local repository 放入 config dir
 
 ## 10. 持续 Impact Benchmark
 
-Repository 内置 Git 管理的中型 `impact` benchmark。它从 source 生成 42 个 compile-scope external dependencies、带 `impact-baseline`/`impact-target` refs 的临时 Git project，并校验 9 类 `ChangePointKind`、6 条最终 call chains、Structural Impact 和四页 HTML report。
+Repository 内置 Git 管理的中型 `impact` benchmark。它从 source 生成 42 个 compile-scope external dependencies、带 `impact-baseline`/`impact-target` refs 的临时 Git project，并校验 9 类 raw `ChangePointKind`、`6 / 5` candidate/final call chains、Structural Reference Path、过滤候选与反编译代码 evidence，以及四页 HTML report。
 
 ```sh
 mvn package

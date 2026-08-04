@@ -31,11 +31,8 @@ public final class ModuleCallGraphSession {
     /** Build metrics. */
     private final CallGraphStats stats;
 
-    /** Entrypoint count. */
-    private final int entrypointCount;
-
-    /** Parameter candidate count. */
-    private final int parameterCandidateCount;
+    /** Entrypoint selection metrics. */
+    private final EntrypointSelectionMetrics entrypointMetrics;
 
     /** Conservative ServiceLoader overlay. */
     private ServiceLoaderOverlay serviceLoaderOverlay =
@@ -50,7 +47,7 @@ public final class ModuleCallGraphSession {
      * @param ownershipIndex binary-name ownership
      * @param cache target-side SSA cache
      * @param graphStats build metrics
-     * @param entrypointMetrics entrypoint construction metrics
+     * @param selectionMetrics entrypoint construction metrics
      */
     ModuleCallGraphSession(
             final com.ibm.wala.ipa.callgraph.CallGraph callGraph,
@@ -59,16 +56,15 @@ public final class ModuleCallGraphSession {
             final ClassOwnershipIndex ownershipIndex,
             final IAnalysisCacheView cache,
             final CallGraphStats graphStats,
-            final EntrypointMetrics entrypointMetrics) {
+            final EntrypointSelectionMetrics selectionMetrics) {
         graph = Objects.requireNonNull(callGraph, "callGraph");
         hierarchy = Objects.requireNonNull(cha, "hierarchy");
         scope = Objects.requireNonNull(analysisScope, "scope");
         ownership = Objects.requireNonNull(ownershipIndex, "ownership");
         analysisCache = Objects.requireNonNull(cache, "analysisCache");
         stats = Objects.requireNonNull(graphStats, "stats");
-        entrypointCount = entrypointMetrics.entrypointCount();
-        parameterCandidateCount =
-                entrypointMetrics.parameterCandidateCount();
+        entrypointMetrics = Objects.requireNonNull(
+                selectionMetrics, "entrypointMetrics");
     }
 
     /** @return live WALA Call Graph */
@@ -103,12 +99,22 @@ public final class ModuleCallGraphSession {
 
     /** @return entrypoint count */
     public int getEntrypointCount() {
-        return entrypointCount;
+        return entrypointMetrics.entrypointCount();
     }
 
     /** @return total entrypoint parameter candidates */
     public int getParameterCandidateCount() {
-        return parameterCandidateCount;
+        return entrypointMetrics.parameterCandidateCount();
+    }
+
+    /** @return selected PROJECT class count */
+    public int getSelectedEntrypointClassCount() {
+        return entrypointMetrics.selectedClassCount();
+    }
+
+    /** @return complete entrypoint selection metrics */
+    public EntrypointSelectionMetrics getEntrypointMetrics() {
+        return entrypointMetrics;
     }
 
     /**
