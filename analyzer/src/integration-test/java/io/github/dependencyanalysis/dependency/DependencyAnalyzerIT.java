@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
+import java.util.jar.JarOutputStream;
 
 import static org.assertj.core.api.Assertions
         .assertThat;
@@ -233,6 +234,69 @@ class DependencyAnalyzerIT {
     }
 
     @Test
+    void resolvedArtifactsSkipMissingTestBinary()
+            throws Exception {
+        final Path repository = tempDir.resolve("scope-repository");
+        installFixtureArtifact(repository,
+                "compile-lib", "1", "", true);
+        installFixtureArtifact(repository,
+                "test-lib", "1", "", false);
+        final Path projectDir = tempDir.resolve("scope-project");
+        createScopeProject(projectDir, repository);
+        final Path localRepository = tempDir.resolve("scope-local");
+
+        final DependencyAnalysisResult result = new DependencyAnalyzer(
+                "baseline", projectDir, Set.of(), diag)
+                .withPluginRuntime(pluginRuntime(List.of(
+                        "-Dmaven.repo.local=" + localRepository)))
+                .analyzeResolved();
+
+        assertThat(result.getArtifacts())
+                .extracting(item -> item.getArtifact().getArtifactId())
+                .containsExactly("compile-lib");
+        assertThat(localRepository.resolve(
+                "fixture/repo/compile-lib/1/compile-lib-1.jar"))
+                .isRegularFile();
+        assertThat(localRepository.resolve(
+                "fixture/repo/test-lib/1/test-lib-1.jar"))
+                .doesNotExist();
+        assertThat(localRepository.resolve(
+                "fixture/repo/test-lib/1/test-lib-1.jar.lastUpdated"))
+                .doesNotExist();
+    }
+
+    @Test
+    void resolvedArtifactsPreserveAbsoluteSystemPath()
+            throws Exception {
+        final Path projectDir = tempDir.resolve("system-project");
+        final Path systemJar = projectDir.resolve(
+                "system libraries/system-lib-1.jar");
+        Files.createDirectories(systemJar.getParent());
+        try (JarOutputStream ignored = new JarOutputStream(
+                Files.newOutputStream(systemJar))) {
+            // Empty but valid JAR fixture.
+        }
+        createSystemScopeProject(projectDir, systemJar);
+
+        final DependencyAnalysisResult result = new DependencyAnalyzer(
+                "baseline", projectDir, Set.of(), diag)
+                .withPluginRuntime(pluginRuntime(List.of(
+                        "-Dmaven.repo.local="
+                                + tempDir.resolve("system-local"))))
+                .analyzeResolved();
+
+        assertThat(result.getArtifacts()).singleElement()
+                .satisfies(artifact -> {
+                    assertThat(artifact.getArtifact().getArtifactId())
+                            .isEqualTo("system-lib");
+                    assertThat(artifact.getScope())
+                            .isEqualTo(DependencyScope.SYSTEM);
+                    assertThat(artifact.getPath())
+                            .isEqualTo(systemJar.toRealPath());
+                });
+    }
+
+    @Test
     void resolvedArtifactsRequestOnlyMediatedWinner()
             throws Exception {
         final Path repository = tempDir.resolve("mediation-repository");
@@ -442,6 +506,66 @@ class DependencyAnalyzerIT {
                   </dependencies>
                 </project>
                 """.formatted(repository.toUri().toASCIIString()));
+    }
+
+    private void createScopeProject(
+            final Path directory,
+            final Path repository) throws Exception {
+        Files.createDirectories(directory);
+        Files.writeString(directory.resolve("pom.xml"), """
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>fixture</groupId>
+                  <artifactId>scope-project</artifactId>
+                  <version>1</version>
+                  <repositories>
+                    <repository>
+                      <id>fixture</id>
+                      <url>%s</url>
+                    </repository>
+                  </repositories>
+                  <dependencies>
+                    <dependency>
+                      <groupId>fixture.repo</groupId>
+                      <artifactId>compile-lib</artifactId>
+                      <version>1</version>
+                    </dependency>
+                    <dependency>
+                      <groupId>fixture.repo</groupId>
+                      <artifactId>test-lib</artifactId>
+                      <version>1</version>
+                      <scope>test</scope>
+                    </dependency>
+                  </dependencies>
+                </project>
+                """.formatted(repository.toUri().toASCIIString()));
+    }
+
+    private void createSystemScopeProject(
+            final Path directory,
+            final Path systemJar) throws Exception {
+        Files.createDirectories(directory);
+        final String escapedPath = systemJar.toAbsolutePath().normalize()
+                .toString().replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
+        Files.writeString(directory.resolve("pom.xml"), """
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>fixture</groupId>
+                  <artifactId>system-project</artifactId>
+                  <version>1</version>
+                  <dependencies>
+                    <dependency>
+                      <groupId>fixture.system</groupId>
+                      <artifactId>system-lib</artifactId>
+                      <version>1</version>
+                      <scope>system</scope>
+                      <systemPath>%s</systemPath>
+                    </dependency>
+                  </dependencies>
+                </project>
+                """.formatted(escapedPath));
     }
 
     private void installTypedArtifactFixture(final Path repository)

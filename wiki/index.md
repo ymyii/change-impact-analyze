@@ -16,7 +16,7 @@
 - Summary: 全局 `INFO`/`DEBUG`/`TRACE` verbosity、stable concurrent task context、impact JDK 8/内嵌 Plugin Preflight 与 exit code 契约。
 
 ### [Maven Runtime](features/maven-runtime.md)
-- Summary: 用户 executable、跨平台内嵌 Maven 3.6.3，以及 Dependency Plugin/Artifact Path Plugin 组合 repository 的离线准备与 fingerprint。
+- Summary: 用户 executable、跨平台内嵌 Maven 3.6.3，以及 versioned Plugin repository 的离线准备、fingerprint 与实际加载 JAR SHA-512 evidence。
 
 ### [Repository Dependency Tree Report](features/repository-dependency-tree-report.md)
 - Summary: Git snapshot、bounded/full reactor execution、纯 aggregator result boundary、incremental checkpoint 与 Module-tab offline report。
@@ -28,7 +28,7 @@
 - Summary: 只编译 target；reactor root compile 一次，leaf 使用 `-pl/-am`；baseline dependency 与 target build 并行。
 
 ### [Dependency Tree Extraction](features/dependency-tree-extraction.md)
-- Summary: `impact` 在原 Maven session 执行 fully-qualified `tree` 与 Artifact Path goal；GraphML 保留 mediated tree，Schema v1 JSON 绑定 Resolver absolute path。
+- Summary: `impact` 以 GraphML 作为唯一 mediation authority；Artifact Path goal 不再 collection，为 selected `compile/runtime/provided` 解析 Resolver path，并为 `system` 绑定 effective `systemPath`。
 
 ### [Dependency Diff Engine](features/dependency-diff-engine.md)
 - Summary: 对比 baseline/target resolved dependency tree，生成稳定排序的 dependency changes。
@@ -50,13 +50,19 @@
 
 ## Rules
 
+### [Release Versioning](rules/release-versioning.md)
+- Summary: Analyzer/内置 Plugin 独立 SemVer、immutable release coordinate、source fingerprint 与 version bump gate。
+
 ### [Process Command Resolution](rules/process-command-resolution.md)
 - Summary: 所有 production external process token 在 `ProcessBuilder` 前必须经过 `CommandResolver.resolve()`。
 
 ## Runbooks
 
 ### [Build, Test, Package](runbooks/build-test-package.md)
-- Summary: Checkstyle、unit/integration tests、全量 quality gate、uber JAR 和 CLI smoke commands。
+- Summary: 日常 Checkstyle、unit/integration tests、全量 Maven quality gate、uber JAR 和 CLI smoke commands。
+
+### [Version and Distribution](runbooks/version-and-distribution.md)
+- Summary: Version contract verify/bump、正式/dev distribution、packaged smoke、reproducibility 与 build manifest。
 
 ### [Impact Benchmark](runbooks/impact-benchmark.md)
 - Summary: 从 Git 管理的 source fixture 生成 42 个 dependencies 与 9 类 ChangePoint，执行 impact、采集资源并校验四页 HTML report。

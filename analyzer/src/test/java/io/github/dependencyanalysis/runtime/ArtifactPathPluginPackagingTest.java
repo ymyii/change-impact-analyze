@@ -17,7 +17,9 @@ class ArtifactPathPluginPackagingTest {
     /** Plugin resource base. */
     private static final String RESOURCE_BASE =
             "/maven/artifact-path-plugin/"
-                    + "dependency-analyzer-artifact-path-maven-plugin-1.0.0";
+                    + "dependency-analyzer-artifact-path-maven-plugin-"
+                    + System.getProperty(
+                    "cia.artifactPathPluginVersion");
 
     /** Java 8 class major version. */
     private static final int JAVA_EIGHT_MAJOR = 52;

@@ -3,7 +3,8 @@ package io.github.dependencyanalysis.dependency;
 /**
  * Maven dependency scope values that are
  * retained for analysis. Test scope is
- * excluded.
+ * excluded; system scope preserves its
+ * explicit artifact path.
  */
 public enum DependencyScope {
 
@@ -14,7 +15,10 @@ public enum DependencyScope {
     RUNTIME("runtime"),
 
     /** Provided scope. */
-    PROVIDED("provided");
+    PROVIDED("provided"),
+
+    /** System scope. */
+    SYSTEM("system");
 
     /** Scope string value. */
     private final String value;
@@ -60,6 +64,9 @@ public enum DependencyScope {
         }
         if ("provided".equals(lower)) {
             return PROVIDED;
+        }
+        if ("system".equals(lower)) {
+            return SYSTEM;
         }
         return null;
     }

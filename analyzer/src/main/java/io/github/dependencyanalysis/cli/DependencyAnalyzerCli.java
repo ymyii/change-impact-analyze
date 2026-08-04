@@ -23,7 +23,7 @@ import java.util.concurrent.Callable;
 @Command(
         name = "dependency-analyzer",
         mixinStandardHelpOptions = true,
-        version = "0.1.0-SNAPSHOT",
+        versionProvider = DependencyAnalyzerVersionProvider.class,
         description = "Analyze Maven dependencies.",
         subcommands = {
             ImpactCommand.class,

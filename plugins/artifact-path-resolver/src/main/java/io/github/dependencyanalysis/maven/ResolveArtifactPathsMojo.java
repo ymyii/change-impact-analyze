@@ -1,16 +1,15 @@
 package io.github.dependencyanalysis.maven;
 
 import org.apache.maven.artifact.handler.ArtifactHandler;
-import org.apache.maven.model.Exclusion;
+import org.apache.maven.execution.MavenSession;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
+import org.apache.maven.plugin.descriptor.PluginDescriptor;
 import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
-import org.apache.maven.execution.MavenSession;
-import org.eclipse.aether.DefaultRepositorySystemSession;
 import org.eclipse.aether.RepositorySystem;
 import org.eclipse.aether.RepositorySystemSession;
 import org.eclipse.aether.artifact.Artifact;
@@ -18,11 +17,6 @@ import org.eclipse.aether.artifact.ArtifactProperties;
 import org.eclipse.aether.artifact.ArtifactType;
 import org.eclipse.aether.artifact.DefaultArtifact;
 import org.eclipse.aether.artifact.DefaultArtifactType;
-import org.eclipse.aether.collection.CollectRequest;
-import org.eclipse.aether.collection.CollectResult;
-import org.eclipse.aether.collection.DependencyCollectionException;
-import org.eclipse.aether.graph.Dependency;
-import org.eclipse.aether.graph.DependencyNode;
 import org.eclipse.aether.repository.RemoteRepository;
 import org.eclipse.aether.resolution.ArtifactRequest;
 import org.eclipse.aether.resolution.ArtifactResolutionException;
@@ -30,9 +24,14 @@ import org.eclipse.aether.resolution.ArtifactResult;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.CodeSource;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -42,27 +41,37 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Resolves selected external artifact paths in the current Maven session. */
+// Wiki: wiki/features/dependency-tree-extraction.md - GraphML 驱动物理路径绑定
+/**
+ * Resolves GraphML-selected external artifacts in the current Maven session.
+ */
 @Mojo(name = "resolve-artifact-paths", threadSafe = true)
 public final class ResolveArtifactPathsMojo extends AbstractMojo {
 
-    /** Resolver conflict verbose configuration property. */
-    private static final String CONFLICT_VERBOSE =
-            "aether.conflictResolver.verbose";
+    /** Stable implementation marker printed for runtime verification. */
+    private static final String IMPLEMENTATION_MARKER = "graphml-v1";
 
-    /** Resolver loser node marker. */
-    private static final String CONFLICT_WINNER = "conflict.winner";
+    /** SHA-512 stream buffer size. */
+    private static final int DIGEST_BUFFER_SIZE = 8192;
 
-    /** Selected scopes exposed to Analyzer. */
-    private static final Set<String> INCLUDED_SCOPES;
+    /** Unsigned byte mask. */
+    private static final int BYTE_MASK = 0xff;
 
-    static {
-        final Set<String> scopes = new LinkedHashSet<String>();
-        scopes.add("compile");
-        scopes.add("runtime");
-        scopes.add("provided");
-        INCLUDED_SCOPES = Collections.unmodifiableSet(scopes);
-    }
+    /** Low nibble mask. */
+    private static final int NIBBLE_MASK = 0x0f;
+
+    /** Bits in a hexadecimal nibble. */
+    private static final int NIBBLE_BITS = 4;
+
+    /** Lowercase hexadecimal digits. */
+    private static final char[] HEX_DIGITS =
+            "0123456789abcdef".toCharArray();
+
+    /** Resolver request context for project dependencies. */
+    private static final String REQUEST_CONTEXT = "project";
+
+    /** System dependency scope. */
+    private static final String SYSTEM_SCOPE = "system";
 
     /** Current effective project. */
     @Parameter(defaultValue = "${project}", readonly = true, required = true)
@@ -86,6 +95,14 @@ public final class ResolveArtifactPathsMojo extends AbstractMojo {
     @Component
     private RepositorySystem repositorySystem;
 
+    /** Descriptor for the Plugin version Maven actually selected. */
+    @Parameter(defaultValue = "${plugin}", readonly = true, required = true)
+    private PluginDescriptor pluginDescriptor;
+
+    /** Module-local Dependency Plugin GraphML filename. */
+    @Parameter(property = "cia.dependencyGraphFileName", required = true)
+    private String dependencyGraphFileName;
+
     /** Module-local output filename. */
     @Parameter(property = "cia.resolvedArtifactsFileName", required = true)
     private String resolvedArtifactsFileName;
@@ -93,30 +110,51 @@ public final class ResolveArtifactPathsMojo extends AbstractMojo {
     @Override
     public void execute()
             throws MojoExecutionException, MojoFailureException {
-        final Path output = outputPath();
-        final DefaultRepositorySystemSession collectionSession =
-                new DefaultRepositorySystemSession(repositorySystemSession);
-        collectionSession.setConfigProperty(CONFLICT_VERBOSE, Boolean.FALSE);
-
-        final CollectResult collected;
-        try {
-            collected = repositorySystem.collectDependencies(
-                    collectionSession, collectRequest());
-        } catch (DependencyCollectionException exception) {
-            throw new MojoExecutionException(
-                    "Unable to collect mediated project dependencies",
-                    exception);
+        final Path graphml = moduleFile(
+                "cia.dependencyGraphFileName", dependencyGraphFileName);
+        final Path output = moduleFile(
+                "cia.resolvedArtifactsFileName", resolvedArtifactsFileName);
+        logImplementationEvidence(graphml.getFileName().toString());
+        if (!Files.isRegularFile(graphml)) {
+            throw new MojoFailureException(
+                    "Dependency GraphML file is unavailable: " + graphml);
         }
 
-        final Set<String> reactorIdentities = reactorIdentities();
+        final GraphmlDependencyReader.Graph graph;
+        try {
+            graph = GraphmlDependencyReader.read(graphml);
+        } catch (GraphmlDependencyReader.GraphmlReadException exception) {
+            throw new MojoFailureException(exception.getMessage(), exception);
+        }
+        validateModule(graph.getModule(), graphml);
+
+        final Set<String> reactors = reactorIdentities();
         final Map<String, Candidate> candidates =
                 new LinkedHashMap<String, Candidate>();
-        collectCandidates(collected.getRoot(), reactorIdentities, candidates);
-        final List<ResolvedArtifactPath> resolved = resolve(
-                collectionSession, new ArrayList<Candidate>(
-                        candidates.values()));
-        Collections.sort(resolved, ResolvedArtifactPath.ORDER);
+        final Map<String, SystemArtifact> systemArtifacts =
+                systemArtifacts();
+        final List<ResolvedArtifactPath> resolved =
+                new ArrayList<ResolvedArtifactPath>();
+        for (GraphmlDependencyReader.Dependency dependency
+                : graph.getDependencies()) {
+            final Artifact artifact = toResolverArtifact(
+                    dependency.getCoordinate());
+            final String identity = ArtifactCoordinates.from(artifact)
+                    .identity();
+            if (!reactors.contains(identity)) {
+                if (SYSTEM_SCOPE.equals(dependency.getScope())) {
+                    resolved.add(resolveSystemArtifact(
+                            systemArtifacts, identity, artifact));
+                } else {
+                    addCandidate(candidates, identity,
+                            new Candidate(artifact, dependency.getScope()));
+                }
+            }
+        }
 
+        resolved.addAll(resolve(
+                new ArrayList<Candidate>(candidates.values())));
+        Collections.sort(resolved, ResolvedArtifactPath.ORDER);
         try {
             final Path baseDirectory = project.getBasedir().toPath()
                     .toRealPath();
@@ -129,20 +167,80 @@ public final class ResolveArtifactPathsMojo extends AbstractMojo {
         }
     }
 
-    private Path outputPath() throws MojoFailureException {
-        if (resolvedArtifactsFileName == null
-                || resolvedArtifactsFileName.trim().isEmpty()) {
-            throw new MojoFailureException(
-                    "cia.resolvedArtifactsFileName must be a filename");
+    private void logImplementationEvidence(final String graphFilename) {
+        final String version = pluginDescriptor == null
+                ? "unavailable" : pluginDescriptor.getVersion();
+        String sourceValue = "unavailable";
+        String checksum = "unavailable";
+        try {
+            final CodeSource codeSource = ResolveArtifactPathsMojo.class
+                    .getProtectionDomain().getCodeSource();
+            if (codeSource == null || codeSource.getLocation() == null) {
+                throw new IOException("code source is absent");
+            }
+            final Path source = Paths.get(codeSource.getLocation().toURI())
+                    .toAbsolutePath().normalize();
+            sourceValue = source.toString();
+            if (!Files.isRegularFile(source)) {
+                throw new IOException(
+                        "code source is not a regular JAR: " + source);
+            }
+            checksum = sha512(source);
+        } catch (IOException | URISyntaxException
+                 | NoSuchAlgorithmException | RuntimeException exception) {
+            getLog().warn("Artifact Path Plugin JAR evidence unavailable: "
+                    + safeEvidence(exception.getMessage()));
         }
-        final String value = resolvedArtifactsFileName.trim();
+        getLog().info("Artifact Path Plugin implementation="
+                + IMPLEMENTATION_MARKER
+                + "; version=" + safeEvidence(version)
+                + "; source=" + safeEvidence(sourceValue)
+                + "; sha512=" + checksum
+                + "; dependencyGraphFileName="
+                + safeEvidence(graphFilename));
+    }
+
+    private String sha512(final Path source)
+            throws IOException, NoSuchAlgorithmException {
+        final MessageDigest digest = MessageDigest.getInstance("SHA-512");
+        final byte[] buffer = new byte[DIGEST_BUFFER_SIZE];
+        try (InputStream input = Files.newInputStream(source)) {
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                digest.update(buffer, 0, read);
+            }
+        }
+        final byte[] bytes = digest.digest();
+        final char[] result = new char[bytes.length * 2];
+        for (int index = 0; index < bytes.length; index++) {
+            final int value = bytes[index] & BYTE_MASK;
+            result[index * 2] = HEX_DIGITS[value >>> NIBBLE_BITS];
+            result[index * 2 + 1] = HEX_DIGITS[value & NIBBLE_MASK];
+        }
+        return new String(result);
+    }
+
+    private String safeEvidence(final String value) {
+        if (value == null) {
+            return "unavailable";
+        }
+        return value.replace("\r", "\\r")
+                .replace("\n", "\\n");
+    }
+
+    private Path moduleFile(
+            final String property,
+            final String filenameValue) throws MojoFailureException {
+        if (filenameValue == null || filenameValue.trim().isEmpty()) {
+            throw new MojoFailureException(property + " must be a filename");
+        }
+        final String value = filenameValue.trim();
         final Path filename;
         try {
             filename = Paths.get(value);
         } catch (RuntimeException exception) {
             throw new MojoFailureException(
-                    "Invalid cia.resolvedArtifactsFileName: " + value,
-                    exception);
+                    "Invalid " + property + ": " + value, exception);
         }
         if (filename.isAbsolute()
                 || filename.getNameCount() != 1
@@ -152,36 +250,63 @@ public final class ResolveArtifactPathsMojo extends AbstractMojo {
                 || value.equals("..")
                 || value.contains("..")) {
             throw new MojoFailureException(
-                    "cia.resolvedArtifactsFileName must be a filename: "
-                            + value);
+                    property + " must be a filename: " + value);
         }
         return project.getBasedir().toPath().toAbsolutePath()
                 .normalize().resolve(filename);
     }
 
-    private CollectRequest collectRequest() {
-        final CollectRequest request = new CollectRequest();
-        request.setRootArtifact(toResolverArtifact(project.getArtifact()));
-        request.setRequestContext("project");
-        request.setRepositories(remoteRepositories == null
-                ? Collections.<RemoteRepository>emptyList()
-                : remoteRepositories);
-        for (org.apache.maven.model.Dependency dependency
-                : project.getDependencies()) {
-            request.addDependency(toResolverDependency(dependency));
+    private void validateModule(
+            final GraphmlDependencyReader.Coordinate graphModule,
+            final Path graphml) throws MojoFailureException {
+        final ArtifactCoordinates expected = moduleCoordinates();
+        final ArtifactCoordinates actual = ArtifactCoordinates.from(
+                toResolverArtifact(graphModule));
+        if (!expected.identity().equals(actual.identity())) {
+            throw new MojoFailureException(
+                    "GraphML root does not match current MavenProject: "
+                            + "expected="
+                            + expected.identity() + "; actual="
+                            + actual.identity() + "; file=" + graphml);
         }
-        if (project.getDependencyManagement() != null) {
-            for (org.apache.maven.model.Dependency managed
-                    : project.getDependencyManagement().getDependencies()) {
-                request.addManagedDependency(toResolverDependency(managed));
-            }
-        }
-        return request;
     }
 
-    private Dependency toResolverDependency(
-            final org.apache.maven.model.Dependency dependency) {
-        final String type = defaultValue(dependency.getType(), "jar");
+    private void addCandidate(
+            final Map<String, Candidate> candidates,
+            final String identity,
+            final Candidate candidate) throws MojoFailureException {
+        final Candidate previous = candidates.put(identity, candidate);
+        if (previous != null) {
+            if (previous.getScope().equals(candidate.getScope())) {
+                throw new MojoFailureException(
+                        "Duplicate GraphML artifact binding after type "
+                                + "mapping: "
+                                + identity + ":" + candidate.getScope());
+            }
+            throw new MojoFailureException(
+                    "Conflicting GraphML artifact scopes after type mapping: "
+                            + identity + " has " + previous.getScope()
+                            + " and " + candidate.getScope());
+        }
+    }
+
+    private Artifact toResolverArtifact(
+            final GraphmlDependencyReader.Coordinate coordinate) {
+        return toResolverArtifact(
+                coordinate.getGroupId(),
+                coordinate.getArtifactId(),
+                coordinate.getType(),
+                coordinate.getClassifier(),
+                coordinate.getVersion());
+    }
+
+    private Artifact toResolverArtifact(
+            final String groupId,
+            final String artifactId,
+            final String typeValue,
+            final String classifierValue,
+            final String version) {
+        final String type = defaultValue(typeValue, "jar");
         ArtifactType artifactType = repositorySystemSession
                 .getArtifactTypeRegistry().get(type);
         if (artifactType == null) {
@@ -190,31 +315,88 @@ public final class ResolveArtifactPathsMojo extends AbstractMojo {
         final Map<String, String> properties =
                 new HashMap<String, String>();
         properties.put(ArtifactProperties.TYPE, type);
-        if (dependency.getSystemPath() != null) {
-            properties.put(ArtifactProperties.LOCAL_PATH,
-                    dependency.getSystemPath());
-        }
         final String classifier = defaultValue(
-                dependency.getClassifier(),
+                classifierValue,
                 defaultValue(artifactType.getClassifier(), ""));
-        final Artifact artifact = new DefaultArtifact(
-                dependency.getGroupId(),
-                dependency.getArtifactId(),
+        return new DefaultArtifact(
+                groupId,
+                artifactId,
                 classifier,
                 artifactType.getExtension(),
-                dependency.getVersion(),
+                version,
                 properties,
                 artifactType);
-        final List<org.eclipse.aether.graph.Exclusion> exclusions =
-                new ArrayList<org.eclipse.aether.graph.Exclusion>();
-        for (Exclusion exclusion : dependency.getExclusions()) {
-            exclusions.add(new org.eclipse.aether.graph.Exclusion(
-                    exclusion.getGroupId(), exclusion.getArtifactId(),
-                    "*", "*"));
+    }
+
+    private Map<String, SystemArtifact> systemArtifacts()
+            throws MojoFailureException {
+        final Map<String, SystemArtifact> artifacts =
+                new LinkedHashMap<String, SystemArtifact>();
+        for (org.apache.maven.model.Dependency dependency
+                : project.getDependencies()) {
+            if (!SYSTEM_SCOPE.equals(dependency.getScope())) {
+                continue;
+            }
+            final Artifact artifact = toResolverArtifact(
+                    dependency.getGroupId(),
+                    dependency.getArtifactId(),
+                    dependency.getType(),
+                    dependency.getClassifier(),
+                    dependency.getVersion());
+            final String identity = ArtifactCoordinates.from(artifact)
+                    .identity();
+            final String systemPath = dependency.getSystemPath();
+            if (systemPath == null || systemPath.trim().isEmpty()) {
+                throw new MojoFailureException(
+                        "System dependency has no systemPath: " + identity);
+            }
+            final SystemArtifact previous = artifacts.put(identity,
+                    new SystemArtifact(systemPath));
+            if (previous != null) {
+                throw new MojoFailureException(
+                        "Duplicate effective system dependency: " + identity);
+            }
         }
-        return new Dependency(artifact,
-                defaultValue(dependency.getScope(), "compile"),
-                dependency.isOptional(), exclusions);
+        return artifacts;
+    }
+
+    private ResolvedArtifactPath resolveSystemArtifact(
+            final Map<String, SystemArtifact> systemArtifacts,
+            final String identity,
+            final Artifact artifact) throws MojoFailureException {
+        final SystemArtifact systemArtifact = systemArtifacts.get(identity);
+        if (systemArtifact == null) {
+            throw new MojoFailureException(
+                    "GraphML system dependency has no matching effective "
+                            + "MavenProject dependency: " + identity);
+        }
+        final Path declaredPath;
+        try {
+            declaredPath = Paths.get(systemArtifact.getPath());
+        } catch (RuntimeException exception) {
+            throw new MojoFailureException(
+                    "Invalid system dependency path: "
+                            + systemArtifact.getPath(), exception);
+        }
+        if (!declaredPath.isAbsolute()) {
+            throw new MojoFailureException(
+                    "System dependency path must be absolute: "
+                            + declaredPath);
+        }
+        final Path path;
+        try {
+            path = declaredPath.toRealPath();
+        } catch (IOException exception) {
+            throw new MojoFailureException(
+                    "System dependency path is unavailable: "
+                            + systemArtifact.getPath(), exception);
+        }
+        if (!path.isAbsolute() || !Files.isRegularFile(path)) {
+            throw new MojoFailureException(
+                    "System dependency is not an absolute file: " + path);
+        }
+        return new ResolvedArtifactPath(
+                ArtifactCoordinates.from(artifact), SYSTEM_SCOPE, path);
     }
 
     private Artifact toResolverArtifact(
@@ -256,37 +438,7 @@ public final class ResolveArtifactPathsMojo extends AbstractMojo {
         return identities;
     }
 
-    private void collectCandidates(
-            final DependencyNode node,
-            final Set<String> reactorIdentities,
-            final Map<String, Candidate> candidates) {
-        if (node == null) {
-            return;
-        }
-        if (node.getData().get(CONFLICT_WINNER) != null) {
-            return;
-        }
-        final Dependency dependency = node.getDependency();
-        if (dependency != null
-                && INCLUDED_SCOPES.contains(dependency.getScope())) {
-            final ArtifactCoordinates coordinates =
-                    ArtifactCoordinates.from(node.getArtifact());
-            if (!reactorIdentities.contains(coordinates.identity())) {
-                final String key = coordinates.identity() + ":"
-                        + dependency.getScope();
-                if (!candidates.containsKey(key)) {
-                    candidates.put(key, new Candidate(
-                            node, dependency.getScope()));
-                }
-            }
-        }
-        for (DependencyNode child : node.getChildren()) {
-            collectCandidates(child, reactorIdentities, candidates);
-        }
-    }
-
     private List<ResolvedArtifactPath> resolve(
-            final RepositorySystemSession resolverSession,
             final List<Candidate> candidates)
             throws MojoExecutionException {
         if (candidates.isEmpty()) {
@@ -296,16 +448,19 @@ public final class ResolveArtifactPathsMojo extends AbstractMojo {
                 new ArrayList<ArtifactRequest>();
         final Map<ArtifactRequest, Candidate> byRequest =
                 new LinkedHashMap<ArtifactRequest, Candidate>();
+        final List<RemoteRepository> repositories = remoteRepositories == null
+                ? Collections.<RemoteRepository>emptyList()
+                : remoteRepositories;
         for (Candidate candidate : candidates) {
-            final ArtifactRequest request =
-                    new ArtifactRequest(candidate.getNode());
+            final ArtifactRequest request = new ArtifactRequest(
+                    candidate.getArtifact(), repositories, REQUEST_CONTEXT);
             requests.add(request);
             byRequest.put(request, candidate);
         }
         final List<ArtifactResult> results;
         try {
             results = repositorySystem.resolveArtifacts(
-                    resolverSession, requests);
+                    repositorySystemSession, requests);
         } catch (ArtifactResolutionException exception) {
             throw new MojoExecutionException(
                     resolutionFailure(exception.getResults()), exception);
@@ -340,8 +495,7 @@ public final class ResolveArtifactPathsMojo extends AbstractMojo {
         return resolved;
     }
 
-    private String resolutionFailure(
-            final List<ArtifactResult> results) {
+    private String resolutionFailure(final List<ArtifactResult> results) {
         final StringBuilder message = new StringBuilder(
                 "Unable to resolve selected external artifacts");
         for (ArtifactResult result : results) {
@@ -364,27 +518,42 @@ public final class ResolveArtifactPathsMojo extends AbstractMojo {
         return value == null || value.isEmpty() ? fallback : value;
     }
 
-    /** Selected graph node and effective scope. */
+    /** One GraphML-selected external artifact. */
     private static final class Candidate {
 
-        /** Mediated dependency node. */
-        private final DependencyNode node;
+        /** Artifact to resolve. */
+        private final Artifact artifact;
 
-        /** Effective selected scope. */
+        /** Authoritative GraphML scope. */
         private final String scope;
 
-        Candidate(final DependencyNode dependencyNode,
-                  final String dependencyScope) {
-            node = dependencyNode;
-            scope = dependencyScope;
+        Candidate(final Artifact selectedArtifact,
+                  final String selectedScope) {
+            artifact = selectedArtifact;
+            scope = selectedScope;
         }
 
-        DependencyNode getNode() {
-            return node;
+        Artifact getArtifact() {
+            return artifact;
         }
 
         String getScope() {
             return scope;
+        }
+    }
+
+    /** Effective MavenProject system dependency path. */
+    private static final class SystemArtifact {
+
+        /** Declared absolute system path. */
+        private final String path;
+
+        SystemArtifact(final String systemPath) {
+            path = systemPath;
+        }
+
+        String getPath() {
+            return path;
         }
     }
 }

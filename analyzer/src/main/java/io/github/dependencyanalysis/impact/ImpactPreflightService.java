@@ -375,7 +375,13 @@ final class ImpactPreflightService {
         context.put(DEPENDENCY_PLUGIN_RUNTIME, plugin);
         return PreflightOutcome.pass(
                 "Maven Dependency Plugin runtime prepared",
-                "embedded:" + plugin.getVersion());
+                "dependencyPlugin=embedded:" + plugin.getVersion()
+                        + "; artifactPathPlugin="
+                        + plugin.getArtifactPathPluginVersion()
+                        + "; artifactPathSha512="
+                        + plugin.getArtifactPathJarSha512()
+                        + "; runtimeFingerprint="
+                        + plugin.getRepositorySha512());
     }
 
     private PreflightOutcome prepareWorkspace(

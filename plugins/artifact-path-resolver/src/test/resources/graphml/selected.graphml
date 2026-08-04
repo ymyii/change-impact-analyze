@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns"
+         xmlns:y="http://www.yworks.com/xml/graphml">
+  <graph id="G" edgedefault="directed">
+    <node id="root"><data key="d0"><y:ShapeNode>
+      <y:NodeLabel>fixture:module:jar:1</y:NodeLabel>
+    </y:ShapeNode></data></node>
+    <node id="compile"><data key="d0"><y:ShapeNode>
+      <y:NodeLabel>fixture:compile-lib:jar:1:compile</y:NodeLabel>
+    </y:ShapeNode></data></node>
+    <node id="test"><data key="d0"><y:ShapeNode>
+      <y:NodeLabel>fixture:test-lib:jar:1:test</y:NodeLabel>
+    </y:ShapeNode></data></node>
+    <node id="under-test"><data key="d0"><y:ShapeNode>
+      <y:NodeLabel>fixture:under-test:jar:1:compile</y:NodeLabel>
+    </y:ShapeNode></data></node>
+    <node id="provided"><data key="d0"><y:ShapeNode>
+      <y:NodeLabel>fixture:native-lib:jar:linux-x86_64:1:provided</y:NodeLabel>
+    </y:ShapeNode></data></node>
+    <node id="runtime"><data key="d0"><y:ShapeNode>
+      <y:NodeLabel>fixture:runtime-lib:zip:1:runtime</y:NodeLabel>
+    </y:ShapeNode></data></node>
+    <node id="system"><data key="d0"><y:ShapeNode>
+      <y:NodeLabel>fixture:system-lib:jar:1:system</y:NodeLabel>
+    </y:ShapeNode></data></node>
+    <edge source="root" target="compile"/>
+    <edge source="root" target="test"/>
+    <edge source="test" target="under-test"/>
+    <edge source="root" target="provided"/>
+    <edge source="provided" target="runtime"/>
+    <edge source="root" target="system"/>
+  </graph>
+</graphml>

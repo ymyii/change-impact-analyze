@@ -2,10 +2,9 @@
 
 Telegraph style.
 
+Coding Constraint
 
-## Project Explore Strategy
-
-- 当涉及编码任务时，**必须** 优先探索`wiki/`目录来获取相关工程约束、架构等内容。
+- **应**在编码完成后维护wiki
 
 ## Project Knowledge
 

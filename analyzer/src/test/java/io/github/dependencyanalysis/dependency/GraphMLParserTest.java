@@ -67,6 +67,23 @@ class GraphMLParserTest {
     }
 
     @Test
+    void systemScopeIsRetainedAndTestSubtreeIsFiltered()
+            throws Exception {
+        final Path graphml = copyResource("scope-filter.graphml");
+        final ModuleDependencyTree tree = GraphMLParser.parse(
+                graphml, Set.of());
+
+        assertThat(tree.getDependencies())
+                .extracting(node -> node.getArtifact().getArtifactId())
+                .containsExactly("system-lib");
+        assertThat(tree.getDependencies()).singleElement()
+                .extracting(DependencyNode::getScope)
+                .isEqualTo(DependencyScope.SYSTEM);
+        assertThat(tree.getDependencies().get(0).getChildren())
+                .isEmpty();
+    }
+
+    @Test
     void reactorModulesFiltered()
             throws Exception {
         final Path graphml =

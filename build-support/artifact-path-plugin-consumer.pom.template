@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>io.github.dependencyanalysis</groupId>
     <artifactId>dependency-analyzer-artifact-path-maven-plugin</artifactId>
-    <version>1.0.0</version>
+    <version>@ARTIFACT_PATH_PLUGIN_VERSION@</version>
     <packaging>maven-plugin</packaging>
     <dependencies>
         <!-- Prevent Maven 3 from injecting the legacy plexus-utils:1.1. -->

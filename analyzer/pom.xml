@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.github.dependencyanalysis</groupId>
         <artifactId>dependency-analyzer-parent</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <version>${revision}</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -91,6 +91,39 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <cia.analyzerVersion>${revision}</cia.analyzerVersion>
+                        <cia.artifactPathPluginVersion>${artifact-path-plugin.version}</cia.artifactPathPluginVersion>
+                        <cia.multiModuleProjectDirectory>${maven.multiModuleProjectDirectory}</cia.multiModuleProjectDirectory>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>filter-build-metadata</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>src/main/filtered-resources</directory>
+                                    <filtering>true</filtering>
+                                </resource>
+                            </resources>
+                            <delimiters>
+                                <delimiter>@</delimiter>
+                            </delimiters>
+                            <useDefaultDelimiters>false</useDefaultDelimiters>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
@@ -116,6 +149,9 @@
                 <configuration>
                     <systemPropertyVariables>
                         <cia.packagedJar>${maven.multiModuleProjectDirectory}/target/dependency-analyzer.jar</cia.packagedJar>
+                        <cia.analyzerVersion>${revision}</cia.analyzerVersion>
+                        <cia.artifactPathPluginVersion>${artifact-path-plugin.version}</cia.artifactPathPluginVersion>
+                        <cia.multiModuleProjectDirectory>${maven.multiModuleProjectDirectory}</cia.multiModuleProjectDirectory>
                     </systemPropertyVariables>
                 </configuration>
                 <executions>
@@ -164,6 +200,15 @@
                         </goals>
                         <configuration>
                             <target>
+                                <mkdir dir="${artifact-path-plugin.resource-directory}"/>
+                                <copy file="${maven.multiModuleProjectDirectory}/build-support/artifact-path-plugin-consumer.pom.template"
+                                      tofile="${artifact-path-plugin.resource-directory}/${artifact-path-plugin.resource-base}.pom"
+                                      overwrite="true">
+                                    <filterset>
+                                        <filter token="ARTIFACT_PATH_PLUGIN_VERSION"
+                                                value="${artifact-path-plugin.version}"/>
+                                    </filterset>
+                                </copy>
                                 <checksum file="${artifact-path-plugin.resource-directory}/${artifact-path-plugin.resource-base}.jar"
                                           algorithm="SHA-512" fileext=".sha512" forceOverwrite="yes"/>
                                 <checksum file="${artifact-path-plugin.resource-directory}/${artifact-path-plugin.resource-base}.pom"

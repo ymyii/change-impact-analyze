@@ -45,9 +45,18 @@ class DependencyScopeTest {
     }
 
     @Test
-    void fromStringUnknownReturnsNull() {
+    void fromStringSystem() {
         assertThat(DependencyScope
                 .fromString("system"))
+                .isEqualTo(
+                        DependencyScope
+                                .SYSTEM);
+    }
+
+    @Test
+    void fromStringUnknownReturnsNull() {
+        assertThat(DependencyScope
+                .fromString("unknown"))
                 .isNull();
     }
 
@@ -92,5 +101,8 @@ class DependencyScopeTest {
         assertThat(DependencyScope.PROVIDED
                 .getValue())
                 .isEqualTo("provided");
+        assertThat(DependencyScope.SYSTEM
+                .getValue())
+                .isEqualTo("system");
     }
 }

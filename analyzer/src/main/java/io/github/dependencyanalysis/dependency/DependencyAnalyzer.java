@@ -48,9 +48,7 @@ public final class DependencyAnalyzer {
 
     /** Built-in Artifact Path Plugin goal. */
     private static final String FALLBACK_ARTIFACT_PATH_GOAL =
-            "io.github.dependencyanalysis:"
-                    + "dependency-analyzer-artifact-path-maven-plugin:"
-                    + "1.0.0:resolve-artifact-paths";
+            MavenDependencyPluginRuntime.ARTIFACT_PATH_PLUGIN_GOAL;
 
     /** Failure output tail retained in memory. */
     private static final int TAIL_LINES = 20;
@@ -288,6 +286,7 @@ public final class DependencyAnalyzer {
         command.add("-DoutputFile=" + graphmlName);
         if (jsonName != null) {
             command.add(artifactPathGoal());
+            command.add("-Dcia.dependencyGraphFileName=" + graphmlName);
             command.add("-Dcia.resolvedArtifactsFileName=" + jsonName);
         }
         command.add("-B");
@@ -321,6 +320,8 @@ public final class DependencyAnalyzer {
                 .append(graphmlName);
         if (jsonName != null) {
             command.append(' ').append(artifactPathGoal())
+                    .append(" -Dcia.dependencyGraphFileName=")
+                    .append(graphmlName)
                     .append(" -Dcia.resolvedArtifactsFileName=")
                     .append(jsonName);
         }

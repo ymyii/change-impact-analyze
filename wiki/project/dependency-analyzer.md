@@ -10,8 +10,12 @@ relations:
     desc: "Repository dependency tree 功能契约"
   - path: "wiki/rules/process-command-resolution.md"
     desc: "外部命令执行的跨平台约束"
+  - path: "wiki/rules/release-versioning.md"
+    desc: "Analyzer/Plugin 独立 SemVer 与 release fingerprint 约束"
   - path: "wiki/runbooks/build-test-package.md"
     desc: "构建、测试、打包和本地运行操作"
+  - path: "wiki/runbooks/version-and-distribution.md"
+    desc: "Version bump、正式 distribution 与 build manifest 操作"
   - path: "wiki/runbooks/impact-benchmark.md"
     desc: "打包后 impact 的持续性能与场景完整性验证"
 code_refs:
@@ -23,6 +27,8 @@ code_refs:
     desc: "所有内置 Maven Plugin 的 Java 8 parent/aggregator"
   - path: "plugins/artifact-path-resolver/pom.xml"
     desc: "Artifact Path Maven Plugin module"
+  - path: "build-support/version-contract.properties"
+    desc: "Analyzer/Plugin release version 与 source fingerprint ledger"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/cli/DependencyAnalyzerCli.java"
     desc: "Root CLI 和 global options 入口"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
@@ -41,9 +47,15 @@ Dependency Analyzer 是 Java 17 analyzer + Maven + picocli CLI。`impact` 使用
 
 ## Design Decisions
 
+<!-- version-contract:start -->
+- Analyzer release: `0.1.0`
+- Artifact Path Plugin release: `1.0.1`
+<!-- version-contract:end -->
+
 - Public CLI 固定为 `dependency-analyzer [global-options] <subcommand>`。
-- Maven coordinates 为 `io.github.dependencyanalysis:dependency-analyzer:0.1.0-SNAPSHOT`，Java base package 为 `io.github.dependencyanalysis`，uber JAR 为 `dependency-analyzer.jar`。
-- `impact` 使用 GraphML dependency diff，并由内置 Artifact Path Plugin JSON 绑定 Resolver physical path；`tree` 使用 verbose text 采集完整 dependency occurrence。
+- Maven coordinates 为 `io.github.dependencyanalysis:dependency-analyzer:0.1.0`，Java base package 为 `io.github.dependencyanalysis`，uber JAR 兼容路径为 `target/dependency-analyzer.jar`。
+- Analyzer 与 Artifact Path Plugin 使用独立 SemVer；正式 distribution 同时发布 versioned CLI JAR、SHA-512 与 build manifest。
+- `impact` 以 GraphML 作为唯一 mediation authority，并由内置 Artifact Path Plugin JSON 绑定 selected dependency physical path；Plugin 不执行第二次 collection。`tree` 使用 verbose text 采集完整 dependency occurrence。
 - `impact` 只构建 target per-Module Vanilla 0-1-CFA；baseline 不 compile、不构建 Call Graph。
 - `impact` 默认并发分析两个 Module；Module 内 WALA build/query 单线程，SSA equivalence 全局串行。
 - 两个 subcommand 共享 Maven runtime 和 preflight Schema，但分别组装检查 DAG；pipeline 只消费 preflight decision。
@@ -51,7 +63,7 @@ Dependency Analyzer 是 Java 17 analyzer + Maven + picocli CLI。`impact` 使用
 ## Module Map
 
 - `pom.xml` - packaging `pom` 的 root parent/aggregator。
-- `analyzer/` - GAV `io.github.dependencyanalysis:dependency-analyzer:0.1.0-SNAPSHOT`；Java 17 CLI/application，最终仍发布 `target/dependency-analyzer.jar`。
+- `analyzer/` - GAV `io.github.dependencyanalysis:dependency-analyzer:0.1.0`；Java 17 CLI/application，最终仍发布兼容路径 `target/dependency-analyzer.jar`。
 - `analyzer/src/main/java/io/github/dependencyanalysis/cli/` - Root CLI、global option 和 Maven argument 安全校验。
 - `analyzer/src/main/java/io/github/dependencyanalysis/runtime/` - 内嵌或用户指定 Maven runtime。
 - `analyzer/src/main/java/io/github/dependencyanalysis/preflight/` - DAG preflight framework 和结果 Schema。
@@ -60,7 +72,9 @@ Dependency Analyzer 是 Java 17 analyzer + Maven + picocli CLI。`impact` 使用
 - `analyzer/src/main/java/io/github/dependencyanalysis/{build,dependency,bytecode,callgraph,jar,report,workspace}/` - `impact` pipeline 的稳定阶段实现。
 - `analyzer/src/test/java/` - unit tests；`analyzer/src/integration-test/java/` - Failsafe integration tests。
 - `plugins/` - 内置 Maven Plugin parent/aggregator；后续 Plugin 作为 sibling module 加入。
-- `plugins/artifact-path-resolver/` - GAV `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:1.0.0`；Java 8 `resolve-artifact-paths` goal。
+- `plugins/artifact-path-resolver/` - GAV `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:1.0.1`；Java 8 `resolve-artifact-paths` goal。
+- `build-support/` - Version contract 与无版本 consumer POM template。
+- `scripts/` - Version contract 和正式/dev distribution 的 POSIX shell 入口及 Java 17 source-file helpers。
 - `benchmarks/impact-medium/` - 可复现的中型 impact fixture、资源采样脚本与报告 contract verification。
 
 ## Technical Stack

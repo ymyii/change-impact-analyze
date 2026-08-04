@@ -21,7 +21,9 @@ import java.util.Set;
 /**
  * Parses a GraphML file produced by
  * maven-dependency-plugin into a
- * ModuleDependencyTree.
+ * ModuleDependencyTree. Retained scopes
+ * come from {@link DependencyScope}; an
+ * excluded node also excludes its subtree.
  */
 public final class GraphMLParser {
 

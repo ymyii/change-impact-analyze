@@ -20,6 +20,10 @@ class MavenDependencyPluginRuntimeManagerTest {
     /** Concurrent preparation count. */
     private static final int CONCURRENT_PREPARATIONS = 4;
 
+    /** Artifact Path Plugin version supplied by the build. */
+    private static final String ARTIFACT_PATH_PLUGIN_VERSION =
+            System.getProperty("cia.artifactPathPluginVersion");
+
     /** Temporary config root. */
     @TempDir
     private Path temporary;
@@ -52,7 +56,14 @@ class MavenDependencyPluginRuntimeManagerTest {
         assertThat(first.getArtifactPathGoal()).isEqualTo(
                 "io.github.dependencyanalysis:"
                         + "dependency-analyzer-artifact-path-maven-plugin:"
-                        + "1.0.0:resolve-artifact-paths");
+                        + ARTIFACT_PATH_PLUGIN_VERSION
+                        + ":resolve-artifact-paths");
+        assertThat(first.getArtifactPathPluginVersion())
+                .isEqualTo(ARTIFACT_PATH_PLUGIN_VERSION);
+        assertThat(first.getArtifactPathJarSha512())
+                .matches("[0-9a-f]{128}");
+        assertThat(first.getRepositorySha512())
+                .matches("[0-9a-f]{128}");
         assertThat(first.getRepository().resolve(
                 "org/apache/maven/plugins/"
                         + "maven-dependency-plugin/3.6.1/"
@@ -61,9 +72,9 @@ class MavenDependencyPluginRuntimeManagerTest {
         assertThat(first.getRepository().resolve(
                 "io/github/dependencyanalysis/"
                         + "dependency-analyzer-artifact-path-maven-plugin/"
-                        + "1.0.0/"
+                        + ARTIFACT_PATH_PLUGIN_VERSION + "/"
                         + "dependency-analyzer-artifact-path-maven-plugin-"
-                        + "1.0.0.jar"))
+                        + ARTIFACT_PATH_PLUGIN_VERSION + ".jar"))
                 .isRegularFile();
         assertThat(settings).content()
                 .contains(first.getRepository().toUri()
@@ -249,15 +260,15 @@ class MavenDependencyPluginRuntimeManagerTest {
                                 null);
         final List<String> arguments = new ArrayList<>(
                 plugin.getMavenArguments());
+        arguments.add("-X");
         arguments.add("-B");
         arguments.add("-f");
         arguments.add(project.resolve("pom.xml").toString());
         arguments.add(plugin.getGoal());
-        arguments.add("-DoutputFile=target/tree.txt");
-        arguments.add("-DoutputType=text");
-        arguments.add("-Dverbose=true");
-        arguments.add("-Dtokens=standard");
+        arguments.add("-DoutputFile=tree.graphml");
+        arguments.add("-DoutputType=graphml");
         arguments.add(plugin.getArtifactPathGoal());
+        arguments.add("-Dcia.dependencyGraphFileName=tree.graphml");
         arguments.add("-Dcia.resolvedArtifactsFileName=artifacts.json");
 
         final MavenExecutionResult result =
@@ -268,8 +279,13 @@ class MavenDependencyPluginRuntimeManagerTest {
                 .describedAs(result.getCombinedOutput())
                 .isZero();
         assertThat(result.getCombinedOutput())
-                .contains("maven-dependency-plugin:3.6.1:tree");
-        assertThat(project.resolve("target/tree.txt"))
+                .contains("maven-dependency-plugin:3.6.1:tree")
+                .contains("(f) dependencyGraphFileName = tree.graphml")
+                .contains("Artifact Path Plugin implementation=graphml-v1")
+                .contains("version=" + ARTIFACT_PATH_PLUGIN_VERSION)
+                .contains("sha512="
+                        + plugin.getArtifactPathJarSha512());
+        assertThat(project.resolve("tree.graphml"))
                 .isRegularFile();
         assertThat(project.resolve("artifacts.json"))
                 .content().contains("\"schemaVersion\" : 1")

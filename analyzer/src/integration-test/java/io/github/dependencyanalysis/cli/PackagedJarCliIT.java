@@ -26,6 +26,14 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 /** Final shaded JAR black-box integration tests. */
 class PackagedJarCliIT {
 
+    /** Analyzer version supplied by the build. */
+    private static final String ANALYZER_VERSION =
+            System.getProperty("cia.analyzerVersion");
+
+    /** Artifact Path Plugin version supplied by the build. */
+    private static final String ARTIFACT_PATH_PLUGIN_VERSION =
+            System.getProperty("cia.artifactPathPluginVersion");
+
     /** Shaded application JAR. */
     private static Path applicationJar;
 
@@ -100,7 +108,7 @@ class PackagedJarCliIT {
                     .isNotNull();
             final String artifactPath = "maven/artifact-path-plugin/"
                     + "dependency-analyzer-artifact-path-"
-                    + "maven-plugin-1.0.0";
+                    + "maven-plugin-" + ARTIFACT_PATH_PLUGIN_VERSION;
             assertThat(jar.getEntry(artifactPath + ".jar"))
                     .isNotNull();
             assertThat(jar.getEntry(artifactPath + ".pom"))
@@ -122,6 +130,9 @@ class PackagedJarCliIT {
             assertEmbeddedChecksum(jar);
             assertPluginChecksum(jar);
             assertArtifactPathPluginChecksums(jar, artifactPath);
+            assertThat(jar.getEntry("maven/artifact-path-plugin/"
+                    + "dependency-analyzer-artifact-path-"
+                    + "maven-plugin-1.0.0.jar")).isNull();
         }
 
         final ProcessResult rootHelp = runJar("--help");
@@ -165,7 +176,7 @@ class PackagedJarCliIT {
                 .contains("-d, --dependency-plugin-version");
         assertThat(version.exitCode).isZero();
         assertThat(version.output)
-                .contains("0.1.0-SNAPSHOT");
+                .contains(ANALYZER_VERSION);
         assertThat(oldRoot.exitCode).isEqualTo(1);
         assertThat(oldProject.exitCode).isEqualTo(1);
         assertThat(oldProject.output)
@@ -253,7 +264,10 @@ class PackagedJarCliIT {
         assertThat(impact.exitCode)
                 .as(impact.output).isZero();
         assertThat(impact.output)
-                .doesNotContain("got NEW");
+                .doesNotContain("got NEW")
+                .contains("artifactPathPlugin="
+                        + ARTIFACT_PATH_PLUGIN_VERSION)
+                .contains("Artifact Path Plugin implementation=graphml-v1");
         assertThat(impactReport).content()
                 .contains("Impact Analysis Report")
                 .contains("Preflight")

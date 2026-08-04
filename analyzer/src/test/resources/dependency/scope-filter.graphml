@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns"
+         xmlns:y="http://www.yworks.com/xml/graphml">
+  <graph id="G" edgedefault="directed">
+    <node id="n0">
+      <data key="d0">
+        <y:ShapeNode>
+          <y:NodeLabel>com.example:scope-app:jar:1.0.0</y:NodeLabel>
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n1">
+      <data key="d0">
+        <y:ShapeNode>
+          <y:NodeLabel>com.example:system-lib:jar:1.0.0:system</y:NodeLabel>
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n2">
+      <data key="d0">
+        <y:ShapeNode>
+          <y:NodeLabel>com.example:test-lib:jar:1.0.0:test</y:NodeLabel>
+        </y:ShapeNode>
+      </data>
+    </node>
+    <node id="n3">
+      <data key="d0">
+        <y:ShapeNode>
+          <y:NodeLabel>com.example:test-child:jar:1.0.0:compile</y:NodeLabel>
+        </y:ShapeNode>
+      </data>
+    </node>
+    <edge source="n0" target="n1"/>
+    <edge source="n0" target="n2"/>
+    <edge source="n2" target="n3"/>
+  </graph>
+</graphml>

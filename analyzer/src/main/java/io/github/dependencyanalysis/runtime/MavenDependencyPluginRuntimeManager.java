@@ -68,7 +68,8 @@ public final class MavenDependencyPluginRuntimeManager {
             "dependency-analyzer-artifact-path-maven-plugin";
 
     /** Built-in Artifact Path Plugin version. */
-    private static final String ARTIFACT_PATH_VERSION = "1.0.0";
+    private static final String ARTIFACT_PATH_VERSION =
+            MavenDependencyPluginRuntime.ARTIFACT_PATH_PLUGIN_VERSION;
 
     /** Built-in Artifact Path Plugin resource base. */
     private static final String ARTIFACT_PATH_RESOURCE_BASE =
@@ -174,7 +175,7 @@ public final class MavenDependencyPluginRuntimeManager {
                     goal(override.isEmpty()
                             ? EMBEDDED_VERSION : override),
                     effectiveArguments, repository,
-                    checksum);
+                    checksum, jarChecksum);
         } catch (IOException | ParserConfigurationException
                  | SAXException | TransformerException exception) {
             throw new MavenRuntimeException(
