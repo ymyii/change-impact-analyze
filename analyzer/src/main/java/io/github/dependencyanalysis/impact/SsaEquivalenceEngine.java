@@ -2,6 +2,7 @@ package io.github.dependencyanalysis.impact;
 
 import com.ibm.wala.classLoader.IClass;
 import com.ibm.wala.classLoader.IMethod;
+import com.ibm.wala.classLoader.JarFileModule;
 import com.ibm.wala.ipa.callgraph.AnalysisCacheImpl;
 import com.ibm.wala.ipa.callgraph.AnalysisScope;
 import com.ibm.wala.ipa.callgraph.IAnalysisCacheView;
@@ -15,6 +16,7 @@ import com.ibm.wala.types.ClassLoaderReference;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
+import io.github.dependencyanalysis.callgraph.OwnershipFilteredModule;
 import io.github.dependencyanalysis.callgraph.SpringBackendJdkExclusions;
 import io.github.dependencyanalysis.dependency.ResolvedArtifact;
 import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
@@ -226,12 +228,14 @@ public final class SsaEquivalenceEngine {
                 paths.add(point.getDependencyUpgradeKey().getOldPath());
             }
             final ClassOwnershipIndex ownership = new ClassOwnershipIndex();
-            for (Path path : paths.stream()
-                    .sorted(Comparator.comparing(Path::toString)).toList()) {
+            for (Path path : paths) {
                 if (Files.isRegularFile(path)) {
                     ownership.addJar(path, CodeOrigin.DEPENDENCY);
                     scope.addToScope(ClassLoaderReference.Application,
-                            new JarFile(path.toFile(), false));
+                            new OwnershipFilteredModule(
+                                    new JarFileModule(new JarFile(
+                                            path.toFile(), false)),
+                                    path, ownership));
                 }
             }
             final IClassHierarchy hierarchy =

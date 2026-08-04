@@ -12,6 +12,9 @@ public enum ChangePointDisposition {
     /** The change kind is outside the active impact model. */
     CHANGE_KIND_NOT_ANALYZED,
 
+    /** The changed physical definition is not the classpath winner. */
+    SHADOWED_BY_DUPLICATE,
+
     /** A target-side member could not be resolved. */
     TARGET_NOT_FOUND,
 

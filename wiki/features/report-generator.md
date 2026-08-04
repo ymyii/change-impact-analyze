@@ -34,16 +34,16 @@ Index 记录：
 - Overall mode/status、JDK/Maven version、`Maven Dependency Plugin: embedded 3.6.1`。
 - Configured/actual analysis parallelism、Module/JAR diff/decompile workers、SSA serial worker。
 - Baseline dependency、target build、front preparation、target dependency、JAR diff、Module analysis、SSA、decompile elapsed。
-- Dependency changes、raw ChangePoints、candidate/equivalent-filtered/final paths 与 SSA status counts。
+- Dependency changes、raw ChangePoints、candidate/equivalent-filtered/final paths、duplicate conflict/shadowed ChangePoint 与 SSA status counts。
 - 每 Module status/reason/link、candidate/filtered/final、direct/transitive、affected methods/classes、Structural Reference Paths、entrypoint selector/matching、scope、CG nodes/edges/contexts、SSA/limitation counts。
 - Preflight 与 Diagnostics 整体默认折叠。
 
 ## Module Pages
 
-- Module Index：status/reason、scope、entrypoint selection、affected method/class/path/dependency/member counts、stage/worker/entry/call metrics、coverage limitations 和 sibling links。Module Diagnostics、classpath、raw status、WALA metrics 位于 `Technical details`。
+- Module Index：status/reason、scope、entrypoint selection、affected method/class/path/dependency/member counts、stage/worker/entry/call metrics、coverage limitations 和 sibling links。`Duplicate class resolution` 表展示 binary name、winner origin/source、shadowed source 与 precedence reason；完整 physical paths 位于 `Technical details`。Duplicate warning 不进入 Coverage limitations，也不改变 Module status。
 - Affected Call Chains：一级按 changed JAR，二级按 changed member 与 affected application method；最终链展示 Java method sequence 及 `Direct dependency impact`/`Transitive dependency impact`。SSA-equivalent candidate chains 独立默认折叠。Structural Reference Chains 显示 PROJECT boundary 到 changed class 的完整关系；raw Context/edge evidence 位于 `Technical details`。Changed member 链接到 Dependency Changes anchor。
-- Dependency Changes：只展示至少关联 candidate/final Impact Path 或 Structural Reference Path 的 changed member，按 Maven coordinate/JAR 分组。其他 raw changes 只保留总数和未展示数；JAR diff failure 转移到 Module limitations/Diagnostics。
-- 每个相关 member 默认折叠，并使用 `Affected`、`Equivalent (filtered)`、`Structural impact` badge。其下 `View code changes` 展示由 dependency bytecode 生成的 old/new Unified diff，明确标记为 `Decompiled Java representation`；反编译失败或文本相同时展示 ASM fallback/unavailable reason。
+- Dependency Changes：展示至少关联 candidate/final Impact Path、Structural Reference Path，或 disposition 为 `SHADOWED_BY_DUPLICATE` 的 changed member，按 Maven coordinate/JAR 分组。其他 raw changes 只保留总数和未展示数；JAR diff failure 转移到 Module limitations/Diagnostics。
+- 每个相关 member 默认折叠，并使用 `Affected`、`Equivalent (filtered)`、`Structural impact`、`Shadowed by duplicate` badge。Shadowed member 明确说明未生成 Impact Path 的原因、actual winner 与 precedence；winner physical path 位于 `Technical details`。其他 member 的 `View code changes` 展示由 dependency bytecode 生成的 old/new Unified diff，明确标记为 `Decompiled Java representation`；反编译失败或文本相同时展示 ASM fallback/unavailable reason。
 - 默认展开区只显示 Maven/Module coordinate、scope/version、Java package/class/member、影响链和核心 metrics。Workspace、classpath、physical JAR、Maven executable、JDK/config/temp/output 等 filesystem path 全部进入 `Technical details`。
 - Call chain 空态固定为 `No affected call chain was found within the documented analysis scope.`，不声明确定性 no impact。
 

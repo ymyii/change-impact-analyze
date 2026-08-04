@@ -1,6 +1,7 @@
 package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.callgraph.CallGraphStats;
+import io.github.dependencyanalysis.callgraph.DuplicateClassResolution;
 import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
 
 import java.util.ArrayList;
@@ -48,6 +49,9 @@ public final class ModuleAnalysisResult {
     private final Map<BoundChangePoint,
             CodeComparisonEvidence> codeComparisons;
 
+    /** Deterministic duplicate class resolution evidence. */
+    private final List<DuplicateClassResolution> duplicateClassResolutions;
+
     /** Coverage limitations. */
     private final List<String> limitations;
 
@@ -69,6 +73,8 @@ public final class ModuleAnalysisResult {
         dispositions = immutableMap(builder.dispositions);
         equivalenceResults = immutableMap(builder.equivalenceResults);
         codeComparisons = immutableMap(builder.codeComparisons);
+        duplicateClassResolutions = immutable(
+                builder.duplicateClassResolutions);
         limitations = immutable(builder.limitations);
         elapsedMillis = builder.elapsedMillis;
         stageElapsedMillis = Collections.unmodifiableMap(
@@ -146,6 +152,11 @@ public final class ModuleAnalysisResult {
         return codeComparisons;
     }
 
+    /** @return deterministic conflicting duplicate class resolutions */
+    public List<DuplicateClassResolution> getDuplicateClassResolutions() {
+        return duplicateClassResolutions;
+    }
+
     /** @return coverage limitations */
     public List<String> getLimitations() {
         return limitations;
@@ -177,6 +188,7 @@ public final class ModuleAnalysisResult {
                 .dispositions(dispositions)
                 .equivalenceResults(equivalenceResults)
                 .codeComparisons(codeComparisons)
+                .duplicateClassResolutions(duplicateClassResolutions)
                 .limitations(limitations)
                 .elapsedMillis(elapsedMillis)
                 .stageElapsedMillis(stageElapsedMillis);
@@ -220,6 +232,10 @@ public final class ModuleAnalysisResult {
         /** Code comparisons. */
         private Map<BoundChangePoint, CodeComparisonEvidence>
                 codeComparisons = Map.of();
+
+        /** Duplicate class resolution evidence. */
+        private List<DuplicateClassResolution> duplicateClassResolutions =
+                List.of();
 
         /** Limitations. */
         private List<String> limitations = List.of();
@@ -320,6 +336,16 @@ public final class ModuleAnalysisResult {
                 final Map<BoundChangePoint,
                         CodeComparisonEvidence> values) {
             codeComparisons = Map.copyOf(values);
+            return this;
+        }
+
+        /**
+         * @param values deterministic duplicate class resolutions
+         * @return this builder
+         */
+        public Builder duplicateClassResolutions(
+                final List<DuplicateClassResolution> values) {
+            duplicateClassResolutions = List.copyOf(values);
             return this;
         }
 

@@ -48,12 +48,12 @@ Dependency Analyzer 是 Java 17 analyzer + Maven + picocli CLI。`impact` 使用
 ## Design Decisions
 
 <!-- version-contract:start -->
-- Analyzer release: `1.0.2`
+- Analyzer release: `1.1.0`
 - Artifact Path Plugin release: `2.0.0`
 <!-- version-contract:end -->
 
 - Public CLI 固定为 `dependency-analyzer [global-options] <subcommand>`。
-- Maven coordinates 为 `io.github.dependencyanalysis:dependency-analyzer:1.0.0`，Java base package 为 `io.github.dependencyanalysis`，uber JAR 兼容路径为 `target/dependency-analyzer.jar`。
+- Maven coordinates 为 `io.github.dependencyanalysis:dependency-analyzer:1.1.0`，Java base package 为 `io.github.dependencyanalysis`，uber JAR 兼容路径为 `target/dependency-analyzer.jar`。
 - Analyzer 与 Artifact Path Plugin 使用独立 SemVer；正式 distribution 同时发布 versioned CLI JAR、SHA-512 与 build manifest。
 - `impact` 以 GraphML 作为唯一 mediation authority，并由内置 Artifact Path Plugin Schema v2 JSON 以 coordinates 绑定 selected dependency physical path；JSON 不保存 Module 或 scope，Plugin 不执行第二次 collection。`tree` 使用 verbose text 采集完整 dependency occurrence。
 - `impact` 只构建 target per-Module Vanilla 0-1-CFA；baseline 不 compile、不构建 Call Graph。
@@ -63,7 +63,7 @@ Dependency Analyzer 是 Java 17 analyzer + Maven + picocli CLI。`impact` 使用
 ## Module Map
 
 - `pom.xml` - packaging `pom` 的 root parent/aggregator。
-- `analyzer/` - GAV `io.github.dependencyanalysis:dependency-analyzer:1.0.0`；Java 17 CLI/application，最终仍发布兼容路径 `target/dependency-analyzer.jar`。
+- `analyzer/` - GAV `io.github.dependencyanalysis:dependency-analyzer:1.1.0`；Java 17 CLI/application，最终仍发布兼容路径 `target/dependency-analyzer.jar`。
 - `analyzer/src/main/java/io/github/dependencyanalysis/cli/` - Root CLI、global option 和 Maven argument 安全校验。
 - `analyzer/src/main/java/io/github/dependencyanalysis/runtime/` - 内嵌或用户指定 Maven runtime。
 - `analyzer/src/main/java/io/github/dependencyanalysis/preflight/` - DAG preflight framework 和结果 Schema。

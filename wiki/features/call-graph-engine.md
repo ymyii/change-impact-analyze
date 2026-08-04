@@ -18,7 +18,11 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/EntrypointClassScanner.java"
     desc: "WALA 前轻量 target PROJECT class index"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/ClassOwnershipIndex.java"
-    desc: "binary-name ownership 与 duplicate validation"
+    desc: "binary-name ownership、classpath precedence 与 duplicate evidence"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/DuplicateClassResolution.java"
+    desc: "winner、losers 与 precedence reason evidence"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/OwnershipFilteredModule.java"
+    desc: "只向 WALA 暴露 winner class entry"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/ModuleScopeValidator.java"
     desc: "excluded JDK reference validation"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleServiceLoaderEnricher.java"
@@ -43,7 +47,19 @@ code_refs:
 - `DEPENDENCY`：Maven resolved external JAR absolute path。
 - `JDK`：显式 `--java-home` 的 JDK 8 boot/ext JAR。
 - `SYNTHETIC`：ServiceLoader overlay 与 ChangePoint terminal。
-- Scope load 前建立 binary-name ownership index。根级 `module-info.class` 是 Java Module Descriptor，不建立 ownership，也不参与 duplicate validation。byte-identical duplicate 允许去重；内容不同的 duplicate class 使当前 Module fail，禁止 WALA first-wins。为避免对 JDK 8 全量 class 重复 hash，JDK JAR 只对已在 Application scope index 中出现的 binary name 读取 bytecode 并校验 duplicate；byte-identical JDK duplicate 按 bootstrap loader precedence 归属 `JDK`。
+- Scope load 前按 Maven classpath precedence 建立 binary-name ownership index。固定优先级为：JDK boot classpath、JDK extension classpath、当前 Module `target/classes`、依赖 Module `target/classes`、external dependencies。JDK/Application 同名时由 JDK 获胜；Reactor tier 整体优先于 external tier。
+- Reactor 与 external tier 内不按 coordinate/path 二次排序，使用当前 Module 的 Maven Dependency GraphML pre-order traversal；同一 tier 第一个定义获胜。Artifact Path JSON Schema v2 只绑定 physical path，不参与 precedence。
+- 根级 `module-info.class` 是 Java Module Descriptor，不建立 ownership，也不参与 duplicate validation；`META-INF/versions/**` 继续整体排除。规则不扩大到 `package-info.class` 或其他 class。
+- byte-identical duplicate 静默去重，不产生 conflict evidence。内容不同的 duplicate 记录 binary name、winner、全部 candidates/losers 和 precedence reason，并为当前 Module 输出一条汇总 `WARN`；该 warning 不进入 Coverage limitations、不改变 `SUCCESS`、不改变 exit code。
+- WALA 的每个 physical directory/JAR 由 ownership filter 包装，只暴露 winner class entry。Loser source 中其他唯一 class 与 resource 保留；因此 CHA、Call Graph、ownership evidence 使用同一个 winner，不依赖 WALA 未声明的 first-wins 行为。
+- 为避免对 JDK 8 全量 class 重复 hash，JDK JAR 只对已在 Application scope index 中出现的 binary name 读取 bytecode并建立 conflict evidence。Boot classpath 先于 extension classpath，因此同为 `JDK` origin 时第一个定义获胜。
+
+## Module Analysis Gate Classification
+
+- Blocking：`PROJECT`/`REACTOR_DEPENDENCY` 引用 excluded JDK class、scope scanner unreadable/failure、零 `PROJECT` entrypoint、CHA/Call Graph construction failure、Call Graph timeout。它们只失败当前 Module；其他 Module 继续。
+- Coverage warning：external dependency 引用 excluded JDK class、ServiceLoader unresolved evidence、SSA `UNKNOWN`。它们保留结果，但将原 `SUCCESS` Module 标为对应 `INCONCLUSIVE_*`。
+- Non-blocking evidence warning：内容不同的 duplicate class。按 precedence 选择 winner 后继续，Module status/reason、Coverage limitations 与其他 warning 分类不变。
+- Code comparison unavailable 是后处理 Diagnostic warning，不撤销已完成的 Call Graph/Impact 结果，也不改变 Module status。
 
 ## Entrypoints
 
@@ -97,3 +113,6 @@ MethodHandles.analyzeMethodHandles(options, builder);
 - Report 记录 selector boundary、matched classes、scope、exclusions、entrypoints、parameter candidates、nodes、edges、contexts、elapsed。
 - Given 外部 dependency 含 excluded JDK reference，when Module 完成分析，then Report 标记 `INCONCLUSIVE`、保留 artifact-level warning，并展示实际 Call Graph 结果。
 - Given `PROJECT` 或 `REACTOR_DEPENDENCY` 含同类 reference，when 执行 `scope-validation`，then Module 在 Call Graph 前以 `FAILED_SCOPE_VALIDATION` 终止。
+- Given 多个 classpath source 提供内容不同的同一 binary name，when 构建 target scope，then 按 `JDK > PROJECT > REACTOR_DEPENDENCY > DEPENDENCY` 与 GraphML traversal 选择唯一 winner，输出汇总 `WARN`，Module 仍可为 `SUCCESS`。
+- Given loser JAR 同时提供其他唯一 class/resource，when WALA 建立 CHA，then 只过滤 conflict loser class entry，其他 entry 仍可解析。
+- Given duplicate 内容 byte-identical，when 建立 ownership，then 静默去重且不产生 duplicate conflict evidence。

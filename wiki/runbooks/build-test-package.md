@@ -34,7 +34,7 @@ code_refs:
 本 runbook 覆盖 Dependency Analyzer 的编译、unit tests、integration tests、Checkstyle、打包和本地 smoke verification。
 
 <!-- version-contract:start -->
-- Analyzer release: `1.0.2`
+- Analyzer release: `1.1.0`
 - Artifact Path Plugin release: `2.0.0`
 <!-- version-contract:end -->
 

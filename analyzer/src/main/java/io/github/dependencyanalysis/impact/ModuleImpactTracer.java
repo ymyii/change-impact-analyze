@@ -20,7 +20,9 @@ import com.ibm.wala.types.TypeReference;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.callgraph.ClassOwnership;
+import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
+import io.github.dependencyanalysis.callgraph.DuplicateClassResolution;
 import io.github.dependencyanalysis.callgraph.EdgeKind;
 import io.github.dependencyanalysis.callgraph.MethodId;
 import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
@@ -75,7 +77,8 @@ public final class ModuleImpactTracer {
                 new LinkedHashMap<>();
         final Map<QueryNode, ReverseTrace> traceCache = new HashMap<>();
         final StructuralScanResult structuralScan =
-                new StructuralImpactScanner().scan(unit);
+                new StructuralImpactScanner().scan(
+                        unit, session.getOwnership());
         final StructuralPathResult structures = materializeStructuralPaths(
                 unit.getModuleId(), structuralScan, session, traceCache);
         final InvokeDynamicEvidenceIndex bootstrapEvidence =
@@ -89,6 +92,12 @@ public final class ModuleImpactTracer {
             if (isAdded(change.getKind())) {
                 dispositions.put(point,
                         ChangePointDisposition.CHANGE_KIND_NOT_ANALYZED);
+                continue;
+            }
+            final ChangePointDisposition duplicateDisposition =
+                    duplicateDisposition(point, session.getOwnership());
+            if (duplicateDisposition != null) {
+                dispositions.put(point, duplicateDisposition);
                 continue;
             }
             final List<Seed> seeds = resolveSeeds(
@@ -119,6 +128,23 @@ public final class ModuleImpactTracer {
         diagnostics.endStage(context);
         return new ModuleImpactQueryResult(
                 paths, structures.paths(), dispositions);
+    }
+
+    static ChangePointDisposition duplicateDisposition(
+            final BoundChangePoint point,
+            final ClassOwnershipIndex ownership) {
+        final DuplicateClassResolution resolution = ownership
+                .duplicateResolutionOf(
+                        point.getChangePoint().getOwner());
+        if (resolution == null) {
+            return null;
+        }
+        final java.nio.file.Path changedSource = point
+                .getDependencyUpgradeKey().getNewPath()
+                .toAbsolutePath().normalize();
+        return resolution.getLosers().stream()
+                .anyMatch(value -> value.getSource().equals(changedSource))
+                ? ChangePointDisposition.SHADOWED_BY_DUPLICATE : null;
     }
 
     private StructuralPathResult materializeStructuralPaths(

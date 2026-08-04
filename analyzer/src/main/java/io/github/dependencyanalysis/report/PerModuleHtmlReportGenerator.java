@@ -3,6 +3,8 @@ package io.github.dependencyanalysis.report;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.callgraph.CallGraphStats;
+import io.github.dependencyanalysis.callgraph.ClassOwnership;
+import io.github.dependencyanalysis.callgraph.DuplicateClassResolution;
 import io.github.dependencyanalysis.callgraph.MethodId;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.diagnostic.DiagnosticEvent;
@@ -228,6 +230,10 @@ public final class PerModuleHtmlReportGenerator {
                                 + run.getConfiguredParallelism() + ")"))
                 .append(row("Dependency changes",
                         run.getDependencyChanges().size()))
+                .append(row("Conflicting duplicate classes",
+                        duplicateConflictCount(run)))
+                .append(row("Shadowed dependency changes",
+                        shadowedChangeCount(run)))
                 .append(row("Candidate / final call chains",
                         pathCount(run, true) + " / "
                                 + pathCount(run, false)))
@@ -250,6 +256,8 @@ public final class PerModuleHtmlReportGenerator {
                 .append("<section id=\"modules\"><h2>Modules</h2>")
                 .append("<table><tr><th>Module</th><th>Status</th>")
                 .append("<th>Explanation</th><th>Dependencies changed</th>")
+                .append("<th>Duplicate classes</th>")
+                .append("<th>Shadowed changes</th>")
                 .append("<th>Final call chains</th><th>Affected methods</th>")
                 .append("</tr>");
         for (ModuleAnalysisResult module : run.getModuleResults()) {
@@ -271,6 +279,10 @@ public final class PerModuleHtmlReportGenerator {
                     .append(escape(reasonText(module)))
                     .append("</td><td>")
                     .append(module.getUnit().getDependencyChanges().size())
+                    .append("</td><td>")
+                    .append(duplicateResolutions(module).size())
+                    .append("</td><td>")
+                    .append(shadowedChangeCount(module))
                     .append("</td><td>")
                     .append(module.getFinalPaths().size())
                     .append("</td><td>")
@@ -315,6 +327,10 @@ public final class PerModuleHtmlReportGenerator {
                         module.getUnit().getDependencyChanges().size()
                                 + " / "
                                 + module.getUnit().getChangePoints().size()))
+                .append(row("Conflicting duplicate classes",
+                        duplicateResolutions(module).size()))
+                .append(row("Shadowed dependency changes",
+                        shadowedChangeCount(module)))
                 .append(row("Target JDK", runtime.jdkVersion()))
                 .append(row("Apache Maven runtime", runtime.mavenVersion()))
                 .append(row("Maven runtime source", runtime.mavenSource()))
@@ -347,8 +363,9 @@ public final class PerModuleHtmlReportGenerator {
                 .append(" <code>")
                 .append(escape(artifact.getPath().toString()))
                 .append("</code></li>"));
-        body.append("</ul></details></section>")
-                .append("<section id=\"metrics\"><h2>Runtime metrics</h2>")
+        body.append("</ul></details></section>");
+        appendDuplicateResolutions(body, module);
+        body.append("<section id=\"metrics\"><h2>Runtime metrics</h2>")
                 .append("<table>")
                 .append(row("Entry methods", module.getSession() == null
                         ? "Not available"
@@ -391,6 +408,60 @@ public final class PerModuleHtmlReportGenerator {
                 breadcrumbs(overallFile, module, pages.index(),
                         "Module Index"), siblingLinks(pages, "index"),
                 moduleIndexToc(), body.toString());
+    }
+
+    private void appendDuplicateResolutions(
+            final StringBuilder body,
+            final ModuleAnalysisResult module) {
+        final List<DuplicateClassResolution> resolutions =
+                duplicateResolutions(module);
+        body.append("<section id=\"duplicates\"><h2>Duplicate class ")
+                .append("resolution</h2>");
+        if (resolutions.isEmpty()) {
+            body.append("<p>No conflicting duplicate class was found.</p>")
+                    .append("</section>");
+            return;
+        }
+        body.append("<p class=\"warn\">Conflicting definitions were ")
+                .append("resolved by classpath precedence. The selected ")
+                .append("winner was used for Call Graph construction; this ")
+                .append("warning does not change Module status.</p>")
+                .append("<table><tr><th>Binary name</th><th>Winner</th>")
+                .append("<th>Shadowed sources</th><th>Selection</th></tr>");
+        for (DuplicateClassResolution resolution : resolutions) {
+            body.append("<tr><td><code>")
+                    .append(escape(resolution.getBinaryName()
+                            .replace('/', '.')))
+                    .append("</code></td><td>")
+                    .append(escape(ownershipLabel(
+                            resolution.getWinner())))
+                    .append("</td><td>")
+                    .append(escape(resolution.getLosers().stream()
+                            .map(this::ownershipLabel)
+                            .reduce((left, right) -> left + "; " + right)
+                            .orElse("")))
+                    .append("</td><td>")
+                    .append(escape(resolution.getPrecedenceReason()))
+                    .append("</td></tr>");
+        }
+        body.append("</table><details><summary>Technical details</summary>")
+                .append("<table><tr><th>Binary name</th><th>Role</th>")
+                .append("<th>Origin</th><th>Physical path</th></tr>");
+        for (DuplicateClassResolution resolution : resolutions) {
+            for (ClassOwnership candidate : resolution.getCandidates()) {
+                body.append("<tr><td><code>")
+                        .append(escape(resolution.getBinaryName()))
+                        .append("</code></td><td>")
+                        .append(candidate == resolution.getWinner()
+                                ? "Winner" : "Shadowed")
+                        .append("</td><td>")
+                        .append(escape(candidate.getOrigin().name()))
+                        .append("</td><td><code>")
+                        .append(escape(candidate.getSource().toString()))
+                        .append("</code></td></tr>");
+            }
+        }
+        body.append("</table></details></section>");
     }
 
     private String impactPage(
@@ -565,9 +636,18 @@ public final class PerModuleHtmlReportGenerator {
                 .append(escape(moduleLabel(module)))
                 .append("</h1><section id=\"dependencies\"><h2>Changed ")
                 .append("dependencies</h2>");
-        final List<BoundChangePoint> relevant = module.getCodeComparisons()
-                .keySet().stream().sorted(Comparator.comparing(
-                        BoundChangePoint::stableKey)).toList();
+        final java.util.Set<BoundChangePoint> shown =
+                new java.util.LinkedHashSet<>(
+                        module.getCodeComparisons().keySet());
+        module.getDispositions().forEach((point, disposition) -> {
+            if (disposition
+                    == ChangePointDisposition.SHADOWED_BY_DUPLICATE) {
+                shown.add(point);
+            }
+        });
+        final List<BoundChangePoint> relevant = shown.stream()
+                .sorted(Comparator.comparing(BoundChangePoint::stableKey))
+                .toList();
         final Map<String, List<BoundChangePoint>> memberGroups =
                 memberGroups(relevant);
         if (memberGroups.isEmpty()) {
@@ -643,6 +723,7 @@ public final class PerModuleHtmlReportGenerator {
                     .append("</code>")
                     .append(memberBadges(module, bound))
                     .append("</summary>")
+                    .append(shadowedExplanation(module, bound))
                     .append(codeComparison(module, bound))
                     .append(memberTechnicalDetails(module, bound))
                     .append("</details>");
@@ -666,7 +747,33 @@ public final class PerModuleHtmlReportGenerator {
             result.append("<span class=\"badge structural\">Structural ")
                     .append("impact</span>");
         }
+        if (module.getDispositions().get(point)
+                == ChangePointDisposition.SHADOWED_BY_DUPLICATE) {
+            result.append("<span class=\"badge filtered\">Shadowed by ")
+                    .append("duplicate</span>");
+        }
         return result.toString();
+    }
+
+    private String shadowedExplanation(
+            final ModuleAnalysisResult module,
+            final BoundChangePoint point) {
+        if (module.getDispositions().get(point)
+                != ChangePointDisposition.SHADOWED_BY_DUPLICATE) {
+            return "";
+        }
+        final DuplicateClassResolution resolution = duplicateResolution(
+                module, point);
+        if (resolution == null) {
+            return "<p class=\"warn\">This changed definition was shadowed "
+                    + "by classpath duplicate resolution, so no Impact Path "
+                    + "was generated.</p>";
+        }
+        return "<p class=\"warn\">This changed definition was shadowed by "
+                + "<code>" + escape(ownershipLabel(
+                resolution.getWinner())) + "</code> ("
+                + escape(resolution.getPrecedenceReason())
+                + "), so no Impact Path was generated.</p>";
     }
 
     private String codeComparison(
@@ -709,23 +816,36 @@ public final class PerModuleHtmlReportGenerator {
         final ChangePoint point = bound.getChangePoint();
         final MethodEquivalenceResult equivalence = module
                 .getEquivalenceResults().get(bound);
-        return "<details><summary>Technical details</summary><table>"
-                + row("Raw ChangePointKind", point.getKind())
-                + row("Raw disposition", module.getDispositions().get(bound))
-                + row("Disposition explanation", dispositionText(
-                module.getDispositions().get(bound)))
-                + row("Old descriptor", point.getOldDescriptor())
-                + row("New descriptor", point.getNewDescriptor())
-                + row("Old hash", point.getOldHash())
-                + row("New hash", point.getNewHash())
-                + row("SSA status", equivalence == null
-                ? "Not compared" : equivalence.getStatus())
-                + row("SSA reason", equivalence == null
-                ? "Not compared" : equivalence.getReason())
-                + row("Old physical path", bound.getDependencyUpgradeKey()
-                .getOldPath())
-                + row("New physical path", bound.getDependencyUpgradeKey()
-                .getNewPath()) + "</table></details>";
+        final StringBuilder result = new StringBuilder(
+                "<details><summary>Technical details</summary><table>")
+                .append(row("Raw ChangePointKind", point.getKind()))
+                .append(row("Raw disposition",
+                        module.getDispositions().get(bound)))
+                .append(row("Disposition explanation", dispositionText(
+                        module.getDispositions().get(bound))))
+                .append(row("Old descriptor", point.getOldDescriptor()))
+                .append(row("New descriptor", point.getNewDescriptor()))
+                .append(row("Old hash", point.getOldHash()))
+                .append(row("New hash", point.getNewHash()))
+                .append(row("SSA status", equivalence == null
+                        ? "Not compared" : equivalence.getStatus()))
+                .append(row("SSA reason", equivalence == null
+                        ? "Not compared" : equivalence.getReason()))
+                .append(row("Old physical path", bound
+                        .getDependencyUpgradeKey().getOldPath()))
+                .append(row("New physical path", bound
+                        .getDependencyUpgradeKey().getNewPath()));
+        final DuplicateClassResolution resolution = duplicateResolution(
+                module, bound);
+        if (resolution != null) {
+            result.append(row("Duplicate winner",
+                            ownershipLabel(resolution.getWinner())))
+                    .append(row("Duplicate winner physical path",
+                            resolution.getWinner().getSource()))
+                    .append(row("Duplicate precedence",
+                            resolution.getPrecedenceReason()));
+        }
+        return result.append("</table></details>").toString();
     }
 
     private String document(
@@ -965,6 +1085,8 @@ public final class PerModuleHtmlReportGenerator {
                     + "the old and new method models were proven equivalent.";
             case CHANGE_KIND_NOT_ANALYZED -> "This added member does not "
                     + "trigger backward impact analysis.";
+            case SHADOWED_BY_DUPLICATE -> "The changed class definition is "
+                    + "shadowed by the selected classpath winner.";
             case TARGET_NOT_FOUND -> "The target member could not be resolved.";
             case DECLARED_REFERENCE_NOT_FOUND -> "No reachable bytecode "
                     + "reference to the previous member was found.";
@@ -1055,6 +1177,52 @@ public final class PerModuleHtmlReportGenerator {
     private long rawChangeCount(final AnalysisRunResult run) {
         return run.getModuleResults().stream().mapToLong(module ->
                 module.getUnit().getChangePoints().size()).sum();
+    }
+
+    private long duplicateConflictCount(final AnalysisRunResult run) {
+        return run.getModuleResults().stream()
+                .mapToLong(module -> duplicateResolutions(module).size())
+                .sum();
+    }
+
+    private long shadowedChangeCount(final AnalysisRunResult run) {
+        return run.getModuleResults().stream()
+                .mapToLong(this::shadowedChangeCount).sum();
+    }
+
+    private long shadowedChangeCount(final ModuleAnalysisResult module) {
+        return module.getDispositions().values().stream()
+                .filter(value -> value
+                        == ChangePointDisposition.SHADOWED_BY_DUPLICATE)
+                .count();
+    }
+
+    private List<DuplicateClassResolution> duplicateResolutions(
+            final ModuleAnalysisResult module) {
+        return module.getDuplicateClassResolutions();
+    }
+
+    private DuplicateClassResolution duplicateResolution(
+            final ModuleAnalysisResult module,
+            final BoundChangePoint point) {
+        return duplicateResolutions(module).stream()
+                .filter(value -> value.getBinaryName().equals(
+                        normalizedClassName(
+                                point.getChangePoint().getOwner())))
+                .findFirst().orElse(null);
+    }
+
+    private String normalizedClassName(final String value) {
+        final String normalized = value.startsWith("L")
+                ? value.substring(1) : value;
+        return normalized.replace('.', '/');
+    }
+
+    private String ownershipLabel(final ClassOwnership ownership) {
+        final Path fileName = ownership.getSource().getFileName();
+        return ownership.getOrigin().name() + " — "
+                + (fileName == null ? ownership.getSource()
+                : fileName.toString());
     }
 
     private long affectedMethodCount(final ModuleAnalysisResult module) {
@@ -1193,6 +1361,7 @@ public final class PerModuleHtmlReportGenerator {
 
     private String moduleIndexToc() {
         return toc("summary", "Summary", "scope", "Analysis scope",
+                "duplicates", "Duplicate class resolution",
                 "metrics", "Runtime metrics", "limits", "Limitations",
                 "diagnostics", "Diagnostics");
     }

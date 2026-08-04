@@ -4,6 +4,7 @@ import com.ibm.wala.analysis.reflection.java7.MethodHandles;
 import com.ibm.wala.classLoader.BinaryDirectoryTreeModule;
 import com.ibm.wala.classLoader.IClass;
 import com.ibm.wala.classLoader.IMethod;
+import com.ibm.wala.classLoader.JarFileModule;
 import com.ibm.wala.classLoader.Language;
 import com.ibm.wala.ipa.callgraph.AnalysisCacheImpl;
 import com.ibm.wala.ipa.callgraph.AnalysisOptions;
@@ -36,6 +37,9 @@ import java.util.jar.JarFile;
 
 /** Builds one independent Vanilla 0-1-CFA graph per analysis module. */
 public final class ModuleCallGraphEngine {
+
+    /** Duplicate winner examples retained in one warning. */
+    private static final int MAX_DUPLICATE_EXAMPLES = 3;
 
     /** Diagnostics. */
     private final DiagnosticCollector diagnostics;
@@ -93,7 +97,8 @@ public final class ModuleCallGraphEngine {
         final long initialMemory = usedMemory();
         try {
             final ClassOwnershipIndex ownership = ownership(unit);
-            final AnalysisScope scope = scope(unit);
+            reportDuplicateResolutions(context, ownership);
+            final AnalysisScope scope = scope(unit, ownership);
             final IClassHierarchy hierarchy = hierarchy(scope);
             final List<Entrypoint> entrypoints = entrypoints(
                     hierarchy, ownership);
@@ -200,27 +205,28 @@ public final class ModuleCallGraphEngine {
         }
     }
 
-    private AnalysisScope scope(final ModuleAnalysisUnit unit)
+    private AnalysisScope scope(
+            final ModuleAnalysisUnit unit,
+            final ClassOwnershipIndex ownership)
             throws IOException {
         final AnalysisScope result = AnalysisScope.createJavaAnalysisScope();
         final SpringBackendJdkExclusions exclusions =
                 new SpringBackendJdkExclusions();
         result.setExclusions(exclusions);
         addJdkJars(result, ClassLoaderReference.Primordial,
-                javaRuntime.getBootClassPath(), exclusions);
+                javaRuntime.getBootClassPath(), exclusions, ownership);
         addJdkJars(result, ClassLoaderReference.Extension,
-                javaRuntime.getExtensionClassPath(), exclusions);
+                javaRuntime.getExtensionClassPath(), exclusions, ownership);
         result.addToScope(ClassLoaderReference.Application,
-                new BinaryDirectoryTreeModule(
-                        unit.getProjectClasses().toFile()));
+                filteredDirectory(unit.getProjectClasses(), ownership));
         for (Path path : unit.getReactorDependencyClasses()) {
             result.addToScope(ClassLoaderReference.Application,
-                    new BinaryDirectoryTreeModule(path.toFile()));
+                    filteredDirectory(path, ownership));
         }
         for (ResolvedArtifact artifact : unit.getTargetArtifacts()) {
             if (isJar(artifact)) {
                 result.addToScope(ClassLoaderReference.Application,
-                        new JarFile(artifact.getPath().toFile(), false));
+                        filteredJar(artifact.getPath(), ownership));
             }
         }
         return result;
@@ -230,14 +236,54 @@ public final class ModuleCallGraphEngine {
             final AnalysisScope scope,
             final ClassLoaderReference loader,
             final List<Path> paths,
-            final SpringBackendJdkExclusions exclusions)
+            final SpringBackendJdkExclusions exclusions,
+            final ClassOwnershipIndex ownership)
             throws IOException {
         for (Path path : paths) {
             if (!exclusions.excludesJar(path)) {
                 scope.addToScope(loader,
-                        new JarFile(path.toFile(), false));
+                        filteredJar(path, ownership));
             }
         }
+    }
+
+    private OwnershipFilteredModule filteredDirectory(
+            final Path path,
+            final ClassOwnershipIndex ownership) {
+        return new OwnershipFilteredModule(
+                new BinaryDirectoryTreeModule(path.toFile()),
+                path, ownership);
+    }
+
+    private OwnershipFilteredModule filteredJar(
+            final Path path,
+            final ClassOwnershipIndex ownership) throws IOException {
+        return new OwnershipFilteredModule(
+                new JarFileModule(new JarFile(path.toFile(), false)),
+                path, ownership);
+    }
+
+    private void reportDuplicateResolutions(
+            final DiagnosticContext context,
+            final ClassOwnershipIndex ownership) {
+        final List<DuplicateClassResolution> resolutions =
+                ownership.duplicateClassResolutions();
+        if (resolutions.isEmpty()) {
+            return;
+        }
+        final String examples = resolutions.stream()
+                .limit(MAX_DUPLICATE_EXAMPLES)
+                .map(value -> value.getBinaryName() + " -> "
+                        + value.getWinner().getSource())
+                .reduce((left, right) -> left + "; " + right)
+                .orElse("");
+        diagnostics.warn(context,
+                "Resolved conflicting duplicate classes by classpath "
+                        + "precedence; count=" + resolutions.size()
+                        + "; winners=" + examples
+                        + (resolutions.size() > MAX_DUPLICATE_EXAMPLES
+                        ? "; omitted=" + (resolutions.size()
+                        - MAX_DUPLICATE_EXAMPLES) : ""));
     }
 
     private IClassHierarchy hierarchy(final AnalysisScope scope) {

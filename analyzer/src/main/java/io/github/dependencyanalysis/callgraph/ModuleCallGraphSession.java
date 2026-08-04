@@ -8,6 +8,7 @@ import com.ibm.wala.types.ClassLoaderReference;
 
 import io.github.dependencyanalysis.impact.ServiceLoaderOverlay;
 
+import java.util.List;
 import java.util.Objects;
 
 /** Live per-module WALA graph and its ownership/metric context. */
@@ -85,6 +86,11 @@ public final class ModuleCallGraphSession {
     /** @return binary-name ownership index */
     public ClassOwnershipIndex getOwnership() {
         return ownership;
+    }
+
+    /** @return deterministic conflicting duplicate class resolutions */
+    public List<DuplicateClassResolution> getDuplicateClassResolutions() {
+        return ownership.duplicateClassResolutions();
     }
 
     /** @return target-side SSA cache */

@@ -12,7 +12,6 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Tests deterministic duplicate class ownership. */
 class ClassOwnershipIndexTest {
@@ -38,7 +37,8 @@ class ClassOwnershipIndexTest {
     }
 
     @Test
-    void conflictingDuplicateFailsBeforeWala() throws Exception {
+    void conflictingDuplicateSelectsWinnerAndRetainsEvidence()
+            throws Exception {
         final Path first = temporary.resolve("first");
         final Path second = temporary.resolve("second");
         write(first, classBytes("sample/Duplicate", 0));
@@ -47,11 +47,79 @@ class ClassOwnershipIndexTest {
         final ClassOwnershipIndex index = new ClassOwnershipIndex();
         index.addDirectory(first, CodeOrigin.PROJECT);
 
-        assertThatThrownBy(() -> index.addDirectory(
-                second, CodeOrigin.DEPENDENCY))
-                .isInstanceOf(CallGraphException.class)
-                .hasMessage("Conflicting duplicate class sample/Duplicate: "
-                        + first + " and " + second);
+        index.addDirectory(second, CodeOrigin.DEPENDENCY);
+
+        assertThat(index.ownershipOf("sample/Duplicate").getSource())
+                .isEqualTo(first);
+        assertThat(index.duplicateClassResolutions()).singleElement()
+                .satisfies(resolution -> {
+                    assertThat(resolution.getBinaryName())
+                            .isEqualTo("sample/Duplicate");
+                    assertThat(resolution.getWinner().getOrigin())
+                            .isEqualTo(CodeOrigin.PROJECT);
+                    assertThat(resolution.getLosers()).singleElement()
+                            .extracting(ClassOwnership::getSource)
+                            .isEqualTo(second);
+                    assertThat(resolution.getPrecedenceReason())
+                            .isEqualTo("Current module target/classes "
+                                    + "precedence");
+                });
+    }
+
+    @Test
+    void sameOriginUsesFirstClasspathDefinition() throws Exception {
+        final Path first = temporary.resolve("first-dependency");
+        final Path second = temporary.resolve("second-dependency");
+        write(first, classBytes("sample/Duplicate", 0));
+        write(second, classBytes("sample/Duplicate", Opcodes.ACC_FINAL));
+        final ClassOwnershipIndex index = new ClassOwnershipIndex();
+
+        index.addDirectory(first, CodeOrigin.DEPENDENCY);
+        index.addDirectory(second, CodeOrigin.DEPENDENCY);
+
+        assertThat(index.ownershipOf("sample/Duplicate").getSource())
+                .isEqualTo(first);
+        assertThat(index.duplicateClassResolutions()).singleElement()
+                .extracting(DuplicateClassResolution::getPrecedenceReason)
+                .isEqualTo("External dependency GraphML order");
+    }
+
+    @Test
+    void reactorDefinitionWinsOverExternalDependency() throws Exception {
+        final Path external = temporary.resolve("external-dependency");
+        final Path reactor = temporary.resolve("reactor-dependency");
+        write(external, classBytes("sample/Duplicate", 0));
+        write(reactor, classBytes("sample/Duplicate", Opcodes.ACC_FINAL));
+        final ClassOwnershipIndex index = new ClassOwnershipIndex();
+
+        index.addDirectory(external, CodeOrigin.DEPENDENCY);
+        index.addDirectory(reactor, CodeOrigin.REACTOR_DEPENDENCY);
+
+        assertThat(index.ownershipOf("sample/Duplicate").getSource())
+                .isEqualTo(reactor);
+        assertThat(index.duplicateClassResolutions()).singleElement()
+                .extracting(DuplicateClassResolution::getPrecedenceReason)
+                .isEqualTo("Reactor dependency GraphML order");
+    }
+
+    @Test
+    void identicalDuplicateDoesNotProduceConflictEvidence()
+            throws Exception {
+        final Path first = temporary.resolve("identical-first");
+        final Path second = temporary.resolve("identical-second");
+        final byte[] bytes = classBytes("sample/Duplicate", 0);
+        write(first, bytes);
+        write(second, bytes);
+        final ClassOwnershipIndex index = new ClassOwnershipIndex();
+
+        index.addDirectory(first, CodeOrigin.DEPENDENCY);
+        index.addDirectory(second, CodeOrigin.DEPENDENCY);
+
+        assertThat(index.duplicateClassResolutions()).isEmpty();
+        assertThat(index.isEffectiveDefinition(
+                "sample/Duplicate", first)).isTrue();
+        assertThat(index.isEffectiveDefinition(
+                "sample/Duplicate", second)).isFalse();
     }
 
     @Test
@@ -77,6 +145,8 @@ class ClassOwnershipIndexTest {
         final byte[] ordinary = classBytes("sample/Owned", 0);
         final Path first = jar("first-module.jar", Map.of(
                 "module-info.class", classBytes("module-info", 0),
+                "META-INF/versions/9/sample/Versioned.class",
+                classBytes("sample/Versioned", 0),
                 "sample/Owned.class", ordinary));
         final Path second = jar("second-module.jar", Map.of(
                 "module-info.class", classBytes("module-info",
@@ -109,6 +179,30 @@ class ClassOwnershipIndexTest {
         assertThat(index.ownershipOf("sample/Duplicate").getOrigin())
                 .isEqualTo(CodeOrigin.JDK);
         assertThat(index.ownershipOf("jdk/Only")).isNull();
+    }
+
+    @Test
+    void conflictingJdkDefinitionWinsByParentLoaderPrecedence()
+            throws Exception {
+        final Path project = temporary.resolve("conflicting-jdk-project");
+        write(project, classBytes("sample/Duplicate", 0));
+        final Path jar = jar("conflicting-jdk.jar", Map.of(
+                "sample/Duplicate.class", classBytes(
+                        "sample/Duplicate", Opcodes.ACC_FINAL)));
+        final ClassOwnershipIndex index = new ClassOwnershipIndex();
+        index.addDirectory(project, CodeOrigin.PROJECT);
+
+        index.validateJarDuplicates(jar, CodeOrigin.JDK, name -> true);
+
+        assertThat(index.ownershipOf("sample/Duplicate").getSource())
+                .isEqualTo(jar);
+        assertThat(index.duplicateClassResolutions()).singleElement()
+                .satisfies(resolution -> {
+                    assertThat(resolution.getWinner().getOrigin())
+                            .isEqualTo(CodeOrigin.JDK);
+                    assertThat(resolution.getPrecedenceReason())
+                            .isEqualTo("JDK parent/bootstrap precedence");
+                });
     }
 
     private void write(final Path root, final byte[] bytes)

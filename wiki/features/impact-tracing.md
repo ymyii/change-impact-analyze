@@ -16,7 +16,11 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactPath.java"
     desc: "ordered nodes/edges/terminal"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/StructuralImpactScanner.java"
-    desc: "class metadata Structural Reference 扫描"
+    desc: "winner-only class metadata Structural Reference 扫描"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/InvokeDynamicEvidenceIndex.java"
+    desc: "winner-only invokedynamic/bootstrap evidence 扫描"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChangePointDisposition.java"
+    desc: "ChangePoint 最终 disposition contract"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/StructuralReferencePath.java"
     desc: "带 PROJECT boundary 的结构引用链"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/SsaEquivalenceEngine.java"
@@ -40,6 +44,7 @@ Impact Tracing 在 target Call Graph 完成后解析 ChangePoint seed，直接�
 - Field change：扫描 reachable field access 的 declared field。
 - Class removal：扫描 allocation、cast、`instanceof`、array、metadata、method/field type reference。
 - `*_ADDED` 不触发 Call Graph，disposition 为 `CHANGE_KIND_NOT_ANALYZED`。
+- ChangePoint 的 new physical path 若是内容冲突 duplicate 的 loser，disposition 为 `SHADOWED_BY_DUPLICATE`；不把 loser bytecode 绑定到 winner WALA node，不生成 Impact Path，并保留实际 winner 与 precedence evidence。
 - 任意 removal/modification ChangePoint 都会触发 target Call Graph；不存在 direct seed 的 skip gate。
 
 ## Reverse Query and Path Identity
@@ -64,6 +69,7 @@ Impact Tracing 在 target Call Graph 完成后解析 ChangePoint seed，直接�
 - `IMPACT_REPORTED`
 - `FILTERED_EQUIVALENT`
 - `CHANGE_KIND_NOT_ANALYZED`
+- `SHADOWED_BY_DUPLICATE`
 - `TARGET_NOT_FOUND`
 - `DECLARED_REFERENCE_NOT_FOUND`
 - `NO_PROJECT_PATH`
@@ -76,6 +82,7 @@ Impact Tracing 在 target Call Graph 完成后解析 ChangePoint seed，直接�
 
 - 只处理已进入 candidate Impact Path 的唯一 `METHOD_BODY_CHANGED`；所有 Module query join 后全局串行执行。
 - Target IR 来自 target Module session；old IR 使用 baseline resolved external classpath、exact old JAR、同一 JDK 8 创建 old-side CHA，不构建 baseline Call Graph。
+- Baseline external classpath 保留 baseline Maven GraphML traversal 顺序，并使用同一 first-in-tier single-winner filter；内容不同的 baseline duplicate 不再使整个 SSA session 失败。
 - 两侧使用相同 `SSAOptions` 和独立 cache。
 - Model 比较 typed constants、Def-Use、normal/exception CFG、catch type、declared references、phi/pi/catch、invoke/return/throw/monitor 与 side-effect order。
 - `PROVEN_EQUIVALENT` 删除该 ChangePoint 的全部 paths；`DIFFERENT`、`UNKNOWN` 保留。
@@ -88,6 +95,8 @@ Impact Tracing 在 target Call Graph 完成后解析 ChangePoint seed，直接�
 - Vineflower 在内存中、单线程使用 exact old/new artifact 与 JDK 8 context；多个 Module 复用相同 physical JAR pair/member 结果。
 - 输出是完整 Git-style Unified diff，每个 hunk 3 行 context，并明确标记为 `Decompiled Java representation`。反编译失败或 bytecode 不同但文本相同时保留 ASM instruction diff fallback。
 - SSA `PROVEN_EQUIVALENT` 的 candidate path 仍生成代码 evidence，供用户复核；代码 evidence 不参与 Impact 或 SSA 判定，失败也不改变 Module status。
+- `StructuralImpactScanner` 与 invokedynamic/bootstrap raw scanner 只读取 ownership winner；loser bytecode 不得为 winner WALA node 提供结构或 bootstrap evidence。
+- `SHADOWED_BY_DUPLICATE` 即使没有 Impact Path 也进入 Dependency Changes；页面解释未分析原因、actual winner 与 precedence，但不要求为 loser 构建 decompiled code evidence。
 
 ## Boundary
 

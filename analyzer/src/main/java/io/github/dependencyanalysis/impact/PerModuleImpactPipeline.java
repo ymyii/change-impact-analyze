@@ -933,6 +933,8 @@ final class PerModuleImpactPipeline {
                                     : "Analysis completed within declared "
                                     + "model")
                     .session(session)
+                    .duplicateClassResolutions(
+                            session.getDuplicateClassResolutions())
                     .candidatePaths(query.getPaths())
                     .finalPaths(query.getPaths())
                     .structuralPaths(query.getStructuralPaths())
@@ -1111,45 +1113,23 @@ final class PerModuleImpactPipeline {
             final String currentKey) {
         final Map<String, ModuleId> modules = moduleMap(
                 scope.getAllModules());
-        final Set<String> closure = new LinkedHashSet<>();
-        collectReactor(tree.getDependencies(),
-                scope.getReactorCoordinates(), closure);
+        final Set<String> closure = new LinkedHashSet<>(
+                ModuleClasspathOrder.reactorKeys(
+                        tree, scope.getReactorCoordinates()));
         closure.remove(currentKey);
-        return closure.stream().sorted()
+        return closure.stream()
                 .map(modules::get)
                 .filter(Objects::nonNull)
                 .map(module -> classesPath(module, scope, outputs))
                 .toList();
     }
 
-    private void collectReactor(
-            final List<DependencyNode> nodes,
-            final Set<ArtifactCoord> reactor,
-            final Set<String> result) {
-        final Set<String> keys = reactor.stream()
-                .map(ArtifactCoord::diffKey)
-                .collect(java.util.stream.Collectors.toSet());
-        for (DependencyNode node : nodes) {
-            if (keys.contains(node.getArtifact().diffKey())) {
-                result.add(node.getArtifact().diffKey());
-            }
-            collectReactor(node.getChildren(), reactor, result);
-        }
-    }
-
     private List<ResolvedArtifact> externalArtifacts(
             final DependencyAnalysisResult analysis,
             final ModuleDependencyTree tree,
             final ReactorAnalysisScope scope) {
-        final Set<String> reactor = scope.getReactorCoordinates().stream()
-                .map(ArtifactCoord::diffKey)
-                .collect(java.util.stream.Collectors.toSet());
-        return analysis.artifactsFor(tree.getModulePath()).stream()
-                .filter(value -> !reactor.contains(
-                        value.getArtifact().diffKey()))
-                .sorted(Comparator.comparing(value ->
-                        value.getArtifact().toString()))
-                .toList();
+        return ModuleClasspathOrder.externalArtifacts(
+                analysis, tree, scope.getReactorCoordinates());
     }
 
     private boolean isAdded(final ChangePointKind kind) {

@@ -14,6 +14,7 @@ import io.github.dependencyanalysis.impact.AnalysisConcurrency;
 import io.github.dependencyanalysis.impact.AnalysisRunResult;
 import io.github.dependencyanalysis.impact.AnalysisStatus;
 import io.github.dependencyanalysis.callgraph.EntrypointSelection;
+import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.EdgeKind;
 import io.github.dependencyanalysis.callgraph.MethodId;
@@ -376,6 +377,99 @@ class PerModuleHtmlReportGeneratorTest {
                 .isLessThan(diagnosticHeading);
         assertThat(index.indexOf(warningPrefix, diagnosticHeading))
                 .isGreaterThan(diagnosticHeading);
+    }
+
+    @Test
+    void reportsDuplicateWinnerAndShadowedChangeWithoutImpactPath()
+            throws Exception {
+        final Path output = temporary.resolve("duplicate.html");
+        final Path winner = temporary.resolve("winner-<unsafe>");
+        final Path shadowed = temporary.resolve("shadowed-dependency");
+        writeClass(winner, "sample/Duplicate.class", new byte[]{1});
+        writeClass(shadowed, "sample/Duplicate.class", new byte[]{2});
+        final ClassOwnershipIndex ownership = new ClassOwnershipIndex();
+        ownership.addDirectory(winner, CodeOrigin.PROJECT);
+        ownership.addDirectory(shadowed, CodeOrigin.DEPENDENCY);
+        final ModuleId moduleId = new ModuleId(new ArtifactCoord(
+                "example", "app", "jar", "1"), Path.of("app"));
+        final ArtifactCoord oldArtifact = new ArtifactCoord(
+                "example", "library", "jar", "1");
+        final ArtifactCoord newArtifact = new ArtifactCoord(
+                "example", "library", "jar", "2");
+        final DependencyUpgradeKey upgrade = new DependencyUpgradeKey(
+                moduleId, DependencyScope.COMPILE, oldArtifact, newArtifact,
+                temporary.resolve("library-1.jar"), shadowed);
+        final BoundChangePoint bound = new BoundChangePoint(upgrade,
+                new ChangePoint(newArtifact, ChangePointKind.METHOD_REMOVED,
+                        "sample/Duplicate", "removed", "()V", null, null));
+        final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                moduleId, ModulePresence.BOTH, winner, List.of(),
+                List.of(), List.of(),
+                new ModuleChangeSet(List.of(bound), List.of()));
+        final ModuleAnalysisResult module = new ModuleAnalysisResult
+                .Builder(unit)
+                .status(ModuleAnalysisStatus.SUCCESS,
+                        ModuleAnalysisReason.NONE, "complete")
+                .dispositions(Map.of(bound,
+                        ChangePointDisposition.SHADOWED_BY_DUPLICATE))
+                .duplicateClassResolutions(
+                        ownership.duplicateClassResolutions())
+                .build();
+        final AnalysisRunResult run = new AnalysisRunResult(
+                AnalysisMode.REACTOR, AnalysisStatus.SUCCESS, List.of(),
+                List.of(module), new AnalysisConcurrency(1, 1, 0, 0),
+                Map.of(), EntrypointSelection.allProjectClasses());
+        final MavenDependencyPluginRuntime plugin =
+                new MavenDependencyPluginRuntimeManager().prepare(
+                        temporary.resolve("config-duplicate"),
+                        List.of(), null);
+
+        new PerModuleHtmlReportGenerator().generate(run, List.of(),
+                new PreflightReport(List.of()), maven(), plugin,
+                java(), output);
+
+        assertThat(output).content()
+                .contains("Conflicting duplicate classes</th><td>1")
+                .contains("Shadowed dependency changes</th><td>1")
+                .contains("Completed");
+        final Path owned = temporary.resolve("duplicate-modules");
+        final String index;
+        final String changes;
+        try (Stream<Path> pages = Files.list(owned)) {
+            final List<Path> values = pages.toList();
+            index = Files.readString(values.stream()
+                    .filter(path -> !path.getFileName().toString()
+                            .contains("-impact"))
+                    .filter(path -> !path.getFileName().toString()
+                            .contains("-changes"))
+                    .findFirst().orElseThrow());
+            changes = Files.readString(values.stream()
+                    .filter(path -> path.getFileName().toString()
+                            .contains("-changes"))
+                    .findFirst().orElseThrow());
+        }
+        assertThat(index)
+                .contains("Duplicate class resolution")
+                .contains("sample.Duplicate")
+                .contains("Current module target/classes precedence")
+                .contains("winner-&lt;unsafe&gt;")
+                .contains("No module-specific limitation was recorded.")
+                .doesNotContain("winner-<unsafe>");
+        assertThat(changes)
+                .contains("Method removed")
+                .contains("Shadowed by duplicate")
+                .contains("no Impact Path was generated")
+                .contains("PROJECT — winner-&lt;unsafe&gt;")
+                .contains("SHADOWED_BY_DUPLICATE");
+    }
+
+    private void writeClass(
+            final Path root,
+            final String relative,
+            final byte[] content) throws Exception {
+        final Path file = root.resolve(relative);
+        Files.createDirectories(file.getParent());
+        Files.write(file, content);
     }
 
     private MavenRuntimeDescriptor maven() {

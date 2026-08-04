@@ -8,11 +8,11 @@ Dependency Analyzer 是 Java 17 CLI，面向 Maven project：
 - `tree`：扫描一个 Git repository 内的 Maven reactor，输出 repository 级 offline HTML dependency tree report。
 
 <!-- version-contract:start -->
-- Analyzer release: `1.0.2`
+- Analyzer release: `1.1.0`
 - Artifact Path Plugin release: `2.0.0`
 <!-- version-contract:end -->
 
-当前 Analyzer version 为 `1.0.0`。Root command 为 `dependency-analyzer`。
+当前 Analyzer version 为 `1.1.0`。Root command 为 `dependency-analyzer`。
 
 Source repository 使用 Maven multi-module：根 `pom.xml` 是 parent/aggregator；
 `analyzer/` 是 Java 17 CLI，仍生成 `target/dependency-analyzer.jar`；`plugins/` 是
@@ -202,6 +202,8 @@ Preflight 后先识别模式：选择 reactor root 时，全 reactor 只 compile
 
 GraphML 是 `impact` 唯一的 mediation authority，决定 selected coordinate 与 effective scope；Artifact Path JSON 只负责 physical artifact binding。Artifact Path Plugin 不执行第二次 dependency collection。它安全解析 GraphML，校验 root coordinate 与当前 `MavenProject` 一致，只读取 selected `compile/runtime/provided/system` dependency，并完全忽略 `test`。因此 `test` 不进入 dependency diff、path binding、JAR diff 或 Call Graph。Exclusion 与 conflict loser 已由 GraphML 结论排除，不会创建下载请求；Reactor coordinate 直接跳过，由 Analyzer 映射到 target `target/classes`。
 
+Module classpath 使用固定 precedence：JDK boot classpath、JDK extension classpath、当前 Module `target/classes`、依赖 Module `target/classes`、external dependencies。Reactor 与 external tier 内保持当前 Module 的 GraphML pre-order traversal，不按 coordinate 或 path 二次排序。同一 binary name 的内容冲突按该顺序选择唯一 winner；byte-identical duplicate 静默去重。根级 `module-info.class` 与 `META-INF/versions/**` 不参与 ownership。内容不同的 duplicate 输出 `WARN` 与 winner/loser evidence，但不进入 Coverage limitations、不改变 Module `SUCCESS` 或 exit code。WALA、Structural Reference 与 invokedynamic evidence 都只读取 winner；loser source 中其他唯一 class/resource 不受影响。
+
 对非 `system` binding，Plugin 通过 session `ArtifactTypeRegistry` 恢复 extension/default classifier，使用当前 Module 的 `project.remoteProjectRepositories` 批量创建非传递 `ArtifactRequest`，并只采用 Maven Resolver 返回的 `ArtifactResult` file。RepositorySystemSession 继续提供 mirror、proxy、authentication、local repository、offline policy、cache 与 WorkspaceReader。GraphML 不包含 transitive node-specific repository list，因此 request 不重建该信息。对 GraphML selected `system` binding，Plugin 按相同 coordinate 匹配当前 effective `MavenProject` 的 `system` dependency，要求唯一匹配，并验证 `systemPath` 是 absolute existing regular file；JSON 直接绑定该 path，不创建 remote `ArtifactRequest`。该路径不生成 temporary POM、不调用 `dependency:list`、不自行拼接 local repository path，也不附加 `-llr`。
 
 Plugin 参数 `-Dcia.dependencyGraphFileName=<unique>.graphml` 与 `-Dcia.resolvedArtifactsFileName=<unique>.json` 都只接受 filename。Absolute path、目录分隔符与 `..` 会被拒绝；文件解析到当前 Module `project.basedir`。缺少 GraphML、root coordinate 不匹配、XML malformed、graph cycle/unreachable node、`system` coordinate 无唯一 effective dependency、`systemPath` 非 absolute existing file、physical path ambiguity 或 artifact resolution failure 时 goal 失败，不提供 collection fallback。Plugin 先写 sibling temporary file，全部 binding 成功后 atomic move；失败不发布部分 JSON。
@@ -234,6 +236,19 @@ Scope 只存在于 GraphML dependency graph。相同 coordinates/version 只有 
 
 Physical JAR pair 按 `--analysis-parallelism` 并行 bytecode diff。用户配置 entrypoint selector 时，轻量 target class index 会先识别没有匹配 PROJECT class 的 Module；该步骤只缩小 root methods，不裁剪 Module scope、CHA、Reflection、ServiceLoader 或 Reference 参数 subtype candidates。存在 removal/modification ChangePoint 且命中 entrypoint scope 的 Module 独立执行 scope validation、JDK 8 CHA、WALA Vanilla 0-1-CFA、`ReflectionOptions.FULL`、MethodHandle extension 和 direct WALA query。Module 内 build/query 单线程，Module 之间按 `--analysis-parallelism` 并行。没有 seed pre-scan、零 seed skip、CHA pre-graph 或 full predecessor copy。
 
+Module analysis 检查分类如下。这里的“阻塞”只终止当前 Module，其他 Module 继续；全部 Module 完成后再按既有规则形成 Overall status 与 exit code。
+
+| 检查项 | 分类 | 结果 |
+|---|---|---|
+| `PROJECT`/`REACTOR_DEPENDENCY` 引用 excluded JDK class；scope scanner unreadable/failure | 阻塞 | 当前 Module `FAILED_SCOPE_VALIDATION`。 |
+| 零 `PROJECT` entrypoint、CHA/Call Graph construction failure | 阻塞 | 当前 Module `FAILED_ANALYSIS`。 |
+| Call Graph timeout | 阻塞 | 当前 Module `FAILED_CALL_GRAPH_TIMEOUT`。 |
+| external dependency 引用 excluded JDK class | Coverage warning | 保留分析结果，Module 为 `INCONCLUSIVE_SCOPE_VALIDATION`。 |
+| ServiceLoader unresolved evidence | Coverage warning | 保留分析结果，Module 为 `INCONCLUSIVE_SERVICE_LOADER`。 |
+| SSA equivalence `UNKNOWN` | Coverage warning | 不删除 Impact Path，原 `SUCCESS` Module 转为 `INCONCLUSIVE`。 |
+| 内容不同的 duplicate class | Non-blocking warning | 按 classpath precedence 选择 winner；不改 status/reason、Coverage limitations 或 exit code。 |
+| Code comparison unavailable | Evidence warning | 保留 Impact 结果；只在 Diagnostics/Technical details 说明，不改 Module status。 |
+
 所有 Module query 完成后，全局串行比较 candidate path 中唯一 `METHOD_BODY_CHANGED` 的 old/new normalized WALA SSA/CFG。只有 `PROVEN_EQUIVALENT` 删除路径；`DIFFERENT` 与 `UNKNOWN` 保留，`UNKNOWN` 使 Module 为 `INCONCLUSIVE`。
 
 `--output` 指向 Overall Index；同级 `<output-stem>-modules/` 为每个非 `SKIPPED` Module 生成三页：
@@ -244,7 +259,7 @@ Physical JAR pair 按 `--analysis-parallelism` 并行 bytecode diff。用户配�
 <module-base>-changes.html  Dependency Changes
 ```
 
-Overall Index 提供 `How to read this report`、`Analysis scope and limitations`、`Terminology` 与 Module 汇总。Module Index 展示易懂的 status、scope、metrics、coverage limitations 和 Module Diagnostics；Affected Call Chains 分别展示最终 call chains、默认折叠的 SSA-equivalent candidate chains，以及带 PROJECT boundary 的 Structural Reference Chains。Dependency Changes 只列出至少关联 candidate/final Impact Path 或 Structural Reference Path 的 member；其他 raw changes 仅计数，不逐项展示。
+Overall Index 提供 `How to read this report`、`Analysis scope and limitations`、`Terminology` 与 Module 汇总，并统计 duplicate conflict 与 shadowed ChangePoint。Module Index 展示易懂的 status、scope、metrics、coverage limitations、Module Diagnostics，以及 `Duplicate class resolution` winner/loser 表；完整 physical path 位于 `Technical details`。Affected Call Chains 分别展示最终 call chains、默认折叠的 SSA-equivalent candidate chains，以及带 PROJECT boundary 的 Structural Reference Chains。Dependency Changes 列出至少关联 candidate/final Impact Path、Structural Reference Path，或 disposition 为 `SHADOWED_BY_DUPLICATE` 的 member；shadowed member 不生成 Impact Path，并说明 actual winner 与 precedence。其他 raw changes 仅计数，不逐项展示。
 
 相关 method、field 与 class 提供默认折叠的 old/new Unified diff。内容来自 local dependency bytecode 的 Vineflower decompiled Java representation，不保证与原始 source 相同；反编译失败或文本相同时保留 ASM instruction fallback。Filesystem path、WALA/SSA、descriptor/hash、raw enum、Maven executable、JDK/config/output path 等 evidence 只放在 `Technical details`。所有页面为英文，并提供 top breadcrumbs、Module sibling navigation 和 responsive sticky TOC；不使用 JavaScript 或外部 asset。
 
@@ -452,6 +467,10 @@ Exit code：
 
 Vanilla 0-1-CFA 对大型 Module 可能运行较久。每 10 秒的 `WALA heartbeat` 包含 elapsed、heap 和 progress units。默认无 timeout；设置正数 `--call-graph-timeout-seconds` 后，仅超时 Module fail，其他 Module 继续并发布 partial Report。
 
+### Duplicate class warning
+
+`Resolved conflicting duplicate classes by classpath precedence` 表示同一 binary name 有内容不同的多个定义。Analyzer 不再因此阻塞 Module；请在 Module Index 的 `Duplicate class resolution` 查看 winner、shadowed sources 与 precedence reason。Dependency Changes 中的 `SHADOWED_BY_DUPLICATE` 表示该 changed definition 是 loser，因此没有生成 Impact Path。该 warning 本身不代表 Coverage limitation；若 Module 同时为 `INCONCLUSIVE` 或 `FAILED`，应查看独立的 reason/Diagnostics。
+
 ### SSA equivalence 为 `UNKNOWN`
 
 Old/new IR 缺失、unsupported instruction、bootstrap evidence 不足、CFG mapping ambiguity 或 exception 会返回 `UNKNOWN`。该结果不会缩小影响范围；相关 Impact Paths 保留，并在 Module page 的 SSA 与 Coverage Limitations 中展示原因。
@@ -512,9 +531,9 @@ TEST_JDK8_HOME=/absolute/path/to/jdk8 \
 
 ```text
 target/distribution/
-├── dependency-analyzer-1.0.0.jar
-├── dependency-analyzer-1.0.0.jar.sha512
-└── dependency-analyzer-1.0.0-build-manifest.json
+├── dependency-analyzer-1.1.0.jar
+├── dependency-analyzer-1.1.0.jar.sha512
+└── dependency-analyzer-1.1.0-build-manifest.json
 ```
 
 本地 dirty worktree 或暂时没有 JDK 8 时，只能生成不可正式交付的 dev bundle：

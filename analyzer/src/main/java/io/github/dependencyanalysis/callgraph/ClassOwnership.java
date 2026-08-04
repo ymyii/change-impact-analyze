@@ -27,7 +27,8 @@ public final class ClassOwnership {
             final Path sourcePath,
             final String contentDigest) {
         origin = Objects.requireNonNull(value, "origin");
-        source = Objects.requireNonNull(sourcePath, "source");
+        source = Objects.requireNonNull(sourcePath, "source")
+                .toAbsolutePath().normalize();
         digest = Objects.requireNonNull(contentDigest, "digest");
     }
 

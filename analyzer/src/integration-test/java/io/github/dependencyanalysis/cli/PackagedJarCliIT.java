@@ -252,6 +252,7 @@ class PackagedJarCliIT {
                 "impact.html");
 
         final ProcessResult impact = runJar(
+                "-v",
                 "-m", maven.toString(),
                 "-j", jdk8Home,
                 "-c", temporary.resolve("impact-config")

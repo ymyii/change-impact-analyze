@@ -3,6 +3,7 @@ package io.github.dependencyanalysis.impact;
 import com.ibm.wala.ipa.callgraph.CGNode;
 
 import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
+import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
 import io.github.dependencyanalysis.dependency.ResolvedArtifact;
 
 import org.objectweb.asm.ClassReader;
@@ -52,15 +53,18 @@ final class InvokeDynamicEvidenceIndex {
             final ModuleAnalysisUnit unit,
             final ModuleCallGraphSession session) {
         final Map<String, List<CGNode>> reachable = reachable(session);
+        final ClassOwnershipIndex ownership = session.getOwnership();
         final Set<BootstrapEvidence> result = new LinkedHashSet<>();
         try {
-            scanDirectory(unit.getProjectClasses(), reachable, result);
+            scanDirectory(unit.getProjectClasses(), ownership,
+                    reachable, result);
             for (Path path : unit.getReactorDependencyClasses()) {
-                scanDirectory(path, reachable, result);
+                scanDirectory(path, ownership, reachable, result);
             }
             for (ResolvedArtifact artifact : unit.getTargetArtifacts()) {
                 if ("jar".equals(artifact.getArtifact().getType())) {
-                    scanJar(artifact.getPath(), reachable, result);
+                    scanJar(artifact.getPath(), ownership,
+                            reachable, result);
                 }
             }
         } catch (IOException exception) {
@@ -117,6 +121,7 @@ final class InvokeDynamicEvidenceIndex {
 
     private static void scanDirectory(
             final Path directory,
+            final ClassOwnershipIndex ownership,
             final Map<String, List<CGNode>> reachable,
             final Set<BootstrapEvidence> result) throws IOException {
         final List<Path> files;
@@ -127,12 +132,17 @@ final class InvokeDynamicEvidenceIndex {
                     .toList();
         }
         for (Path file : files) {
+            if (!ownership.isEffectiveDefinition(className(
+                    directory.relativize(file).toString()), directory)) {
+                continue;
+            }
             scanClass(Files.readAllBytes(file), reachable, result);
         }
     }
 
     private static void scanJar(
             final Path path,
+            final ClassOwnershipIndex ownership,
             final Map<String, List<CGNode>> reachable,
             final Set<BootstrapEvidence> result) throws IOException {
         try (JarFile jar = new JarFile(path.toFile(), false)) {
@@ -144,11 +154,21 @@ final class InvokeDynamicEvidenceIndex {
                     .sorted(Comparator.comparing(JarEntry::getName))
                     .toList();
             for (JarEntry entry : entries) {
+                if (!ownership.isEffectiveDefinition(
+                        className(entry.getName()), path)) {
+                    continue;
+                }
                 try (InputStream input = jar.getInputStream(entry)) {
                     scanClass(input.readAllBytes(), reachable, result);
                 }
             }
         }
+    }
+
+    private static String className(final String value) {
+        final String unix = value.replace('\\', '/');
+        return unix.substring(0,
+                unix.length() - ".class".length());
     }
 
     private static void scanClass(

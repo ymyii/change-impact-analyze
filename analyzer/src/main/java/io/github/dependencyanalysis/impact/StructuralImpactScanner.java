@@ -1,6 +1,7 @@
 package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
+import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
 import io.github.dependencyanalysis.dependency.ResolvedArtifact;
 
@@ -67,9 +68,12 @@ final class StructuralImpactScanner {
      * Scans target scope metadata for removed classes.
      *
      * @param unit module input
+     * @param ownership effective target class definitions
      * @return classified structural references
      */
-    StructuralScanResult scan(final ModuleAnalysisUnit unit) {
+    StructuralScanResult scan(
+            final ModuleAnalysisUnit unit,
+            final ClassOwnershipIndex ownership) {
         final Map<String, List<BoundChangePoint>> targets = targets(unit);
         if (targets.isEmpty()) {
             return StructuralScanResult.empty();
@@ -78,15 +82,15 @@ final class StructuralImpactScanner {
         final Set<String> seen = new LinkedHashSet<>();
         try {
             scanDirectory(unit.getProjectClasses(), CodeOrigin.PROJECT,
-                    targets, references, seen);
+                    ownership, targets, references, seen);
             for (Path path : unit.getReactorDependencyClasses()) {
                 scanDirectory(path, CodeOrigin.REACTOR_DEPENDENCY,
-                        targets, references, seen);
+                        ownership, targets, references, seen);
             }
             for (ResolvedArtifact artifact : unit.getTargetArtifacts()) {
                 if ("jar".equals(artifact.getArtifact().getType())) {
                     scanJar(artifact.getPath(), CodeOrigin.DEPENDENCY,
-                            targets, references, seen);
+                            ownership, targets, references, seen);
                 }
             }
         } catch (IOException | RuntimeException exception) {
@@ -118,6 +122,7 @@ final class StructuralImpactScanner {
     private void scanDirectory(
             final Path directory,
             final CodeOrigin origin,
+            final ClassOwnershipIndex ownership,
             final Map<String, List<BoundChangePoint>> targets,
             final List<StructuralReferenceMatch> references,
             final Set<String> seen) throws IOException {
@@ -129,6 +134,11 @@ final class StructuralImpactScanner {
                     .toList();
         }
         for (Path file : files) {
+            final String name = className(
+                    directory.relativize(file).toString());
+            if (!ownership.isEffectiveDefinition(name, directory)) {
+                continue;
+            }
             scanClass(Files.readAllBytes(file), origin, targets,
                     references, seen);
         }
@@ -137,6 +147,7 @@ final class StructuralImpactScanner {
     private void scanJar(
             final Path jarPath,
             final CodeOrigin origin,
+            final ClassOwnershipIndex ownership,
             final Map<String, List<BoundChangePoint>> targets,
             final List<StructuralReferenceMatch> references,
             final Set<String> seen) throws IOException {
@@ -149,12 +160,22 @@ final class StructuralImpactScanner {
                     .sorted(Comparator.comparing(JarEntry::getName))
                     .toList();
             for (JarEntry entry : entries) {
+                if (!ownership.isEffectiveDefinition(
+                        className(entry.getName()), jarPath)) {
+                    continue;
+                }
                 try (InputStream input = jar.getInputStream(entry)) {
                     scanClass(input.readAllBytes(), origin, targets,
                             references, seen);
                 }
             }
         }
+    }
+
+    private String className(final String value) {
+        final String unix = value.replace('\\', '/');
+        return unix.substring(0,
+                unix.length() - ".class".length());
     }
 
     private void scanClass(
