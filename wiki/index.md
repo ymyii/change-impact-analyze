@@ -13,7 +13,7 @@
 ## Features
 
 ### [CLI Preflight and Diagnostics](features/cli-preflight-diagnostics.md)
-- Summary: 全局 `INFO`/`DEBUG`/`TRACE` verbosity、stable concurrent task context、impact JDK 8/内嵌 Plugin Preflight 与 exit code 契约。
+- Summary: 全局 verbosity、stable Diagnostic context、impact Preflight，以及 scope warning、`INCONCLUSIVE` 与 exit code 契约。
 
 ### [Maven Runtime](features/maven-runtime.md)
 - Summary: 用户 executable、跨平台内嵌 Maven 3.6.3，以及 versioned Plugin repository 的离线准备、fingerprint 与实际加载 JAR SHA-512 evidence。
@@ -40,7 +40,7 @@
 - Summary: physical JAR pair 并行去重 diff；MethodNode canonical hash覆盖 CFG/exception/bootstrap topology，SSA filtering 延迟到 candidate path 后。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
-- Summary: 每 Module 独立使用 target JDK 8、可配置 PROJECT package/class entrypoints、WALA Vanilla 0-1-CFA `FULL` Reflection。
+- Summary: 每 Module 独立使用 target JDK 8、source-aware JDK exclusion validation、可配置 PROJECT entrypoints 与 WALA Vanilla 0-1-CFA。
 
 ### [Impact Tracing](features/impact-tracing.md)
 - Summary: Call Graph 后从 live WALA graph 直接 reverse query，保留 Context、Structural Reference Path、serial SSA filtering 与 path-related code evidence。

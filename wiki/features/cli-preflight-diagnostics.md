@@ -25,6 +25,11 @@ code_refs:
 
 CLI 在昂贵分析前执行结构化 Preflight。全局 verbosity 默认为 `INFO`，`-v` 选择 `DEBUG`，`-vv` 选择 `TRACE`。`impact` 首版只支持 `--analysis-target spring-backend`、JDK 8、Maven project；`tree` 保持独立 contract。
 
+## Design Decisions
+
+- handled uncertainty 与 hard failure 分离：能够继续完成 Call Graph 的 coverage limitation 使用 `INCONCLUSIVE` 和 exit code `0`；无法建立可信 Module 结果的错误使用 `FAILED`/`PARTIAL_SUCCESS` 和 exit code `2`。
+- 外部 dependency 的 excluded JDK reference 使用 artifact-level `WARN`，而不是因为 JAR 内可能不可达的 class 阻断整个 Module；当前项目和 Reactor code 仍保持严格边界。
+
 ## Global Verbosity
 
 - 未传 `-v`：`INFO`，输出稳定的 stage、progress、warning 和 error；Maven subprocess 只透传 warning/error。
@@ -50,7 +55,7 @@ CLI 在昂贵分析前执行结构化 Preflight。全局 verbosity 默认为 `IN
 - `PARTIAL_SUCCESS`、`FAILED`：`2`。
 - Argument validation、Preflight、global preparation failure：`1`。
 
-`INCONCLUSIVE` 表示 analysis 在公开 model 内完成，但存在 JAR diff、ServiceLoader 或 SSA uncertainty；它不是 hard failure。
+`INCONCLUSIVE` 表示 analysis 在公开 model 内完成，但存在 JAR diff、ServiceLoader、SSA 或外部 dependency excluded JDK reference uncertainty；它不是 hard failure。仅由后者触发时，Module reason 为 `INCONCLUSIVE_SCOPE_VALIDATION`。
 
 ## Preflight Boundary
 
@@ -58,7 +63,7 @@ CLI 在昂贵分析前执行结构化 Preflight。全局 verbosity 默认为 `IN
 - Preflight failure 不启动 pipeline，不触碰旧 Report。
 - Reactor/leaf mode、Module coordinate collision、physical artifact ambiguity 属于 preparation failure。
 - entrypoint selector 使用轻量 target class index；relevant Module 无匹配时为 `SKIPPED_USER_ENTRYPOINT_SCOPE`。所有 relevant Module 均无匹配时 command exit `1`，不替换旧 Report。
-- Module scope/Call Graph failure属于 handled Module result，可产生 partial Report。
+- `PROJECT`/`REACTOR_DEPENDENCY` excluded JDK reference、scope I/O/scanner failure 与 Call Graph failure 属于 handled failed Module result，可产生 partial Report。外部 `DEPENDENCY` reference 只产生 `INCONCLUSIVE` warning。
 
 ## Diagnostics
 
@@ -68,4 +73,5 @@ CLI 在昂贵分析前执行结构化 Preflight。全局 verbosity 默认为 `IN
 - `INFO` 输出 front branch、Module task start/end；`DEBUG` 输出每个 physical JAR pair start/end；`TRACE` 输出筛选后的 command/path evidence，不输出 credential、settings 内容或完整 user arguments。
 - WALA heartbeat 继承 `[module-analysis][call-graph][module=…]` context。
 - `INFO` message 保持原有无 level tag 格式；额外日志显式使用 `[DEBUG]`、`[TRACE]` tag。
+- 外部 dependency scope warning 使用 `[scope-validation][module][module=…][artifact=…]` context；每个 artifact 一条，warning text 同时进入 Module `Coverage limitations`。
 - Console 与 HTML Report 消费同一 result/status，不重新推断结论；Module Diagnostics 只按 `DiagnosticEvent.module` 精确归属。

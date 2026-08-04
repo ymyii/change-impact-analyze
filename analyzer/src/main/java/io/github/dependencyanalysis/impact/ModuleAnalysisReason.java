@@ -27,6 +27,9 @@ public enum ModuleAnalysisReason {
     /** At least one candidate method returned SSA UNKNOWN. */
     INCONCLUSIVE_SSA_UNKNOWN,
 
+    /** External dependencies reference excluded JDK classes. */
+    INCONCLUSIVE_SCOPE_VALIDATION,
+
     /** Scope validation rejected a classpath boundary. */
     FAILED_SCOPE_VALIDATION,
 

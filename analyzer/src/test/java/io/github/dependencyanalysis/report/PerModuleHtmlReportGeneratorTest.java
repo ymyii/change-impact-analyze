@@ -4,6 +4,7 @@ import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.ChangeType;
 import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.dependency.DependencyScope;
+import io.github.dependencyanalysis.dependency.ResolvedArtifact;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.diagnostic.DiagnosticEvent;
@@ -16,6 +17,7 @@ import io.github.dependencyanalysis.callgraph.EntrypointSelection;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.EdgeKind;
 import io.github.dependencyanalysis.callgraph.MethodId;
+import io.github.dependencyanalysis.callgraph.ScopeValidationWarning;
 import io.github.dependencyanalysis.impact.ChangePointTerminal;
 import io.github.dependencyanalysis.impact.CodeComparisonEvidence;
 import io.github.dependencyanalysis.impact.CodeComparisonStatus;
@@ -295,6 +297,85 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("Decompiled Java representation")
                 .contains("-return 1;")
                 .doesNotContain("#hidden");
+    }
+
+    @Test
+    void rendersScopeValidationWarningAsInconclusiveLimitation()
+            throws Exception {
+        final Path output = temporary.resolve("scope-warning.html");
+        final ModuleId moduleId = new ModuleId(new ArtifactCoord(
+                "example", "app", "jar", "1"), Path.of("app"));
+        final ResolvedArtifact artifact = new ResolvedArtifact(
+                new ArtifactCoord("example", "legacy", "jar", "1"),
+                temporary.resolve("legacy.jar"));
+        final ScopeValidationWarning warning = new ScopeValidationWarning(
+                artifact, 1, 1, List.of(
+                        "legacy/AppletConfig.class -> java/applet/Applet"));
+        final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                moduleId, ModulePresence.BOTH,
+                temporary.resolve("scope-warning-classes"),
+                List.of(), List.of(artifact), List.of(),
+                new ModuleChangeSet(List.of(), List.of()));
+        final ModuleAnalysisResult module =
+                new ModuleAnalysisResult.Builder(unit)
+                        .status(ModuleAnalysisStatus.INCONCLUSIVE,
+                                ModuleAnalysisReason
+                                        .INCONCLUSIVE_SCOPE_VALIDATION,
+                                "Analysis completed with coverage "
+                                        + "limitations")
+                        .limitations(List.of(warning.summary()))
+                        .build();
+        final AnalysisRunResult run = new AnalysisRunResult(
+                AnalysisMode.REACTOR, AnalysisStatus.INCONCLUSIVE,
+                List.of(), List.of(module),
+                new AnalysisConcurrency(2, 1, 1, 1), Map.of(),
+                EntrypointSelection.allProjectClasses());
+        final DiagnosticEvent diagnostic = new DiagnosticEvent.Builder()
+                .stage("scope-validation").task("module")
+                .module(moduleId.stableKey())
+                .artifact(artifact.getArtifact().toString())
+                .path(artifact.getPath().toString())
+                .level(DiagnosticLevel.WARN)
+                .message(warning.summary()).build();
+        final MavenDependencyPluginRuntime plugin =
+                new MavenDependencyPluginRuntimeManager().prepare(
+                        temporary.resolve("config-scope-warning"),
+                        List.of(), null);
+
+        new PerModuleHtmlReportGenerator().generate(run,
+                List.of(diagnostic), new PreflightReport(List.of()),
+                maven(), plugin, java(), output);
+
+        assertThat(output).content()
+                .contains("Completed with coverage limitations")
+                .contains("Analysis completed with coverage limitations");
+        final Path owned = temporary.resolve("scope-warning-modules");
+        final String index;
+        try (Stream<Path> pages = Files.list(owned)) {
+            index = Files.readString(pages
+                    .filter(path -> !path.getFileName().toString()
+                            .contains("-impact"))
+                    .filter(path -> !path.getFileName().toString()
+                            .contains("-changes"))
+                    .findFirst().orElseThrow());
+        }
+        final String warningPrefix =
+                "External dependency references excluded JDK classes";
+        final int limitationHeading = index.indexOf(
+                "Coverage limitations</h2>");
+        final int diagnosticHeading = index.indexOf(
+                "Module Diagnostics</h2>");
+        assertThat(index)
+                .contains("<strong>Completed with coverage limitations:"
+                        + "</strong>")
+                .contains("INCONCLUSIVE_SCOPE_VALIDATION")
+                .contains("[scope-validation][module][module=")
+                .contains("[artifact=example:legacy:jar:1]")
+                .doesNotContain("<strong>Failed:</strong>");
+        assertThat(index.indexOf(warningPrefix, limitationHeading))
+                .isLessThan(diagnosticHeading);
+        assertThat(index.indexOf(warningPrefix, diagnosticHeading))
+                .isGreaterThan(diagnosticHeading);
     }
 
     private MavenRuntimeDescriptor maven() {

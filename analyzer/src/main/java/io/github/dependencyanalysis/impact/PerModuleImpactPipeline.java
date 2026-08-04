@@ -14,6 +14,8 @@ import io.github.dependencyanalysis.callgraph.EntrypointSelectionMetrics;
 import io.github.dependencyanalysis.callgraph.ModuleCallGraphEngine;
 import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
 import io.github.dependencyanalysis.callgraph.ModuleScopeValidator;
+import io.github.dependencyanalysis.callgraph.ScopeValidationResult;
+import io.github.dependencyanalysis.callgraph.ScopeValidationWarning;
 import io.github.dependencyanalysis.callgraph.ScopeValidationException;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.ChangeType;
@@ -885,9 +887,11 @@ final class PerModuleImpactPipeline {
         }
         try {
             long stageStart = System.currentTimeMillis();
-            new ModuleScopeValidator().validate(unit);
+            final ScopeValidationResult scopeValidation =
+                    new ModuleScopeValidator().validate(unit);
             stageElapsed.put("scope-validation",
                     System.currentTimeMillis() - stageStart);
+            reportScopeWarnings(unit, scopeValidation);
             stageStart = System.currentTimeMillis();
             final ModuleCallGraphSession session =
                     new ModuleCallGraphEngine(diagnostics, javaRuntime,
@@ -906,23 +910,28 @@ final class PerModuleImpactPipeline {
             stageElapsed.put("call-graph-query",
                     System.currentTimeMillis() - stageStart);
             final List<String> limitations = new ArrayList<>(
-                    session.getServiceLoaderOverlay().getLimitations());
+                    scopeValidation.limitations());
+            limitations.addAll(session.getServiceLoaderOverlay()
+                    .getLimitations());
             if (diffFailed) {
                 limitations.addAll(unit.getJarDiffFailureSummaries());
             }
-            final boolean inconclusive = diffFailed
-                    || session.getServiceLoaderOverlay().isInconclusive();
-            final ModuleAnalysisReason reason = diffFailed
-                    ? ModuleAnalysisReason.INCONCLUSIVE_BYTECODE_DIFF
-                    : session.getServiceLoaderOverlay().isInconclusive()
-                    ? ModuleAnalysisReason.INCONCLUSIVE_SERVICE_LOADER
-                    : ModuleAnalysisReason.NONE;
+            final ModuleAnalysisReason reason = coverageReason(
+                    diffFailed,
+                    session.getServiceLoaderOverlay().isInconclusive(),
+                    scopeValidation.hasWarnings());
+            final boolean inconclusive = reason
+                    != ModuleAnalysisReason.NONE;
             return new ModuleAnalysisResult.Builder(unit)
                     .status(inconclusive
                                     ? ModuleAnalysisStatus.INCONCLUSIVE
                                     : ModuleAnalysisStatus.SUCCESS,
                             reason,
-                            "Analysis completed within declared model")
+                            inconclusive
+                                    ? "Analysis completed with coverage "
+                                    + "limitations"
+                                    : "Analysis completed within declared "
+                                    + "model")
                     .session(session)
                     .candidatePaths(query.getPaths())
                     .finalPaths(query.getPaths())
@@ -945,6 +954,37 @@ final class PerModuleImpactPipeline {
         } catch (RuntimeException exception) {
             return failed(unit, ModuleAnalysisReason.FAILED_ANALYSIS,
                     exception, start, stageElapsed);
+        }
+    }
+
+    static ModuleAnalysisReason coverageReason(
+            final boolean diffFailed,
+            final boolean serviceLoaderInconclusive,
+            final boolean scopeValidationInconclusive) {
+        if (diffFailed) {
+            return ModuleAnalysisReason.INCONCLUSIVE_BYTECODE_DIFF;
+        }
+        if (serviceLoaderInconclusive) {
+            return ModuleAnalysisReason.INCONCLUSIVE_SERVICE_LOADER;
+        }
+        if (scopeValidationInconclusive) {
+            return ModuleAnalysisReason.INCONCLUSIVE_SCOPE_VALIDATION;
+        }
+        return ModuleAnalysisReason.NONE;
+    }
+
+    private void reportScopeWarnings(
+            final ModuleAnalysisUnit unit,
+            final ScopeValidationResult result) {
+        for (ScopeValidationWarning warning : result.warnings()) {
+            diagnostics.warn(DiagnosticContext.task(
+                            "scope-validation", "module")
+                            .withModule(unit.getModuleId().stableKey())
+                            .withArtifact(warning.artifact()
+                                    .getArtifact().toString())
+                            .withPath(warning.artifact()
+                                    .getPath().toString()),
+                    warning.summary());
         }
     }
 

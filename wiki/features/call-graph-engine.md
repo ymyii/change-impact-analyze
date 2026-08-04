@@ -31,6 +31,11 @@ code_refs:
 
 每个 relevant target Module 构建一个独立 WALA Vanilla 0-1-CFA Call Graph。Builder 与 query 在 Module 内单线程；不同 Module 可并发。没有 CHA pre-graph、seed pre-scan、class-reference closure 或 full predecessor snapshot。
 
+## Design Decisions
+
+- excluded JDK reference validation 按 code origin 区分可信度边界：`PROJECT` 与 `REACTOR_DEPENDENCY` 命中时 hard-fail；外部 `DEPENDENCY` 中的不可达 class 可能从未被业务使用，因此按 artifact 汇总为 coverage warning 并继续分析。
+- 外部 dependency warning 不恢复被排除的 JDK class，也不声明 Call Graph 完整；完成的 Module 使用 `INCONCLUSIVE_SCOPE_VALIDATION` 明确保留 uncertainty。
+
 ## Scope and Ownership
 
 - `PROJECT`：当前 Module `target/classes`。
@@ -70,7 +75,9 @@ MethodHandles.analyzeMethodHandles(options, builder);
 
 - Whole-JAR：`jfxrt.jar`、`deploy.jar`、`javaws.jar`、`plugin.jar`。
 - Class：Swing 与 Applet package 的最小规则。
-- `scope-validation` 扫描 `PROJECT`、`REACTOR_DEPENDENCY`、`DEPENDENCY` 对 excluded class 的显式 bytecode reference；命中、unreadable class、scanner failure 均 fail 当前 Module。
+- `scope-validation` 扫描 `PROJECT`、`REACTOR_DEPENDENCY`、`DEPENDENCY` 对 excluded class 的显式 bytecode reference。`PROJECT` 或 `REACTOR_DEPENDENCY` 命中时 fail 当前 Module；unreadable class/JAR 与 scanner failure 始终 fail。
+- 外部 `DEPENDENCY` 命中不阻断 Call Graph。finding 按 artifact 汇总为一条 `WARN`，记录命中总数、unique excluded type 数量、最多 5 条稳定排序的 `source class -> excluded type` 样例及 omitted 数量；同一文本进入 Module `Coverage limitations`。
+- 仅因外部 finding 产生 uncertainty 时，Module status/reason 为 `INCONCLUSIVE` / `INCONCLUSIVE_SCOPE_VALIDATION`。若后续 WALA 仍因 classpath 不可解析而失败，按 `FAILED_ANALYSIS` 处理。
 - Validation 不发现 seed，不参与 Call Graph gate。
 
 ## Reflection and ServiceLoader
@@ -88,3 +95,5 @@ MethodHandles.analyzeMethodHandles(options, builder);
 - 不同 Module 的 classpath/version、CHA、graph、cache 相互隔离。
 - WALA build/query 单线程；Module pool 并发受 `--analysis-parallelism` 限制。
 - Report 记录 selector boundary、matched classes、scope、exclusions、entrypoints、parameter candidates、nodes、edges、contexts、elapsed。
+- Given 外部 dependency 含 excluded JDK reference，when Module 完成分析，then Report 标记 `INCONCLUSIVE`、保留 artifact-level warning，并展示实际 Call Graph 结果。
+- Given `PROJECT` 或 `REACTOR_DEPENDENCY` 含同类 reference，when 执行 `scope-validation`，then Module 在 Call Graph 前以 `FAILED_SCOPE_VALIDATION` 终止。
