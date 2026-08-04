@@ -267,7 +267,7 @@ class PackagedJarCliIT {
                 .doesNotContain("got NEW")
                 .contains("artifactPathPlugin="
                         + ARTIFACT_PATH_PLUGIN_VERSION)
-                .contains("Artifact Path Plugin implementation=graphml-v1");
+                .contains("Artifact Path Plugin implementation=graphml-v2");
         assertThat(impactReport).content()
                 .contains("Impact Analysis Report")
                 .contains("Preflight")

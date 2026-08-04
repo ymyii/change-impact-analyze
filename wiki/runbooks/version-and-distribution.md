@@ -32,8 +32,8 @@ code_refs:
 本 runbook 是 version iteration 与正式 distribution 的稳定入口。日常开发可运行 Maven quality gate；对外交付必须先 seal version contract，再由 `build-distribution.sh` 完成 packaged smoke、可复现重建和原子发布。
 
 <!-- version-contract:start -->
-- Analyzer release: `0.1.0`
-- Artifact Path Plugin release: `1.0.1`
+- Analyzer release: `1.0.0`
+- Artifact Path Plugin release: `2.0.0`
 <!-- version-contract:end -->
 
 ## Prerequisites
@@ -91,7 +91,7 @@ TEST_JDK8_HOME=/absolute/path/to/jdk8 \
 2. clean worktree、release SemVer 与完整 JDK 8 gate；
 3. 使用 ledger `outputTimestamp` 执行 `mvn clean verify`；
 4. 检查 CLI dynamic version、manifest、内嵌 Plugin/consumer POM/checksum、`plugin.xml`、Java 8 class major 与 shading boundary；
-5. 使用隔离 Maven local repository 执行 packaged `dependency:tree + resolve-artifact-paths` smoke，并保留旧 `1.0.0` cache regression fixture；
+5. 使用隔离 Maven local repository 执行 packaged `dependency:tree + resolve-artifact-paths` smoke，并保留旧 `1.0.0/1.0.1` cache regression fixture；
 6. 使用相同 timestamp 再次重建并比较完整 CLI JAR SHA-512；
 7. 原子发布正式 bundle。
 
@@ -100,9 +100,9 @@ TEST_JDK8_HOME=/absolute/path/to/jdk8 \
 ```text
 target/dependency-analyzer.jar
 target/distribution/
-├── dependency-analyzer-0.1.0.jar
-├── dependency-analyzer-0.1.0.jar.sha512
-└── dependency-analyzer-0.1.0-build-manifest.json
+├── dependency-analyzer-1.0.0.jar
+├── dependency-analyzer-1.0.0.jar.sha512
+└── dependency-analyzer-1.0.0-build-manifest.json
 ```
 
 ## Dev Prevalidation
@@ -141,7 +141,7 @@ Versioned JAR 的 `.sha512` 与 manifest `artifactSha512` 必须一致。内嵌 
 
 - CLI `--version` 输出 ledger Analyzer version。
 - JAR 只包含 ledger 指定 Plugin version，不包含旧 Plugin release resource。
-- Plugin descriptor 声明 `dependencyGraphFileName`；packaged smoke Console 出现 `(f) dependencyGraphFileName` 与 `implementation=graphml-v1`。
+- Plugin descriptor 声明 `dependencyGraphFileName`；packaged smoke Console 出现 `(f) dependencyGraphFileName` 与 `implementation=graphml-v2`，Artifact Path output 为 Schema v2 且不包含 Module/scope。
 - Plugin base class major 不超过 `52`，不携带 Maven/Resolver implementation class，Jackson 已 relocate。
 - 两次固定 timestamp build 得到相同 CLI JAR SHA-512。
 - 正式 manifest 为 `releaseEligible=true`；任一 dirty/skip gate 只能产生 dev manifest。

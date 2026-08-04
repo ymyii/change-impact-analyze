@@ -6,14 +6,11 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
-/** Validated Artifact Path Schema v1 document for one Maven module. */
+/** Validated module-local Artifact Path Schema v2 document. */
 public final class ResolvedArtifactManifest {
 
-    /** Module coordinates. */
-    private final ArtifactCoord module;
-
-    /** Canonical module base directory. */
-    private final Path baseDirectory;
+    /** Canonical directory containing the manifest. */
+    private final Path directory;
 
     /** External artifact bindings. */
     private final List<ResolvedArtifact> artifacts;
@@ -21,32 +18,23 @@ public final class ResolvedArtifactManifest {
     /**
      * Creates a validated manifest.
      *
-     * @param moduleCoordinates module coordinates
-     * @param moduleDirectory module base directory
+     * @param manifestDirectory directory containing the manifest
      * @param resolvedArtifacts artifact bindings
      */
     public ResolvedArtifactManifest(
-            final ArtifactCoord moduleCoordinates,
-            final Path moduleDirectory,
+            final Path manifestDirectory,
             final List<ResolvedArtifact> resolvedArtifacts) {
-        module = Objects.requireNonNull(
-                moduleCoordinates, "moduleCoordinates");
-        baseDirectory = Objects.requireNonNull(
-                moduleDirectory, "moduleDirectory")
+        directory = Objects.requireNonNull(
+                manifestDirectory, "manifestDirectory")
                 .toAbsolutePath().normalize();
         artifacts = Collections.unmodifiableList(new ArrayList<>(
                 Objects.requireNonNull(
                         resolvedArtifacts, "resolvedArtifacts")));
     }
 
-    /** @return module coordinates */
-    public ArtifactCoord getModule() {
-        return module;
-    }
-
-    /** @return canonical module base directory */
-    public Path getBaseDirectory() {
-        return baseDirectory;
+    /** @return canonical directory containing the manifest */
+    public Path getDirectory() {
+        return directory;
     }
 
     /** @return immutable external artifact bindings */

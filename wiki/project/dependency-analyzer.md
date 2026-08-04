@@ -48,14 +48,14 @@ Dependency Analyzer 是 Java 17 analyzer + Maven + picocli CLI。`impact` 使用
 ## Design Decisions
 
 <!-- version-contract:start -->
-- Analyzer release: `0.1.0`
-- Artifact Path Plugin release: `1.0.1`
+- Analyzer release: `1.0.0`
+- Artifact Path Plugin release: `2.0.0`
 <!-- version-contract:end -->
 
 - Public CLI 固定为 `dependency-analyzer [global-options] <subcommand>`。
-- Maven coordinates 为 `io.github.dependencyanalysis:dependency-analyzer:0.1.0`，Java base package 为 `io.github.dependencyanalysis`，uber JAR 兼容路径为 `target/dependency-analyzer.jar`。
+- Maven coordinates 为 `io.github.dependencyanalysis:dependency-analyzer:1.0.0`，Java base package 为 `io.github.dependencyanalysis`，uber JAR 兼容路径为 `target/dependency-analyzer.jar`。
 - Analyzer 与 Artifact Path Plugin 使用独立 SemVer；正式 distribution 同时发布 versioned CLI JAR、SHA-512 与 build manifest。
-- `impact` 以 GraphML 作为唯一 mediation authority，并由内置 Artifact Path Plugin JSON 绑定 selected dependency physical path；Plugin 不执行第二次 collection。`tree` 使用 verbose text 采集完整 dependency occurrence。
+- `impact` 以 GraphML 作为唯一 mediation authority，并由内置 Artifact Path Plugin Schema v2 JSON 以 coordinates 绑定 selected dependency physical path；JSON 不保存 Module 或 scope，Plugin 不执行第二次 collection。`tree` 使用 verbose text 采集完整 dependency occurrence。
 - `impact` 只构建 target per-Module Vanilla 0-1-CFA；baseline 不 compile、不构建 Call Graph。
 - `impact` 默认并发分析两个 Module；Module 内 WALA build/query 单线程，SSA equivalence 全局串行。
 - 两个 subcommand 共享 Maven runtime 和 preflight Schema，但分别组装检查 DAG；pipeline 只消费 preflight decision。
@@ -63,7 +63,7 @@ Dependency Analyzer 是 Java 17 analyzer + Maven + picocli CLI。`impact` 使用
 ## Module Map
 
 - `pom.xml` - packaging `pom` 的 root parent/aggregator。
-- `analyzer/` - GAV `io.github.dependencyanalysis:dependency-analyzer:0.1.0`；Java 17 CLI/application，最终仍发布兼容路径 `target/dependency-analyzer.jar`。
+- `analyzer/` - GAV `io.github.dependencyanalysis:dependency-analyzer:1.0.0`；Java 17 CLI/application，最终仍发布兼容路径 `target/dependency-analyzer.jar`。
 - `analyzer/src/main/java/io/github/dependencyanalysis/cli/` - Root CLI、global option 和 Maven argument 安全校验。
 - `analyzer/src/main/java/io/github/dependencyanalysis/runtime/` - 内嵌或用户指定 Maven runtime。
 - `analyzer/src/main/java/io/github/dependencyanalysis/preflight/` - DAG preflight framework 和结果 Schema。
@@ -72,7 +72,7 @@ Dependency Analyzer 是 Java 17 analyzer + Maven + picocli CLI。`impact` 使用
 - `analyzer/src/main/java/io/github/dependencyanalysis/{build,dependency,bytecode,callgraph,jar,report,workspace}/` - `impact` pipeline 的稳定阶段实现。
 - `analyzer/src/test/java/` - unit tests；`analyzer/src/integration-test/java/` - Failsafe integration tests。
 - `plugins/` - 内置 Maven Plugin parent/aggregator；后续 Plugin 作为 sibling module 加入。
-- `plugins/artifact-path-resolver/` - GAV `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:1.0.1`；Java 8 `resolve-artifact-paths` goal。
+- `plugins/artifact-path-resolver/` - GAV `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:2.0.0`；Java 8 `resolve-artifact-paths` goal。
 - `build-support/` - Version contract 与无版本 consumer POM template。
 - `scripts/` - Version contract 和正式/dev distribution 的 POSIX shell 入口及 Java 17 source-file helpers。
 - `benchmarks/impact-medium/` - 可复现的中型 impact fixture、资源采样脚本与报告 contract verification。

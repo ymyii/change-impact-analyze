@@ -195,6 +195,14 @@ class DependencyAnalyzerIT {
             assertThat(item.getPath()).isAbsolute();
             assertThat(item.getPath()).exists();
         });
+        result.getTrees().stream()
+                .filter(tree -> tree.getModule().getArtifactId()
+                        .startsWith("mod-"))
+                .forEach(tree -> assertThat(result.artifactsFor(
+                        tree.getModulePath()))
+                        .extracting(item -> item.getArtifact()
+                                .getArtifactId())
+                        .containsExactly("slf4j-api"));
         assertThat(projectDir.resolve("mod-a/target/classes"))
                 .doesNotExist();
     }
@@ -289,8 +297,6 @@ class DependencyAnalyzerIT {
                 .satisfies(artifact -> {
                     assertThat(artifact.getArtifact().getArtifactId())
                             .isEqualTo("system-lib");
-                    assertThat(artifact.getScope())
-                            .isEqualTo(DependencyScope.SYSTEM);
                     assertThat(artifact.getPath())
                             .isEqualTo(systemJar.toRealPath());
                 });

@@ -18,6 +18,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -250,7 +251,7 @@ public final class DependencyAnalyzer {
                     parseTrees(graphmlFiles);
             final List<ResolvedArtifactManifest> manifests =
                     parseManifests(jsonFiles);
-            final List<ResolvedArtifact> artifacts =
+            final Map<Path, List<ResolvedArtifact>> artifacts =
                     pairAndValidate(trees, manifests);
             finish(trees.size());
             return new DependencyAnalysisResult(trees, artifacts);
@@ -355,7 +356,7 @@ public final class DependencyAnalyzer {
         return List.copyOf(manifests);
     }
 
-    private List<ResolvedArtifact> pairAndValidate(
+    private Map<Path, List<ResolvedArtifact>> pairAndValidate(
             final List<ModuleDependencyTree> trees,
             final List<ResolvedArtifactManifest> manifests)
             throws DependencyAnalysisException {
@@ -372,11 +373,11 @@ public final class DependencyAnalyzer {
         final Map<Path, ResolvedArtifactManifest> manifestByDirectory =
                 new LinkedHashMap<>();
         for (ResolvedArtifactManifest manifest : manifests) {
-            if (manifestByDirectory.put(manifest.getBaseDirectory(),
+            if (manifestByDirectory.put(manifest.getDirectory(),
                     manifest) != null) {
                 throw new DependencyAnalysisException(
                         "Duplicate JSON module directory: "
-                                + manifest.getBaseDirectory());
+                                + manifest.getDirectory());
             }
         }
         if (!treeByDirectory.keySet().equals(
@@ -392,27 +393,18 @@ public final class DependencyAnalyzer {
         for (ModuleDependencyTree tree : trees) {
             reactorCoordinates.add(tree.getModule());
         }
-        final List<ResolvedArtifact> result = new ArrayList<>();
+        final Map<Path, List<ResolvedArtifact>> result =
+                new LinkedHashMap<>();
         for (Map.Entry<Path, ModuleDependencyTree> entry
                 : treeByDirectory.entrySet()) {
             final ModuleDependencyTree tree = entry.getValue();
             final ResolvedArtifactManifest manifest =
                     manifestByDirectory.get(entry.getKey());
-            if (!tree.getModule().equals(manifest.getModule())) {
-                throw new DependencyAnalysisException(
-                        "GraphML and JSON module coordinates differ: "
-                                + tree.getModule() + " vs "
-                                + manifest.getModule());
-            }
             validateBindings(tree, manifest, reactorCoordinates);
-            result.addAll(manifest.getArtifacts());
+            result.put(entry.getKey(), manifest.getArtifacts());
         }
-        result.sort(Comparator
-                .comparing((ResolvedArtifact value) ->
-                        value.getModulePath().toString())
-                .thenComparing(ResolvedArtifact::bindingKey)
-                .thenComparing(value -> value.getPath().toString()));
-        return List.copyOf(result);
+        return Collections.unmodifiableMap(
+                new LinkedHashMap<>(result));
     }
 
     private void validateBindings(
@@ -445,8 +437,7 @@ public final class DependencyAnalyzer {
             final Set<String> bindings) {
         for (DependencyNode node : nodes) {
             if (!reactorCoordinates.contains(node.getArtifact())) {
-                bindings.add(node.getArtifact() + ":"
-                        + node.getScope().getValue());
+                bindings.add(node.getArtifact().toString());
             }
             collectExternalBindings(node.getChildren(),
                     reactorCoordinates, bindings);

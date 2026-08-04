@@ -8,17 +8,17 @@ Dependency Analyzer 是 Java 17 CLI，面向 Maven project：
 - `tree`：扫描一个 Git repository 内的 Maven reactor，输出 repository 级 offline HTML dependency tree report。
 
 <!-- version-contract:start -->
-- Analyzer release: `0.1.0`
-- Artifact Path Plugin release: `1.0.1`
+- Analyzer release: `1.0.0`
+- Artifact Path Plugin release: `2.0.0`
 <!-- version-contract:end -->
 
-当前 Analyzer version 为 `0.1.0`。Root command 为 `dependency-analyzer`。
+当前 Analyzer version 为 `1.0.0`。Root command 为 `dependency-analyzer`。
 
 Source repository 使用 Maven multi-module：根 `pom.xml` 是 parent/aggregator；
 `analyzer/` 是 Java 17 CLI，仍生成 `target/dependency-analyzer.jar`；`plugins/` 是
 内置 Maven Plugin aggregator，当前包含 Java 8 的
 `plugins/artifact-path-resolver/`。Artifact Path Plugin goal 为
-`io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:1.0.1:resolve-artifact-paths`。
+`io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:2.0.0:resolve-artifact-paths`。
 
 ## 2. 环境与运行
 
@@ -86,11 +86,11 @@ Config dir 中未知文件和用户文件不会被自动删除。Runtime 损坏�
 
 每次 command 使用 UUID `run-id`、owner marker 和 `<config-dir>/locks/` file lock。Detached worktree、GraphML probe 和 command-generated intermediate file 只写入对应 subcommand run。正常和异常关闭只清理当前 run；启动时只回收 owner marker 有效且未被其他 process lock 的 stale run。`impact` 的 Maven build/dependency output 不写 `.log`，按 `-v` 直接输出到 Console；failure 只在内存保留 bounded tail。
 
-`impact` 固定使用 JAR 内嵌 Maven Dependency Plugin `3.6.1` 和 Artifact Path Plugin `1.0.1`；`tree` 默认也使用前者，但保留高级 version override。工具从 JAR 解压经过 SHA-512 校验的 Dependency Plugin file repository，并将 self-contained Artifact Path Plugin JAR、consumer POM 和 checksum 安装到同一 repository。Runtime fingerprint 同时覆盖 repository ZIP、Artifact Path Plugin JAR 和 consumer POM，任一内容变化都会生成新的 cache leaf。Artifact Path Plugin 使用不可复写的 release GAV；实现变化时升级 version，避免 Maven local repository 复用旧 release。随后生成 global settings overlay：将内嵌 repository 加入 active profile，保留用户 `-gs` 中的 mirror、proxy、server、local repository 等配置以及独立 `-s` 参数；内置 repository 会从通配 mirror 中排除。Overlay 按内容 hash 复用，使用 file lock、owner-only permission 和 atomic publish，且不会在 Console 输出用户 settings 内容。Overlay 用于工具控制的 Plugin goal，不应用于 target `compile`。
+`impact` 固定使用 JAR 内嵌 Maven Dependency Plugin `3.6.1` 和 Artifact Path Plugin `2.0.0`；`tree` 默认也使用前者，但保留高级 version override。工具从 JAR 解压经过 SHA-512 校验的 Dependency Plugin file repository，并将 self-contained Artifact Path Plugin JAR、consumer POM 和 checksum 安装到同一 repository。Runtime fingerprint 同时覆盖 repository ZIP、Artifact Path Plugin JAR 和 consumer POM，任一内容变化都会生成新的 cache leaf。Artifact Path Plugin 使用不可复写的 release GAV；实现变化时升级 version，避免 Maven local repository 复用旧 release。随后生成 global settings overlay：将内嵌 repository 加入 active profile，保留用户 `-gs` 中的 mirror、proxy、server、local repository 等配置以及独立 `-s` 参数；内置 repository 会从通配 mirror 中排除。Overlay 按内容 hash 复用，使用 file lock、owner-only permission 和 atomic publish，且不会在 Console 输出用户 settings 内容。Overlay 用于工具控制的 Plugin goal，不应用于 target `compile`。
 
-Preflight evidence 包含 `artifactPathPlugin=1.0.1`、内嵌 Plugin JAR 的完整
+Preflight evidence 包含 `artifactPathPlugin=2.0.0`、内嵌 Plugin JAR 的完整
 `artifactPathSha512` 和组合 `runtimeFingerprint`。Mojo 启动后输出
-`implementation=graphml-v1`、Maven 实际加载的 JAR absolute path、实际 SHA-512 与
+`implementation=graphml-v2`、Maven 实际加载的 JAR absolute path、实际 SHA-512 与
 `dependencyGraphFileName`。内嵌与实际加载 SHA-512 应一致；若 CodeSource 证据不可用，
 Plugin 输出 warning 但继续执行。Maven `-X` output 中的
 `(f) dependencyGraphFileName = ...` 是新 Plugin descriptor 已加载的额外证据。
@@ -198,31 +198,19 @@ java -jar dependency-analyzer.jar \
 
 Preflight 后先识别模式：选择 reactor root 时，全 reactor 只 compile 一次并逐 Module 分析；选择 leaf POM 时，从 reactor root 使用 `-pl <module> -am` compile，只报告该 Module。当前 Module 是 `PROJECT`，上游 reactor Module 是 `REACTOR_DEPENDENCY`。
 
-前置阶段并行执行 baseline dependency resolution 与 target Maven compile；join 后执行 target dependency resolution。Baseline 不 compile、不构建 Call Graph。每次 dependency analysis 在原 project 的同一个 Maven process/session 中依次执行 fully-qualified `org.apache.maven.plugins:maven-dependency-plugin:3.6.1:tree` 和 `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:1.0.1:resolve-artifact-paths`；Analyzer 通过 `-Dcia.dependencyGraphFileName=<unique>.graphml` 将前一个 goal 的 Module-local GraphML 传给后一个 goal。Target `compile` 仍只使用普通 user Maven arguments。
+前置阶段并行执行 baseline dependency resolution 与 target Maven compile；join 后执行 target dependency resolution。Baseline 不 compile、不构建 Call Graph。每次 dependency analysis 在原 project 的同一个 Maven process/session 中依次执行 fully-qualified `org.apache.maven.plugins:maven-dependency-plugin:3.6.1:tree` 和 `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:2.0.0:resolve-artifact-paths`；Analyzer 通过 `-Dcia.dependencyGraphFileName=<unique>.graphml` 将前一个 goal 的 Module-local GraphML 传给后一个 goal。Target `compile` 仍只使用普通 user Maven arguments。
 
 GraphML 是 `impact` 唯一的 mediation authority，决定 selected coordinate 与 effective scope；Artifact Path JSON 只负责 physical artifact binding。Artifact Path Plugin 不执行第二次 dependency collection。它安全解析 GraphML，校验 root coordinate 与当前 `MavenProject` 一致，只读取 selected `compile/runtime/provided/system` dependency，并完全忽略 `test`。因此 `test` 不进入 dependency diff、path binding、JAR diff 或 Call Graph。Exclusion 与 conflict loser 已由 GraphML 结论排除，不会创建下载请求；Reactor coordinate 直接跳过，由 Analyzer 映射到 target `target/classes`。
 
 对非 `system` binding，Plugin 通过 session `ArtifactTypeRegistry` 恢复 extension/default classifier，使用当前 Module 的 `project.remoteProjectRepositories` 批量创建非传递 `ArtifactRequest`，并只采用 Maven Resolver 返回的 `ArtifactResult` file。RepositorySystemSession 继续提供 mirror、proxy、authentication、local repository、offline policy、cache 与 WorkspaceReader。GraphML 不包含 transitive node-specific repository list，因此 request 不重建该信息。对 GraphML selected `system` binding，Plugin 按相同 coordinate 匹配当前 effective `MavenProject` 的 `system` dependency，要求唯一匹配，并验证 `systemPath` 是 absolute existing regular file；JSON 直接绑定该 path，不创建 remote `ArtifactRequest`。该路径不生成 temporary POM、不调用 `dependency:list`、不自行拼接 local repository path，也不附加 `-llr`。
 
-Plugin 参数 `-Dcia.dependencyGraphFileName=<unique>.graphml` 与 `-Dcia.resolvedArtifactsFileName=<unique>.json` 都只接受 filename。Absolute path、目录分隔符与 `..` 会被拒绝；文件解析到当前 Module `project.basedir`。缺少 GraphML、root coordinate 不匹配、XML malformed、存在 duplicate/scope conflict binding、`system` coordinate 无唯一 effective dependency、`systemPath` 非 absolute existing file 或 artifact resolution failure 时 goal 失败，不提供 collection fallback。Plugin 先写 sibling temporary file，全部 binding 成功后 atomic move；失败不发布部分 JSON。
+Plugin 参数 `-Dcia.dependencyGraphFileName=<unique>.graphml` 与 `-Dcia.resolvedArtifactsFileName=<unique>.json` 都只接受 filename。Absolute path、目录分隔符与 `..` 会被拒绝；文件解析到当前 Module `project.basedir`。缺少 GraphML、root coordinate 不匹配、XML malformed、graph cycle/unreachable node、`system` coordinate 无唯一 effective dependency、`systemPath` 非 absolute existing file、physical path ambiguity 或 artifact resolution failure 时 goal 失败，不提供 collection fallback。Plugin 先写 sibling temporary file，全部 binding 成功后 atomic move；失败不发布部分 JSON。
 
-#### Artifact Path JSON Schema v1
+#### Artifact Path JSON Schema v2
 
 ```json
 {
-  "schemaVersion": 1,
-  "module": {
-    "coordinates": {
-      "groupId": "com.example",
-      "artifactId": "service",
-      "type": "jar",
-      "extension": "jar",
-      "classifier": "",
-      "version": "1.0-SNAPSHOT",
-      "baseVersion": "1.0-SNAPSHOT"
-    },
-    "baseDirectory": "/absolute/project/service"
-  },
+  "schemaVersion": 2,
   "artifacts": [
     {
       "coordinates": {
@@ -234,14 +222,15 @@ Plugin 参数 `-Dcia.dependencyGraphFileName=<unique>.graphml` 与 `-Dcia.resolv
         "version": "2.0",
         "baseVersion": "2.0"
       },
-      "scope": "compile",
       "absolutePath": "/absolute/repository/library-2.0-tests.jar"
     }
   ]
 }
 ```
 
-JSON 为 UTF-8；`artifacts` 按完整 coordinates、scope、absolutePath 排序，无 external dependency 时为 `[]`。Analyzer 要求 `schemaVersion == 1`、所有必填字段类型正确、binding 唯一、path 为 absolute existing file；禁止 duplicate property，忽略未知字段。Module 通过 `module.baseDirectory` 与完整 coordinates 绑定 GraphML，并要求 GraphML/JSON external dependency 集合双向完全一致。`version` 可保留 timestamped SNAPSHOT，binding 使用 `baseVersion` 与 Maven dependency tree 对齐。`scope: "system"` 沿用相同 Schema，`absolutePath` 直接来自 validated effective `systemPath`。
+JSON 为 UTF-8；`artifacts` 按完整 coordinates、absolutePath 排序，无 external dependency 时为 `[]`。Analyzer 要求 `schemaVersion == 2`、所有必填字段类型正确、coordinate binding 唯一、path 为 absolute existing file；禁止 duplicate property，忽略未知字段。每个 Module 的 JSON 与 GraphML 通过两者所在 canonical directory 配对，external dependency 集合只按 coordinates 双向比较，不比较 scope。`version` 可保留 timestamped SNAPSHOT，binding 使用 `baseVersion` 与 Maven dependency tree 对齐。`system` dependency 使用相同 coordinates/path Contract，`absolutePath` 直接来自 validated effective `systemPath`。
+
+Scope 只存在于 GraphML dependency graph。相同 coordinates/version 只有 scope 变化时不产生 impact change；version 与 scope 同时变化时只产生一个 `VERSION_CHANGED`。Baseline 与 target physical path 分别按各自 Module-local manifest 中的 coordinates 查找，不使用 `DependencyChange.scope`。
 
 Physical JAR pair 按 `--analysis-parallelism` 并行 bytecode diff。用户配置 entrypoint selector 时，轻量 target class index 会先识别没有匹配 PROJECT class 的 Module；该步骤只缩小 root methods，不裁剪 Module scope、CHA、Reflection、ServiceLoader 或 Reference 参数 subtype candidates。存在 removal/modification ChangePoint 且命中 entrypoint scope 的 Module 独立执行 scope validation、JDK 8 CHA、WALA Vanilla 0-1-CFA、`ReflectionOptions.FULL`、MethodHandle extension 和 direct WALA query。Module 内 build/query 单线程，Module 之间按 `--analysis-parallelism` 并行。没有 seed pre-scan、零 seed skip、CHA pre-graph 或 full predecessor copy。
 
@@ -523,9 +512,9 @@ TEST_JDK8_HOME=/absolute/path/to/jdk8 \
 
 ```text
 target/distribution/
-├── dependency-analyzer-0.1.0.jar
-├── dependency-analyzer-0.1.0.jar.sha512
-└── dependency-analyzer-0.1.0-build-manifest.json
+├── dependency-analyzer-1.0.0.jar
+├── dependency-analyzer-1.0.0.jar.sha512
+└── dependency-analyzer-1.0.0-build-manifest.json
 ```
 
 本地 dirty worktree 或暂时没有 JDK 8 时，只能生成不可正式交付的 dev bundle：

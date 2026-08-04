@@ -89,8 +89,8 @@ final class GraphmlDependencyReader {
         final String root = findSingleRoot(labels.keySet(), edges, file);
         final Map<String, List<String>> adjacency = adjacency(edges);
         final VisitState visitState = new VisitState();
-        final Map<String, Dependency> dependencies =
-                new LinkedHashMap<String, Dependency>();
+        final List<Dependency> dependencies =
+                new ArrayList<Dependency>();
         final Coordinate module = Coordinate.parseModule(labels.get(root));
         visit(root, true, adjacency, labels, visitState,
                 dependencies, file);
@@ -99,8 +99,7 @@ final class GraphmlDependencyReader {
                     "GraphML contains nodes unreachable from its root: "
                             + file);
         }
-        return new Graph(module,
-                new ArrayList<Dependency>(dependencies.values()));
+        return new Graph(module, dependencies);
     }
 
     private static Document parseDocument(final Path file)
@@ -245,7 +244,7 @@ final class GraphmlDependencyReader {
             final Map<String, List<String>> adjacency,
             final Map<String, String> labels,
             final VisitState visitState,
-            final Map<String, Dependency> dependencies,
+            final List<Dependency> dependencies,
             final Path file) throws GraphmlReadException {
         if (!visitState.getActive().add(nodeId)) {
             throw new GraphmlReadException(
@@ -264,32 +263,13 @@ final class GraphmlDependencyReader {
                 final boolean selected = selectedBranch
                         && INCLUDED_SCOPES.contains(dependency.getScope());
                 if (selected) {
-                    addDependency(dependencies, dependency);
+                    dependencies.add(dependency);
                 }
                 visit(child, selected, adjacency, labels, visitState,
                         dependencies, file);
             }
         }
         visitState.getActive().remove(nodeId);
-    }
-
-    private static void addDependency(
-            final Map<String, Dependency> dependencies,
-            final Dependency dependency) throws GraphmlReadException {
-        final String identity = dependency.getCoordinate().identity();
-        final Dependency previous = dependencies.get(identity);
-        if (previous == null) {
-            dependencies.put(identity, dependency);
-        } else if (previous.getScope().equals(dependency.getScope())) {
-            throw new GraphmlReadException(
-                    "Duplicate GraphML dependency binding: "
-                            + identity + ":" + dependency.getScope());
-        } else {
-            throw new GraphmlReadException(
-                    "Conflicting GraphML dependency scopes: " + identity
-                            + " has " + previous.getScope() + " and "
-                            + dependency.getScope());
-        }
     }
 
     /** Validated module dependency graph. */

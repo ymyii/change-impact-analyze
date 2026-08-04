@@ -344,8 +344,7 @@ public final class PerModuleHtmlReportGenerator {
         module.getUnit().getTargetArtifacts().forEach(artifact -> body
                 .append("<li>")
                 .append(escape(artifact.getArtifact().toString()))
-                .append(" [").append(escape(artifact.getScope().name()))
-                .append("] <code>")
+                .append(" <code>")
                 .append(escape(artifact.getPath().toString()))
                 .append("</code></li>"));
         body.append("</ul></details></section>")

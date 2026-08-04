@@ -11,11 +11,11 @@ import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.UUID;
 
-/** Writes Artifact Path Schema v1 without publishing partial output. */
+/** Writes Artifact Path Schema v2 without publishing partial output. */
 final class ArtifactPathJsonWriter {
 
     /** Current JSON contract version. */
-    private static final int SCHEMA_VERSION = 1;
+    private static final int SCHEMA_VERSION = 2;
 
     /** Streaming JSON factory. */
     private static final JsonFactory JSON_FACTORY = new JsonFactory();
@@ -25,8 +25,6 @@ final class ArtifactPathJsonWriter {
 
     static void write(
             final Path output,
-            final ArtifactCoordinates module,
-            final Path moduleDirectory,
             final List<ResolvedArtifactPath> artifacts)
             throws IOException {
         final Path temporary = output.resolveSibling(
@@ -37,18 +35,11 @@ final class ArtifactPathJsonWriter {
                 json.useDefaultPrettyPrinter();
                 json.writeStartObject();
                 json.writeNumberField("schemaVersion", SCHEMA_VERSION);
-                json.writeObjectFieldStart("module");
-                json.writeFieldName("coordinates");
-                writeCoordinates(json, module);
-                json.writeStringField(
-                        "baseDirectory", moduleDirectory.toString());
-                json.writeEndObject();
                 json.writeArrayFieldStart("artifacts");
                 for (ResolvedArtifactPath artifact : artifacts) {
                     json.writeStartObject();
                     json.writeFieldName("coordinates");
                     writeCoordinates(json, artifact.getCoordinates());
-                    json.writeStringField("scope", artifact.getScope());
                     json.writeStringField("absolutePath",
                             artifact.getAbsolutePath().toString());
                     json.writeEndObject();

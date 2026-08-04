@@ -28,7 +28,7 @@
 - Summary: 只编译 target；reactor root compile 一次，leaf 使用 `-pl/-am`；baseline dependency 与 target build 并行。
 
 ### [Dependency Tree Extraction](features/dependency-tree-extraction.md)
-- Summary: `impact` 以 GraphML 作为唯一 mediation authority；Artifact Path goal 不再 collection，为 selected `compile/runtime/provided` 解析 Resolver path，并为 `system` 绑定 effective `systemPath`。
+- Summary: `impact` 以 GraphML 作为唯一 mediation authority；Module-local Schema v2 JSON 不保存 Module/scope，只按 coordinates 绑定 Resolver path 或 effective `systemPath`。
 
 ### [Dependency Diff Engine](features/dependency-diff-engine.md)
 - Summary: 对比 baseline/target resolved dependency tree，生成稳定排序的 dependency changes。

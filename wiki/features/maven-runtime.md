@@ -63,11 +63,11 @@ code_refs:
 
 ## Summary
 
-Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个 subcommand 提供 `3.6.3 <= Maven version < 4.0.0` executable。默认从 JAR resource 离线准备 Apache Maven 3.6.3；内置 file repository 同时提供 Maven Dependency Plugin `3.6.1` 与 Artifact Path Plugin `1.0.1`。
+Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个 subcommand 提供 `3.6.3 <= Maven version < 4.0.0` executable。默认从 JAR resource 离线准备 Apache Maven 3.6.3；内置 file repository 同时提供 Maven Dependency Plugin `3.6.1` 与 Artifact Path Plugin `2.0.0`。
 
 <!-- version-contract:start -->
-- Analyzer release: `0.1.0`
-- Artifact Path Plugin release: `1.0.1`
+- Analyzer release: `1.0.0`
+- Artifact Path Plugin release: `2.0.0`
 <!-- version-contract:end -->
 
 ## Design Decisions
@@ -94,7 +94,7 @@ Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个
 - 默认 config dir 为 `${user.home}/.dependency-analyzer`，结构包含 Maven runtime、组合 Plugin repository 和 `locks/`。
 - 用户 executable 优先级最高，descriptor source 为 `USER_CONFIGURED`；内嵌 runtime source 为 `EMBEDDED`。
 - `*.maven-runtime` evidence 只报告 runtime source；`*.maven-version` 报告实际 `--version` probe 结果。Report 主视图展示实际 Maven version/source，executable path 只进入 `Technical details`。
-- Plugin runtime preflight evidence 输出 Artifact Path Plugin version、内嵌 JAR 完整 SHA-512 和组合 runtime fingerprint；Mojo 输出 `implementation=graphml-v1`、实际加载 JAR path/SHA-512 与 GraphML filename。两个 Plugin SHA-512 必须一致。
+- Plugin runtime preflight evidence 输出 Artifact Path Plugin version、内嵌 JAR 完整 SHA-512 和组合 runtime fingerprint；Mojo 输出 `implementation=graphml-v2`、实际加载 JAR path/SHA-512 与 GraphML filename。两个 Plugin SHA-512 必须一致。
 - 显式 `--maven` 时 version probe、GraphML probe、target build、baseline/target dependency analysis 都使用同一 executable；未指定时才使用内嵌 3.6.3。
 - 内嵌 preparation 使用 file lock、staging 和 atomic move，其他进程不会看到半解压 runtime。
 - 损坏 runtime 只重建对应 leaf；未知 config/user 文件保持不变。
@@ -123,7 +123,7 @@ Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个
 - Given 本地无 Plugin cache、无公网且未启用 `-llr`；When 执行 `impact` dependency extraction；Then 同一 Maven session 可运行 `tree` 与 GraphML 驱动的 `resolve-artifact-paths`。
 - Given plugin cache checksum/marker 损坏；When 再次 preparation；Then 只重建工具拥有的 cache leaf。
 - Given Artifact Path Plugin JAR 或 consumer POM checksum 变化；When preparation；Then 使用新的 combined fingerprint leaf，不复用旧 runtime。
-- Given Maven local repository 已存在旧 `1.0.0` release；When 执行 `impact`；Then Maven 使用 `1.0.1`，Console 的内嵌与实际加载 Plugin SHA-512 一致，`-X` 显示 `(f) dependencyGraphFileName`。
+- Given Maven local repository 已存在旧 `1.0.0/1.0.1` release；When 执行 `impact`；Then Maven 使用 `2.0.0`，Console 的内嵌与实际加载 Plugin SHA-512 一致，`-X` 显示 `(f) dependencyGraphFileName`。
 - Given `os.name` 为 Windows；When 选择内嵌 launcher；Then 返回 `mvn.cmd`；Given Linux/macOS，Then 返回 `mvn`。
 - Given 检查内嵌 Maven ZIP；When 枚举 entries；Then 四个 Maven launcher 均存在。
 

@@ -50,13 +50,16 @@ public final class PackagedRuntimeSmoke {
                         + "<version>1</version></project>",
                 StandardCharsets.UTF_8);
         final Path local = root.resolve("empty-local");
-        final Path old = local.resolve("io/github/dependencyanalysis/"
-                + "dependency-analyzer-artifact-path-maven-plugin/1.0.0");
-        Files.createDirectories(old);
-        Files.writeString(old.resolve(
-                        "dependency-analyzer-artifact-path-maven-plugin-"
-                                + "1.0.0.jar"),
-                "intentionally stale", StandardCharsets.UTF_8);
+        for (String oldVersion : List.of("1.0.0", "1.0.1")) {
+            final Path old = local.resolve("io/github/dependencyanalysis/"
+                    + "dependency-analyzer-artifact-path-maven-plugin/"
+                    + oldVersion);
+            Files.createDirectories(old);
+            Files.writeString(old.resolve(
+                            "dependency-analyzer-artifact-path-maven-plugin-"
+                                    + oldVersion + ".jar"),
+                    "intentionally stale", StandardCharsets.UTF_8);
+        }
 
         final Path config = root.resolve("config");
         final MavenRuntimeDescriptor maven =
@@ -89,13 +92,22 @@ public final class PackagedRuntimeSmoke {
                 || !output.contains(
                 "(f) dependencyGraphFileName = tree.graphml")
                 || !output.contains(
-                "Artifact Path Plugin implementation=graphml-v1")
+                "Artifact Path Plugin implementation=graphml-v2")
                 || !output.contains("version=" + pluginVersion)
                 || !output.contains("sha512="
                 + plugin.getArtifactPathJarSha512())
                 || !Files.isRegularFile(project.resolve("artifacts.json"))) {
             throw new IllegalStateException(
                     "Packaged combined-goal smoke failed: " + output);
+        }
+        final String manifest = Files.readString(
+                project.resolve("artifacts.json"));
+        if (!manifest.contains("\"schemaVersion\" : 2")
+                || manifest.contains("\"module\"")
+                || manifest.contains("\"scope\"")) {
+            throw new IllegalStateException(
+                    "Packaged Artifact Path Schema v2 mismatch: "
+                            + manifest);
         }
         System.out.println("Packaged runtime smoke verified: Plugin "
                 + pluginVersion + "; sha512="

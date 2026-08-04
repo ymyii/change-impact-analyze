@@ -49,7 +49,7 @@ import java.util.Set;
 public final class ResolveArtifactPathsMojo extends AbstractMojo {
 
     /** Stable implementation marker printed for runtime verification. */
-    private static final String IMPLEMENTATION_MARKER = "graphml-v1";
+    private static final String IMPLEMENTATION_MARKER = "graphml-v2";
 
     /** SHA-512 stream buffer size. */
     private static final int DIGEST_BUFFER_SIZE = 8192;
@@ -131,10 +131,10 @@ public final class ResolveArtifactPathsMojo extends AbstractMojo {
         final Set<String> reactors = reactorIdentities();
         final Map<String, Candidate> candidates =
                 new LinkedHashMap<String, Candidate>();
+        final Map<String, Artifact> systemCandidates =
+                new LinkedHashMap<String, Artifact>();
         final Map<String, SystemArtifact> systemArtifacts =
                 systemArtifacts();
-        final List<ResolvedArtifactPath> resolved =
-                new ArrayList<ResolvedArtifactPath>();
         for (GraphmlDependencyReader.Dependency dependency
                 : graph.getDependencies()) {
             final Artifact artifact = toResolverArtifact(
@@ -143,23 +143,31 @@ public final class ResolveArtifactPathsMojo extends AbstractMojo {
                     .identity();
             if (!reactors.contains(identity)) {
                 if (SYSTEM_SCOPE.equals(dependency.getScope())) {
-                    resolved.add(resolveSystemArtifact(
-                            systemArtifacts, identity, artifact));
+                    systemCandidates.put(identity, artifact);
                 } else {
-                    addCandidate(candidates, identity,
-                            new Candidate(artifact, dependency.getScope()));
+                    candidates.put(identity, new Candidate(artifact));
                 }
             }
         }
 
-        resolved.addAll(resolve(
-                new ArrayList<Candidate>(candidates.values())));
+        final Map<String, ResolvedArtifactPath> resolvedByIdentity =
+                new LinkedHashMap<String, ResolvedArtifactPath>();
+        for (ResolvedArtifactPath artifact : resolve(
+                new ArrayList<Candidate>(candidates.values()))) {
+            addResolvedBinding(resolvedByIdentity, artifact);
+        }
+        for (Map.Entry<String, Artifact> entry
+                : systemCandidates.entrySet()) {
+            addResolvedBinding(resolvedByIdentity,
+                    resolveSystemArtifact(systemArtifacts,
+                            entry.getKey(), entry.getValue()));
+        }
+        final List<ResolvedArtifactPath> resolved =
+                new ArrayList<ResolvedArtifactPath>(
+                        resolvedByIdentity.values());
         Collections.sort(resolved, ResolvedArtifactPath.ORDER);
         try {
-            final Path baseDirectory = project.getBasedir().toPath()
-                    .toRealPath();
-            ArtifactPathJsonWriter.write(output, moduleCoordinates(),
-                    baseDirectory, resolved);
+            ArtifactPathJsonWriter.write(output, resolved);
         } catch (IOException exception) {
             throw new MojoExecutionException(
                     "Unable to publish resolved artifact JSON: " + output,
@@ -271,25 +279,6 @@ public final class ResolveArtifactPathsMojo extends AbstractMojo {
         }
     }
 
-    private void addCandidate(
-            final Map<String, Candidate> candidates,
-            final String identity,
-            final Candidate candidate) throws MojoFailureException {
-        final Candidate previous = candidates.put(identity, candidate);
-        if (previous != null) {
-            if (previous.getScope().equals(candidate.getScope())) {
-                throw new MojoFailureException(
-                        "Duplicate GraphML artifact binding after type "
-                                + "mapping: "
-                                + identity + ":" + candidate.getScope());
-            }
-            throw new MojoFailureException(
-                    "Conflicting GraphML artifact scopes after type mapping: "
-                            + identity + " has " + previous.getScope()
-                            + " and " + candidate.getScope());
-        }
-    }
-
     private Artifact toResolverArtifact(
             final GraphmlDependencyReader.Coordinate coordinate) {
         return toResolverArtifact(
@@ -396,7 +385,7 @@ public final class ResolveArtifactPathsMojo extends AbstractMojo {
                     "System dependency is not an absolute file: " + path);
         }
         return new ResolvedArtifactPath(
-                ArtifactCoordinates.from(artifact), SYSTEM_SCOPE, path);
+                ArtifactCoordinates.from(artifact), path);
     }
 
     private Artifact toResolverArtifact(
@@ -490,9 +479,29 @@ public final class ResolveArtifactPathsMojo extends AbstractMojo {
             }
             resolved.add(new ResolvedArtifactPath(
                     ArtifactCoordinates.from(result.getArtifact()),
-                    candidate.getScope(), path));
+                    path));
         }
         return resolved;
+    }
+
+    void addResolvedBinding(
+            final Map<String, ResolvedArtifactPath> resolved,
+            final ResolvedArtifactPath candidate)
+            throws MojoFailureException {
+        final String identity = candidate.getCoordinates().identity();
+        final ResolvedArtifactPath previous = resolved.get(identity);
+        if (previous == null) {
+            resolved.put(identity, candidate);
+            return;
+        }
+        if (!previous.getAbsolutePath().equals(
+                candidate.getAbsolutePath())) {
+            throw new MojoFailureException(
+                    "Artifact coordinates map to multiple physical paths: "
+                            + identity + "; paths=["
+                            + previous.getAbsolutePath() + ", "
+                            + candidate.getAbsolutePath() + "]");
+        }
     }
 
     private String resolutionFailure(final List<ArtifactResult> results) {
@@ -524,22 +533,14 @@ public final class ResolveArtifactPathsMojo extends AbstractMojo {
         /** Artifact to resolve. */
         private final Artifact artifact;
 
-        /** Authoritative GraphML scope. */
-        private final String scope;
-
-        Candidate(final Artifact selectedArtifact,
-                  final String selectedScope) {
+        Candidate(final Artifact selectedArtifact) {
             artifact = selectedArtifact;
-            scope = selectedScope;
         }
 
         Artifact getArtifact() {
             return artifact;
         }
 
-        String getScope() {
-            return scope;
-        }
     }
 
     /** Effective MavenProject system dependency path. */

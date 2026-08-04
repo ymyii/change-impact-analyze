@@ -13,11 +13,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/** Strict streaming parser for Artifact Path JSON Schema v1. */
+/** Strict streaming parser for Artifact Path JSON Schema v2. */
 public final class ResolvedArtifactJsonParser {
 
     /** Supported Schema version. */
-    private static final int SCHEMA_VERSION = 1;
+    private static final int SCHEMA_VERSION = 2;
 
     /** Parser with duplicate property detection. */
     private static final JsonFactory JSON_FACTORY = new JsonFactory()
@@ -39,7 +39,6 @@ public final class ResolvedArtifactJsonParser {
             requireToken(json.nextToken(), JsonToken.START_OBJECT,
                     "document must be an object", file);
             Integer schemaVersion = null;
-            ModuleValue module = null;
             List<ArtifactValue> artifactValues = null;
             while (json.nextToken() != JsonToken.END_OBJECT) {
                 requireToken(json.currentToken(), JsonToken.FIELD_NAME,
@@ -51,8 +50,6 @@ public final class ResolvedArtifactJsonParser {
                         fail("schemaVersion must be an integer", file);
                     }
                     schemaVersion = json.getIntValue();
-                } else if ("module".equals(name)) {
-                    module = parseModule(json, value, file);
                 } else if ("artifacts".equals(name)) {
                     artifactValues = parseArtifacts(json, value, file);
                 } else {
@@ -63,50 +60,17 @@ public final class ResolvedArtifactJsonParser {
                 fail("trailing JSON content is not allowed", file);
             }
             if (schemaVersion == null || schemaVersion != SCHEMA_VERSION) {
-                fail("schemaVersion must equal 1", file);
-            }
-            if (module == null) {
-                fail("module is required", file);
+                fail("schemaVersion must equal 2", file);
             }
             if (artifactValues == null) {
                 fail("artifacts is required", file);
             }
-            return manifest(module, artifactValues, file);
+            return manifest(artifactValues, file);
         } catch (IOException | RuntimeException exception) {
             throw new DependencyAnalysisException(
                     "Invalid resolved artifact JSON: " + file,
                     exception);
         }
-    }
-
-    private static ModuleValue parseModule(
-            final JsonParser json,
-            final JsonToken token,
-            final Path file) throws IOException,
-            DependencyAnalysisException {
-        requireToken(token, JsonToken.START_OBJECT,
-                "module must be an object", file);
-        CoordinateValue coordinates = null;
-        String baseDirectory = null;
-        while (json.nextToken() != JsonToken.END_OBJECT) {
-            requireToken(json.currentToken(), JsonToken.FIELD_NAME,
-                    "module property name expected", file);
-            final String name = json.currentName();
-            final JsonToken value = json.nextToken();
-            if ("coordinates".equals(name)) {
-                coordinates = parseCoordinates(json, value, file);
-            } else if ("baseDirectory".equals(name)) {
-                baseDirectory = stringValue(json, value,
-                        "module.baseDirectory", file, false);
-            } else {
-                json.skipChildren();
-            }
-        }
-        if (coordinates == null || baseDirectory == null) {
-            fail("module.coordinates and module.baseDirectory are required",
-                    file);
-        }
-        return new ModuleValue(coordinates, baseDirectory);
     }
 
     private static List<ArtifactValue> parseArtifacts(
@@ -121,7 +85,6 @@ public final class ResolvedArtifactJsonParser {
             requireToken(json.currentToken(), JsonToken.START_OBJECT,
                     "artifact must be an object", file);
             CoordinateValue coordinates = null;
-            String scope = null;
             String absolutePath = null;
             while (json.nextToken() != JsonToken.END_OBJECT) {
                 requireToken(json.currentToken(), JsonToken.FIELD_NAME,
@@ -130,9 +93,6 @@ public final class ResolvedArtifactJsonParser {
                 final JsonToken value = json.nextToken();
                 if ("coordinates".equals(name)) {
                     coordinates = parseCoordinates(json, value, file);
-                } else if ("scope".equals(name)) {
-                    scope = stringValue(json, value,
-                            "artifact.scope", file, false);
                 } else if ("absolutePath".equals(name)) {
                     absolutePath = stringValue(json, value,
                             "artifact.absolutePath", file, false);
@@ -140,13 +100,12 @@ public final class ResolvedArtifactJsonParser {
                     json.skipChildren();
                 }
             }
-            if (coordinates == null || scope == null
-                    || absolutePath == null) {
-                fail("artifact coordinates, scope and absolutePath"
+            if (coordinates == null || absolutePath == null) {
+                fail("artifact coordinates and absolutePath"
                         + " are required", file);
             }
             result.add(new ArtifactValue(
-                    coordinates, scope, absolutePath));
+                    coordinates, absolutePath));
         }
         return result;
     }
@@ -198,39 +157,41 @@ public final class ResolvedArtifactJsonParser {
     }
 
     private static ResolvedArtifactManifest manifest(
-            final ModuleValue module,
             final List<ArtifactValue> values,
             final Path file) throws DependencyAnalysisException {
-        final Path moduleDirectory = existingPath(
-                module.getBaseDirectory(), true, file);
-        final ArtifactCoord moduleCoordinates =
-                module.getCoordinates().toArtifactCoord();
+        final Path manifestDirectory = manifestDirectory(file);
         final List<ResolvedArtifact> artifacts = new ArrayList<>();
         final Set<String> bindings = new HashSet<>();
         for (ArtifactValue value : values) {
-            final DependencyScope scope = DependencyScope.fromString(
-                    value.getScope());
-            if (scope == null) {
-                fail("unsupported artifact scope: " + value.getScope(),
-                        file);
-            }
             final ArtifactCoord coordinates =
                     value.getCoordinates().toArtifactCoord();
-            final String binding = coordinates + ":" + scope.getValue();
+            final String binding = coordinates.toString();
             if (!bindings.add(binding)) {
                 fail("duplicate artifact binding: " + binding, file);
             }
-            artifacts.add(new ResolvedArtifact(moduleDirectory,
-                    coordinates, scope,
+            artifacts.add(new ResolvedArtifact(coordinates,
                     existingPath(value.getAbsolutePath(), false, file)));
         }
         artifacts.sort(Comparator
                 .comparing((ResolvedArtifact value) ->
                         value.getArtifact().toString())
-                .thenComparing(value -> value.getScope().getValue())
                 .thenComparing(value -> value.getPath().toString()));
-        return new ResolvedArtifactManifest(moduleCoordinates,
-                moduleDirectory, artifacts);
+        return new ResolvedArtifactManifest(manifestDirectory, artifacts);
+    }
+
+    private static Path manifestDirectory(final Path file)
+            throws DependencyAnalysisException {
+        final Path parent = file.toAbsolutePath().normalize().getParent();
+        if (parent == null) {
+            fail("manifest parent directory is unavailable", file);
+        }
+        try {
+            return parent.toRealPath();
+        } catch (IOException exception) {
+            throw new DependencyAnalysisException(
+                    "Unable to canonicalize manifest directory: " + parent,
+                    exception);
+        }
     }
 
     private static Path existingPath(
@@ -340,57 +301,24 @@ public final class ResolvedArtifactJsonParser {
         }
     }
 
-    /** Parsed module object. */
-    private static final class ModuleValue {
-
-        /** Module coordinates. */
-        private final CoordinateValue coordinates;
-
-        /** Module base directory string. */
-        private final String baseDirectory;
-
-        ModuleValue(final CoordinateValue moduleCoordinates,
-                    final String directory) {
-            coordinates = moduleCoordinates;
-            baseDirectory = directory;
-        }
-
-        CoordinateValue getCoordinates() {
-            return coordinates;
-        }
-
-        String getBaseDirectory() {
-            return baseDirectory;
-        }
-    }
-
     /** Parsed external artifact object. */
     private static final class ArtifactValue {
 
         /** Artifact coordinates. */
         private final CoordinateValue coordinates;
 
-        /** Scope. */
-        private final String scope;
-
         /** Absolute file path string. */
         private final String absolutePath;
 
         ArtifactValue(
                 final CoordinateValue artifactCoordinates,
-                final String dependencyScope,
                 final String path) {
             coordinates = artifactCoordinates;
-            scope = dependencyScope;
             absolutePath = path;
         }
 
         CoordinateValue getCoordinates() {
             return coordinates;
-        }
-
-        String getScope() {
-            return scope;
         }
 
         String getAbsolutePath() {

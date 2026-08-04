@@ -566,12 +566,14 @@ final class PerModuleImpactPipeline {
                     baselineTreeMap.get(moduleKey);
             final ModuleDependencyTree targetTree =
                     targetTreeMap.get(moduleKey);
-            final ResolvedArtifact oldArtifact = binding(
-                    baselineDependencies, baselineTree,
-                    change.getOldArtifact(), change);
-            final ResolvedArtifact newArtifact = binding(
-                    targetDependencies, targetTree,
-                    change.getNewArtifact(), change);
+            final ResolvedArtifact oldArtifact =
+                    ArtifactPathBindingResolver.require(
+                            "baseline", baselineDependencies, baselineTree,
+                            change.getOldArtifact(), change.getModule());
+            final ResolvedArtifact newArtifact =
+                    ArtifactPathBindingResolver.require(
+                            "target", targetDependencies, targetTree,
+                            change.getNewArtifact(), change.getModule());
             final DependencyUpgradeKey key = new DependencyUpgradeKey(
                     module, change.getScope(), change.getOldArtifact(),
                     change.getNewArtifact(), oldArtifact.getPath(),
@@ -700,29 +702,6 @@ final class PerModuleImpactPipeline {
                 new MemberDescriptors(point.getOldDescriptor(),
                         point.getNewDescriptor()),
                 point.getOldHash(), point.getNewHash());
-    }
-
-    private ResolvedArtifact binding(
-            final DependencyAnalysisResult analysis,
-            final ModuleDependencyTree tree,
-            final ArtifactCoord artifact,
-            final DependencyChange change) {
-        if (tree == null) {
-            throw new IllegalStateException(
-                    "Dependency tree missing for " + change.getModule());
-        }
-        final List<ResolvedArtifact> matches = analysis
-                .artifactsFor(tree.getModulePath()).stream()
-                .filter(value -> value.getArtifact().equals(artifact))
-                .filter(value -> value.getScope() == change.getScope())
-                .toList();
-        if (matches.size() != 1) {
-            throw new IllegalStateException(
-                    "Artifact path binding must be unique: module="
-                            + change.getModule() + "; artifact=" + artifact
-                            + "; matches=" + matches.size());
-        }
-        return matches.get(0);
     }
 
     private List<ModuleAnalysisUnit> units(

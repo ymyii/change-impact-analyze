@@ -159,6 +159,20 @@ class DependencyDiffEngineTest {
     }
 
     @Test
+    void scopeOnlyChangeReturnsEmpty() {
+        final ArtifactCoord mod = mod("g", "m");
+        final ArtifactCoord dep = art("g", "dep", "1.0");
+        final List<ModuleDependencyTree> base = List.of(tree(mod,
+                node(dep, DependencyScope.COMPILE)));
+        final List<ModuleDependencyTree> target = List.of(tree(mod,
+                node(dep, DependencyScope.PROVIDED)));
+
+        final List<DependencyChange> result = engine.diff(base, target);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
     void flattenNestedTree() {
         final ArtifactCoord mod =
                 mod("g", "m");

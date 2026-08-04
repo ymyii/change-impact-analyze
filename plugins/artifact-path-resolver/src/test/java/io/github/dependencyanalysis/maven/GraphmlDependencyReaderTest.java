@@ -36,21 +36,28 @@ class GraphmlDependencyReaderTest {
     }
 
     @Test
-    void rejectsDuplicateBinding() throws Exception {
-        assertThatThrownBy(() -> GraphmlDependencyReader.read(
-                resource("duplicate.graphml")))
-                .isInstanceOf(
-                        GraphmlDependencyReader.GraphmlReadException.class)
-                .hasMessageContaining("Duplicate GraphML dependency binding");
+    void retainsDuplicateCoordinatesForResolutionDeduplication()
+            throws Exception {
+        final GraphmlDependencyReader.Graph graph =
+                GraphmlDependencyReader.read(resource("duplicate.graphml"));
+
+        assertThat(graph.getDependencies())
+                .extracting(value -> value.getCoordinate().identity())
+                .containsExactly(
+                        "fixture:lib:jar::1",
+                        "fixture:lib:jar::1");
     }
 
     @Test
-    void rejectsConflictingScopes() throws Exception {
-        assertThatThrownBy(() -> GraphmlDependencyReader.read(
-                resource("scope-conflict.graphml")))
-                .isInstanceOf(
-                        GraphmlDependencyReader.GraphmlReadException.class)
-                .hasMessageContaining("Conflicting GraphML dependency scopes");
+    void retainsScopeOccurrencesWithoutUsingThemAsBindingIdentity()
+            throws Exception {
+        final GraphmlDependencyReader.Graph graph =
+                GraphmlDependencyReader.read(
+                        resource("scope-conflict.graphml"));
+
+        assertThat(graph.getDependencies())
+                .extracting(GraphmlDependencyReader.Dependency::getScope)
+                .containsExactly("compile", "provided");
     }
 
     @Test

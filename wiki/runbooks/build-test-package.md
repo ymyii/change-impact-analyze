@@ -34,8 +34,8 @@ code_refs:
 本 runbook 覆盖 Dependency Analyzer 的编译、unit tests、integration tests、Checkstyle、打包和本地 smoke verification。
 
 <!-- version-contract:start -->
-- Analyzer release: `0.1.0`
-- Artifact Path Plugin release: `1.0.1`
+- Analyzer release: `1.0.0`
+- Artifact Path Plugin release: `2.0.0`
 <!-- version-contract:end -->
 
 本页命令用于日常开发 quality gate。正式交付必须使用 [Version and Distribution](version-and-distribution.md)，不能以单次 `mvn package` 代替 version contract、JDK 8 smoke 和 reproducibility gate。
@@ -107,7 +107,7 @@ Subdirectory `tree` fixture 必须包含 requested module、同 reactor dependen
 - `impact` 缺少 JDK 8、传入 JDK 17、缺少 `javac`/`rt.jar` 时 Preflight 返回 exit `1`；`tree` 不受 JDK 8 限制。
 - JAR 内 Maven/plugin archive 的实际 SHA-512 与 packaged checksum 一致。
 - Packaged JAR 只包含 version contract 指定的 Artifact Path Plugin release；其 `plugin.xml` 声明 `dependencyGraphFileName`，Console 的 preflight expected SHA-512 与 Mojo actual-loaded SHA-512 一致。
-- Maven `-X` smoke 显示 `(f) dependencyGraphFileName = ...` 和 `implementation=graphml-v1`，即使 local repository 保留旧 Plugin release 也必须执行 current release。
+- Maven `-X` smoke 显示 `(f) dependencyGraphFileName = ...` 和 `implementation=graphml-v2`，即使 local repository 保留旧 Plugin release 也必须执行 current release。
 - 正式 distribution 两次固定 timestamp build 的 CLI JAR SHA-512 一致，并发布 `releaseEligible=true` 的 Schema v1 build manifest。
 - Root/两个 subcommand help 列出全部当前 option；无 subcommand或未知 option 返回 usage failure。
 - Packaged JAR 中断测试保留已发布 reactor page 与最后一个 `RUNNING x/N` Index。

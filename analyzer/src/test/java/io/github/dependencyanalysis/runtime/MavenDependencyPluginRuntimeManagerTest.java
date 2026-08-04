@@ -281,15 +281,17 @@ class MavenDependencyPluginRuntimeManagerTest {
         assertThat(result.getCombinedOutput())
                 .contains("maven-dependency-plugin:3.6.1:tree")
                 .contains("(f) dependencyGraphFileName = tree.graphml")
-                .contains("Artifact Path Plugin implementation=graphml-v1")
+                .contains("Artifact Path Plugin implementation=graphml-v2")
                 .contains("version=" + ARTIFACT_PATH_PLUGIN_VERSION)
                 .contains("sha512="
                         + plugin.getArtifactPathJarSha512());
         assertThat(project.resolve("tree.graphml"))
                 .isRegularFile();
         assertThat(project.resolve("artifacts.json"))
-                .content().contains("\"schemaVersion\" : 1")
-                .contains("\"artifacts\" : [ ]");
+                .content().contains("\"schemaVersion\" : 2")
+                .contains("\"artifacts\" : [ ]")
+                .doesNotContain("\"module\"")
+                .doesNotContain("\"scope\"");
     }
 
     private Path settings(
