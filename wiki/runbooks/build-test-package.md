@@ -10,10 +10,14 @@ relations:
     desc: "使用打包后 JAR 执行持续 impact benchmark"
 code_refs:
   - path: "pom.xml"
-    desc: "Maven build、Surefire、Failsafe、Checkstyle 和 Shade 配置"
+    desc: "Root parent/aggregator"
+  - path: "analyzer/pom.xml"
+    desc: "Analyzer Surefire、Failsafe、Checkstyle、Plugin resource 与 Shade 配置"
+  - path: "plugins/artifact-path-resolver/pom.xml"
+    desc: "Java 8 Maven Plugin packaging 与 shading"
   - path: "docs/user-manual.md"
     desc: "打包后 CLI 使用手册"
-  - path: "src/integration-test/java/io/github/dependencyanalysis/cli/PackagedJarCliIT.java"
+  - path: "analyzer/src/integration-test/java/io/github/dependencyanalysis/cli/PackagedJarCliIT.java"
     desc: "最终 shaded JAR、真实 command 与 interruption black-box gate"
 ---
 
@@ -31,6 +35,8 @@ code_refs:
 - integration tests 需要本地 `git` 和可运行 Maven executable；内嵌 runtime 测试不依赖 PATH Maven。
 
 ## Commands
+
+所有 command 从 repository root 执行。Reactor 顺序为 root parent、`plugins/`、`plugins/artifact-path-resolver/`、`analyzer/`；最终 CLI path 保持 `target/dependency-analyzer.jar`。
 
 ### Checkstyle
 
@@ -75,7 +81,9 @@ Subdirectory `tree` fixture 必须包含 requested module、同 reactor dependen
 - `mvn test` 的 Surefire tests 全部通过。
 - `mvn verify` 的 Surefire 和 Failsafe tests 全部通过。
 - `target/dependency-analyzer.jar` 存在，manifest `Main-Class` 为 `io.github.dependencyanalysis.cli.DependencyAnalyzerCli`。
-- JAR 包含 Maven distribution 和 `maven-dependency-plugin:3.6.1` 完整 repository archive、SHA-512、LICENSE 和 NOTICE。
+- JAR 包含 Maven distribution、`maven-dependency-plugin:3.6.1` 完整 repository archive，以及 Artifact Path Plugin self-contained JAR、consumer POM 和 SHA-512。
+- Artifact Path Plugin class major 不超过 `52`；Plugin JAR 不包含 Maven/Resolver implementation class，Jackson Core 已 relocate。
+- Maven 3.6.3、3.8.9、3.9.x compatibility suite 均执行 exclusion、mediation、session reuse、artifact type/classifier/SNAPSHOT、Reactor skip 和 JSON contract；Maven 4 不执行。
 - JAR 使用 WALA 1.8.0；JDK 8 smoke 覆盖 per-Module scope、CHA、Vanilla 0-1-CFA、`FULL` Reflection 和 MethodHandle extension，并断言 stdout/stderr 不含 `got NEW`。
 - `impact` 缺少 JDK 8、传入 JDK 17、缺少 `javac`/`rt.jar` 时 Preflight 返回 exit `1`；`tree` 不受 JDK 8 限制。
 - JAR 内 Maven/plugin archive 的实际 SHA-512 与 packaged checksum 一致。
@@ -89,5 +97,5 @@ Subdirectory `tree` fixture 必须包含 requested module、同 reactor dependen
 - Compile/test failure：`target/surefire-reports/`。
 - Integration failure：`target/failsafe-reports/`。
 - Checkstyle failure：Maven console 中的 file/line/check 名称。
-- Embedded runtime/plugin failure：校验 `src/main/resources/maven/` 下 distribution、plugin repository、attribution 和 SHA-512。
-- Shade/manifest failure：检查 `pom.xml` 的 `maven-shade-plugin` `finalName` 与 `mainClass`。
+- Embedded runtime/plugin failure：校验 `analyzer/src/main/resources/maven/` 下 distribution、Dependency Plugin repository、Artifact Path Plugin consumer POM、attribution 和 SHA-512，以及 `plugins/artifact-path-resolver/target/` 的 Plugin JAR。
+- Shade/manifest failure：检查 `analyzer/pom.xml` 的 `maven-shade-plugin` `finalName` 与 `mainClass`。

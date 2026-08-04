@@ -16,12 +16,18 @@ relations:
     desc: "打包后 impact 的持续性能与场景完整性验证"
 code_refs:
   - path: "pom.xml"
-    desc: "Maven coordinates、依赖、测试和 uber JAR 配置"
-  - path: "src/main/java/io/github/dependencyanalysis/cli/DependencyAnalyzerCli.java"
+    desc: "Root parent/aggregator 与 shared version management"
+  - path: "analyzer/pom.xml"
+    desc: "Java 17 Analyzer、测试、内置 Plugin resources 与 uber JAR 配置"
+  - path: "plugins/pom.xml"
+    desc: "所有内置 Maven Plugin 的 Java 8 parent/aggregator"
+  - path: "plugins/artifact-path-resolver/pom.xml"
+    desc: "Artifact Path Maven Plugin module"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/cli/DependencyAnalyzerCli.java"
     desc: "Root CLI 和 global options 入口"
-  - path: "src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
     desc: "Spring backend per-Module impact pipeline 编排"
-  - path: "src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
     desc: "tree pipeline 编排"
   - path: "benchmarks/impact-medium/run-benchmark.sh"
     desc: "Git 管理的 impact benchmark 总入口"
@@ -37,20 +43,24 @@ Dependency Analyzer 是 Java 17 analyzer + Maven + picocli CLI。`impact` 使用
 
 - Public CLI 固定为 `dependency-analyzer [global-options] <subcommand>`。
 - Maven coordinates 为 `io.github.dependencyanalysis:dependency-analyzer:0.1.0-SNAPSHOT`，Java base package 为 `io.github.dependencyanalysis`，uber JAR 为 `dependency-analyzer.jar`。
-- `impact` 使用 GraphML dependency diff；`tree` 使用 verbose text 采集完整 dependency occurrence。
+- `impact` 使用 GraphML dependency diff，并由内置 Artifact Path Plugin JSON 绑定 Resolver physical path；`tree` 使用 verbose text 采集完整 dependency occurrence。
 - `impact` 只构建 target per-Module Vanilla 0-1-CFA；baseline 不 compile、不构建 Call Graph。
 - `impact` 默认并发分析两个 Module；Module 内 WALA build/query 单线程，SSA equivalence 全局串行。
 - 两个 subcommand 共享 Maven runtime 和 preflight Schema，但分别组装检查 DAG；pipeline 只消费 preflight decision。
 
 ## Module Map
 
-- `src/main/java/io/github/dependencyanalysis/cli/` - Root CLI、global option 和 Maven argument 安全校验。
-- `src/main/java/io/github/dependencyanalysis/runtime/` - 内嵌或用户指定 Maven runtime。
-- `src/main/java/io/github/dependencyanalysis/preflight/` - DAG preflight framework 和结果 Schema。
-- `src/main/java/io/github/dependencyanalysis/impact/` - `impact` command、pipeline 和影响追踪 domain。
-- `src/main/java/io/github/dependencyanalysis/tree/` - Git snapshot、reactor inventory、text parser、version analysis 和 HTML report。
-- `src/main/java/io/github/dependencyanalysis/{build,dependency,bytecode,callgraph,jar,report,workspace}/` - `impact` pipeline 的稳定阶段实现。
-- `src/test/java/` - unit tests；`src/integration-test/java/` - Failsafe integration tests。
+- `pom.xml` - packaging `pom` 的 root parent/aggregator。
+- `analyzer/` - GAV `io.github.dependencyanalysis:dependency-analyzer:0.1.0-SNAPSHOT`；Java 17 CLI/application，最终仍发布 `target/dependency-analyzer.jar`。
+- `analyzer/src/main/java/io/github/dependencyanalysis/cli/` - Root CLI、global option 和 Maven argument 安全校验。
+- `analyzer/src/main/java/io/github/dependencyanalysis/runtime/` - 内嵌或用户指定 Maven runtime。
+- `analyzer/src/main/java/io/github/dependencyanalysis/preflight/` - DAG preflight framework 和结果 Schema。
+- `analyzer/src/main/java/io/github/dependencyanalysis/impact/` - `impact` command、pipeline 和影响追踪 domain。
+- `analyzer/src/main/java/io/github/dependencyanalysis/tree/` - Git snapshot、reactor inventory、text parser、version analysis 和 HTML report。
+- `analyzer/src/main/java/io/github/dependencyanalysis/{build,dependency,bytecode,callgraph,jar,report,workspace}/` - `impact` pipeline 的稳定阶段实现。
+- `analyzer/src/test/java/` - unit tests；`analyzer/src/integration-test/java/` - Failsafe integration tests。
+- `plugins/` - 内置 Maven Plugin parent/aggregator；后续 Plugin 作为 sibling module 加入。
+- `plugins/artifact-path-resolver/` - GAV `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:1.0.0`；Java 8 `resolve-artifact-paths` goal。
 - `benchmarks/impact-medium/` - 可复现的中型 impact fixture、资源采样脚本与报告 contract verification。
 
 ## Technical Stack

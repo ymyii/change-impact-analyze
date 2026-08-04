@@ -11,13 +11,13 @@ relations:
   - path: "wiki/features/report-generator.md"
     desc: "impact/tree 的 HTML 输出边界"
 code_refs:
-  - path: "src/main/java/io/github/dependencyanalysis/impact/ImpactCommand.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactCommand.java"
     desc: "impact CLI 编排"
-  - path: "src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
     desc: "Spring backend per-Module pipeline"
-  - path: "src/main/java/io/github/dependencyanalysis/impact/ModuleScopePlanner.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleScopePlanner.java"
     desc: "REACTOR/SINGLE_MODULE 识别"
-  - path: "src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
     desc: "独立 tree pipeline"
 ---
 
@@ -31,7 +31,7 @@ Root CLI 分发 `impact` 与 `tree`。`impact` 面向 Maven、Spring backend、J
 
 ```mermaid
 flowchart TD
-  Scope["REACTOR / SINGLE_MODULE planning"] --> Plugin["prepare embedded Dependency Plugin 3.6.1"]
+  Scope["REACTOR / SINGLE_MODULE planning"] --> Plugin["prepare embedded tree + Artifact Path Plugins"]
   Plugin --> Front
   Front["parallel: baseline dependency + target compile"] --> TargetDep["target dependency"]
   TargetDep --> DepDiff["dependency diff + resolved physical paths"]
@@ -59,7 +59,8 @@ flowchart TD
 
 - baseline dependency 与 target build 两个 Maven process 并行；任一失败时取消另一 process tree。
 - 两者 join 后才运行 target dependency；同一 target workspace 不并发执行两个 Maven process。
-- Baseline/target dependency 使用同一内嵌 `3.6.1` Plugin runtime、fully-qualified `tree`/`list` goal 与 settings overlay；target compile 不使用 overlay。
+- Baseline/target dependency 使用同一内嵌 Plugin runtime、settings overlay，并在各自单个 Maven process/session 中执行 fully-qualified `tree` 与 `resolve-artifact-paths` goal；target compile 不使用 overlay。
+- GraphML 提供 mediated graph；Artifact Path JSON 绑定 Resolver absolute path。Analyzer 按 Module baseDirectory/coordinates 配对并验证 external dependency set 完全一致。Reactor dependency 不发起 artifact resolution，target 阶段映射到 `target/classes`。
 - `--analysis-parallelism` 默认 `2`，分别控制 Module analysis、JAR diff 和 decompile bounded pool；各阶段再按 task 数计算 actual workers。超过 CPU 只 warning。
 - JAR diff 按 physical old/new pair 去重；code comparison 按 physical pair/member 去重并跨 Module 复用。
 - 每个 Module 内 WALA build/query 单线程；Module 之间并行。

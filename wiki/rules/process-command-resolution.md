@@ -13,19 +13,19 @@ relations:
   - path: "wiki/features/repository-dependency-tree-report.md"
     desc: "tree Git/Maven process 适用跨平台命令解析规则"
 code_refs:
-  - path: "src/main/java/io/github/dependencyanalysis/util/CommandResolver.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/util/CommandResolver.java"
     desc: "跨平台命令解析 canonical implementation"
-  - path: "src/main/java/io/github/dependencyanalysis/workspace/GitCommandRunner.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/workspace/GitCommandRunner.java"
     desc: "Git 命令执行入口"
-  - path: "src/main/java/io/github/dependencyanalysis/build/BuildRunner.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/build/BuildRunner.java"
     desc: "Maven compile 命令执行入口"
-  - path: "src/main/java/io/github/dependencyanalysis/dependency/DependencyAnalyzer.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/DependencyAnalyzer.java"
     desc: "Maven dependency plugin 命令执行入口"
-  - path: "src/main/java/io/github/dependencyanalysis/runtime/MavenExecutor.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/MavenExecutor.java"
     desc: "共享 Maven process 执行入口"
-  - path: "src/main/java/io/github/dependencyanalysis/tree/GitSnapshotProvider.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/GitSnapshotProvider.java"
     desc: "tree Git process 执行入口"
-  - path: "src/test/java/io/github/dependencyanalysis/util/CommandResolverTest.java"
+  - path: "analyzer/src/test/java/io/github/dependencyanalysis/util/CommandResolverTest.java"
     desc: "跨平台命令解析规则测试"
 ---
 
@@ -57,11 +57,11 @@ mvn test -Dtest=CommandResolverTest
 
 ## Reference Files
 
-- `src/main/java/io/github/dependencyanalysis/util/CommandResolver.java` - 规则来源和 canonical implementation。
-- `src/main/java/io/github/dependencyanalysis/workspace/GitCommandRunner.java` - Git 命令调用方。
-- `src/main/java/io/github/dependencyanalysis/build/BuildRunner.java` - Maven compile 调用方。
-- `src/main/java/io/github/dependencyanalysis/dependency/DependencyAnalyzer.java` - Maven dependency plugin 调用方。
-- `src/test/java/io/github/dependencyanalysis/util/CommandResolverTest.java` - 平台解析行为测试入口。
+- `analyzer/src/main/java/io/github/dependencyanalysis/util/CommandResolver.java` - 规则来源和 canonical implementation。
+- `analyzer/src/main/java/io/github/dependencyanalysis/workspace/GitCommandRunner.java` - Git 命令调用方。
+- `analyzer/src/main/java/io/github/dependencyanalysis/build/BuildRunner.java` - Maven compile 调用方。
+- `analyzer/src/main/java/io/github/dependencyanalysis/dependency/DependencyAnalyzer.java` - Maven dependency plugin 调用方。
+- `analyzer/src/test/java/io/github/dependencyanalysis/util/CommandResolverTest.java` - 平台解析行为测试入口。
 
 ## Non-Goals
 

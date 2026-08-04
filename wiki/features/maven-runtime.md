@@ -11,43 +11,49 @@ relations:
   - path: "wiki/rules/process-command-resolution.md"
     desc: "Maven process 的跨平台解析约束"
 code_refs:
-  - path: "src/main/java/io/github/dependencyanalysis/runtime/MavenRuntimeManager.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/MavenRuntimeManager.java"
     desc: "Config dir、SHA-512、lock、staging 和 extraction 实现"
-  - path: "src/main/java/io/github/dependencyanalysis/runtime/MavenRuntimeDescriptor.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/MavenRuntimeDescriptor.java"
     desc: "两个 subcommand 共享的只读 runtime 契约"
-  - path: "src/main/java/io/github/dependencyanalysis/runtime/Jdk8RuntimeProvider.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/Jdk8RuntimeProvider.java"
     desc: "impact target JDK 8 provider"
-  - path: "src/main/java/io/github/dependencyanalysis/runtime/JavaRuntimeProbe.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/JavaRuntimeProbe.java"
     desc: "JDK executable/version/boot/ext probe"
-  - path: "src/main/java/io/github/dependencyanalysis/runtime/MavenExecutor.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/MavenExecutor.java"
     desc: "Maven process token 和 JAVA_HOME 执行入口"
-  - path: "src/main/java/io/github/dependencyanalysis/runtime/MavenDependencyPluginRuntimeManager.java"
-    desc: "Dependency Plugin repository 准备、settings overlay 和 capability validation"
-  - path: "src/main/java/io/github/dependencyanalysis/runtime/MavenDependencyPluginRuntime.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/MavenDependencyPluginRuntimeManager.java"
+    desc: "Dependency Plugin/Artifact Path Plugin repository 准备、combined fingerprint 和 settings overlay"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/MavenDependencyPluginRuntime.java"
     desc: "Tree collection 使用的 plugin goal、arguments 和 cache descriptor"
-  - path: "src/main/resources/maven/apache-maven-3.6.3-bin.zip"
+  - path: "analyzer/src/main/resources/maven/apache-maven-3.6.3-bin.zip"
     desc: "未修改的 Apache Maven 3.6.3 binary distribution"
-  - path: "src/main/resources/maven/apache-maven-3.6.3-bin.zip.sha512"
+  - path: "analyzer/src/main/resources/maven/apache-maven-3.6.3-bin.zip.sha512"
     desc: "官方 SHA-512"
-  - path: "src/main/resources/maven/LICENSE"
+  - path: "analyzer/src/main/resources/maven/LICENSE"
     desc: "Apache Maven distribution LICENSE"
-  - path: "src/main/resources/maven/NOTICE"
+  - path: "analyzer/src/main/resources/maven/NOTICE"
     desc: "Apache Maven distribution NOTICE"
-  - path: "src/test/java/io/github/dependencyanalysis/runtime/MavenRuntimeManagerTest.java"
+  - path: "analyzer/src/test/java/io/github/dependencyanalysis/runtime/MavenRuntimeManagerTest.java"
     desc: "Maven archive launcher 与 platform selection contract tests"
-  - path: "src/main/resources/maven/dependency-plugin/maven-dependency-plugin-3.6.1-repository.zip"
+  - path: "analyzer/src/main/resources/maven/dependency-plugin/maven-dependency-plugin-3.6.1-repository.zip"
     desc: "Maven Dependency Plugin 3.6.1 与完整传递依赖 repository"
-  - path: "src/main/resources/maven/dependency-plugin/maven-dependency-plugin-3.6.1-repository.zip.sha512"
+  - path: "analyzer/src/main/resources/maven/dependency-plugin/maven-dependency-plugin-3.6.1-repository.zip.sha512"
     desc: "Dependency Plugin repository SHA-512"
-  - path: "src/main/resources/maven/dependency-plugin/DEPENDENCIES"
+  - path: "analyzer/src/main/resources/maven/dependency-plugin/DEPENDENCIES"
     desc: "Dependency Plugin repository third-party attribution"
+  - path: "analyzer/src/main/resources/maven/artifact-path-plugin/dependency-analyzer-artifact-path-maven-plugin-1.0.0.pom"
+    desc: "内置 Artifact Path Plugin consumer POM"
+  - path: "plugins/artifact-path-resolver/pom.xml"
+    desc: "Java 8 Plugin packaging、Maven 3.6.3 API baseline 与 Jackson relocation"
+  - path: "analyzer/src/test/java/io/github/dependencyanalysis/runtime/ArtifactPathPluginPackagingTest.java"
+    desc: "Java 8 class major、shading 与 implementation-class boundary"
 ---
 
 # Feature: Maven Runtime
 
 ## Summary
 
-Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个 subcommand 提供 Maven 3.6.3–3.x executable。默认从 JAR resource 离线准备 Apache Maven 3.6.3；`impact` 固定、`tree` 默认离线准备 evidence-complete Dependency Plugin repository。
+Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个 subcommand 提供 `3.6.3 <= Maven version < 4.0.0` executable。默认从 JAR resource 离线准备 Apache Maven 3.6.3；内置 file repository 同时提供 Maven Dependency Plugin `3.6.1` 与 Artifact Path Plugin `1.0.0`。
 
 ## Design Decisions
 
@@ -56,7 +62,10 @@ Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个
 - 解压前校验官方 SHA-512，并拒绝 normalized path 越出 staging directory 的 ZIP entry。
 - Config dir cleanup 只允许删除 `runtime/apache-maven/<version>/<sha>` leaf，不整体删除 config dir。
 - Maven 3.6.3 已 EOL，但 warning 只在实际 probe version 为 `3.6.3` 时展示；用户指定较新 Maven 时不会混入内嵌 runtime version/EOL 文案。
-- Dependency Plugin cache 与 Maven distribution 使用相同的 checksum、leaf lock、staging 和 atomic move 安全模型，但两者是独立 resource。
+- Plugin cache 与 Maven distribution 使用相同的 checksum、leaf lock、staging 和 atomic move 安全模型，但两者是独立 resource。
+- Plugin runtime fingerprint 是 Dependency Plugin repository ZIP、Artifact Path Plugin self-contained JAR 和 consumer POM 三者 SHA-512 的组合 hash；任一输入变化都不会复用旧 cache leaf。
+- Artifact Path Plugin 编译为 Java 8 bytecode，以 Maven API/Core `3.6.3` 和 Resolver API `1.4.1` 为最低 compile baseline；Maven/Resolver dependencies 均为 `provided`，Jackson Core 被 relocate 到 Plugin private package。
+- Plugin 只依赖 Maven 3.x public API，不携带 Resolver implementation、connector 或 transport class；Maven 4 明确不支持。
 - 内嵌 Maven ZIP 同时携带 `mvn`、`mvn.cmd`、`mvnDebug` 和 `mvnDebug.cmd`；launcher selection 提取为可测试的 OS contract。
 
 ## Actors / Entrypoints
@@ -66,7 +75,7 @@ Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个
 
 ## Behavior Contract
 
-- 默认 config dir 为 `${user.home}/.dependency-analyzer`，结构包含 Maven runtime、Dependency Plugin repository 和 `locks/`。
+- 默认 config dir 为 `${user.home}/.dependency-analyzer`，结构包含 Maven runtime、组合 Plugin repository 和 `locks/`。
 - 用户 executable 优先级最高，descriptor source 为 `USER_CONFIGURED`；内嵌 runtime source 为 `EMBEDDED`。
 - `*.maven-runtime` evidence 只报告 runtime source；`*.maven-version` 报告实际 `--version` probe 结果。Report 主视图展示实际 Maven version/source，executable path 只进入 `Technical details`。
 - 显式 `--maven` 时 version probe、GraphML probe、target build、baseline/target dependency analysis 都使用同一 executable；未指定时才使用内嵌 3.6.3。
@@ -83,7 +92,8 @@ Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个
 - 否则读取 SHA-512、获取 leaf lock、校验 marker/executable。
 - 需要重建时，校验 resource checksum、Zip Slip 防护解压、写 completion marker、atomic replace。
 - Preflight 以 `--version` probe 填充 descriptor version，并验证 `>=3.6.3 && <4.0.0`。
-- Dependency Plugin runtime 为选中的同一个 Maven executable 生成 effective global settings，保留用户 `-gs`、`-s`、mirror、proxy 和 server，同时注入内置 file plugin repository；不输出 settings 中的敏感值。Overlay 只用于 fully-qualified `tree`/`list`，不应用于 target `compile`。
+- Plugin runtime 解压 Dependency Plugin repository ZIP，再按固定 GAV 安装 Artifact Path Plugin JAR、consumer POM、SHA-512 和 Maven file repository 所需 checksum。
+- Plugin runtime 为选中的同一个 Maven executable 生成 effective global settings，保留用户 `-gs`、`-s`、mirror、proxy 和 server，同时注入内置 file plugin repository；不输出 settings 中的敏感值。Overlay 用于 fully-qualified `tree` 与 `resolve-artifact-paths`，不应用于 target `compile`。
 
 ## Acceptance Criteria
 
@@ -93,13 +103,16 @@ Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个
 - Given runtime marker/executable 损坏；When 再次 preparation；Then leaf 重建且未知文件保留。
 - Given user executable；When preparation；Then 不解压内嵌 runtime。
 - Given 本地无 Dependency Plugin cache 且网络不可用；When 执行默认 `tree`；Then 可从 JAR resource 准备并执行 `maven-dependency-plugin:3.6.1`。
+- Given 本地无 Plugin cache、无公网且未启用 `-llr`；When 执行 `impact` dependency extraction；Then 同一 Maven session 可运行 `tree` 与 `resolve-artifact-paths`。
 - Given plugin cache checksum/marker 损坏；When 再次 preparation；Then 只重建工具拥有的 cache leaf。
+- Given Artifact Path Plugin JAR 或 consumer POM checksum 变化；When preparation；Then 使用新的 combined fingerprint leaf，不复用旧 runtime。
 - Given `os.name` 为 Windows；When 选择内嵌 launcher；Then 返回 `mvn.cmd`；Given Linux/macOS，Then 返回 `mvn`。
 - Given 检查内嵌 Maven ZIP；When 枚举 entries；Then 四个 Maven launcher 均存在。
 
 ### Non-Functional
 
-- [ ] Maven distribution 和 Dependency Plugin repository 的 ZIP、SHA-512、LICENSE、NOTICE 完整打入 uber JAR。
+- [ ] Maven distribution、Dependency Plugin repository ZIP，以及 Artifact Path Plugin JAR/POM/SHA-512 完整打入 uber JAR。
+- [ ] Artifact Path Plugin class major `<=52`，JAR 不包含 Maven/Resolver implementation class，Jackson package 已 relocate。
 - [ ] 并发 preparation 由 leaf lock 串行化。
 - [ ] 所有 path 先 absolute normalize，再执行 allowlist cleanup。
 
@@ -112,5 +125,5 @@ Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个
 
 ## Implementation Boundaries
 
-- Runtime distribution 不是 Maven local repository；内置 Dependency Plugin repository 仅保证工具控制的 plugin 及其传递依赖，project dependency 仍由 Maven settings/local repository 管理。
+- Runtime distribution 不是 Maven local repository；内置 Plugin repository 仅保证工具控制的两个 Plugin 及其运行依赖，project dependency 仍由原 Maven session 的 settings/local repository 管理。
 - Runtime manager 不下载 distribution，不读取 PATH，不选择 repository Maven Wrapper。

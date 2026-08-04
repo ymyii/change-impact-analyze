@@ -7,15 +7,15 @@ relations:
   - path: "wiki/features/report-generator.md"
     desc: "Preflight 与 diagnostics 输出"
 code_refs:
-  - path: "src/main/java/io/github/dependencyanalysis/cli/DependencyAnalyzerCli.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/cli/DependencyAnalyzerCli.java"
     desc: "Root CLI"
-  - path: "src/main/java/io/github/dependencyanalysis/impact/ImpactCommand.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactCommand.java"
     desc: "spring-backend options、validation、exit code"
-  - path: "src/main/java/io/github/dependencyanalysis/preflight/PreflightRunner.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/preflight/PreflightRunner.java"
     desc: "check DAG"
-  - path: "src/main/java/io/github/dependencyanalysis/diagnostic/DiagnosticContext.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/diagnostic/DiagnosticContext.java"
     desc: "并发任务 stable context"
-  - path: "src/main/java/io/github/dependencyanalysis/diagnostic/DiagnosticCollector.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/diagnostic/DiagnosticCollector.java"
     desc: "context-aware timing、event 与 Console prefix"
 ---
 

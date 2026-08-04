@@ -11,11 +11,11 @@ relations:
   - path: "wiki/features/bytecode-diff-engine.md"
     desc: "VERSION_CHANGED 依赖变动最终供 Bytecode Diff Engine 执行 bytecode diff"
 code_refs:
-  - path: "src/main/java/io/github/dependencyanalysis/dependency/DependencyDiffEngine.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/DependencyDiffEngine.java"
     desc: "依赖变动对比引擎主实现"
-  - path: "src/main/java/io/github/dependencyanalysis/dependency/DependencyChange.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/DependencyChange.java"
     desc: "单条依赖变动不可变数据类"
-  - path: "src/main/java/io/github/dependencyanalysis/dependency/ChangeType.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/ChangeType.java"
     desc: "变动类型枚举"
 ---
 

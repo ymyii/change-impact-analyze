@@ -9,17 +9,17 @@ relations:
   - path: "wiki/runbooks/impact-benchmark.md"
     desc: "固定 9 类 raw ChangePoint 的持续 benchmark fixture"
 code_refs:
-  - path: "src/main/java/io/github/dependencyanalysis/bytecode/BytecodeDiffEngine.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/BytecodeDiffEngine.java"
     desc: "class/method/field diff"
-  - path: "src/main/java/io/github/dependencyanalysis/bytecode/StableHashMethodVisitor.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/StableHashMethodVisitor.java"
     desc: "ASM MethodNode canonical encoder"
-  - path: "src/main/java/io/github/dependencyanalysis/bytecode/ChangePoint.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/ChangePoint.java"
     desc: "old/new descriptor 与 hash"
-  - path: "src/main/java/io/github/dependencyanalysis/impact/BoundChangePoint.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/BoundChangePoint.java"
     desc: "Module 与 dependency upgrade provenance"
-  - path: "src/main/java/io/github/dependencyanalysis/bytecode/MethodBodyDecompiler.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/MethodBodyDecompiler.java"
     desc: "path-related exact member/class Vineflower decompilation"
-  - path: "src/main/java/io/github/dependencyanalysis/impact/UnifiedDiffGenerator.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/UnifiedDiffGenerator.java"
     desc: "3 行 context 的完整 Unified diff"
 ---
 

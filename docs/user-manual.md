@@ -9,6 +9,12 @@ Dependency Analyzer 是 Java 17 CLI，面向 Maven project：
 
 当前版本为 `0.1.0-SNAPSHOT`。Root command 为 `dependency-analyzer`。
 
+Source repository 使用 Maven multi-module：根 `pom.xml` 是 parent/aggregator；
+`analyzer/` 是 Java 17 CLI，仍生成 `target/dependency-analyzer.jar`；`plugins/` 是
+内置 Maven Plugin aggregator，当前包含 Java 8 的
+`plugins/artifact-path-resolver/`。Artifact Path Plugin goal 为
+`io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:1.0.0:resolve-artifact-paths`。
+
 ## 2. 环境与运行
 
 要求：
@@ -58,7 +64,7 @@ Maven 选择优先级：
 ```text
 ${user.home}/.dependency-analyzer/
 ├─ runtime/apache-maven/3.6.3/<zip-sha512>/
-├─ runtime/maven-dependency-plugin/3.6.1/<repository-zip-sha512>/
+├─ runtime/maven-dependency-plugin/3.6.1/<combined-runtime-fingerprint>/
 ├─ runtime/maven-dependency-plugin/settings/<settings-sha512>.xml
 ├─ locks/
 ├─ impact/
@@ -75,7 +81,9 @@ Config dir 中未知文件和用户文件不会被自动删除。Runtime 损坏�
 
 每次 command 使用 UUID `run-id`、owner marker 和 `<config-dir>/locks/` file lock。Detached worktree、GraphML probe 和 command-generated intermediate file 只写入对应 subcommand run。正常和异常关闭只清理当前 run；启动时只回收 owner marker 有效且未被其他 process lock 的 stale run。`impact` 的 Maven build/dependency output 不写 `.log`，按 `-v` 直接输出到 Console；failure 只在内存保留 bounded tail。
 
-`impact` 固定使用 JAR 内嵌 Maven Dependency Plugin `3.6.1`；`tree` 默认也使用该 runtime，但保留高级 version override。工具从 JAR 解压经过 SHA-512 校验的 Plugin file repository，并生成 global settings overlay：将内嵌 repository 加入 active profile，保留用户 `-gs` 中的 mirror、proxy、server、local repository 等配置以及独立 `-s` 参数；内置 repository会从通配 mirror 中排除。Overlay 按内容 hash 复用，使用 file lock、owner-only permission 和 atomic publish，且不会在 Console 输出用户 settings 内容。Overlay 仅用于 Dependency Plugin `tree`/`list`，不应用于 target `compile`。
+`impact` 固定使用 JAR 内嵌 Maven Dependency Plugin `3.6.1` 和 Artifact Path Plugin `1.0.0`；`tree` 默认也使用前者，但保留高级 version override。工具从 JAR 解压经过 SHA-512 校验的 Dependency Plugin file repository，并将 self-contained Artifact Path Plugin JAR、consumer POM 和 checksum 安装到同一 repository。Runtime fingerprint 同时覆盖 repository ZIP、Artifact Path Plugin JAR 和 consumer POM，任一内容变化都会生成新的 cache leaf。随后生成 global settings overlay：将内嵌 repository 加入 active profile，保留用户 `-gs` 中的 mirror、proxy、server、local repository 等配置以及独立 `-s` 参数；内置 repository 会从通配 mirror 中排除。Overlay 按内容 hash 复用，使用 file lock、owner-only permission 和 atomic publish，且不会在 Console 输出用户 settings 内容。Overlay 用于工具控制的 Plugin goal，不应用于 target `compile`。
+
+Artifact Path Plugin 支持 `3.6.3 <= Maven version < 4.0.0`，编译为 Java 8 bytecode。它以 Maven 3.6.3 所携 Resolver API 为最低编译基线，只使用 Maven 3.x 共享的 public Maven/Resolver API；Maven 4 不在兼容范围。
 
 ## 4. Maven Argument 安全规则
 
@@ -178,7 +186,48 @@ java -jar dependency-analyzer.jar \
 
 Preflight 后先识别模式：选择 reactor root 时，全 reactor 只 compile 一次并逐 Module 分析；选择 leaf POM 时，从 reactor root 使用 `-pl <module> -am` compile，只报告该 Module。当前 Module 是 `PROJECT`，上游 reactor Module 是 `REACTOR_DEPENDENCY`。
 
-前置阶段并行执行 baseline dependency resolution 与 target Maven compile；join 后执行 target dependency resolution。Baseline 不 compile、不构建 Call Graph。Dependency analysis 的 `tree` 与 `list` 都使用内嵌 runtime、settings overlay 和 fully-qualified `org.apache.maven.plugins:maven-dependency-plugin:3.6.1:<goal>`；target `compile` 仍只使用普通 user Maven arguments。GraphML 提供 mediated tree；工具将每个 Module 的已 mediation external dependency 写入 isolated temporary POM，再使用 `list`、`outputAbsoluteArtifactFilename=true`、`excludeReactor=true` 与 `excludeTransitive=true` 获取 exact absolute artifact path。这避免 clean baseline 因 reactor artifact 未构建而 resolution 失败，也不拼接 `~/.m2` 路径。
+前置阶段并行执行 baseline dependency resolution 与 target Maven compile；join 后执行 target dependency resolution。Baseline 不 compile、不构建 Call Graph。每次 dependency analysis 在原 project 的同一个 Maven process/session 中依次执行 fully-qualified `org.apache.maven.plugins:maven-dependency-plugin:3.6.1:tree` 和 `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:1.0.0:resolve-artifact-paths`；target `compile` 仍只使用普通 user Maven arguments。GraphML 提供 mediated tree，Artifact Path JSON 提供 physical artifact binding。
+
+Artifact Path Plugin 从 effective `MavenProject` 构造 `CollectRequest`，复用当前 `MavenSession` 的 effective repository、mirror、proxy、authentication、local repository、offline policy、cache、WorkspaceReader、DependencySelector、DependencyManager 和 DependencyGraphTransformer。它只选择 mediated `compile/runtime/provided` external dependency，为每个 selected node 创建非传递 `ArtifactRequest`，并只采用 Maven Resolver 返回的 `ArtifactResult` file。Exclusion 不会变成下载请求，conflict loser 不解析 binary；Reactor coordinate 直接跳过，由 Analyzer 映射到 target `target/classes`。该路径不生成 temporary POM、不调用 `dependency:list`、不自行拼接 local repository path，也不附加 `-llr`。
+
+Plugin 参数 `-Dcia.resolvedArtifactsFileName=<unique>.json` 只接受 filename。Absolute path、目录分隔符与 `..` 会被拒绝；文件解析到当前 Module `project.basedir`。Plugin 先写 sibling temporary file，全部 artifact 成功后 atomic move；任一 resolution failure 不发布部分 JSON。
+
+#### Artifact Path JSON Schema v1
+
+```json
+{
+  "schemaVersion": 1,
+  "module": {
+    "coordinates": {
+      "groupId": "com.example",
+      "artifactId": "service",
+      "type": "jar",
+      "extension": "jar",
+      "classifier": "",
+      "version": "1.0-SNAPSHOT",
+      "baseVersion": "1.0-SNAPSHOT"
+    },
+    "baseDirectory": "/absolute/project/service"
+  },
+  "artifacts": [
+    {
+      "coordinates": {
+        "groupId": "org.example",
+        "artifactId": "library",
+        "type": "test-jar",
+        "extension": "jar",
+        "classifier": "tests",
+        "version": "2.0",
+        "baseVersion": "2.0"
+      },
+      "scope": "compile",
+      "absolutePath": "/absolute/repository/library-2.0-tests.jar"
+    }
+  ]
+}
+```
+
+JSON 为 UTF-8；`artifacts` 按完整 coordinates、scope、absolutePath 排序，无 external dependency 时为 `[]`。Analyzer 要求 `schemaVersion == 1`、所有必填字段类型正确、binding 唯一、path 为 absolute existing file；禁止 duplicate property，忽略未知字段。Module 通过 `module.baseDirectory` 与完整 coordinates 绑定 GraphML，并要求 GraphML/JSON external dependency 集合双向完全一致。`version` 可保留 timestamped SNAPSHOT，binding 使用 `baseVersion` 与 Maven dependency tree 对齐。
 
 Physical JAR pair 按 `--analysis-parallelism` 并行 bytecode diff。用户配置 entrypoint selector 时，轻量 target class index 会先识别没有匹配 PROJECT class 的 Module；该步骤只缩小 root methods，不裁剪 Module scope、CHA、Reflection、ServiceLoader 或 Reference 参数 subtype candidates。存在 removal/modification ChangePoint 且命中 entrypoint scope 的 Module 独立执行 scope validation、JDK 8 CHA、WALA Vanilla 0-1-CFA、`ReflectionOptions.FULL`、MethodHandle extension 和 direct WALA query。Module 内 build/query 单线程，Module 之间按 `--analysis-parallelism` 并行。没有 seed pre-scan、零 seed skip、CHA pre-graph 或 full predecessor copy。
 
@@ -386,7 +435,7 @@ Exit code：
 
 ### Unsupported Maven version
 
-检查 console `tree.maven-version` 或 `impact.maven-version` evidence。将 `--maven` 指向 Maven 3.6.3–3.x，或移除 `--maven` 使用内嵌 3.6.3。
+检查 console `tree.maven-version` 或 `impact.maven-version` evidence。将 `--maven` 指向 `3.6.3 <= version < 4.0.0` 的 Maven，或移除 `--maven` 使用内嵌 3.6.3。
 
 ### Maven executable cannot run
 
@@ -406,7 +455,7 @@ Old/new IR 缺失、unsupported instruction、bootstrap evidence 不足、CFG ma
 
 ### Maven dependency resolution failure
 
-Dependency Analyzer 不把 project dependency local repository 放入 config dir。内置 file repository 仅提供默认 Dependency Plugin 及其传递依赖；project artifact 仍按用户 Maven settings、mirror、proxy、credential 和 local repository 解析。
+Dependency Analyzer 不把 project dependency local repository 放入 config dir。内置 file repository 仅提供默认 Dependency Plugin、内置 Artifact Path Plugin 及其运行依赖；project artifact 仍由原 Maven session 按用户 settings、mirror、proxy、credential 和 local repository 解析。
 
 ### Dependency Plugin capability failure
 
@@ -434,6 +483,6 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 
 ## 11. Third-Party Attribution
 
-Uber JAR 内包含未修改的 Apache Maven 3.6.3 binary distribution，以及 distribution 的 `LICENSE`、`NOTICE` 和官方 SHA-512；同时包含 Maven Dependency Plugin 3.6.1 的完整运行 dependency repository、SHA-512、`LICENSE`、`NOTICE` 和 `DEPENDENCIES`。Source repository 中对应文件位于 `src/main/resources/maven/`。
+Uber JAR 内包含未修改的 Apache Maven 3.6.3 binary distribution，以及 distribution 的 `LICENSE`、`NOTICE` 和官方 SHA-512；同时包含 Maven Dependency Plugin 3.6.1 的完整运行 dependency repository、SHA-512、`LICENSE`、`NOTICE` 和 `DEPENDENCIES`，以及 Artifact Path Plugin JAR、consumer POM 和各自 SHA-512。Source repository 中静态 resources 位于 `analyzer/src/main/resources/maven/`，Plugin source 位于 `plugins/artifact-path-resolver/`。
 
-WALA 1.8.0 以 EPL-2.0 使用，Vineflower 1.12.0 slim 以 Apache-2.0 使用；attribution 位于 `src/main/resources/licenses/` 并随 uber JAR 打包。Vineflower 代码和 runtime dependency 已内嵌，内网执行 `impact` 不下载 decompiler artifact；重新构建工程时仍需要 Maven mirror 或已缓存 artifact。
+WALA 1.8.0 以 EPL-2.0 使用，Vineflower 1.12.0 slim 以 Apache-2.0 使用；attribution 位于 `analyzer/src/main/resources/licenses/` 并随 uber JAR 打包。Vineflower 代码和 runtime dependency 已内嵌，内网执行 `impact` 不下载 decompiler artifact；重新构建工程时仍需要 Maven mirror 或已缓存 artifact。

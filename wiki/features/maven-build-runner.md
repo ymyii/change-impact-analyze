@@ -7,11 +7,11 @@ relations:
   - path: "wiki/features/dependency-tree-extraction.md"
     desc: "与 dependency process 的调度边界"
 code_refs:
-  - path: "src/main/java/io/github/dependencyanalysis/build/BuildRunner.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/build/BuildRunner.java"
     desc: "target Maven compile"
-  - path: "src/main/java/io/github/dependencyanalysis/build/BuildResult.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/build/BuildResult.java"
     desc: "target main classes outputs"
-  - path: "src/main/java/io/github/dependencyanalysis/util/ProcessConsoleExecutor.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/util/ProcessConsoleExecutor.java"
     desc: "Maven output Console streaming 与 failure tail"
 ---
 

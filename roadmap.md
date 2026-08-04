@@ -4,11 +4,11 @@
 
 核心实现：
 
-- [`BytecodeDiffEngine`](src/main/java/io/github/dependencyanalysis/bytecode/BytecodeDiffEngine.java)
-- [`StableHashMethodVisitor`](src/main/java/io/github/dependencyanalysis/bytecode/StableHashMethodVisitor.java)
-- [`CallGraphEngine`](src/main/java/io/github/dependencyanalysis/callgraph/CallGraphEngine.java)
-- [`ChangePointRefScanner`](src/main/java/io/github/dependencyanalysis/impact/ChangePointRefScanner.java)
-- [`ImpactTracer`](src/main/java/io/github/dependencyanalysis/impact/ImpactTracer.java)
+- [`BytecodeDiffEngine`](analyzer/src/main/java/io/github/dependencyanalysis/bytecode/BytecodeDiffEngine.java)
+- [`StableHashMethodVisitor`](analyzer/src/main/java/io/github/dependencyanalysis/bytecode/StableHashMethodVisitor.java)
+- [`CallGraphEngine`](analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphEngine.java)
+- [`ChangePointRefScanner`](analyzer/src/main/java/io/github/dependencyanalysis/impact/ChangePointRefScanner.java)
+- [`ImpactTracer`](analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactTracer.java)
 
 状态约定：
 

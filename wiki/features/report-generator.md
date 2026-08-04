@@ -9,13 +9,13 @@ relations:
   - path: "wiki/runbooks/impact-benchmark.md"
     desc: "Overall 与三个 Module pages 的持续完整性校验"
 code_refs:
-  - path: "src/main/java/io/github/dependencyanalysis/report/PerModuleHtmlReportGenerator.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/report/PerModuleHtmlReportGenerator.java"
     desc: "impact HTML Index 与 Module pages"
-  - path: "src/main/java/io/github/dependencyanalysis/impact/AnalysisRunResult.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/AnalysisRunResult.java"
     desc: "run status 与 metrics"
-  - path: "src/main/java/io/github/dependencyanalysis/impact/ModuleAnalysisResult.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleAnalysisResult.java"
     desc: "Module detail result"
-  - path: "src/main/java/io/github/dependencyanalysis/tree/TreeReportRenderer.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeReportRenderer.java"
     desc: "独立 tree HTML renderer"
 ---
 

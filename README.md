@@ -14,6 +14,20 @@ mvn package
 
 Uber JAR：`target/dependency-analyzer.jar`。
 
+Repository 是标准 Maven multi-module：
+
+```text
+pom.xml                          parent + aggregator
+analyzer/                        Java 17 CLI/application
+plugins/                         内置 Maven Plugin aggregator
+└── artifact-path-resolver/      Java 8 Artifact Path Maven Plugin
+```
+
+Analyzer GAV 仍为
+`io.github.dependencyanalysis:dependency-analyzer:0.1.0-SNAPSHOT`；内置
+Plugin GAV/goal 为
+`io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:1.0.0:resolve-artifact-paths`。
+
 ## Usage
 
 ```sh
@@ -68,6 +82,21 @@ reactor，先原子发布 reactor page，再刷新 Index checkpoint。正常结�
 `tree` 默认使用 JAR 内置的 `maven-dependency-plugin:3.6.1`，无需
 从远程 repository 下载 plugin。Console 按 `Preflight → Analysis → Summary`
 输出进度；长时间 Maven collection 每 10 秒输出 heartbeat。
+
+`impact` 在同一个 target Maven process/session 中执行 fully-qualified
+`dependency:tree` 与内置 `resolve-artifact-paths` goal。GraphML 提供 mediated
+dependency tree；versioned JSON 提供 Resolver 返回的 external artifact absolute
+path。Plugin 直接复用原 session 的 effective repository、mirror、proxy、credential、
+local repository、offline policy 与 WorkspaceReader，对 selected artifact 执行非传递
+`ArtifactRequest`。Reactor coordinate 不解析 binary，后续继续映射到
+`target/classes`。不生成 temporary POM、不调用 `dependency:list`、不添加 `-llr`。
+
+Artifact Path JSON Schema v1 的顶层字段为 `schemaVersion`、`module` 和
+`artifacts`；每个 coordinates 包含 `groupId`、`artifactId`、`type`、
+`extension`、`classifier`、`version`、`baseVersion`，artifact 另含 `scope` 与
+`absolutePath`。Analyzer 严格校验 `schemaVersion == 1`、必填类型、唯一 binding、
+absolute existing path，以及 GraphML/JSON external dependency 集合完全一致；未知字段
+允许用于后续兼容扩展。
 
 Index 的 Metadata、Summary 和 Reactors 均使用表格；Reactors 分别统计
 Internal conflicts 与 Cross-module conflicts。Reactor page 独立展示跨 Module

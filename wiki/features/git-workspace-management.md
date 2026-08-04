@@ -9,15 +9,15 @@ relations:
   - path: "wiki/rules/process-command-resolution.md"
     desc: "Git process 的跨平台约束"
 code_refs:
-  - path: "src/main/java/io/github/dependencyanalysis/workspace/WorkspaceManager.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/workspace/WorkspaceManager.java"
     desc: "impact baseline/target/current workspace"
-  - path: "src/main/java/io/github/dependencyanalysis/workspace/GitCommandRunner.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/workspace/GitCommandRunner.java"
     desc: "impact Git command runner"
-  - path: "src/main/java/io/github/dependencyanalysis/tree/GitSnapshotProvider.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/GitSnapshotProvider.java"
     desc: "tree current checkout/local-ref repository snapshot"
-  - path: "src/main/java/io/github/dependencyanalysis/runtime/CommandRunDirectory.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/CommandRunDirectory.java"
     desc: "subcommand UUID run、owner marker、file lock 和 stale cleanup"
-  - path: "src/main/java/io/github/dependencyanalysis/tree/ReactorInventoryBuilder.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/ReactorInventoryBuilder.java"
     desc: "tracked/non-ignored untracked POM 与 submodule filtering"
 ---
 

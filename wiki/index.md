@@ -3,7 +3,7 @@
 ## Project
 
 ### [Dependency Analyzer](project/dependency-analyzer.md)
-- Summary: Java 17 analyzer + Maven + picocli CLI；`impact` 分析显式 JDK 8 target，`tree` 生成 repository 级 report。
+- Summary: Maven multi-module；Java 17 Analyzer + Java 8 内置 Plugin；`impact` 分析显式 JDK 8 target，`tree` 生成 repository 级 report。
 
 ## Architecture
 
@@ -16,7 +16,7 @@
 - Summary: 全局 `INFO`/`DEBUG`/`TRACE` verbosity、stable concurrent task context、impact JDK 8/内嵌 Plugin Preflight 与 exit code 契约。
 
 ### [Maven Runtime](features/maven-runtime.md)
-- Summary: 用户 executable、跨平台 JAR 内嵌 Maven 3.6.3、Windows `mvn.cmd` contract 与 Dependency Plugin repository 的离线准备。
+- Summary: 用户 executable、跨平台内嵌 Maven 3.6.3，以及 Dependency Plugin/Artifact Path Plugin 组合 repository 的离线准备与 fingerprint。
 
 ### [Repository Dependency Tree Report](features/repository-dependency-tree-report.md)
 - Summary: Git snapshot、bounded/full reactor execution、纯 aggregator result boundary、incremental checkpoint 与 Module-tab offline report。
@@ -28,7 +28,7 @@
 - Summary: 只编译 target；reactor root compile 一次，leaf 使用 `-pl/-am`；baseline dependency 与 target build 并行。
 
 ### [Dependency Tree Extraction](features/dependency-tree-extraction.md)
-- Summary: `impact` 固定使用内嵌 Dependency Plugin `3.6.1` fully-qualified `tree`/`list`，保留 mediated tree 并绑定 absolute artifact path。
+- Summary: `impact` 在原 Maven session 执行 fully-qualified `tree` 与 Artifact Path goal；GraphML 保留 mediated tree，Schema v1 JSON 绑定 Resolver absolute path。
 
 ### [Dependency Diff Engine](features/dependency-diff-engine.md)
 - Summary: 对比 baseline/target resolved dependency tree，生成稳定排序的 dependency changes。
