@@ -20,6 +20,9 @@ import java.util.stream.Stream;
 /** Binary-name ownership index with deterministic duplicate validation. */
 public final class ClassOwnershipIndex {
 
+    /** Java Module Descriptor class entry. */
+    private static final String MODULE_INFO_CLASS = "module-info.class";
+
     /** SHA-256 algorithm name. */
     private static final String SHA_256 = "SHA-256";
 
@@ -46,6 +49,8 @@ public final class ClassOwnershipIndex {
         try (Stream<Path> stream = Files.walk(directory)) {
             files = stream.filter(Files::isRegularFile)
                     .filter(path -> path.toString().endsWith(".class"))
+                    .filter(path -> !isModuleInfoClass(
+                            directory.relativize(path).toString()))
                     .sorted(Comparator.comparing(Path::toString))
                     .toList();
         }
@@ -69,6 +74,7 @@ public final class ClassOwnershipIndex {
             final List<JarEntry> entries = jar.stream()
                     .filter(entry -> !entry.isDirectory())
                     .filter(entry -> entry.getName().endsWith(".class"))
+                    .filter(entry -> !isModuleInfoClass(entry.getName()))
                     .filter(entry -> !entry.getName().startsWith(
                             "META-INF/versions/"))
                     .sorted(Comparator.comparing(JarEntry::getName))
@@ -100,6 +106,7 @@ public final class ClassOwnershipIndex {
             final List<JarEntry> entries = jar.stream()
                     .filter(entry -> !entry.isDirectory())
                     .filter(entry -> entry.getName().endsWith(".class"))
+                    .filter(entry -> !isModuleInfoClass(entry.getName()))
                     .filter(entry -> !entry.getName().startsWith(
                             "META-INF/versions/"))
                     .sorted(Comparator.comparing(JarEntry::getName))
@@ -167,6 +174,10 @@ public final class ClassOwnershipIndex {
     private static String normalizeClassName(final String value) {
         final String unix = value.replace('\\', '/');
         return unix.substring(0, unix.length() - ".class".length());
+    }
+
+    private static boolean isModuleInfoClass(final String value) {
+        return MODULE_INFO_CLASS.equals(value.replace('\\', '/'));
     }
 
     private static String digest(final byte[] value) {

@@ -43,7 +43,7 @@ code_refs:
 - `DEPENDENCY`：Maven resolved external JAR absolute path。
 - `JDK`：显式 `--java-home` 的 JDK 8 boot/ext JAR。
 - `SYNTHETIC`：ServiceLoader overlay 与 ChangePoint terminal。
-- Scope load 前建立 binary-name ownership index。byte-identical duplicate 允许去重；内容不同的 duplicate class 使当前 Module fail，禁止 WALA first-wins。为避免对 JDK 8 全量 class 重复 hash，JDK JAR 只对已在 Application scope index 中出现的 binary name 读取 bytecode 并校验 duplicate；byte-identical JDK duplicate 按 bootstrap loader precedence 归属 `JDK`。
+- Scope load 前建立 binary-name ownership index。根级 `module-info.class` 是 Java Module Descriptor，不建立 ownership，也不参与 duplicate validation。byte-identical duplicate 允许去重；内容不同的 duplicate class 使当前 Module fail，禁止 WALA first-wins。为避免对 JDK 8 全量 class 重复 hash，JDK JAR 只对已在 Application scope index 中出现的 binary name 读取 bytecode 并校验 duplicate；byte-identical JDK duplicate 按 bootstrap loader precedence 归属 `JDK`。
 
 ## Entrypoints
 

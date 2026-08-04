@@ -8,7 +8,7 @@ Dependency Analyzer 是 Java 17 CLI，面向 Maven project：
 - `tree`：扫描一个 Git repository 内的 Maven reactor，输出 repository 级 offline HTML dependency tree report。
 
 <!-- version-contract:start -->
-- Analyzer release: `1.0.1`
+- Analyzer release: `1.0.2`
 - Artifact Path Plugin release: `2.0.0`
 <!-- version-contract:end -->
 

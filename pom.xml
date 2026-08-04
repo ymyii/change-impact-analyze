@@ -18,9 +18,9 @@
     </modules>
 
     <properties>
-        <revision>1.0.1</revision>
+        <revision>1.0.2</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <project.build.outputTimestamp>2026-08-04T11:45:50Z</project.build.outputTimestamp>
+        <project.build.outputTimestamp>2026-08-04T12:25:06Z</project.build.outputTimestamp>
 
         <artifact-path-plugin.version>2.0.0</artifact-path-plugin.version>
         <jackson.version>2.21.2</jackson.version>

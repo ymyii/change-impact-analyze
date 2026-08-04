@@ -66,7 +66,7 @@ code_refs:
 Maven Runtime 在不隐式使用 PATH 或 Maven Wrapper 的前提下，为两个 subcommand 提供 `3.6.3 <= Maven version < 4.0.0` executable。默认从 JAR resource 离线准备 Apache Maven 3.6.3；内置 file repository 同时提供 Maven Dependency Plugin `3.6.1` 与 Artifact Path Plugin `2.0.0`。
 
 <!-- version-contract:start -->
-- Analyzer release: `1.0.1`
+- Analyzer release: `1.0.2`
 - Artifact Path Plugin release: `2.0.0`
 <!-- version-contract:end -->
 

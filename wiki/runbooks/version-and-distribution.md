@@ -32,7 +32,7 @@ code_refs:
 本 runbook 是 version iteration 与正式 distribution 的稳定入口。日常开发可运行 Maven quality gate；对外交付必须先 seal version contract，再由 `build-distribution.sh` 完成 packaged smoke、可复现重建和原子发布。
 
 <!-- version-contract:start -->
-- Analyzer release: `1.0.1`
+- Analyzer release: `1.0.2`
 - Artifact Path Plugin release: `2.0.0`
 <!-- version-contract:end -->
 

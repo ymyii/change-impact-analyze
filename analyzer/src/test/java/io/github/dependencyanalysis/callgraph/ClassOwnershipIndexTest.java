@@ -50,7 +50,46 @@ class ClassOwnershipIndexTest {
         assertThatThrownBy(() -> index.addDirectory(
                 second, CodeOrigin.DEPENDENCY))
                 .isInstanceOf(CallGraphException.class)
-                .hasMessageContaining("Conflicting duplicate class");
+                .hasMessage("Conflicting duplicate class sample/Duplicate: "
+                        + first + " and " + second);
+    }
+
+    @Test
+    void excludesRootModuleInfoFromDirectories() throws Exception {
+        final Path project = temporary.resolve("module-project");
+        final Path reactor = temporary.resolve("module-reactor");
+        write(project, "module-info.class",
+                classBytes("module-info", 0));
+        write(reactor, "module-info.class",
+                classBytes("module-info", Opcodes.ACC_FINAL));
+        final ClassOwnershipIndex index = new ClassOwnershipIndex();
+
+        index.addDirectory(project, CodeOrigin.PROJECT);
+        index.addDirectory(reactor, CodeOrigin.REACTOR_DEPENDENCY);
+
+        assertThat(index.ownershipOf("module-info")).isNull();
+        assertThat(index.binaryNames()).doesNotContain("module-info");
+    }
+
+    @Test
+    void excludesRootModuleInfoFromJarsButIndexesClasses()
+            throws Exception {
+        final byte[] ordinary = classBytes("sample/Owned", 0);
+        final Path first = jar("first-module.jar", Map.of(
+                "module-info.class", classBytes("module-info", 0),
+                "sample/Owned.class", ordinary));
+        final Path second = jar("second-module.jar", Map.of(
+                "module-info.class", classBytes("module-info",
+                        Opcodes.ACC_FINAL)));
+        final ClassOwnershipIndex index = new ClassOwnershipIndex();
+
+        index.addJar(first, CodeOrigin.DEPENDENCY);
+        index.addJar(second, CodeOrigin.REACTOR_DEPENDENCY);
+
+        assertThat(index.ownershipOf("module-info")).isNull();
+        assertThat(index.binaryNames()).containsExactly("sample/Owned");
+        assertThat(index.ownershipOf("sample/Owned").getSource())
+                .isEqualTo(first);
     }
 
     @Test
@@ -74,7 +113,14 @@ class ClassOwnershipIndexTest {
 
     private void write(final Path root, final byte[] bytes)
             throws Exception {
-        final Path file = root.resolve("sample/Duplicate.class");
+        write(root, "sample/Duplicate.class", bytes);
+    }
+
+    private void write(
+            final Path root,
+            final String relative,
+            final byte[] bytes) throws Exception {
+        final Path file = root.resolve(relative);
         Files.createDirectories(file.getParent());
         Files.write(file, bytes);
     }

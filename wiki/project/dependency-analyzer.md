@@ -48,7 +48,7 @@ Dependency Analyzer 是 Java 17 analyzer + Maven + picocli CLI。`impact` 使用
 ## Design Decisions
 
 <!-- version-contract:start -->
-- Analyzer release: `1.0.1`
+- Analyzer release: `1.0.2`
 - Artifact Path Plugin release: `2.0.0`
 <!-- version-contract:end -->
 

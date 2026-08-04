@@ -30,7 +30,7 @@ code_refs:
 Analyzer 与每个内置 Maven Plugin 使用独立 SemVer。Release version、source fingerprint 和稳定 build timestamp 由 `build-support/version-contract.properties` 统一登记；已登记的 release version 不可复写、回退或绑定不同输入。
 
 <!-- version-contract:start -->
-- Analyzer release: `1.0.1`
+- Analyzer release: `1.0.2`
 - Artifact Path Plugin release: `2.0.0`
 <!-- version-contract:end -->
 
