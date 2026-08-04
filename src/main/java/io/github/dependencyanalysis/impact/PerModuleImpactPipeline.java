@@ -487,7 +487,7 @@ final class PerModuleImpactPipeline {
                 ? null : mavenRuntime.getJavaHome().toFile();
         return new BuildRunner("target", scope.getReactorRoot(),
                 diagnostics, javaHome, mavenRuntime.getExecutable(),
-                mavenArguments, temporaryDirectory)
+                mavenArguments)
                 .withProjectArguments(scope.getProjectArguments())
                 .withDiagnosticContext(DiagnosticContext.task(
                         "front", "target-build")

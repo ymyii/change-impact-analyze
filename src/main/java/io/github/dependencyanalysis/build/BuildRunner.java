@@ -7,7 +7,9 @@ import io.github.dependencyanalysis
 import io.github.dependencyanalysis
         .util.CommandResolver;
 import io.github.dependencyanalysis
-        .util.ProcessTreeTerminator;
+        .util.ProcessConsoleExecutor;
+import io.github.dependencyanalysis
+        .util.ProcessConsoleResult;
 
 import java.io.File;
 import java.io.IOException;
@@ -30,7 +32,7 @@ public final class BuildRunner {
     private static final String STAGE =
             "build";
 
-    /** Log tail lines for error. */
+    /** Failure output tail lines retained in memory. */
     private static final int TAIL_LINES =
             20;
 
@@ -54,9 +56,6 @@ public final class BuildRunner {
 
     /** Reactor project selection arguments. */
     private List<String> projectArguments = List.of();
-
-    /** Command-owned temporary directory, nullable. */
-    private final Path temporaryDirectory;
 
     /** Stable concurrent diagnostic context. */
     private DiagnosticContext diagnosticContext;
@@ -95,7 +94,7 @@ public final class BuildRunner {
             final File javaHomeOpt) {
         this(sideName, path, diagCol,
                 javaHomeOpt, Path.of("mvn"),
-                List.of(), null);
+                List.of());
     }
 
     /**
@@ -115,36 +114,12 @@ public final class BuildRunner {
             final File javaHomeOpt,
             final Path executable,
             final List<String> arguments) {
-        this(sideName, path, diagCol, javaHomeOpt,
-                executable, arguments, null);
-    }
-
-    /**
-     * Creates a runner with command-owned temporary storage.
-     *
-     * @param sideName side identifier
-     * @param path workspace root
-     * @param diagCol diagnostics
-     * @param javaHomeOpt JAVA_HOME, nullable
-     * @param executable Maven executable
-     * @param arguments safe Maven arguments
-     * @param tempDirectory command temporary directory
-     */
-    public BuildRunner(
-            final String sideName,
-            final Path path,
-            final DiagnosticCollector diagCol,
-            final File javaHomeOpt,
-            final Path executable,
-            final List<String> arguments,
-            final Path tempDirectory) {
         this.side = sideName;
         this.workspacePath = path;
         this.diag = diagCol;
         this.buildJavaHome = javaHomeOpt;
         this.mavenExecutable = executable;
         this.mavenArguments = List.copyOf(arguments);
-        this.temporaryDirectory = tempDirectory;
     }
 
     /**
@@ -193,33 +168,26 @@ public final class BuildRunner {
                 "Building workspace: "
                         + workspacePath
                         + " side=" + side);
-        final Path logFile = temporaryDirectory == null
-                ? Files.createTempFile("cia-build-", ".log")
-                : Files.createTempFile(temporaryDirectory,
-                "build-" + side + "-", ".log");
         final String cmdStr =
                 "mvn compile -B";
         trace(
                 "Executing Maven compile; workspace="
-                        + workspacePath + "; log=" + logFile);
-        final int exitCode =
-                runMvnCompile(logFile);
-        if (exitCode != 0) {
-            final String tail =
-                    readLogTail(logFile);
+                        + workspacePath);
+        final ProcessConsoleResult execution =
+                runMvnCompile();
+        if (execution.exitCode() != 0) {
             fail(
                     "Build failed side="
                             + side
                             + " exitCode="
-                            + exitCode);
+                            + execution.exitCode());
             throw new BuildException(
                     side,
                     workspacePath
                             .toString(),
                     cmdStr,
-                    exitCode,
-                    tail,
-                    logFile);
+                    execution.exitCode(),
+                    execution.outputTail());
         }
         info(
                 "Build succeeded, "
@@ -277,18 +245,15 @@ public final class BuildRunner {
     }
 
     /**
-     * Executes mvn compile and returns
-     * the process exit code.
+     * Executes mvn compile and streams output according to verbosity.
      *
-     * @param logFile path to log file
-     * @return exit code
+     * @return process result
      * @throws IOException        if
      *  process start fails
      * @throws InterruptedException if
      *  interrupted
      */
-    private int runMvnCompile(
-            final Path logFile)
+    private ProcessConsoleResult runMvnCompile()
             throws IOException,
             InterruptedException {
         final List<String> cmd =
@@ -306,12 +271,7 @@ public final class BuildRunner {
                         resolved)
                         .directory(
                                 workspacePath
-                                        .toFile())
-                        .redirectOutput(
-                                logFile
-                                        .toFile())
-                        .redirectErrorStream(
-                                true);
+                                        .toFile());
         if (buildJavaHome != null) {
             final Map<String, String> env =
                     pb.environment();
@@ -319,13 +279,8 @@ public final class BuildRunner {
                     buildJavaHome
                             .getAbsolutePath());
         }
-        final Process proc = pb.start();
-        try {
-            return proc.waitFor();
-        } catch (InterruptedException exception) {
-            ProcessTreeTerminator.terminate(proc);
-            throw exception;
-        }
+        return ProcessConsoleExecutor.execute(
+                pb, diag, context(), TAIL_LINES);
     }
 
     /**
@@ -379,33 +334,9 @@ public final class BuildRunner {
         return result;
     }
 
-    /**
-     * Reads the last N lines of a log file.
-     *
-     * @param log log file path
-     * @return tail text
-     */
-    private String readLogTail(
-            final Path log) {
-        try {
-            final List<String> lines =
-                    Files.readAllLines(log);
-            final int size = lines.size();
-            final int from =
-                    Math.max(0,
-                            size - TAIL_LINES);
-            final StringBuilder sb =
-                    new StringBuilder();
-            for (int i = from; i < size;
-                    i++) {
-                if (sb.length() > 0) {
-                    sb.append("\n");
-                }
-                sb.append(lines.get(i));
-            }
-            return sb.toString();
-        } catch (IOException ex) {
-            return "(unable to read log)";
-        }
+    private DiagnosticContext context() {
+        return diagnosticContext == null
+                ? DiagnosticContext.stage(STAGE)
+                : diagnosticContext;
     }
 }

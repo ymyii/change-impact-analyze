@@ -7,7 +7,9 @@ import io.github.dependencyanalysis
 import io.github.dependencyanalysis
         .util.CommandResolver;
 import io.github.dependencyanalysis
-        .util.ProcessTreeTerminator;
+        .util.ProcessConsoleExecutor;
+import io.github.dependencyanalysis
+        .util.ProcessConsoleResult;
 import io.github.dependencyanalysis.runtime
         .MavenDependencyPluginRuntime;
 
@@ -50,7 +52,7 @@ public final class DependencyAnalyzer {
             "org.apache.maven.plugins:maven-dependency-plugin:"
                     + "3.6.1:";
 
-    /** Log tail lines for error. */
+    /** Failure output tail lines retained in memory. */
     private static final int TAIL_LINES =
             20;
 
@@ -235,10 +237,6 @@ public final class DependencyAnalyzer {
                         + "workspace="
                         + workspacePath
                         + " side=" + side);
-        final Path logFile = temporaryDirectory == null
-                ? Files.createTempFile("cia-dep-", ".log")
-                : Files.createTempFile(temporaryDirectory,
-                "dependency-" + side + "-", ".log");
         final String outputName = GRAPHML_PREFIX
                 + UUID.randomUUID() + ".graphml";
         final String cmdStr =
@@ -249,26 +247,22 @@ public final class DependencyAnalyzer {
                         + " -B";
         diag.trace(diagnosticContext,
                 "Executing " + dependencyGoal("tree")
-                        + "; workspace=" + workspacePath
-                        + "; log=" + logFile);
-        final int exitCode =
-                runDependencyTree(logFile, outputName);
-        if (exitCode != 0) {
-            final String tail =
-                    readLogTail(logFile);
+                        + "; workspace=" + workspacePath);
+        final ProcessConsoleResult execution =
+                runDependencyTree(outputName);
+        if (execution.exitCode() != 0) {
             diag.failStage(diagnosticContext,
                     "Dependency tree "
                             + "generation failed "
                             + "side=" + side
                             + " exitCode="
-                            + exitCode);
+                            + execution.exitCode());
             throw new DependencyAnalysisException(
                     side,
                     workspacePath.toString(),
                     cmdStr,
-                    exitCode,
-                    tail,
-                    logFile);
+                    execution.exitCode(),
+                    execution.outputTail());
         }
         diag.info(diagnosticContext,
                 "Dependency tree generated, "
@@ -362,25 +356,22 @@ public final class DependencyAnalyzer {
         final Path modelPom = modelDirectory.resolve("pom.xml");
         final Path output = modelDirectory.resolve(
                 ARTIFACT_LIST_PREFIX + UUID.randomUUID() + ".txt");
-        final Path logFile = temporaryDirectory == null
-                ? Files.createTempFile("cia-dep-list-", ".log")
-                : Files.createTempFile(temporaryDirectory,
-                "dependency-list-" + side + "-", ".log");
         try {
             Files.writeString(modelPom, resolutionModel(dependencies));
             diag.trace(diagnosticContext,
                     "Executing " + dependencyGoal("list")
                             + "; model=" + modelPom
                             + "; output=" + output);
-            final int exitCode = runDependencyList(
-                    logFile, modelPom, output);
-            if (exitCode != 0) {
+            final ProcessConsoleResult execution =
+                    runDependencyList(modelPom, output);
+            if (execution.exitCode() != 0) {
                 throw new DependencyAnalysisException(
                         side, tree.getModulePath().toString(),
                         "mvn " + dependencyGoal("list")
                                 + " -DoutputAbsoluteArtifactFilename=true"
                                 + " -DexcludeTransitive=true",
-                        exitCode, readLogTail(logFile), logFile);
+                        execution.exitCode(),
+                        execution.outputTail());
             }
             if (!Files.isRegularFile(output)) {
                 throw new DependencyAnalysisException(
@@ -397,8 +388,7 @@ public final class DependencyAnalyzer {
         }
     }
 
-    private int runDependencyList(
-            final Path logFile,
+    private ProcessConsoleResult runDependencyList(
             final Path modelPom,
             final Path output)
             throws IOException, InterruptedException {
@@ -416,20 +406,14 @@ public final class DependencyAnalyzer {
         cmd.add("-B");
         final ProcessBuilder builder = new ProcessBuilder(
                 CommandResolver.resolve(cmd))
-                .directory(workspacePath.toFile())
-                .redirectOutput(logFile.toFile())
-                .redirectErrorStream(true);
+                .directory(workspacePath.toFile());
         if (buildJavaHome != null) {
             builder.environment().put("JAVA_HOME",
                     buildJavaHome.getAbsolutePath());
         }
-        final Process process = builder.start();
-        try {
-            return process.waitFor();
-        } catch (InterruptedException exception) {
-            ProcessTreeTerminator.terminate(process);
-            throw exception;
-        }
+        return ProcessConsoleExecutor.execute(
+                builder, diag, diagnosticContext,
+                TAIL_LINES);
     }
 
     private List<DependencyNode> externalDependencies(
@@ -562,19 +546,17 @@ public final class DependencyAnalyzer {
     }
 
     /**
-     * Executes the Maven Dependency Plugin tree goal and
-     * returns the process exit code.
+     * Executes the Maven Dependency Plugin tree goal and streams output
+     * according to verbosity.
      *
-     * @param logFile path to log file
      * @param outputName unique per-module GraphML filename
-     * @return exit code
+     * @return process result
      * @throws IOException        if
      *  process start fails
      * @throws InterruptedException if
      *  interrupted
      */
-    private int runDependencyTree(
-            final Path logFile,
+    private ProcessConsoleResult runDependencyTree(
             final String outputName)
             throws IOException,
             InterruptedException {
@@ -596,12 +578,7 @@ public final class DependencyAnalyzer {
                         resolved)
                         .directory(
                                 workspacePath
-                                        .toFile())
-                        .redirectOutput(
-                                logFile
-                                        .toFile())
-                        .redirectErrorStream(
-                                true);
+                                        .toFile());
         if (buildJavaHome != null) {
             final Map<String, String> env =
                     pb.environment();
@@ -609,13 +586,9 @@ public final class DependencyAnalyzer {
                     buildJavaHome
                             .getAbsolutePath());
         }
-        final Process proc = pb.start();
-        try {
-            return proc.waitFor();
-        } catch (InterruptedException exception) {
-            ProcessTreeTerminator.terminate(proc);
-            throw exception;
-        }
+        return ProcessConsoleExecutor.execute(
+                pb, diag, diagnosticContext,
+                TAIL_LINES);
     }
 
     private List<String> dependencyArguments() {
@@ -631,33 +604,4 @@ public final class DependencyAnalyzer {
         return FALLBACK_PLUGIN_PREFIX + goalName;
     }
 
-    /**
-     * Reads the last N lines of a log file.
-     *
-     * @param log log file path
-     * @return tail text
-     */
-    private String readLogTail(
-            final Path log) {
-        try {
-            final List<String> lines =
-                    Files.readAllLines(log);
-            final int size = lines.size();
-            final int from =
-                    Math.max(0,
-                            size - TAIL_LINES);
-            final StringBuilder sb =
-                    new StringBuilder();
-            for (int i = from; i < size;
-                    i++) {
-                if (sb.length() > 0) {
-                    sb.append("\n");
-                }
-                sb.append(lines.get(i));
-            }
-            return sb.toString();
-        } catch (IOException ex) {
-            return "(unable to read log)";
-        }
-    }
 }

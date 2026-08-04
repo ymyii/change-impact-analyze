@@ -32,6 +32,7 @@ code_refs:
 - Isolated resolution POM 把 GraphML 已 mediation 的 external artifact 作为 direct dependency；`excludeTransitive=true` 防止二次 mediation 扩大 scope。不使用语义容易误解的 `excludeScope=test`。Absolute path contract 只约束 external dependency，不要求 baseline reactor classes/JAR 已构建。
 - `SINGLE_MODULE` 的 GraphML command 带工具生成的 `-pl <module> -am`；isolated path-resolution command 不带 reactor project selector。
 - GraphML/output filename 每次唯一；parse 完成或失败后清理 command-generated file 和 isolated resolution model。
+- Dependency Plugin process output 不写 `.log`。默认 Console 只显示 warning/error，`-v` 显示完整 output；failure tail 仅在内存保留。
 - Plugin effective arguments 合并用户 settings、mirror、proxy、server、local repository 与内嵌 Plugin repository。Target `compile` 只使用普通 user arguments，不携带该 overlay。
 
 ## Binding Contract

@@ -27,10 +27,11 @@ CLI 在昂贵分析前执行结构化 Preflight。全局 verbosity 默认为 `IN
 
 ## Global Verbosity
 
-- 未传 `-v`：`INFO`，输出稳定的 stage、progress、warning 和 error。
-- `-v` 或一个 `--verbose`：`DEBUG`，增加 analysis option/decision；command failure 同时输出 stack trace。
+- 未传 `-v`：`INFO`，输出稳定的 stage、progress、warning 和 error；Maven subprocess 只透传 warning/error。
+- `-v` 或一个 `--verbose`：`DEBUG`，增加 analysis option/decision、完整 Maven subprocess output；command failure 同时输出 stack trace。
 - `-vv` 或两个 `--verbose`：`TRACE`，增加 normalized path、ref、scope 等细粒度 evidence。
 - `-v` 是 inherited global option，可位于 subcommand 前或后。`DEBUG`/`TRACE` event 只有相应级别启用时才进入 console 与 `impact` HTML Diagnostics；默认 Report 不携带被过滤的详细 event。
+- `impact` 的 Maven subprocess output 直接写入 Console，不生成 build/dependency `.log` 文件。该 transient output 不进入 HTML Diagnostics；failure 只在内存保留 bounded tail，用于 exception summary。
 
 ## Impact Options
 

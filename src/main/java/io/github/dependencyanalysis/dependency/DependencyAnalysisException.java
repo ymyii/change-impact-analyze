@@ -1,7 +1,5 @@
 package io.github.dependencyanalysis.dependency;
 
-import java.nio.file.Path;
-
 /**
  * Thrown when dependency analysis fails.
  * Carries diagnostic fields for reporting.
@@ -25,11 +23,8 @@ public class DependencyAnalysisException
     /** Process exit code. */
     private final int exitCode;
 
-    /** Stderr summary from log. */
+    /** Combined process output tail. */
     private final String stderr;
-
-    /** Build log file path. */
-    private final Path logFile;
 
     /**
      * Creates a new dependency analysis
@@ -40,25 +35,22 @@ public class DependencyAnalysisException
      * @param mod  module path string
      * @param cmd  command executed
      * @param code exit code
-     * @param err  stderr summary
-     * @param log  log file path
+     * @param err  combined process output tail
      */
     public DependencyAnalysisException(
             final String s,
             final String mod,
             final String cmd,
             final int code,
-            final String err,
-            final Path log) {
+            final String err) {
         super(buildMessage(
                 s, mod, cmd, code,
-                err, log));
+                err));
         this.side = s;
         this.module = mod;
         this.command = cmd;
         this.exitCode = code;
         this.stderr = err;
-        this.logFile = log;
     }
 
     /**
@@ -75,7 +67,6 @@ public class DependencyAnalysisException
         this.command = null;
         this.exitCode = -1;
         this.stderr = null;
-        this.logFile = null;
     }
 
     /**
@@ -94,7 +85,6 @@ public class DependencyAnalysisException
         this.command = null;
         this.exitCode = -1;
         this.stderr = null;
-        this.logFile = null;
     }
 
     /**
@@ -142,22 +132,12 @@ public class DependencyAnalysisException
         return stderr;
     }
 
-    /**
-     * Returns the log file path.
-     *
-     * @return log file path or null
-     */
-    public Path getLogFile() {
-        return logFile;
-    }
-
     private static String buildMessage(
             final String s,
             final String mod,
             final String cmd,
             final int code,
-            final String err,
-            final Path log) {
+            final String err) {
         final StringBuilder sb =
                 new StringBuilder();
         sb.append(
@@ -171,9 +151,7 @@ public class DependencyAnalysisException
                 .append(", exitCode=")
                 .append(code)
                 .append(", stderr=")
-                .append(err)
-                .append(", logFile=")
-                .append(log);
+                .append(err);
         return sb.toString();
     }
 }

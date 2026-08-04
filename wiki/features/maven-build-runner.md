@@ -11,8 +11,8 @@ code_refs:
     desc: "target Maven compile"
   - path: "src/main/java/io/github/dependencyanalysis/build/BuildResult.java"
     desc: "target main classes outputs"
-  - path: "src/main/java/io/github/dependencyanalysis/util/ProcessTreeTerminator.java"
-    desc: "parallel front cancellation"
+  - path: "src/main/java/io/github/dependencyanalysis/util/ProcessConsoleExecutor.java"
+    desc: "Maven output Console streaming 与 failure tail"
 ---
 
 # Feature: Maven Build Runner
@@ -33,7 +33,8 @@ Build Runner 只编译 target/current workspace。Baseline 不执行 Maven compi
 - Command token 经 `CommandResolver.resolve()`；不使用 shell string 拼接。
 - Baseline dependency branch 与 target build branch 并行。
 - Branch 被 interrupt 时终止 Maven descendants 和 root process：先 `destroy`，限时后 `destroyForcibly`，最后等待回收。
-- Build failure 保留 log path 与 tail，作为 global preparation failure；不发布新 Report。
+- Maven output 不写 command log file。默认 Console 只显示 warning/error，`-v` 显示完整 output。
+- Build failure 只在内存保留 bounded output tail，作为 global preparation failure；不发布新 Report。
 
 ## Boundary
 

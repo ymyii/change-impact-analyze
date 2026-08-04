@@ -179,11 +179,8 @@ class BuildRunnerIT {
                     assertThat(
                             be.getExitCode())
                             .isNotZero();
-                    assertThat(be.getLogFile())
-                            .isNotNull();
-                    assertThat(Files.exists(
-                            be.getLogFile()))
-                            .isTrue();
+                    assertThat(be.getMessage())
+                            .doesNotContain("logFile");
                 });
     }
 
@@ -208,8 +205,6 @@ class BuildRunnerIT {
                             .toString());
             assertThat(ex.getStderr())
                     .isNotBlank();
-            assertThat(ex.getLogFile())
-                    .isNotNull();
         }
     }
 
@@ -244,7 +239,7 @@ class BuildRunnerIT {
     }
 
     @Test
-    void logFilePersisted() throws Exception {
+    void buildDoesNotCreateLogFile() throws Exception {
         projectDir = tempDir.resolve(
                 "logtest");
         createSingleModuleProject(
@@ -264,6 +259,14 @@ class BuildRunnerIT {
                         && e.getMessage()
                                 .contains(
                                         "Found"));
+        try (java.util.stream.Stream<Path> paths =
+                     Files.walk(tempDir)) {
+            assertThat(paths
+                    .filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName()
+                            .toString().endsWith(".log"))
+                    .toList()).isEmpty();
+        }
     }
 
     @Test

@@ -2,8 +2,6 @@ package io.github.dependencyanalysis.build;
 
 import org.junit.jupiter.api.Test;
 
-import java.nio.file.Paths;
-
 import static org.assertj.core.api.Assertions
         .assertThat;
 
@@ -20,9 +18,7 @@ class BuildExceptionTest {
                         "/ws/mod-a",
                         "mvn compile -B",
                         1,
-                        "COMPILATION ERROR",
-                        Paths.get(
-                                "/tmp/log"));
+                        "COMPILATION ERROR");
         final String msg = ex.getMessage();
         assertThat(msg).contains("baseline");
         assertThat(msg)
@@ -33,7 +29,7 @@ class BuildExceptionTest {
         assertThat(msg)
                 .contains("COMPILATION");
         assertThat(msg)
-                .contains("/tmp/log");
+                .doesNotContain("logFile");
     }
 
     @Test
@@ -44,9 +40,7 @@ class BuildExceptionTest {
                         "/ws",
                         "mvn compile -B",
                         2,
-                        "error text",
-                        Paths.get(
-                                "/tmp/cia.log"));
+                        "error text");
         assertThat(ex.getSide())
                 .isEqualTo("target");
         assertThat(ex.getModule())
@@ -58,9 +52,6 @@ class BuildExceptionTest {
                 .isEqualTo(2);
         assertThat(ex.getStderr())
                 .isEqualTo("error text");
-        assertThat(ex.getLogFile())
-                .isEqualTo(Paths.get(
-                        "/tmp/cia.log"));
     }
 
     @Test
@@ -68,18 +59,9 @@ class BuildExceptionTest {
         final BuildException ex =
                 new BuildException(
                         "s", "m", "c",
-                        0, "", null);
+                        0, "");
         assertThat(ex)
                 .isInstanceOf(Exception.class);
     }
 
-    @Test
-    void nullLogFileIsAllowed() {
-        final BuildException ex =
-                new BuildException(
-                        "s", "m", "c",
-                        1, "e", null);
-        assertThat(ex.getLogFile())
-                .isNull();
-    }
 }

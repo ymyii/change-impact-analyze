@@ -41,7 +41,7 @@ Global options 可放在 subcommand 前或后：
 | `-a` | `--maven-arg=<token>` | 重复传入一个 Maven option/property token，例如 `--maven-arg=-Pprod`。 |
 | `-v` | `--verbose` | 提升日志级别；默认 `INFO`，`-v` 为 `DEBUG`，`-vv` 为 `TRACE`。可放在 subcommand 前或后。 |
 
-`--verbose --verbose` 与 `-vv` 等价。`INFO` 输出稳定的 stage、progress、warning 和 error；`DEBUG` 额外输出 analysis option/decision，并在异常时输出 stack trace；`TRACE` 再输出 normalized path、ref 和 scope 等细粒度 evidence。并发任务使用业务 context 前缀，例如 `[front][baseline-dependency]`、`[jar-diff][pair][artifact=…]`、`[module-analysis][call-graph][module=…]`，不依赖 thread name。
+`--verbose --verbose` 与 `-vv` 等价。`INFO` 输出稳定的 stage、progress、warning 和 error，Maven subprocess 只透传 warning/error；`DEBUG` 额外输出 analysis option/decision、完整 Maven subprocess output，并在异常时输出 stack trace；`TRACE` 再输出 normalized path、ref 和 scope 等细粒度 evidence。并发任务使用业务 context 前缀，例如 `[front][baseline-dependency]`、`[jar-diff][pair][artifact=…]`、`[module-analysis][call-graph][module=…]`，不依赖 thread name。
 
 ## 3. Maven Runtime
 
@@ -73,7 +73,7 @@ Apache Maven 3.6.3 已 EOL；只有实际选择内嵌 3.6.3 时，version eviden
 
 Config dir 中未知文件和用户文件不会被自动删除。Runtime 损坏时只重建明确归属工具的 version/SHA leaf。
 
-每次 command 使用 UUID `run-id`、owner marker 和 `<config-dir>/locks/` file lock。Detached worktree、GraphML probe 和 build/dependency log 只写入对应 subcommand run。正常和异常关闭只清理当前 run；启动时只回收 owner marker 有效且未被其他 process lock 的 stale run。
+每次 command 使用 UUID `run-id`、owner marker 和 `<config-dir>/locks/` file lock。Detached worktree、GraphML probe 和 command-generated intermediate file 只写入对应 subcommand run。正常和异常关闭只清理当前 run；启动时只回收 owner marker 有效且未被其他 process lock 的 stale run。`impact` 的 Maven build/dependency output 不写 `.log`，按 `-v` 直接输出到 Console；failure 只在内存保留 bounded tail。
 
 `impact` 固定使用 JAR 内嵌 Maven Dependency Plugin `3.6.1`；`tree` 默认也使用该 runtime，但保留高级 version override。工具从 JAR 解压经过 SHA-512 校验的 Plugin file repository，并生成 global settings overlay：将内嵌 repository 加入 active profile，保留用户 `-gs` 中的 mirror、proxy、server、local repository 等配置以及独立 `-s` 参数；内置 repository会从通配 mirror 中排除。Overlay 按内容 hash 复用，使用 file lock、owner-only permission 和 atomic publish，且不会在 Console 输出用户 settings 内容。Overlay 仅用于 Dependency Plugin `tree`/`list`，不应用于 target `compile`。
 

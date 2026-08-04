@@ -230,6 +230,35 @@ public final class DiagnosticCollector {
     }
 
     /**
+     * Writes transient process output to the Console without retaining it
+     * in Report diagnostics.
+     *
+     * @param context process diagnostic context
+     * @param level output level
+     * @param message process output line
+     */
+    public synchronized void console(
+            final DiagnosticContext context,
+            final DiagnosticLevel level,
+            final String message) {
+        if (!isEnabled(level)) {
+            return;
+        }
+        final DiagnosticEvent event =
+                new DiagnosticEvent.Builder()
+                        .stage(context.stage())
+                        .task(context.task())
+                        .level(level)
+                        .message(message)
+                        .side(context.side())
+                        .module(context.module())
+                        .artifact(context.artifact())
+                        .path(context.path())
+                        .build();
+        printToConsole(event);
+    }
+
+    /**
      * @return immutable event snapshot
      */
     public synchronized List<DiagnosticEvent> getEvents() {

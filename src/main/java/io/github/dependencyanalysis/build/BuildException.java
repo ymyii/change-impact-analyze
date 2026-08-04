@@ -1,7 +1,5 @@
 package io.github.dependencyanalysis.build;
 
-import java.nio.file.Path;
-
 /**
  * Thrown when a Maven build fails.
  * Carries diagnostic fields for reporting.
@@ -25,11 +23,8 @@ public class BuildException
     /** Process exit code. */
     private final int exitCode;
 
-    /** Stderr summary from log. */
+    /** Combined process output tail. */
     private final String stderr;
-
-    /** Build log file path. */
-    private final Path logFile;
 
     /**
      * Creates a new build exception.
@@ -38,25 +33,22 @@ public class BuildException
      * @param mod  module path string
      * @param cmd  command executed
      * @param code exit code
-     * @param err  stderr summary
-     * @param log  log file path
+     * @param err  combined process output tail
      */
     public BuildException(
             final String s,
             final String mod,
             final String cmd,
             final int code,
-            final String err,
-            final Path log) {
+            final String err) {
         super(buildMessage(
                 s, mod, cmd, code,
-                err, log));
+                err));
         this.side = s;
         this.module = mod;
         this.command = cmd;
         this.exitCode = code;
         this.stderr = err;
-        this.logFile = log;
     }
 
     /**
@@ -104,22 +96,12 @@ public class BuildException
         return stderr;
     }
 
-    /**
-     * Returns the build log file path.
-     *
-     * @return log file path
-     */
-    public Path getLogFile() {
-        return logFile;
-    }
-
     private static String buildMessage(
             final String s,
             final String mod,
             final String cmd,
             final int code,
-            final String err,
-            final Path log) {
+            final String err) {
         final StringBuilder sb =
                 new StringBuilder();
         sb.append("Build failed")
@@ -132,9 +114,7 @@ public class BuildException
                 .append(", exitCode=")
                 .append(code)
                 .append(", stderr=")
-                .append(err)
-                .append(", logFile=")
-                .append(log);
+                .append(err);
         return sb.toString();
     }
 }
