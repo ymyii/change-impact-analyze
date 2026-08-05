@@ -26,7 +26,7 @@ import io.github.dependencyanalysis.callgraph.DuplicateClassResolution;
 import io.github.dependencyanalysis.callgraph.EdgeKind;
 import io.github.dependencyanalysis.callgraph.MethodId;
 import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
-import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 
 import java.util.ArrayDeque;
@@ -47,14 +47,14 @@ import java.util.Set;
 public final class ModuleImpactTracer {
 
     /** Diagnostics. */
-    private final DiagnosticCollector diagnostics;
+    private final DiagnosticLog diagnostics;
 
     /**
      * Creates a direct module tracer.
      *
      * @param collector diagnostics
      */
-    public ModuleImpactTracer(final DiagnosticCollector collector) {
+    public ModuleImpactTracer(final DiagnosticLog collector) {
         diagnostics = Objects.requireNonNull(collector, "collector");
     }
 
@@ -68,7 +68,7 @@ public final class ModuleImpactTracer {
     public ModuleImpactQueryResult trace(
             final ModuleAnalysisUnit unit,
             final ModuleCallGraphSession session) {
-        final DiagnosticContext context = DiagnosticContext.task(
+        final DiagnosticContext context = DiagnosticContext.of(
                 "module-analysis", "impact-query").withModule(
                 unit.getModuleId().stableKey());
         diagnostics.startStage(context);

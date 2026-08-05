@@ -1,6 +1,7 @@
 package io.github.dependencyanalysis.workspace;
 
-import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
+import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis.diagnostic.DiagnosticEvent;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLevel;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,17 +37,14 @@ class WorkspaceManagerIT {
     private String secondCommit;
 
     /** Diagnostics collector. */
-    private DiagnosticCollector diag;
+    private DiagnosticLog diag;
 
     @BeforeEach
     void setUp() throws Exception {
         repoDir = tempDir.resolve("repo");
         Files.createDirectories(repoDir);
-        diag = new DiagnosticCollector(
-                new PrintStream(
-                        new ByteArrayOutputStream()),
-                new PrintStream(
-                        new ByteArrayOutputStream()));
+        diag = new DiagnosticLog(new PrintStream(
+                new ByteArrayOutputStream()), LogVerbosity.INFO);
         git("init");
         git("config", "user.email",
                 "test@test.com");
@@ -310,12 +308,12 @@ class WorkspaceManagerIT {
                         "workspace".equals(
                                 e.getStage())
                         && e.getMessage()
-                                .contains("started"))
+                                .equals("Task started"))
                 .anyMatch(e ->
                         "workspace".equals(
                                 e.getStage())
                         && e.getMessage()
-                                .contains("ended"))
+                                .equals("Task completed"))
                 .anyMatch(e ->
                         "workspace".equals(
                                 e.getStage())

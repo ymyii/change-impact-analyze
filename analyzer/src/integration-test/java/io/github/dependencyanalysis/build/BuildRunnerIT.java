@@ -1,7 +1,8 @@
 package io.github.dependencyanalysis.build;
 
 import io.github.dependencyanalysis
-        .diagnostic.DiagnosticCollector;
+        .diagnostic.DiagnosticLog;
+import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis
         .diagnostic.DiagnosticEvent;
 import io.github.dependencyanalysis
@@ -39,7 +40,7 @@ class BuildRunnerIT {
     private Path projectDir;
 
     /** Diagnostic collector. */
-    private DiagnosticCollector diag;
+    private DiagnosticLog diag;
 
     @BeforeAll
     static void checkMvn() throws Exception {
@@ -55,11 +56,8 @@ class BuildRunnerIT {
 
     @BeforeEach
     void setUpDiag() {
-        diag = new DiagnosticCollector(
-                new PrintStream(
-                        new ByteArrayOutputStream()),
-                new PrintStream(
-                        new ByteArrayOutputStream()));
+        diag = new DiagnosticLog(new PrintStream(
+                new ByteArrayOutputStream()), LogVerbosity.INFO);
     }
 
     @Test
@@ -228,14 +226,14 @@ class BuildRunnerIT {
                         "build".equals(
                                 e.getStage())
                         && e.getMessage()
-                                .contains(
-                                        "started"))
+                                .equals(
+                                        "Task started"))
                 .anyMatch(e ->
                         "build".equals(
                                 e.getStage())
                         && e.getMessage()
-                                .contains(
-                                        "ended"));
+                                .equals(
+                                        "Task completed"));
     }
 
     @Test

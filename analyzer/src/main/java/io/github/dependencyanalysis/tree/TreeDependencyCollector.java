@@ -1,5 +1,7 @@
 package io.github.dependencyanalysis.tree;
 
+import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.runtime
         .MavenDependencyPluginRuntime;
 import io.github.dependencyanalysis.runtime
@@ -32,6 +34,23 @@ public final class TreeDependencyCollector {
 
     /** Maximum Maven diagnostic lines. */
     private static final int TAIL_LINES = 100;
+
+    /** Optional command diagnostics. */
+    private final DiagnosticLog diagnostics;
+
+    /** Creates a collector without Console Maven forwarding. */
+    public TreeDependencyCollector() {
+        diagnostics = null;
+    }
+
+    /**
+     * Creates a collector with Console Maven forwarding.
+     *
+     * @param diagnosticLog command diagnostics
+     */
+    public TreeDependencyCollector(final DiagnosticLog diagnosticLog) {
+        diagnostics = diagnosticLog;
+    }
 
     /**
      * Collects a full reactor or a requested dependency closure.
@@ -273,8 +292,16 @@ public final class TreeDependencyCollector {
         arguments.add("-DappendOutput=false");
         arguments.add("-Dverbose=true");
         arguments.add("-Dtokens=standard");
+        if (diagnostics == null) {
+            return new MavenExecutor().execute(
+                    runtime, snapshot.getRoot(), arguments);
+        }
         return new MavenExecutor().execute(
-                runtime, snapshot.getRoot(), arguments);
+                runtime, snapshot.getRoot(), arguments, diagnostics,
+                DiagnosticContext.of("analysis", "reactor")
+                        .with("command", "tree")
+                        .with("reactor", reactor.getId()),
+                TAIL_LINES);
     }
 
     private List<String> projectSelectors(

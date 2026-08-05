@@ -348,12 +348,12 @@ class PackagedJarCliIT {
         assertThat(result.output)
                 .contains("Stage 1/3: Preflight")
                 .contains("Stage 2/3: Analysis")
-                .contains("SKIPPED: command preflight failed")
-                .contains("Stage 3/3: Summary"
-                        + System.lineSeparator()
-                        + "status=FAILED"
-                        + System.lineSeparator()
-                        + "report=NOT_GENERATED");
+                .contains("[analysis][summary][status=SKIPPED]"
+                        + " Stage 2/3: Analysis;"
+                        + " command preflight failed")
+                .contains("[summary][result]"
+                        + "[status=FAILED;report=NOT_GENERATED]"
+                        + " Stage 3/3: Summary");
         assertThat(output).doesNotExist();
     }
 
@@ -380,7 +380,8 @@ class PackagedJarCliIT {
         assertThat(result.exitCode).isEqualTo(2);
         assertThat(result.output)
                 .contains("Stage 2/3: Analysis")
-                .contains("analysisIssues=1")
+                .contains("[analysis][summary]"
+                        + "[status=COMPLETED_WITH_ISSUES;issues=1]")
                 .contains("status=COMPLETED_WITH_ISSUES")
                 .contains("report=" + output.toAbsolutePath()
                         .normalize());
@@ -390,6 +391,37 @@ class PackagedJarCliIT {
                 .contains("failure-line-006")
                 .contains("failure-line-105")
                 .doesNotContain("failure-line-005");
+    }
+
+    @Test
+    void runtimeLogsUseStderrAndMetricsRequireTrace() throws Exception {
+        final Path debugOutput = temporary.resolve("debug-impact.html");
+        final Path traceOutput = temporary.resolve("trace-impact.html");
+
+        final SplitProcessResult debug = runJarSplit(
+                "-v", "impact", "-b", "HEAD",
+                "-o", debugOutput.toString(),
+                "--call-graph-timeout-seconds", "-1");
+        final SplitProcessResult trace = runJarSplit(
+                "-vv", "impact", "-b", "HEAD",
+                "-o", traceOutput.toString(),
+                "--call-graph-timeout-seconds", "-1");
+
+        assertThat(debug.exitCode).isEqualTo(1);
+        assertThat(debug.stdout).isEmpty();
+        assertThat(debug.stderr)
+                .contains("[ERROR][preflight][-][-]")
+                .doesNotContain("[runtime-metrics]");
+        assertThat(trace.exitCode).isEqualTo(1);
+        assertThat(trace.stdout).isEmpty();
+        assertThat(trace.stderr)
+                .contains("[TRACE][runtime-metrics][heap]")
+                .contains("sample=1")
+                .contains("heapUsedMiB=")
+                .doesNotContain("heartbeat", "HEARTBEAT");
+        assertThat(trace.stderr.lines()).allMatch(line -> line.matches(
+                "^\\[[^]]+]\\[(TRACE|DEBUG|INFO|WARN|ERROR)]"
+                        + "\\[[^]]+]\\[[^]]+]\\[[^]]+] .*$"));
     }
 
     @Test
@@ -697,6 +729,20 @@ class PackagedJarCliIT {
         return new ProcessResult(process.waitFor(), output);
     }
 
+    private SplitProcessResult runJarSplit(
+            final String... arguments) throws Exception {
+        final Process process = new ProcessBuilder(
+                jarCommand(arguments)).start();
+        final String stdout = new String(
+                process.getInputStream().readAllBytes(),
+                StandardCharsets.UTF_8);
+        final String stderr = new String(
+                process.getErrorStream().readAllBytes(),
+                StandardCharsets.UTF_8);
+        return new SplitProcessResult(
+                process.waitFor(), stdout, stderr);
+    }
+
     private List<String> jarCommand(
             final String... arguments) {
         final List<String> command = new ArrayList<>();
@@ -749,5 +795,12 @@ class PackagedJarCliIT {
     private record ProcessResult(
             int exitCode,
             String output) {
+    }
+
+    /** Separate process streams. */
+    private record SplitProcessResult(
+            int exitCode,
+            String stdout,
+            String stderr) {
     }
 }

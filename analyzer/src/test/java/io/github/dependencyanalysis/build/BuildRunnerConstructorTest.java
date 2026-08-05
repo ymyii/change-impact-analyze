@@ -1,7 +1,7 @@
 package io.github.dependencyanalysis.build;
 
 import io.github.dependencyanalysis
-        .diagnostic.DiagnosticCollector;
+        .diagnostic.DiagnosticLog;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -23,8 +23,7 @@ class BuildRunnerConstructorTest {
 
     @Test
     void threeArgConstructorWorks() {
-        final DiagnosticCollector diag =
-                new DiagnosticCollector();
+        final DiagnosticLog diag = new DiagnosticLog();
         final BuildRunner runner =
                 new BuildRunner(
                         "test",
@@ -35,8 +34,7 @@ class BuildRunnerConstructorTest {
 
     @Test
     void fourArgConstructorWithNullWorks() {
-        final DiagnosticCollector diag =
-                new DiagnosticCollector();
+        final DiagnosticLog diag = new DiagnosticLog();
         final BuildRunner runner =
                 new BuildRunner(
                         "test",
@@ -48,8 +46,7 @@ class BuildRunnerConstructorTest {
 
     @Test
     void fourArgConstructorWithJavaHomeWorks() {
-        final DiagnosticCollector diag =
-                new DiagnosticCollector();
+        final DiagnosticLog diag = new DiagnosticLog();
         final File javaHome =
                 new File("/tmp/java");
         final BuildRunner runner =

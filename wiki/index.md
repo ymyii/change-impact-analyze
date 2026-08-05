@@ -20,13 +20,13 @@ code_refs: []
 ## Features
 
 ### [CLI Preflight and Diagnostics](features/cli-preflight-diagnostics.md)
-- Summary: 全局 verbosity、stable Diagnostic context、impact Preflight，以及 scope warning、`INCONCLUSIVE` 与 exit code 契约。
+- Summary: stderr-only 五段 DiagnosticLog、retained/transient 边界、Preflight、verbosity，以及 `-vv` command-scoped Runtime Metrics。
 
 ### [Maven Runtime](features/maven-runtime.md)
 - Summary: 用户 executable、跨平台内嵌 Maven 3.6.3、两个独立 repository ZIP，以及 Stable/Snapshot 分离 cache 与 command-scoped settings。
 
 ### [Repository Dependency Tree Report](features/repository-dependency-tree-report.md)
-- Summary: Git snapshot、bounded/full reactor execution、纯 aggregator result boundary、incremental checkpoint 与 Module-tab offline report。
+- Summary: Git snapshot、bounded/full reactor execution、统一 Tree progress Diagnostic、incremental checkpoint 与 Module-tab offline report。
 
 ### [Git Workspace Management](features/git-workspace-management.md)
 - Summary: `impact`/`tree` config UUID workspace/tmp、owner lock、stale recovery 与 detached worktree cleanup。
@@ -47,7 +47,7 @@ code_refs: []
 - Summary: physical JAR pair 并行去重 diff；MethodNode canonical hash覆盖 CFG/exception/bootstrap topology，SSA filtering 延迟到 candidate path 后。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
-- Summary: 每 Module 独立使用 target JDK 8、source-aware JDK exclusion validation、Maven classpath precedence duplicate winner、可配置 PROJECT entrypoints 与 WALA Vanilla 0-1-CFA。
+- Summary: 每 Module 独立使用 target JDK 8、source-aware exclusion/duplicate winner、可配置 PROJECT entrypoints、WALA Vanilla 0-1-CFA 与 cooperative timeout-only monitor。
 
 ### [Impact Tracing](features/impact-tracing.md)
 - Summary: Call Graph 后从 live WALA graph 直接 reverse query，保留 Context、Structural Reference Path、duplicate-shadow disposition、serial SSA filtering 与 path-related code evidence。

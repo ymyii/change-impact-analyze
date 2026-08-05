@@ -144,7 +144,7 @@ class PerModuleHtmlReportGeneratorTest {
                 new MavenDependencyPluginRuntimeManager().prepare(
                         temporary.resolve("config"), List.of(), null);
         final DiagnosticEvent exact = new DiagnosticEvent.Builder()
-                .stage("module-analysis").task("module")
+                .stage("module-analysis").substage("module")
                 .module(moduleId.stableKey()).level(DiagnosticLevel.INFO)
                 .message("exact module event").build();
         final DiagnosticEvent misleading = new DiagnosticEvent.Builder()
@@ -332,7 +332,7 @@ class PerModuleHtmlReportGeneratorTest {
                 new AnalysisConcurrency(2, 1, 1, 1), Map.of(),
                 EntrypointSelection.allProjectClasses());
         final DiagnosticEvent diagnostic = new DiagnosticEvent.Builder()
-                .stage("scope-validation").task("module")
+                .stage("scope-validation").substage("module")
                 .module(moduleId.stableKey())
                 .artifact(artifact.getArtifact().toString())
                 .path(artifact.getPath().toString())
@@ -371,7 +371,7 @@ class PerModuleHtmlReportGeneratorTest {
                         + "</strong>")
                 .contains("INCONCLUSIVE_SCOPE_VALIDATION")
                 .contains("[scope-validation][module][module=")
-                .contains("[artifact=example:legacy:jar:1]")
+                .contains(";artifact=example:legacy:jar:1;path=")
                 .doesNotContain("<strong>Failed:</strong>");
         assertThat(index.indexOf(warningPrefix, limitationHeading))
                 .isLessThan(diagnosticHeading);

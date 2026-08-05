@@ -1,7 +1,7 @@
 package io.github.dependencyanalysis.build;
 
 import io.github.dependencyanalysis
-        .diagnostic.DiagnosticCollector;
+        .diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis
         .diagnostic.DiagnosticContext;
 import io.github.dependencyanalysis
@@ -43,7 +43,7 @@ public final class BuildRunner {
     private final Path workspacePath;
 
     /** Diagnostic collector. */
-    private final DiagnosticCollector diag;
+    private final DiagnosticLog diag;
 
     /** Optional JAVA_HOME for mvn. */
     private final File buildJavaHome;
@@ -70,7 +70,7 @@ public final class BuildRunner {
     public BuildRunner(
             final String sideName,
             final Path path,
-            final DiagnosticCollector
+            final DiagnosticLog
                     diagCol) {
         this(sideName, path, diagCol,
                 null);
@@ -89,7 +89,7 @@ public final class BuildRunner {
     public BuildRunner(
             final String sideName,
             final Path path,
-            final DiagnosticCollector
+            final DiagnosticLog
                     diagCol,
             final File javaHomeOpt) {
         this(sideName, path, diagCol,
@@ -110,7 +110,7 @@ public final class BuildRunner {
     public BuildRunner(
             final String sideName,
             final Path path,
-            final DiagnosticCollector diagCol,
+            final DiagnosticLog diagCol,
             final File javaHomeOpt,
             final Path executable,
             final List<String> arguments) {

@@ -3,7 +3,7 @@ package io.github.dependencyanalysis.callgraph;
 import com.ibm.wala.ipa.callgraph.AnalysisScope;
 import com.ibm.wala.types.ClassLoaderReference;
 
-import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 
 import java.io.IOException;
@@ -19,7 +19,7 @@ public final class JdkAnalysisStage {
     public static final String STAGE = "jdk-analysis";
 
     /** Diagnostics. */
-    private final DiagnosticCollector diagnostics;
+    private final DiagnosticLog diagnostics;
 
     /**
      * Creates the stage.
@@ -27,7 +27,7 @@ public final class JdkAnalysisStage {
      * @param collector diagnostics
      */
     public JdkAnalysisStage(
-            final DiagnosticCollector collector) {
+            final DiagnosticLog collector) {
         diagnostics = Objects.requireNonNull(
                 collector, "collector");
     }

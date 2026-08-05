@@ -1,7 +1,7 @@
 package io.github.dependencyanalysis.dependency;
 
 import io.github.dependencyanalysis
-        .diagnostic.DiagnosticCollector;
+        .diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis
         .diagnostic.DiagnosticContext;
 import io.github.dependencyanalysis.runtime
@@ -64,7 +64,7 @@ public final class DependencyAnalyzer {
     private final Set<ArtifactCoord> reactorModules;
 
     /** Diagnostics. */
-    private final DiagnosticCollector diag;
+    private final DiagnosticLog diag;
 
     /** Optional JAVA_HOME. */
     private final File buildJavaHome;
@@ -97,7 +97,7 @@ public final class DependencyAnalyzer {
             final String sideName,
             final Path path,
             final Set<ArtifactCoord> reactor,
-            final DiagnosticCollector diagCol) {
+            final DiagnosticLog diagCol) {
         this(sideName, path, reactor, diagCol, null);
     }
 
@@ -114,7 +114,7 @@ public final class DependencyAnalyzer {
             final String sideName,
             final Path path,
             final Set<ArtifactCoord> reactor,
-            final DiagnosticCollector diagCol,
+            final DiagnosticLog diagCol,
             final File javaHomeOpt) {
         this(sideName, path, reactor, diagCol, javaHomeOpt,
                 Path.of("mvn"), List.of());
@@ -135,7 +135,7 @@ public final class DependencyAnalyzer {
             final String sideName,
             final Path path,
             final Set<ArtifactCoord> reactor,
-            final DiagnosticCollector diagCol,
+            final DiagnosticLog diagCol,
             final File javaHomeOpt,
             final Path executable,
             final List<String> arguments) {

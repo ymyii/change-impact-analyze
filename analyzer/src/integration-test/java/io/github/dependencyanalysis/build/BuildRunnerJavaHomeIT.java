@@ -1,7 +1,8 @@
 package io.github.dependencyanalysis.build;
 
 import io.github.dependencyanalysis
-        .diagnostic.DiagnosticCollector;
+        .diagnostic.DiagnosticLog;
+import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,7 +33,7 @@ class BuildRunnerJavaHomeIT {
     private Path projectDir;
 
     /** Diagnostic collector. */
-    private DiagnosticCollector diag;
+    private DiagnosticLog diag;
 
     @BeforeAll
     static void checkMvn() throws Exception {
@@ -48,11 +49,8 @@ class BuildRunnerJavaHomeIT {
 
     @BeforeEach
     void setUpDiag() {
-        diag = new DiagnosticCollector(
-                new PrintStream(
-                        new ByteArrayOutputStream()),
-                new PrintStream(
-                        new ByteArrayOutputStream()));
+        diag = new DiagnosticLog(new PrintStream(
+                new ByteArrayOutputStream()), LogVerbosity.INFO);
     }
 
     @Test

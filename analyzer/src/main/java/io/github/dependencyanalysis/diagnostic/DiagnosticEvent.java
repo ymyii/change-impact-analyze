@@ -1,286 +1,260 @@
 package io.github.dependencyanalysis.diagnostic;
 
+import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Objects;
+
 // Wiki: wiki/architecture/dependency-analysis-pipelines.md - diagnostics model
-/**
- * Immutable diagnostic event.
- */
+/** Immutable diagnostic event. */
 public final class DiagnosticEvent {
 
-    /** Stage name. */
-    private final String stage;
+    /** Event wall-clock timestamp. */
+    private final OffsetDateTime timestamp;
 
-    /** Task name. */
-    private final String task;
+    /** Structured context. */
+    private final DiagnosticContext context;
 
     /** Severity level. */
     private final DiagnosticLevel level;
 
-    /** Message text. */
+    /** Single-line message text. */
     private final String message;
 
-    /** Side identifier. */
-    private final String side;
-
-    /** Module identifier. */
-    private final String module;
-
-    /** Artifact identifier. */
-    private final String artifact;
-
-    /** Path reference. */
-    private final String path;
-
-    /** Elapsed time in milliseconds. */
-    private final long elapsedMillis;
-
-    private DiagnosticEvent(final Builder builder) {
-        this.stage = builder.stage;
-        this.task = builder.task;
-        this.level = builder.level;
-        this.message = builder.message;
-        this.side = builder.side;
-        this.module = builder.module;
-        this.artifact = builder.artifact;
-        this.path = builder.path;
-        this.elapsedMillis = builder.elapsedMillis;
+    DiagnosticEvent(
+            final OffsetDateTime eventTimestamp,
+            final DiagnosticContext eventContext,
+            final DiagnosticLevel eventLevel,
+            final String eventMessage) {
+        timestamp = Objects.requireNonNull(eventTimestamp, "timestamp");
+        context = Objects.requireNonNull(eventContext, "context");
+        level = Objects.requireNonNull(eventLevel, "level");
+        message = Objects.requireNonNullElse(eventMessage, "");
     }
 
-    /**
-     * Returns the stage name.
-     *
-     * @return stage
-     */
+    /** @return event timestamp */
+    public OffsetDateTime getTimestamp() {
+        return timestamp;
+    }
+
+    /** @return complete context */
+    public DiagnosticContext getContext() {
+        return context;
+    }
+
+    /** @return stage name */
     public String getStage() {
-        return stage;
+        return context.stage();
     }
 
-    /**
-     * Returns the task name.
-     *
-     * @return task
-     */
-    public String getTask() {
-        return task;
+    /** @return substage name */
+    public String getSubstage() {
+        return context.substage();
     }
 
-    /**
-     * Returns the severity level.
-     *
-     * @return level
-     */
+    /** @return ordered context attributes */
+    public Map<String, String> getAttributes() {
+        return context.attributes();
+    }
+
+    /** @return severity level */
     public DiagnosticLevel getLevel() {
         return level;
     }
 
-    /**
-     * Returns the message.
-     *
-     * @return message
-     */
+    /** @return message */
     public String getMessage() {
         return message;
     }
 
-    /**
-     * Returns the side.
-     *
-     * @return side
-     */
+    /** @return side or empty string */
     public String getSide() {
-        return side;
+        return context.attribute("side");
     }
 
-    /**
-     * Returns the module.
-     *
-     * @return module
-     */
+    /** @return module or empty string */
     public String getModule() {
-        return module;
+        return context.attribute("module");
     }
 
-    /**
-     * Returns the artifact.
-     *
-     * @return artifact
-     */
+    /** @return artifact or empty string */
     public String getArtifact() {
-        return artifact;
+        return context.attribute("artifact");
     }
 
-    /**
-     * Returns the path.
-     *
-     * @return path
-     */
+    /** @return path or empty string */
     public String getPath() {
-        return path;
+        return context.attribute("path");
     }
 
-    /**
-     * Returns elapsed time in millis.
-     *
-     * @return elapsed millis
-     */
+    /** @return elapsed milliseconds or zero */
     public long getElapsedMillis() {
-        return elapsedMillis;
+        final String value = context.attribute("elapsedMs");
+        if (value.isBlank()) {
+            return 0L;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException ignored) {
+            return 0L;
+        }
     }
 
     @Override
     public String toString() {
         return "DiagnosticEvent{"
-                + "stage='" + stage + '\''
-                + ", task='" + task + '\''
+                + "timestamp=" + timestamp
+                + ", context=" + context
                 + ", level=" + level
                 + ", message='" + message + '\''
-                + ", side='" + side + '\''
-                + ", module='" + module + '\''
-                + ", artifact='" + artifact + '\''
-                + ", path='" + path + '\''
-                + ", elapsedMillis=" + elapsedMillis
                 + '}';
     }
 
-    /**
-     * Builder for {@link DiagnosticEvent}.
-     */
+    /** Builder retained for fixture and adapter construction. */
     public static final class Builder {
 
-        /** Stage name. */
-        private String stage;
+        /** Timestamp. */
+        private OffsetDateTime timestamp = OffsetDateTime.now();
 
-        /** Task name. */
-        private String task;
+        /** Stage. */
+        private String stage = "";
 
-        /** Severity level. */
-        private DiagnosticLevel level;
+        /** Substage. */
+        private String substage = "";
 
-        /** Message text. */
-        private String message;
+        /** Attributes. */
+        private final Map<String, String> attributes = new LinkedHashMap<>();
 
-        /** Side identifier. */
-        private String side;
+        /** Level. */
+        private DiagnosticLevel level = DiagnosticLevel.INFO;
 
-        /** Module identifier. */
-        private String module;
-
-        /** Artifact identifier. */
-        private String artifact;
-
-        /** Path reference. */
-        private String path;
-
-        /** Elapsed time in milliseconds. */
-        private long elapsedMillis;
+        /** Message. */
+        private String message = "";
 
         /**
-         * Sets the stage.
+         * Sets the timestamp.
          *
-         * @param value stage name
+         * @param value timestamp
          * @return this builder
          */
-        public Builder stage(final String value) {
-            this.stage = value;
+        public Builder timestamp(final OffsetDateTime value) {
+            timestamp = value;
             return this;
         }
 
         /**
-         * Sets the task.
+         * Sets the stage.
          *
-         * @param value task name
+         * @param value stage
          * @return this builder
          */
-        public Builder task(final String value) {
-            this.task = value;
+        public Builder stage(final String value) {
+            stage = value;
+            return this;
+        }
+
+        /**
+         * Sets the substage.
+         *
+         * @param value substage
+         * @return this builder
+         */
+        public Builder substage(final String value) {
+            substage = value;
+            return this;
+        }
+
+        /**
+         * Adds one attribute.
+         *
+         * @param key attribute key
+         * @param value attribute value
+         * @return this builder
+         */
+        public Builder attribute(final String key, final Object value) {
+            if (value != null) {
+                attributes.put(key, value.toString());
+            }
             return this;
         }
 
         /**
          * Sets the level.
          *
-         * @param value severity level
+         * @param value level
          * @return this builder
          */
-        public Builder level(
-                final DiagnosticLevel value) {
-            this.level = value;
+        public Builder level(final DiagnosticLevel value) {
+            level = value;
             return this;
         }
 
         /**
          * Sets the message.
          *
-         * @param value message text
+         * @param value message
          * @return this builder
          */
         public Builder message(final String value) {
-            this.message = value;
+            message = value;
             return this;
         }
 
         /**
-         * Sets the side.
+         * Adds the side attribute.
          *
          * @param value side
          * @return this builder
          */
         public Builder side(final String value) {
-            this.side = value;
-            return this;
+            return attribute("side", value);
         }
 
         /**
-         * Sets the module.
+         * Adds the module attribute.
          *
          * @param value module
          * @return this builder
          */
         public Builder module(final String value) {
-            this.module = value;
-            return this;
+            return attribute("module", value);
         }
 
         /**
-         * Sets the artifact.
+         * Adds the artifact attribute.
          *
          * @param value artifact
          * @return this builder
          */
         public Builder artifact(final String value) {
-            this.artifact = value;
-            return this;
+            return attribute("artifact", value);
         }
 
         /**
-         * Sets the path.
+         * Adds the path attribute.
          *
          * @param value path
          * @return this builder
          */
         public Builder path(final String value) {
-            this.path = value;
-            return this;
+            return attribute("path", value);
         }
 
         /**
-         * Sets elapsed millis.
+         * Adds the elapsed time attribute.
          *
-         * @param value elapsed time
+         * @param value elapsed milliseconds
          * @return this builder
          */
-        public Builder elapsedMillis(
-                final long value) {
-            this.elapsedMillis = value;
-            return this;
+        public Builder elapsedMillis(final long value) {
+            return attribute("elapsedMs", value);
         }
 
-        /**
-         * Builds the event.
-         *
-         * @return new event
-         */
+        /** @return immutable event */
         public DiagnosticEvent build() {
-            return new DiagnosticEvent(this);
+            return new DiagnosticEvent(timestamp,
+                    new DiagnosticContext(stage, substage, attributes),
+                    level, message);
         }
     }
 }

@@ -3,6 +3,8 @@ package io.github.dependencyanalysis.tree;
 import io.github.dependencyanalysis.cli
         .DependencyAnalyzerCli;
 import io.github.dependencyanalysis.cli.MavenArguments;
+import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.preflight
         .PreflightCheck;
 import io.github.dependencyanalysis.preflight
@@ -49,6 +51,9 @@ import java.util.Set;
 /** Builds the tree command-level check graph. */
 final class TreePreflightService {
 
+    /** Maximum retained Maven output lines. */
+    private static final int MAVEN_TAIL_LINES = 100;
+
     /** Snapshot key. */
     static final String SNAPSHOT = "tree.snapshot";
 
@@ -84,6 +89,9 @@ final class TreePreflightService {
     /** Scopes. */
     private final Set<String> scopes;
 
+    /** Diagnostics. */
+    private final DiagnosticLog diagnostics;
+
     /**
      * Creates the service.
      *
@@ -92,18 +100,21 @@ final class TreePreflightService {
      * @param localRef local ref
      * @param outputDir output directory
      * @param includedScopes scopes
+     * @param diagnosticLog command diagnostics
      */
     TreePreflightService(
             final DependencyAnalyzerCli rootCommand,
             final File analysisPath,
             final String localRef,
             final File outputDir,
-            final Set<String> includedScopes) {
+            final Set<String> includedScopes,
+            final DiagnosticLog diagnosticLog) {
         root = rootCommand;
         path = analysisPath;
         ref = localRef;
         output = outputDir;
         scopes = includedScopes;
+        diagnostics = diagnosticLog;
     }
 
     /**
@@ -303,7 +314,11 @@ final class TreePreflightService {
                         context.get(SNAPSHOT,
                                 RepositorySnapshot.class)
                                 .getRoot(),
-                        List.of("--version"));
+                        List.of("--version"), diagnostics,
+                        DiagnosticContext.of(
+                                "preflight", "maven-version")
+                                .with("command", "tree"),
+                        MAVEN_TAIL_LINES);
         if (result.getExitCode() != 0) {
             return PreflightOutcome.fail(
                     "Maven executable cannot run",

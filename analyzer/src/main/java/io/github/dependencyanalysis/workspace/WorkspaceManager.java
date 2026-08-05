@@ -1,6 +1,6 @@
 package io.github.dependencyanalysis.workspace;
 
-import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
@@ -40,7 +40,7 @@ public final class WorkspaceManager
     private final Path projectDir;
 
     /** Diagnostic collector. */
-    private final DiagnosticCollector diag;
+    private final DiagnosticLog diag;
 
     /** Git runner for project directory. */
     private final GitCommandRunner runner;
@@ -71,7 +71,7 @@ public final class WorkspaceManager
      */
     public WorkspaceManager(
             final Path project,
-            final DiagnosticCollector
+            final DiagnosticLog
                     diagnostics) {
         this(project, diagnostics, null);
     }
@@ -85,7 +85,7 @@ public final class WorkspaceManager
      */
     public WorkspaceManager(
             final Path project,
-            final DiagnosticCollector diagnostics,
+            final DiagnosticLog diagnostics,
             final Path runRoot) {
         this.projectDir = Objects.requireNonNull(
                 project, "project");

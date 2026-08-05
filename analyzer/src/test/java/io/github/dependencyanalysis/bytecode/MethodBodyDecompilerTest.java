@@ -4,7 +4,8 @@ import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.ChangeType;
 import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.dependency.DependencyScope;
-import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
+import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLevel;
 import io.github.dependencyanalysis.jar.JarLocationResult;
 
@@ -46,7 +47,7 @@ class MethodBodyDecompilerTest {
     private Path temporary;
 
     /** Diagnostics. */
-    private DiagnosticCollector diagnostics;
+    private DiagnosticLog diagnostics;
 
     /** Decompiler under test. */
     private MethodBodyDecompiler decompiler;
@@ -55,7 +56,7 @@ class MethodBodyDecompilerTest {
     void setUp() {
         final PrintStream sink = new PrintStream(
                 new ByteArrayOutputStream());
-        diagnostics = new DiagnosticCollector(sink, sink);
+        diagnostics = new DiagnosticLog(sink, LogVerbosity.INFO);
         decompiler = new MethodBodyDecompiler(diagnostics);
     }
 

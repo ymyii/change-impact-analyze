@@ -5,7 +5,9 @@ import io.github.dependencyanalysis.cli
 import io.github.dependencyanalysis.cli
         .DependencyAnalyzerCli;
 import io.github.dependencyanalysis.diagnostic
-        .DiagnosticCollector;
+        .DiagnosticContext;
+import io.github.dependencyanalysis.diagnostic
+        .DiagnosticLog;
 import io.github.dependencyanalysis.preflight
         .PreflightCheck;
 import io.github.dependencyanalysis.preflight
@@ -62,6 +64,9 @@ import java.util.List;
 /** Builds and executes the impact-specific check graph. */
 final class ImpactPreflightService {
 
+    /** Maximum retained Maven output lines. */
+    private static final int MAVEN_TAIL_LINES = 100;
+
     /** Prepared analysis path key. */
     static final String ANALYSIS_PATH =
             "impact.analysis-path";
@@ -106,7 +111,7 @@ final class ImpactPreflightService {
     private final File output;
 
     /** Diagnostics. */
-    private final DiagnosticCollector diagnostics;
+    private final DiagnosticLog diagnostics;
 
     /**
      * Creates the service.
@@ -124,7 +129,7 @@ final class ImpactPreflightService {
             final String baselineRef,
             final String targetRef,
             final File outputFile,
-            final DiagnosticCollector collector) {
+            final DiagnosticLog collector) {
         root = rootCommand;
         path = analysisPath;
         baseline = baselineRef;
@@ -340,7 +345,11 @@ final class ImpactPreflightService {
                         runtime,
                         context.get(ANALYSIS_PATH,
                                 Path.class),
-                        List.of("--version"));
+                        List.of("--version"), diagnostics,
+                        DiagnosticContext.of(
+                                "preflight", "maven-version")
+                                .with("command", "impact"),
+                        MAVEN_TAIL_LINES);
         if (result.getExitCode() != 0) {
             return PreflightOutcome.fail(
                     "Maven executable cannot run",
@@ -441,7 +450,11 @@ final class ImpactPreflightService {
                             context.get(WORKSPACE,
                                     WorkspaceResult.class)
                                     .getBaseline().getPath(),
-                            arguments);
+                            arguments, diagnostics,
+                            DiagnosticContext.of(
+                                    "preflight", "maven-plugin-probe")
+                                    .with("command", "impact"),
+                            MAVEN_TAIL_LINES);
             if (result.getExitCode() != 0
                     || Files.size(probe) == 0) {
                 return PreflightOutcome.fail(

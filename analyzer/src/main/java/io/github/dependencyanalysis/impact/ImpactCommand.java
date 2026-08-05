@@ -8,9 +8,11 @@ import io.github.dependencyanalysis.cli
         .DependencyAnalyzerCli;
 import io.github.dependencyanalysis.cli.OutputFormat;
 import io.github.dependencyanalysis.diagnostic
-        .DiagnosticCollector;
+        .DiagnosticContext;
 import io.github.dependencyanalysis.diagnostic
-        .LogVerbosity;
+        .DiagnosticLog;
+import io.github.dependencyanalysis.metrics
+        .RuntimeMetricsSession;
 import io.github.dependencyanalysis.preflight
         .PreflightConsoleRenderer;
 import io.github.dependencyanalysis.preflight
@@ -123,14 +125,19 @@ public final class ImpactCommand
                     + " 0 means unlimited.")
     private long callGraphTimeoutSeconds;
 
-    /** Diagnostics. */
-    private final DiagnosticCollector diagnostics =
-            new DiagnosticCollector();
-
     @Override
     public Integer call() {
-        diagnostics.setVerbosity(
-                root.getLogVerbosity());
+        final DiagnosticLog diagnostics = new DiagnosticLog(
+                System.err, root.getLogVerbosity());
+        try (RuntimeMetricsSession metrics =
+                     RuntimeMetricsSession.start(diagnostics)) {
+            return execute(diagnostics, metrics);
+        }
+    }
+
+    private Integer execute(
+            final DiagnosticLog diagnostics,
+            final RuntimeMetricsSession metrics) {
         diagnostics.debug("cli",
                 "command=impact; verbosity="
                         + root.getLogVerbosity());
@@ -181,7 +188,7 @@ public final class ImpactCommand
                             target, output,
                             diagnostics).run(context);
             new PreflightConsoleRenderer().render(
-                    report, System.err);
+                    report, diagnostics);
             if (report.blocksCommand()) {
                 return 1;
             }
@@ -210,18 +217,29 @@ public final class ImpactCommand
                                     ImpactPreflightService.COMMAND_RUN,
                                     CommandRunDirectory.class)
                                     .getTemporaryDirectory(),
-                            entrypointSelection)).run(
+                            entrypointSelection,
+                            metrics.executors())).run(
                     context.get(
                             ImpactPreflightService
                                     .WORKSPACE,
                             WorkspaceResult.class));
-            new PerModuleHtmlReportGenerator().generate(
-                    result, diagnostics.getEvents(), report,
-                    mavenRuntime, pluginRuntime,
-                    targetJava, output.toPath());
-            return result.getStatus() == AnalysisStatus.SUCCESS
-                    || result.getStatus() == AnalysisStatus.INCONCLUSIVE
-                    ? 0 : 2;
+            final DiagnosticContext reportContext = DiagnosticContext.of(
+                    "report", "publish").withPath(
+                    output.toPath().toAbsolutePath().normalize().toString());
+            diagnostics.startStage(reportContext);
+            try {
+                new PerModuleHtmlReportGenerator().generate(
+                        result, diagnostics.getEvents(), report,
+                        mavenRuntime, pluginRuntime,
+                        targetJava, output.toPath());
+                diagnostics.endStage(reportContext);
+            } catch (Exception exception) {
+                diagnostics.failStage(reportContext,
+                        "Report publish failed: " + exception.getMessage());
+                throw exception;
+            }
+            emitSummary(diagnostics, result);
+            return successful(result.getStatus()) ? 0 : 2;
         } catch (EntrypointSelectionException exception) {
             diagnostics.error("entrypoint-selection", exception.getMessage());
             return 1;
@@ -229,11 +247,34 @@ public final class ImpactCommand
             diagnostics.error("pipeline",
                     "Pipeline failed: "
                             + exception.getMessage());
-            if (root.getLogVerbosity().includes(
-                    LogVerbosity.DEBUG)) {
-                exception.printStackTrace(System.err);
-            }
+            diagnostics.transientException(
+                    DiagnosticContext.stage("pipeline"), exception);
             return 2;
         }
+    }
+
+    private void emitSummary(
+            final DiagnosticLog diagnostics,
+            final AnalysisRunResult result) {
+        final DiagnosticContext context = DiagnosticContext.of(
+                "summary", "result")
+                .with("status", result.getStatus())
+                .withPath(output.toPath().toAbsolutePath()
+                        .normalize().toString());
+        switch (result.getStatus()) {
+            case SUCCESS -> diagnostics.info(context,
+                    "Impact analysis completed");
+            case INCONCLUSIVE, PARTIAL_SUCCESS -> diagnostics.warn(context,
+                    "Impact analysis completed with limitations");
+            case FAILED -> diagnostics.error(context,
+                    "Impact analysis failed");
+            default -> throw new IllegalArgumentException(
+                    "Unsupported analysis status: " + result.getStatus());
+        }
+    }
+
+    private boolean successful(final AnalysisStatus status) {
+        return status == AnalysisStatus.SUCCESS
+                || status == AnalysisStatus.INCONCLUSIVE;
     }
 }

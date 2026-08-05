@@ -4,7 +4,8 @@ import com.ibm.wala.ipa.callgraph.AnalysisScope;
 import com.ibm.wala.ipa.cha.ClassHierarchyFactory;
 import com.ibm.wala.types.ClassLoaderReference;
 
-import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
+import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.impact.ModuleAnalysisUnit;
 import io.github.dependencyanalysis.impact.ModuleChangeSet;
@@ -136,9 +137,9 @@ class JdkAnalysisStageTest {
         return path;
     }
 
-    private DiagnosticCollector diagnostics() {
-        return new DiagnosticCollector(
+    private DiagnosticLog diagnostics() {
+        return new DiagnosticLog(
                 new PrintStream(new ByteArrayOutputStream()),
-                new PrintStream(new ByteArrayOutputStream()));
+                LogVerbosity.INFO);
     }
 }

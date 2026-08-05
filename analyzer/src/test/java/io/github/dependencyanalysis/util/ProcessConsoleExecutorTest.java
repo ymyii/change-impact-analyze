@@ -1,6 +1,6 @@
 package io.github.dependencyanalysis.util;
 
-import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import org.junit.jupiter.api.Test;
@@ -24,9 +24,8 @@ class ProcessConsoleExecutorTest {
                 new ByteArrayOutputStream();
         final PrintStream stream = new PrintStream(
                 bytes, true, StandardCharsets.UTF_8);
-        final DiagnosticCollector diagnostics =
-                new DiagnosticCollector(stream, stream,
-                        LogVerbosity.INFO);
+        final DiagnosticLog diagnostics =
+                new DiagnosticLog(stream, LogVerbosity.INFO);
 
         final ProcessConsoleResult result = execute(diagnostics);
 
@@ -34,8 +33,8 @@ class ProcessConsoleExecutorTest {
         assertThat(result.outputTail().lines())
                 .hasSize(OUTPUT_LINES);
         assertThat(bytes.toString(StandardCharsets.UTF_8))
-                .contains("[WARNING] warning")
-                .contains("[ERROR] error")
+                .contains("][WARN][process][fixture][-] [WARNING] warning")
+                .contains("][ERROR][process][fixture][-] [ERROR] error")
                 .doesNotContain("[INFO] info", "plain");
         assertThat(diagnostics.getEvents()).isEmpty();
     }
@@ -46,22 +45,21 @@ class ProcessConsoleExecutorTest {
                 new ByteArrayOutputStream();
         final PrintStream stream = new PrintStream(
                 bytes, true, StandardCharsets.UTF_8);
-        final DiagnosticCollector diagnostics =
-                new DiagnosticCollector(stream, stream,
-                        LogVerbosity.DEBUG);
+        final DiagnosticLog diagnostics =
+                new DiagnosticLog(stream, LogVerbosity.DEBUG);
 
         execute(diagnostics);
 
         assertThat(bytes.toString(StandardCharsets.UTF_8))
-                .contains("[INFO] info")
-                .contains("[WARNING] warning")
-                .contains("[ERROR] error")
-                .contains("plain");
+                .contains("][INFO][process][fixture][-] [INFO] info")
+                .contains("][WARN][process][fixture][-] [WARNING] warning")
+                .contains("][ERROR][process][fixture][-] [ERROR] error")
+                .contains("][DEBUG][process][fixture][-] plain");
         assertThat(diagnostics.getEvents()).isEmpty();
     }
 
     private ProcessConsoleResult execute(
-            final DiagnosticCollector diagnostics)
+            final DiagnosticLog diagnostics)
             throws Exception {
         final String executable = Path.of(
                 System.getProperty("java.home"), "bin",
@@ -73,7 +71,7 @@ class ProcessConsoleExecutorTest {
                 OutputFixture.class.getName());
         return ProcessConsoleExecutor.execute(
                 builder, diagnostics,
-                DiagnosticContext.task("process", "fixture"),
+                DiagnosticContext.of("process", "fixture"),
                 OUTPUT_LINES);
     }
 

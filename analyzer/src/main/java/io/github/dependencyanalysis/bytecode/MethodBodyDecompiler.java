@@ -1,7 +1,7 @@
 package io.github.dependencyanalysis.bytecode;
 
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
-import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.jar.JarLocationResult;
 
 import org.jetbrains.java.decompiler.api.Decompiler;
@@ -38,7 +38,7 @@ public final class MethodBodyDecompiler {
     private static final int ELLIPSIS_LENGTH = 3;
 
     /** Diagnostics. */
-    private final DiagnosticCollector diagnostics;
+    private final DiagnosticLog diagnostics;
 
     /** Exact dependency/JDK library context. */
     private final List<Path> libraries;
@@ -49,7 +49,7 @@ public final class MethodBodyDecompiler {
      * @param collector diagnostics
      */
     public MethodBodyDecompiler(
-            final DiagnosticCollector collector) {
+            final DiagnosticLog collector) {
         this(collector, List.of());
     }
 
@@ -60,7 +60,7 @@ public final class MethodBodyDecompiler {
      * @param libraryPaths exact dependency and JDK paths
      */
     public MethodBodyDecompiler(
-            final DiagnosticCollector collector,
+            final DiagnosticLog collector,
             final List<Path> libraryPaths) {
         diagnostics = Objects.requireNonNull(
                 collector, "diagnostics");

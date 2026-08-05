@@ -1,7 +1,8 @@
 package io.github.dependencyanalysis.dependency;
 
 import io.github.dependencyanalysis
-        .diagnostic.DiagnosticCollector;
+        .diagnostic.DiagnosticLog;
+import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis.runtime
         .MavenDependencyPluginRuntime;
 import io.github.dependencyanalysis.runtime
@@ -36,7 +37,7 @@ class DependencyAnalyzerIT {
     private Path tempDir;
 
     /** Diagnostic collector. */
-    private DiagnosticCollector diag;
+    private DiagnosticLog diag;
 
     @BeforeAll
     static void checkMvn() throws Exception {
@@ -52,11 +53,8 @@ class DependencyAnalyzerIT {
 
     @BeforeEach
     void setUpDiag() {
-        diag = new DiagnosticCollector(
-                new PrintStream(
-                        new ByteArrayOutputStream()),
-                new PrintStream(
-                        new ByteArrayOutputStream()));
+        diag = new DiagnosticLog(new PrintStream(
+                new ByteArrayOutputStream()), LogVerbosity.INFO);
     }
 
     @Test

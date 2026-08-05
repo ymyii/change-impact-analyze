@@ -1,100 +1,118 @@
 package io.github.dependencyanalysis.diagnostic;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 
 /**
- * Immutable diagnostic task context used by concurrent analysis stages.
+ * Immutable stage, substage, and attribute identity for diagnostics.
  *
- * @param stage stage name
- * @param task task name
- * @param side repository side
- * @param module module identifier
- * @param artifact artifact identifier
- * @param path relevant path
+ * @param stage diagnostic stage
+ * @param substage diagnostic substage
+ * @param attributes structured attributes
  */
 public record DiagnosticContext(
         String stage,
-        String task,
-        String side,
-        String module,
-        String artifact,
-        String path) {
+        String substage,
+        Map<String, String> attributes) {
 
     /** Stable-key field separator. */
     private static final String KEY_SEPARATOR = "\u001f";
 
-    /**
-     * Normalizes nullable optional fields.
-     */
+    /** Normalizes nullable fields and takes an immutable attribute copy. */
     public DiagnosticContext {
-        if (stage == null || stage.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Diagnostic stage must not be blank");
+        stage = normalize(stage);
+        substage = normalize(substage);
+        final Map<String, String> normalized = new LinkedHashMap<>();
+        if (attributes != null) {
+            attributes.forEach((key, value) -> {
+                final String normalizedKey = normalize(key);
+                final String normalizedValue = normalize(value);
+                if (!normalizedKey.isBlank() && !normalizedValue.isBlank()) {
+                    normalized.put(normalizedKey, normalizedValue);
+                }
+            });
         }
-        task = normalize(task);
-        side = normalize(side);
-        module = normalize(module);
-        artifact = normalize(artifact);
-        path = normalize(path);
+        attributes = Collections.unmodifiableMap(
+                new LinkedHashMap<>(normalized));
     }
 
     /**
      * Creates a stage-only context.
      *
-     * @param stage stage name
+     * @param stageName stage name
      * @return context
      */
-    public static DiagnosticContext stage(
-            final String stage) {
-        return new DiagnosticContext(stage,
-                "", "", "", "", "");
+    public static DiagnosticContext stage(final String stageName) {
+        return new DiagnosticContext(stageName, "", Map.of());
     }
 
     /**
-     * Creates a stage and task context.
+     * Creates a stage and substage context.
      *
-     * @param stage stage name
-     * @param task task name
+     * @param stageName stage name
+     * @param substageName substage name
      * @return context
      */
-    public static DiagnosticContext task(
-            final String stage, final String task) {
-        return stage(stage).withTask(task);
+    public static DiagnosticContext of(
+            final String stageName,
+            final String substageName) {
+        return new DiagnosticContext(stageName, substageName, Map.of());
     }
 
-    /** @return copy with task */
-    public DiagnosticContext withTask(
-            final String value) {
-        return copy(value, side, module,
-                artifact, path);
+    /** @return copy with substage */
+    public DiagnosticContext withSubstage(final String value) {
+        return new DiagnosticContext(stage, value, attributes);
     }
 
-    /** @return copy with side */
-    public DiagnosticContext withSide(
-            final String value) {
-        return copy(task, value, module,
-                artifact, path);
+    /** @return copy with one attribute */
+    public DiagnosticContext with(
+            final String key,
+            final Object value) {
+        final Map<String, String> copy = new LinkedHashMap<>(attributes);
+        final String normalized = value == null ? "" : value.toString();
+        if (normalized.isBlank()) {
+            copy.remove(key);
+        } else {
+            copy.put(key, normalized);
+        }
+        return new DiagnosticContext(stage, substage, copy);
     }
 
-    /** @return copy with module */
-    public DiagnosticContext withModule(
-            final String value) {
-        return copy(task, side, value,
-                artifact, path);
+    /** @return copy with side attribute */
+    public DiagnosticContext withSide(final String value) {
+        return with("side", value);
     }
 
-    /** @return copy with artifact */
-    public DiagnosticContext withArtifact(
-            final String value) {
-        return copy(task, side, module,
-                value, path);
+    /** @return copy with reactor attribute */
+    public DiagnosticContext withReactor(final String value) {
+        return with("reactor", value);
     }
 
-    /** @return copy with path */
-    public DiagnosticContext withPath(
-            final String value) {
-        return copy(task, side, module,
-                artifact, value);
+    /** @return copy with module attribute */
+    public DiagnosticContext withModule(final String value) {
+        return with("module", value);
+    }
+
+    /** @return copy with artifact attribute */
+    public DiagnosticContext withArtifact(final String value) {
+        return with("artifact", value);
+    }
+
+    /** @return copy with path attribute */
+    public DiagnosticContext withPath(final String value) {
+        return with("path", value);
+    }
+
+    /**
+     * Returns one normalized attribute.
+     *
+     * @param key attribute key
+     * @return value or empty string
+     */
+    public String attribute(final String key) {
+        return attributes.getOrDefault(key, "");
     }
 
     /**
@@ -103,25 +121,17 @@ public record DiagnosticContext(
      * @return stable key
      */
     public String stableKey() {
-        return String.join(KEY_SEPARATOR,
-                stage, task, side, module,
-                artifact, path);
+        final StringBuilder value = new StringBuilder(stage)
+                .append(KEY_SEPARATOR).append(substage);
+        attributes.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(entry -> value.append(KEY_SEPARATOR)
+                        .append(entry.getKey()).append('=')
+                        .append(entry.getValue()));
+        return value.toString();
     }
 
-    private DiagnosticContext copy(
-            final String newTask,
-            final String newSide,
-            final String newModule,
-            final String newArtifact,
-            final String newPath) {
-        return new DiagnosticContext(stage,
-                newTask, newSide, newModule,
-                newArtifact, newPath);
-    }
-
-    private static String normalize(
-            final String value) {
-        return Objects.requireNonNullElse(value,
-                "");
+    private static String normalize(final String value) {
+        return Objects.requireNonNullElse(value, "");
     }
 }

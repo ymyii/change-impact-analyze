@@ -19,8 +19,8 @@ relations:
 code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
     desc: "Public tree command 和 aggregate status"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeConsoleReporter.java"
-    desc: "Preflight、Analysis、Summary 三阶段 Console"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeDiagnosticEmitter.java"
+    desc: "通过 DiagnosticLog 输出 Preflight、Analysis、Summary 三阶段语义"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/GitSnapshotProvider.java"
     desc: "Current checkout/local-ref snapshot"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/ReactorInventoryBuilder.java"
@@ -120,7 +120,8 @@ Maven verbose text 出现 `version managed from X` 或 `scope managed from Y` �
 
 - Command Preflight 准备 repository snapshot、Maven runtime 和完整 inventory；failure 不改动旧 Report。
 - Command Preflight 成功后重建工具拥有的输出，立即发布 assets、空 reactors directory 与 `RUNNING 0/N` Index；output root 其他文件保留。
-- Console 按 `Preflight → Analysis → Summary` 输出；Maven collection 每 10 秒输出 heartbeat，失败仅输出 raw log 最后 100 行。
+- Console 通过统一五段 Diagnostic prefix 按 `Preflight → Analysis → Summary` 输出。Reactor start/result 使用 `stage=analysis, substage=reactor`；`SUCCESS` 为 `INFO`，degraded/issue 为 `WARN`，failed 为 `ERROR`。
+- Maven collection 每个非空输出行按 level 转发；默认只显示 warning/error，`-v/-vv` 显示完整 output。Failure evidence 只保留 bounded 100-line tail。
 - 每个 reactor 顺序执行 Maven collection、module/version/cross-module analysis，并在 Analysis 阶段聚合 issue。
 - 先将 temporary reactor page 原子发布，再原子刷新 Index；Index 只链接已完整发布的 page。
 - 发布后只保留 `ReactorReportSummary` 和 Command Preflight，释放完整 `ReactorTreeResult`、occurrence 与 path 数据。

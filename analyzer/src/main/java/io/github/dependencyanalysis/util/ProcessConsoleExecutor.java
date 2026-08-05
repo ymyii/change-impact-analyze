@@ -1,8 +1,9 @@
 package io.github.dependencyanalysis.util;
 
-import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLevel;
+import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -23,6 +24,15 @@ public final class ProcessConsoleExecutor {
 
     /** Alternate Maven warning prefix. */
     private static final String WARN = "[WARN]";
+
+    /** Maven informational prefix. */
+    private static final String INFO = "[INFO]";
+
+    /** Maven debug prefix. */
+    private static final String DEBUG = "[DEBUG]";
+
+    /** Maven trace prefix. */
+    private static final String TRACE = "[TRACE]";
 
     /** Private constructor. */
     private ProcessConsoleExecutor() {
@@ -45,7 +55,7 @@ public final class ProcessConsoleExecutor {
      */
     public static ProcessConsoleResult execute(
             final ProcessBuilder builder,
-            final DiagnosticCollector diagnostics,
+            final DiagnosticLog diagnostics,
             final DiagnosticContext context,
             final int tailLimit)
             throws IOException, InterruptedException {
@@ -77,7 +87,7 @@ public final class ProcessConsoleExecutor {
 
     private static void pump(
             final Process process,
-            final DiagnosticCollector diagnostics,
+            final DiagnosticLog diagnostics,
             final DiagnosticContext context,
             final int tailLimit,
             final Deque<String> tail,
@@ -89,8 +99,11 @@ public final class ProcessConsoleExecutor {
             while ((line = reader.readLine()) != null) {
                 retain(tail, line, tailLimit);
                 if (!line.isBlank()) {
-                    diagnostics.console(context,
-                            level(line), line);
+                    final OutputClassification classification =
+                            classify(line);
+                    diagnostics.transientLog(context,
+                            classification.level(),
+                            classification.minimumVerbosity(), line);
                 }
             }
         } catch (IOException exception) {
@@ -111,13 +124,39 @@ public final class ProcessConsoleExecutor {
         tail.addLast(line);
     }
 
-    private static DiagnosticLevel level(final String line) {
+    private static OutputClassification classify(final String line) {
         if (line.contains(ERROR)) {
-            return DiagnosticLevel.ERROR;
+            return new OutputClassification(
+                    DiagnosticLevel.ERROR, LogVerbosity.INFO);
         }
         if (line.contains(WARNING) || line.contains(WARN)) {
-            return DiagnosticLevel.WARN;
+            return new OutputClassification(
+                    DiagnosticLevel.WARN, LogVerbosity.INFO);
         }
-        return DiagnosticLevel.DEBUG;
+        if (line.contains(TRACE)) {
+            return new OutputClassification(
+                    DiagnosticLevel.TRACE, LogVerbosity.DEBUG);
+        }
+        if (line.contains(DEBUG)) {
+            return new OutputClassification(
+                    DiagnosticLevel.DEBUG, LogVerbosity.DEBUG);
+        }
+        if (line.contains(INFO)) {
+            return new OutputClassification(
+                    DiagnosticLevel.INFO, LogVerbosity.DEBUG);
+        }
+        return new OutputClassification(
+                DiagnosticLevel.DEBUG, LogVerbosity.DEBUG);
+    }
+
+    /**
+     * Output level and minimum selected verbosity.
+     *
+     * @param level displayed level
+     * @param minimumVerbosity minimum selected verbosity
+     */
+    private record OutputClassification(
+            DiagnosticLevel level,
+            LogVerbosity minimumVerbosity) {
     }
 }

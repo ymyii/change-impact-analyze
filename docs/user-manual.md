@@ -47,7 +47,13 @@ Global options 可放在 subcommand 前或后：
 | `-a` | `--maven-arg=<token>` | 重复传入一个 Maven option/property token，例如 `--maven-arg=-Pprod`。 |
 | `-v` | `--verbose` | 提升日志级别；默认 `INFO`，`-v` 为 `DEBUG`，`-vv` 为 `TRACE`。可放在 subcommand 前或后。 |
 
-`--verbose --verbose` 与 `-vv` 等价。`INFO` 输出稳定的 stage、progress、warning 和 error，Maven subprocess 只透传 warning/error；`DEBUG` 额外输出 analysis option/decision、完整 Maven subprocess output，并在异常时输出 stack trace；`TRACE` 再输出 normalized path、ref 和 scope 等细粒度 evidence。并发任务使用业务 context 前缀，例如 `[front][baseline-dependency]`、`[jar-diff][pair][artifact=…]`、`[module-analysis][call-graph][module=…]`，不依赖 thread name。
+`--verbose --verbose` 与 `-vv` 等价。Analyzer 运行日志统一写入 stderr，每个物理行固定为 `[时间][日志级别][阶段][子阶段][额外信息] message`；缺失段使用 `[-]`。`INFO` 输出稳定的 stage、progress、warning 和 error，Maven subprocess 只透传 warning/error；`DEBUG` 额外输出 analysis option/decision、完整 Maven subprocess output，并在异常时逐行输出带完整 prefix 的 stack trace；`TRACE` 再输出 normalized path、ref、scope，以及启动后立即采样、随后每 10 秒采样的 Runtime Metrics。Picocli help/usage、参数解析错误和第三方库直接写入 stderr 的内容不保证五段 prefix。
+
+`-vv` Runtime Metrics 包含 heap `used/committed/max` MiB，以及当前 Analyzer-owned `front-preparation`、`jar-diff`、`module-analysis`、`code-comparison` thread pool 的 core/max/size/active/queued/completed/tasks 和 lifecycle 状态。`-v` 不创建 metrics scheduler，也不输出 metrics。Runtime Metrics、Maven output、Preflight evidence/fallback 和 stack trace 只进入 Console，不进入 HTML Diagnostics；HTML Diagnostics 与 Console 对 retained event 使用相同 timestamp 和 prefix。
+
+```text
+[2026-08-05T14:30:01.123+08:00][INFO][analysis][reactor][reactor=root;progress=1/2;status=SUCCESS] Maven collection completed
+```
 
 ## 3. Maven Runtime
 
@@ -424,7 +430,7 @@ JAR 内置 `maven-dependency-plugin:3.6.1` 及其完整传递依赖 repository�
 
 ### 7.1 Console 进度
 
-`tree` Console 固定为 `Preflight → Analysis → Summary`。Analysis 中输出每个 reactor 的 collection、analysis、page publish 和 checkpoint；Maven collection 超过 10 秒后每 10 秒输出 heartbeat。成功不输出 raw Maven log，失败只输出最后 100 行。Summary 只包含 `status` 与 `report`。
+`tree` Console 固定为 `Preflight → Analysis → Summary`，全部使用五段 Diagnostic prefix。Analysis 中每个 reactor 的 start/result 使用 `stage=analysis, substage=reactor`；`SUCCESS` 为 `INFO`，degraded/issue 为 `WARN`，failed 为 `ERROR`。Maven collection 默认只转发 warning/error，`-v/-vv` 转发全部非空行；failure evidence 保留最后 100 行。Summary 通过第五段输出 `status` 与 `report`。
 
 ## 8. Preflight Status、Decision 与 Exit Code
 
@@ -463,7 +469,7 @@ Exit code：
 
 ### Call Graph 长时间运行
 
-Vanilla 0-1-CFA 对大型 Module 可能运行较久。每 10 秒的 `WALA heartbeat` 包含 elapsed、heap 和 progress units。默认无 timeout；设置正数 `--call-graph-timeout-seconds` 后，仅超时 Module fail，其他 Module 继续并发布 partial Report。
+Vanilla 0-1-CFA 对大型 Module 可能运行较久。WALA monitor 只提供 cooperative timeout/cancel，不创建后台 scheduler，也不输出 progress event。默认无 timeout；设置正数 `--call-graph-timeout-seconds` 后，仅超时 Module fail，其他 Module 继续并发布 partial Report。需要观察资源时使用 `-vv`：command-scoped Runtime Metrics 每 10 秒输出 heap 和 Analyzer-owned thread pool 状态；它不代表 WALA internal progress。
 
 ### Duplicate class warning
 

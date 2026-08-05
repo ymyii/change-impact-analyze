@@ -26,9 +26,12 @@ import io.github.dependencyanalysis.dependency.DependencyDiffEngine;
 import io.github.dependencyanalysis.dependency.DependencyNode;
 import io.github.dependencyanalysis.dependency.ModuleDependencyTree;
 import io.github.dependencyanalysis.dependency.ResolvedArtifact;
-import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.jar.JarLocationResult;
+import io.github.dependencyanalysis.metrics.ManagedExecutorRegistry;
+import io.github.dependencyanalysis.metrics.ManagedExecutorRegistry
+        .ManagedExecutor;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 import io.github.dependencyanalysis.runtime.MavenDependencyPluginRuntime;
 import io.github.dependencyanalysis.runtime.MavenRuntimeDescriptor;
@@ -51,7 +54,6 @@ import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
@@ -62,7 +64,10 @@ final class PerModuleImpactPipeline {
     private static final long PREPARATION_SHUTDOWN_SECONDS = 30L;
 
     /** Diagnostics. */
-    private final DiagnosticCollector diagnostics;
+    private final DiagnosticLog diagnostics;
+
+    /** Analyzer-owned thread pool registry. */
+    private final ManagedExecutorRegistry executors;
 
     /** Included bytecode changes. */
     private final Set<ChangePointKind> kinds;
@@ -103,7 +108,7 @@ final class PerModuleImpactPipeline {
      * @param options runtime controls and entrypoint selection
      */
     PerModuleImpactPipeline(
-            final DiagnosticCollector collector,
+            final DiagnosticLog collector,
             final Set<ChangePointKind> includedKinds,
             final MavenRuntimeDescriptor runtime,
             final MavenDependencyPluginRuntime dependencyPlugin,
@@ -111,6 +116,7 @@ final class PerModuleImpactPipeline {
             final JavaRuntimeDescriptor targetJava,
             final PerModulePipelineOptions options) {
         diagnostics = Objects.requireNonNull(collector, "collector");
+        executors = Objects.requireNonNull(options.executors(), "executors");
         kinds = Set.copyOf(includedKinds);
         mavenRuntime = Objects.requireNonNull(runtime, "mavenRuntime");
         pluginRuntime = Objects.requireNonNull(
@@ -245,7 +251,9 @@ final class PerModuleImpactPipeline {
             return new CodeEvidenceResult(modules, 0);
         }
         final int workers = Math.min(analysisParallelism, requests.size());
-        final ExecutorService executor = Executors.newFixedThreadPool(workers);
+        final ManagedExecutor managed = executors.fixed(
+                "code-comparison", workers);
+        final ExecutorService executor = managed.executor();
         final List<Future<PhysicalCodeEvidence>> futures = new ArrayList<>();
         for (Map.Entry<String, List<BoundChangePoint>> request
                 : requests.entrySet().stream()
@@ -267,7 +275,7 @@ final class PerModuleImpactPipeline {
                 }
             }
         } finally {
-            executor.shutdownNow();
+            managed.close();
         }
         final List<ModuleAnalysisResult> enriched = new ArrayList<>();
         for (ModuleAnalysisResult module : modules) {
@@ -288,7 +296,7 @@ final class PerModuleImpactPipeline {
 
     private PhysicalCodeEvidence codeComparison(
             final String key, final BoundChangePoint point) {
-        final DiagnosticContext context = DiagnosticContext.task(
+        final DiagnosticContext context = DiagnosticContext.of(
                 "code-comparison", "decompile")
                 .withModule(point.getDependencyUpgradeKey().getModuleId()
                         .stableKey())
@@ -347,7 +355,7 @@ final class PerModuleImpactPipeline {
                 continue;
             }
             relevant++;
-            final DiagnosticContext context = DiagnosticContext.task(
+            final DiagnosticContext context = DiagnosticContext.of(
                     "module-analysis", "entrypoint-selection").withModule(
                     unit.getModuleId().stableKey());
             final EntrypointSelectionMetrics metrics = scanner.scan(
@@ -372,7 +380,9 @@ final class PerModuleImpactPipeline {
     private FrontPreparation prepareFront(
             final ReactorAnalysisScope baselineScope,
             final ReactorAnalysisScope targetScope) throws Exception {
-        final ExecutorService executor = Executors.newFixedThreadPool(2);
+        final ManagedExecutor managed = executors.fixed(
+                "front-preparation", 2);
+        final ExecutorService executor = managed.executor();
         final CompletionService<PreparationBranch> completion =
                 new ExecutorCompletionService<>(executor);
         final List<Future<PreparationBranch>> futures = new ArrayList<>();
@@ -408,8 +418,9 @@ final class PerModuleImpactPipeline {
             }
             throw new IllegalStateException("Preparation failed", cause);
         } finally {
-            executor.shutdownNow();
+            managed.shutdownNow();
             awaitPreparationShutdown(executor);
+            managed.close();
         }
         if (baseline == null || targetBuild == null) {
             throw new IllegalStateException(
@@ -472,11 +483,11 @@ final class PerModuleImpactPipeline {
                 .withPluginRuntime(pluginRuntime)
                 .withProjectArguments(scope.getProjectArguments())
                 .withDiagnosticContext("baseline".equals(side)
-                        ? DiagnosticContext.task(
+                        ? DiagnosticContext.of(
                         "front", "baseline-dependency")
                         .withSide(side)
                         .withPath(scope.getReactorRoot().toString())
-                        : DiagnosticContext.task(
+                        : DiagnosticContext.of(
                         "dependency", "target-dependency")
                         .withSide(side)
                         .withPath(scope.getReactorRoot().toString()));
@@ -490,7 +501,7 @@ final class PerModuleImpactPipeline {
                 diagnostics, javaHome, mavenRuntime.getExecutable(),
                 mavenArguments)
                 .withProjectArguments(scope.getProjectArguments())
-                .withDiagnosticContext(DiagnosticContext.task(
+                .withDiagnosticContext(DiagnosticContext.of(
                         "front", "target-build")
                         .withSide("target")
                         .withPath(scope.getReactorRoot().toString()))
@@ -595,7 +606,8 @@ final class PerModuleImpactPipeline {
         }
         final int configuredWorkers = jarDiffWorkerLimit();
         final int workers = Math.min(groups.size(), configuredWorkers);
-        final ExecutorService executor = Executors.newFixedThreadPool(workers);
+        final ManagedExecutor managed = executors.fixed("jar-diff", workers);
+        final ExecutorService executor = managed.executor();
         final List<Future<PairDiff>> futures = new ArrayList<>();
         for (Map.Entry<String, List<DependencyUpgradeKey>> entry
                 : groups.entrySet().stream()
@@ -632,7 +644,7 @@ final class PerModuleImpactPipeline {
                 }
             }
         } finally {
-            executor.shutdownNow();
+            managed.close();
         }
         final Map<String, List<BoundChangePoint>> byModule =
                 new LinkedHashMap<>();
@@ -671,7 +683,7 @@ final class PerModuleImpactPipeline {
                 + ":" + upgrade.getOldArtifact().getArtifactId()
                 + ":" + upgrade.getOldArtifact().getVersion()
                 + "->" + upgrade.getNewArtifact().getVersion();
-        final DiagnosticContext context = DiagnosticContext.task(
+        final DiagnosticContext context = DiagnosticContext.of(
                 "jar-diff", "pair").withArtifact(artifact);
         diagnostics.debug(context, "JAR comparison started");
         diagnostics.trace(context, "old=" + upgrade.getOldPath()
@@ -807,8 +819,9 @@ final class PerModuleImpactPipeline {
         if (active.isEmpty()) {
             return result.stream().sorted(moduleResultComparator()).toList();
         }
-        final ExecutorService executor = Executors.newFixedThreadPool(
-                Math.max(1, actualParallelism));
+        final ManagedExecutor managed = executors.fixed(
+                "module-analysis", Math.max(1, actualParallelism));
+        final ExecutorService executor = managed.executor();
         final List<Future<ModuleAnalysisResult>> futures = new ArrayList<>();
         for (ModuleAnalysisUnit unit : active) {
             futures.add(executor.submit(() -> analyzeModuleTask(
@@ -826,7 +839,7 @@ final class PerModuleImpactPipeline {
                 }
             }
         } finally {
-            executor.shutdownNow();
+            managed.close();
         }
         result.sort(moduleResultComparator());
         return List.copyOf(result);
@@ -835,7 +848,7 @@ final class PerModuleImpactPipeline {
     private ModuleAnalysisResult analyzeModuleTask(
             final ModuleAnalysisUnit unit,
             final boolean diffFailed) {
-        final DiagnosticContext context = DiagnosticContext.task(
+        final DiagnosticContext context = DiagnosticContext.of(
                 "module-analysis", "module").withModule(
                 unit.getModuleId().stableKey());
         diagnostics.startStage(context);
@@ -979,7 +992,7 @@ final class PerModuleImpactPipeline {
             final ModuleAnalysisUnit unit,
             final ScopeValidationResult result) {
         for (ScopeValidationWarning warning : result.warnings()) {
-            diagnostics.warn(DiagnosticContext.task(
+            diagnostics.warn(DiagnosticContext.of(
                             "scope-validation", "module")
                             .withModule(unit.getModuleId().stableKey())
                             .withArtifact(warning.artifact()
@@ -996,7 +1009,7 @@ final class PerModuleImpactPipeline {
             final RuntimeException failure,
             final long start,
             final Map<String, Long> completedStages) {
-        diagnostics.error(DiagnosticContext.task(
+        diagnostics.error(DiagnosticContext.of(
                         "module-analysis", "module")
                         .withModule(unit.getModuleId().stableKey()),
                 unit.getModuleId() + ": " + failure.getMessage());

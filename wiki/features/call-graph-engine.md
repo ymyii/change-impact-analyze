@@ -9,6 +9,8 @@ relations:
 code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/ModuleCallGraphEngine.java"
     desc: "per-Module Vanilla 0-1-CFA builder"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphTimeoutMonitor.java"
+    desc: "无后台线程的 WALA cooperative timeout/cancel monitor"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/ModuleCallGraphSession.java"
     desc: "live graph、CHA、cache、ownership 与 metrics"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/DeterministicSubtypesEntrypoint.java"
@@ -85,7 +87,8 @@ MethodHandles.analyzeMethodHandles(options, builder);
 - Factory 已建立 selector/bypass 配置，不重复设置。
 - `AnalysisCacheImpl` 显式使用 `SSAOptions.defaultOptions()`。
 - `--call-graph-timeout-seconds` 从实际 Module build 开始计时，不含 pool queue time。
-- Timeout 只失败当前 Module；WALA fixed-point 不输出 partial graph。
+- `CallGraphTimeoutMonitor` 仅实现 WALA `IProgressMonitor` cooperative cancel，并通过 `System.nanoTime()` 判断 deadline；不创建 scheduler，也不采集 heap/progress/work-unit event。
+- `0` 表示无限等待；正数 timeout 和显式 cancel 都在 WALA 检查 `isCanceled()` 时生效。Timeout 只失败当前 Module；WALA fixed-point 不输出 partial graph。
 
 ## JDK Exclusions
 
@@ -110,6 +113,7 @@ MethodHandles.analyzeMethodHandles(options, builder);
 - Vanilla 0-1-CFA、`FULL`、MethodHandle extension 可由 fixture 验证。
 - 不同 Module 的 classpath/version、CHA、graph、cache 相互隔离。
 - WALA build/query 单线程；Module pool 并发受 `--analysis-parallelism` 限制。
+- Call Graph monitor 不产生后台线程或 Diagnostic event；运行期资源观察由 command-scoped TRACE Runtime Metrics 承担。
 - Report 记录 selector boundary、matched classes、scope、exclusions、entrypoints、parameter candidates、nodes、edges、contexts、elapsed。
 - Given 外部 dependency 含 excluded JDK reference，when Module 完成分析，then Report 标记 `INCONCLUSIVE`、保留 artifact-level warning，并展示实际 Call Graph 结果。
 - Given `PROJECT` 或 `REACTOR_DEPENDENCY` 含同类 reference，when 执行 `scope-validation`，then Module 在 Call Graph 前以 `FAILED_SCOPE_VALIDATION` 终止。

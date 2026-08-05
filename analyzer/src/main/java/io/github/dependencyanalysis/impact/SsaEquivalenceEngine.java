@@ -19,7 +19,7 @@ import io.github.dependencyanalysis.callgraph.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.OwnershipFilteredModule;
 import io.github.dependencyanalysis.callgraph.SpringBackendJdkExclusions;
 import io.github.dependencyanalysis.dependency.ResolvedArtifact;
-import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 
 import java.io.IOException;
@@ -39,7 +39,7 @@ import java.util.jar.JarFile;
 public final class SsaEquivalenceEngine {
 
     /** Diagnostics. */
-    private final DiagnosticCollector diagnostics;
+    private final DiagnosticLog diagnostics;
 
     /** Target JDK. */
     private final JavaRuntimeDescriptor javaRuntime;
@@ -55,7 +55,7 @@ public final class SsaEquivalenceEngine {
      * @param runtime target JDK 8
      */
     public SsaEquivalenceEngine(
-            final DiagnosticCollector collector,
+            final DiagnosticLog collector,
             final JavaRuntimeDescriptor runtime) {
         diagnostics = Objects.requireNonNull(collector, "collector");
         javaRuntime = Objects.requireNonNull(runtime, "runtime");

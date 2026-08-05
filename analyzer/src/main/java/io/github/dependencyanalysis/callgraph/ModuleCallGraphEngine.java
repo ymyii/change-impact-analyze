@@ -20,7 +20,7 @@ import com.ibm.wala.ssa.SSAOptions;
 import com.ibm.wala.types.ClassLoaderReference;
 
 import io.github.dependencyanalysis.dependency.ResolvedArtifact;
-import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 import io.github.dependencyanalysis.impact.ModuleAnalysisUnit;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
@@ -42,7 +42,7 @@ public final class ModuleCallGraphEngine {
     private static final int MAX_DUPLICATE_EXAMPLES = 3;
 
     /** Diagnostics. */
-    private final DiagnosticCollector diagnostics;
+    private final DiagnosticLog diagnostics;
 
     /** Target JDK 8. */
     private final JavaRuntimeDescriptor javaRuntime;
@@ -57,7 +57,7 @@ public final class ModuleCallGraphEngine {
      * @param runtime target JDK runtime
      */
     public ModuleCallGraphEngine(
-            final DiagnosticCollector collector,
+            final DiagnosticLog collector,
             final JavaRuntimeDescriptor runtime) {
         this(collector, runtime, EntrypointSelection.allProjectClasses());
     }
@@ -70,7 +70,7 @@ public final class ModuleCallGraphEngine {
      * @param selection entrypoint class selection
      */
     public ModuleCallGraphEngine(
-            final DiagnosticCollector collector,
+            final DiagnosticLog collector,
             final JavaRuntimeDescriptor runtime,
             final EntrypointSelection selection) {
         diagnostics = Objects.requireNonNull(collector, "collector");
@@ -88,7 +88,7 @@ public final class ModuleCallGraphEngine {
     public ModuleCallGraphSession build(
             final ModuleAnalysisUnit unit,
             final long timeoutSeconds) {
-        final DiagnosticContext context = DiagnosticContext.task(
+        final DiagnosticContext context = DiagnosticContext.of(
                 "module-analysis", "call-graph").withModule(
                 unit.getModuleId().stableKey());
         diagnostics.startStage(context);
@@ -127,23 +127,18 @@ public final class ModuleCallGraphEngine {
                         "Module Call Graph timed out after "
                                 + timeoutSeconds + " seconds");
             }
-            try (CallGraphProgressMonitor monitor =
-                         new CallGraphProgressMonitor(
-                                 diagnostics, context, remaining,
-                                 Duration.ofSeconds(
-                                         CallGraphProgressMonitor
-                                                 .HEARTBEAT_SECONDS))) {
-                try {
-                    graph = builder.makeCallGraph(options, monitor);
-                } catch (Exception exception) {
-                    if (monitor.isTimedOut()) {
-                        throw new CallGraphException(
-                                "Module Call Graph timed out after "
-                                        + timeoutSeconds + " seconds",
-                                exception);
-                    }
-                    throw exception;
+            final CallGraphTimeoutMonitor monitor =
+                    new CallGraphTimeoutMonitor(remaining);
+            try {
+                graph = builder.makeCallGraph(options, monitor);
+            } catch (Exception exception) {
+                if (monitor.isTimedOut()) {
+                    throw new CallGraphException(
+                            "Module Call Graph timed out after "
+                                    + timeoutSeconds + " seconds",
+                            exception);
                 }
+                throw exception;
             }
             final CallGraphStats stats = new CallGraphStats(
                     graph.getNumberOfNodes(), edgeCount(graph),

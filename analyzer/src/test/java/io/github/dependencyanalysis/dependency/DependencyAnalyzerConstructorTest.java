@@ -1,7 +1,7 @@
 package io.github.dependencyanalysis.dependency;
 
 import io.github.dependencyanalysis
-        .diagnostic.DiagnosticCollector;
+        .diagnostic.DiagnosticLog;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -24,8 +24,7 @@ class DependencyAnalyzerConstructorTest {
 
     @Test
     void fourArgConstructorWorks() {
-        final DiagnosticCollector diag =
-                new DiagnosticCollector();
+        final DiagnosticLog diag = new DiagnosticLog();
         final DependencyAnalyzer analyzer =
                 new DependencyAnalyzer(
                         "test",
@@ -37,8 +36,7 @@ class DependencyAnalyzerConstructorTest {
 
     @Test
     void fiveArgConstructorWithNullWorks() {
-        final DiagnosticCollector diag =
-                new DiagnosticCollector();
+        final DiagnosticLog diag = new DiagnosticLog();
         final DependencyAnalyzer analyzer =
                 new DependencyAnalyzer(
                         "test",
@@ -51,8 +49,7 @@ class DependencyAnalyzerConstructorTest {
 
     @Test
     void fiveArgConstructorWithJavaHomeWorks() {
-        final DiagnosticCollector diag =
-                new DiagnosticCollector();
+        final DiagnosticLog diag = new DiagnosticLog();
         final File javaHome =
                 new File("/tmp/java");
         final DependencyAnalyzer analyzer =

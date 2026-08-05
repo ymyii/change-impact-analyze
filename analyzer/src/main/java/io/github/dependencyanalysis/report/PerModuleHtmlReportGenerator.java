@@ -8,6 +8,7 @@ import io.github.dependencyanalysis.callgraph.DuplicateClassResolution;
 import io.github.dependencyanalysis.callgraph.MethodId;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.diagnostic.DiagnosticEvent;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLogFormatter;
 import io.github.dependencyanalysis.impact.AnalysisRunResult;
 import io.github.dependencyanalysis.impact.BoundChangePoint;
 import io.github.dependencyanalysis.impact.CodeComparisonEvidence;
@@ -47,6 +48,10 @@ import java.util.UUID;
 
 /** Atomically publishes the English multi-page Impact HTML report. */
 public final class PerModuleHtmlReportGenerator {
+
+    /** Shared Console/Report Diagnostic prefix formatter. */
+    private final DiagnosticLogFormatter diagnosticFormatter =
+            new DiagnosticLogFormatter();
 
     /** SHA-256 algorithm. */
     private static final String SHA_256 = "SHA-256";
@@ -976,30 +981,11 @@ public final class PerModuleHtmlReportGenerator {
         body.append("<ul>");
         for (DiagnosticEvent event : events) {
             body.append("<li><code>")
-                    .append(escape(diagnosticPrefix(event)))
+                    .append(escape(diagnosticFormatter.formatPrefix(event)))
                     .append("</code> ").append(escape(event.getMessage()))
                     .append("</li>");
         }
         body.append("</ul>");
-    }
-
-    private String diagnosticPrefix(final DiagnosticEvent event) {
-        final StringBuilder value = new StringBuilder("[")
-                .append(event.getStage()).append(']');
-        appendContext(value, "", event.getTask());
-        appendContext(value, "side=", event.getSide());
-        appendContext(value, "module=", event.getModule());
-        appendContext(value, "artifact=", event.getArtifact());
-        return value.toString();
-    }
-
-    private void appendContext(
-            final StringBuilder value,
-            final String name,
-            final String field) {
-        if (field != null && !field.isBlank()) {
-            value.append('[').append(name).append(field).append(']');
-        }
     }
 
     private void appendStageMetrics(

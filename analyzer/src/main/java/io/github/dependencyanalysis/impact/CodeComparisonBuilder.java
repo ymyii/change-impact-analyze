@@ -5,7 +5,7 @@ import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.bytecode.DecompiledMethod;
 import io.github.dependencyanalysis.bytecode.MethodBodyDecompiler;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
-import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 
 import org.objectweb.asm.ClassReader;
@@ -42,7 +42,7 @@ final class CodeComparisonBuilder {
      *
      * @param diagnostics diagnostic collector
      */
-    CodeComparisonBuilder(final DiagnosticCollector diagnostics) {
+    CodeComparisonBuilder(final DiagnosticLog diagnostics) {
         decompiler = new MethodBodyDecompiler(diagnostics);
     }
 
@@ -53,7 +53,7 @@ final class CodeComparisonBuilder {
      * @param runtime target JDK 8
      */
     CodeComparisonBuilder(
-            final DiagnosticCollector diagnostics,
+            final DiagnosticLog diagnostics,
             final JavaRuntimeDescriptor runtime) {
         final java.util.ArrayList<Path> libraries =
                 new java.util.ArrayList<>(runtime.getBootClassPath());

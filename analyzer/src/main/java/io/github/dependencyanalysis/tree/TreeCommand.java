@@ -3,7 +3,11 @@ package io.github.dependencyanalysis.tree;
 import io.github.dependencyanalysis.cli
         .DependencyAnalyzerCli;
 import io.github.dependencyanalysis.diagnostic
-        .LogVerbosity;
+        .DiagnosticContext;
+import io.github.dependencyanalysis.diagnostic
+        .DiagnosticLog;
+import io.github.dependencyanalysis.metrics
+        .RuntimeMetricsSession;
 import io.github.dependencyanalysis.preflight
         .PreflightContext;
 import io.github.dependencyanalysis.preflight
@@ -71,15 +75,23 @@ public final class TreeCommand
 
     @Override
     public Integer call() {
+        final DiagnosticLog diagnostics = new DiagnosticLog(
+                System.err, root.getLogVerbosity());
+        try (RuntimeMetricsSession ignored =
+                     RuntimeMetricsSession.start(diagnostics)) {
+            return execute(diagnostics);
+        }
+    }
+
+    private Integer execute(final DiagnosticLog diagnostics) {
         if (path == null) {
             path = new File(System.getProperty(
                     "user.dir"));
         }
         final Set<String> includedScopes =
                 parseScopes(scopes);
-        final TreeConsoleReporter console =
-                new TreeConsoleReporter(System.err,
-                        root.getLogVerbosity());
+        final TreeDiagnosticEmitter console =
+                new TreeDiagnosticEmitter(diagnostics);
         console.debug("command=tree; verbosity="
                 + root.getLogVerbosity());
         console.trace("path=" + path.toPath().toAbsolutePath().normalize()
@@ -94,7 +106,7 @@ public final class TreeCommand
             final TreePreflightService preflightService =
                     new TreePreflightService(
                             root, path, ref, output,
-                            includedScopes);
+                            includedScopes, diagnostics);
             final PreflightReport preflight = preflightService
                     .runCommandChecks(context,
                             pluginVersion);
@@ -136,14 +148,10 @@ public final class TreeCommand
             for (ReactorDescriptor descriptor
                     : inventory.getReactors()) {
                 index++;
-                final ReactorTreeResult result;
-                try (TreeConsoleReporter.Heartbeat ignored =
-                             console.reactorStarted(index,
-                                     totalReactors,
-                                     descriptor.getId())) {
-                    result = analyzeReactor(context,
-                            descriptor, includedScopes);
-                }
+                console.reactorStarted(index, totalReactors,
+                        descriptor.getId());
+                final ReactorTreeResult result = analyzeReactor(
+                        context, descriptor, includedScopes, diagnostics);
                 reportSession.publish(result);
                 console.reactorCompleted(index,
                         totalReactors, result);
@@ -168,10 +176,11 @@ public final class TreeCommand
             console.summary(new TreeRunSummary(
                     TreeReportState.FAILED,
                     reportPath()));
-            if (root.getLogVerbosity().includes(
-                    LogVerbosity.DEBUG)) {
-                exception.printStackTrace(System.err);
-            }
+            diagnostics.error(
+                    DiagnosticContext.of("tree", "failure"),
+                    "Tree command failed: " + failureMessage(exception));
+            diagnostics.transientException(
+                    DiagnosticContext.stage("tree"), exception);
             return 2;
         }
     }
@@ -179,7 +188,8 @@ public final class TreeCommand
     private ReactorTreeResult analyzeReactor(
             final PreflightContext context,
             final ReactorDescriptor descriptor,
-            final Set<String> includedScopes) {
+            final Set<String> includedScopes,
+            final DiagnosticLog diagnostics) {
         final RepositorySnapshot snapshot = context.get(
                 TreePreflightService.SNAPSHOT,
                 RepositorySnapshot.class);
@@ -197,7 +207,7 @@ public final class TreeCommand
                             .getViolations()));
         }
         try {
-            return new TreeDependencyCollector().collect(
+            return new TreeDependencyCollector(diagnostics).collect(
                     snapshot,
                     context.get(TreePreflightService.INVENTORY,
                             RepositoryInventory.class),

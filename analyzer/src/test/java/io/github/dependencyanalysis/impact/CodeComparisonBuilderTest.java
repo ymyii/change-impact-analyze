@@ -4,7 +4,8 @@ import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.DependencyScope;
-import io.github.dependencyanalysis.diagnostic.DiagnosticCollector;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
+import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -106,7 +107,8 @@ class CodeComparisonBuilderTest {
 
     private CodeComparisonBuilder builder() {
         final PrintStream sink = new PrintStream(new ByteArrayOutputStream());
-        return new CodeComparisonBuilder(new DiagnosticCollector(sink, sink));
+        return new CodeComparisonBuilder(
+                new DiagnosticLog(sink, LogVerbosity.INFO));
     }
 
     private BoundChangePoint bound(
