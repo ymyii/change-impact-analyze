@@ -52,7 +52,7 @@ class ModuleClasspathOrderTest {
                 .containsExactly(reactorZ.diffKey(), reactorA.diffKey());
         assertThat(ModuleClasspathOrder.externalArtifacts(
                 analysis, tree, Set.of(reactorA, reactorZ)))
-                .containsExactly(z, a);
+                .containsExactly(z.getArtifact(), a.getArtifact());
     }
 
     private DependencyNode node(

@@ -11,13 +11,12 @@ import java.io.InputStream;
 import java.nio.file.Path;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 
 /**
  * Indexes all class files in a jar
@@ -39,88 +38,35 @@ final class JarClassIndexer {
     }
 
     /**
-     * Indexes all classes in the jar.
+     * Indexes classes through an existing repository-owned JAR handle.
      *
-     * @param jar path to jar file
-     * @return map of internal name to
-     *  ClassInfo
-     * @throws BytecodeDiffException
-     *  if jar is corrupt or a class
-     *  cannot be parsed
+     * @param jar open JAR
+     * @return indexed classes
+     * @throws BytecodeDiffException on unreadable or invalid bytecode
      */
-    static Map<String, ClassInfo> index(
-            final Path jar)
+    static Map<String, ClassInfo> index(final JarFile jar)
             throws BytecodeDiffException {
-        Objects.requireNonNull(
-                jar, "jar");
-        final Map<String, ClassInfo> map =
-                new HashMap<>();
-        try (ZipFile zip =
-                     new ZipFile(
-                             jar.toFile())) {
-            final Enumeration<? extends ZipEntry>
-                    entries = zip.entries();
-            while (entries.hasMoreElements()) {
-                final ZipEntry entry =
-                        entries.nextElement();
-                if (entry.isDirectory()) {
-                    continue;
+        Objects.requireNonNull(jar, "jar");
+        final Path diagnosticPath = Path.of(jar.getName());
+        final Map<String, ClassInfo> map = new HashMap<>();
+        try {
+            final List<JarEntry> entries = jar.stream()
+                    .filter(entry -> !entry.isDirectory())
+                    .filter(entry -> entry.getName().endsWith(SUFFIX))
+                    .filter(entry -> !MODULE.equals(entry.getName()))
+                    .toList();
+            for (JarEntry entry : entries) {
+                try (InputStream input = jar.getInputStream(entry)) {
+                    final ClassInfo info = readClass(input.readAllBytes(),
+                            diagnosticPath, entry.getName());
+                    map.put(info.getInternalName(), info);
                 }
-                final String name =
-                        entry.getName();
-                if (!name.endsWith(SUFFIX)) {
-                    continue;
-                }
-                if (MODULE.equals(name)) {
-                    continue;
-                }
-                final ClassInfo info =
-                        indexEntry(
-                                zip, entry,
-                                jar, name);
-                map.put(
-                        info.getInternalName(),
-                        info);
             }
-        } catch (IOException e) {
-            throw new BytecodeDiffException(
-                    jar, null,
-                    "Failed to read jar",
-                    e);
+        } catch (IOException exception) {
+            throw new BytecodeDiffException(diagnosticPath, null,
+                    "Failed to read jar", exception);
         }
         return map;
-    }
-
-    /**
-     * Indexes a single class entry.
-     *
-     * @param zip   zip file
-     * @param entry zip entry
-     * @param jar   jar path for errors
-     * @param name  entry name
-     * @return class info
-     * @throws BytecodeDiffException
-     *  if class cannot be parsed
-     */
-    private static ClassInfo indexEntry(
-            final ZipFile zip,
-            final ZipEntry entry,
-            final Path jar,
-            final String name)
-            throws BytecodeDiffException {
-        try (InputStream in =
-                     zip.getInputStream(
-                             entry)) {
-            final byte[] bytes =
-                    in.readAllBytes();
-            return readClass(
-                    bytes, jar, name);
-        } catch (IOException e) {
-            throw new BytecodeDiffException(
-                    jar, name,
-                    "Failed to read entry",
-                    e);
-        }
     }
 
     /**

@@ -11,6 +11,7 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.jar.JarFile;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -37,7 +38,7 @@ class JarClassIndexerTest {
         final Path jar = createJar(
                 "test.jar", cls);
         final Map<String, ClassInfo> idx =
-                JarClassIndexer.index(jar);
+                index(jar);
         assertThat(idx).containsKey("com/Foo");
         final ClassInfo info =
                 idx.get("com/Foo");
@@ -73,7 +74,7 @@ class JarClassIndexerTest {
             zos.closeEntry();
         }
         final Map<String, ClassInfo> idx =
-                JarClassIndexer.index(jar);
+                index(jar);
         assertThat(idx)
                 .doesNotContainKey(
                         "module-info");
@@ -110,7 +111,7 @@ class JarClassIndexerTest {
                 "test.jar",
                 cw.toByteArray());
         final Map<String, ClassInfo> idx =
-                JarClassIndexer.index(jar);
+                index(jar);
         final ClassInfo info =
                 idx.get("com/Foo");
         assertThat(info.getMethods())
@@ -149,7 +150,7 @@ class JarClassIndexerTest {
                 "test.jar",
                 cw.toByteArray());
         final Map<String, ClassInfo> idx =
-                JarClassIndexer.index(jar);
+                index(jar);
         final ClassInfo info =
                 idx.get("com/Foo");
         assertThat(info.getMethods()
@@ -165,11 +166,9 @@ class JarClassIndexerTest {
         Files.write(jar,
                 "not a jar".getBytes());
         assertThatThrownBy(
-                () -> JarClassIndexer
-                        .index(jar))
+                () -> index(jar))
                 .isInstanceOf(
-                        BytecodeDiffException
-                                .class);
+                        IOException.class);
     }
 
     @Test
@@ -178,8 +177,15 @@ class JarClassIndexerTest {
         final Path jar = createJar(
                 "empty.jar");
         final Map<String, ClassInfo> idx =
-                JarClassIndexer.index(jar);
+                index(jar);
         assertThat(idx).isEmpty();
+    }
+
+    private Map<String, ClassInfo> index(final Path jar)
+            throws Exception {
+        try (JarFile handle = new JarFile(jar.toFile(), false)) {
+            return JarClassIndexer.index(handle);
+        }
     }
 
     /**

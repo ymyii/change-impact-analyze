@@ -1,15 +1,18 @@
 package io.github.dependencyanalysis.callgraph;
 
 import com.ibm.wala.classLoader.IClass;
+import com.ibm.wala.classLoader.SyntheticClass;
 import com.ibm.wala.ipa.callgraph.AnalysisScope;
+import com.ibm.wala.ipa.callgraph.CGNode;
 import com.ibm.wala.ipa.callgraph.IAnalysisCacheView;
 import com.ibm.wala.ipa.cha.IClassHierarchy;
 import com.ibm.wala.types.ClassLoaderReference;
 
-import io.github.dependencyanalysis.impact.ServiceLoaderOverlay;
-
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+
+import io.github.dependencyanalysis.impact.StructuralScanResult;
 
 /** Live per-module WALA graph and its ownership/metric context. */
 public final class ModuleCallGraphSession {
@@ -35,9 +38,23 @@ public final class ModuleCallGraphSession {
     /** Entrypoint selection metrics. */
     private final EntrypointSelectionMetrics entrypointMetrics;
 
-    /** Conservative ServiceLoader overlay. */
-    private ServiceLoaderOverlay serviceLoaderOverlay =
-            ServiceLoaderOverlay.empty();
+    /** Reachable invokedynamic evidence captured during fixed point. */
+    private final DynamicCallEvidenceIndex dynamicEvidence;
+
+    /** Stable fixed-point model limitations. */
+    private final List<String> modelLimitations;
+
+    /** Stable invokedynamic limitations. */
+    private final List<String> dynamicLimitations;
+
+    /** Stable ServiceLoader limitations. */
+    private final List<String> serviceLoaderLimitations;
+
+    /** ServiceLoader fixed-point metadata. */
+    private final ServiceLoaderFixedPointModel serviceLoaderModel;
+
+    /** Structural metadata indexed before Call Graph construction. */
+    private final StructuralScanResult structuralScan;
 
     /**
      * Creates a live module Call Graph session.
@@ -47,8 +64,7 @@ public final class ModuleCallGraphSession {
      * @param analysisScope WALA scope
      * @param ownershipIndex binary-name ownership
      * @param cache target-side SSA cache
-     * @param graphStats build metrics
-     * @param selectionMetrics entrypoint construction metrics
+     * @param metadata graph metrics and fixed-point model output
      */
     ModuleCallGraphSession(
             final com.ibm.wala.ipa.callgraph.CallGraph callGraph,
@@ -56,16 +72,25 @@ public final class ModuleCallGraphSession {
             final AnalysisScope analysisScope,
             final ClassOwnershipIndex ownershipIndex,
             final IAnalysisCacheView cache,
-            final CallGraphStats graphStats,
-            final EntrypointSelectionMetrics selectionMetrics) {
+            final ModuleCallGraphMetadata metadata) {
         graph = Objects.requireNonNull(callGraph, "callGraph");
         hierarchy = Objects.requireNonNull(cha, "hierarchy");
         scope = Objects.requireNonNull(analysisScope, "scope");
         ownership = Objects.requireNonNull(ownershipIndex, "ownership");
         analysisCache = Objects.requireNonNull(cache, "analysisCache");
-        stats = Objects.requireNonNull(graphStats, "stats");
-        entrypointMetrics = Objects.requireNonNull(
-                selectionMetrics, "entrypointMetrics");
+        final ModuleCallGraphMetadata values = Objects.requireNonNull(
+                metadata, "metadata");
+        stats = values.stats();
+        entrypointMetrics = values.entrypoints();
+        dynamicEvidence = values.dynamicEvidence();
+        serviceLoaderModel = values.serviceLoader();
+        structuralScan = values.structuralScan();
+        dynamicLimitations = values.dynamicLimitations();
+        serviceLoaderLimitations = serviceLoaderModel.limitations();
+        final List<String> limitations = new ArrayList<>(
+                dynamicLimitations);
+        limitations.addAll(serviceLoaderLimitations);
+        modelLimitations = limitations.stream().distinct().sorted().toList();
     }
 
     /** @return live WALA Call Graph */
@@ -123,19 +148,49 @@ public final class ModuleCallGraphSession {
         return entrypointMetrics;
     }
 
-    /**
-     * Attaches the immutable ServiceLoader overlay before querying.
-     *
-     * @param overlay conservative overlay
-     */
-    public void attachServiceLoaderOverlay(
-            final ServiceLoaderOverlay overlay) {
-        serviceLoaderOverlay = Objects.requireNonNull(overlay, "overlay");
+    /** @return reachable invokedynamic evidence */
+    public DynamicCallEvidenceIndex getDynamicEvidence() {
+        return dynamicEvidence;
     }
 
-    /** @return conservative ServiceLoader overlay */
-    public ServiceLoaderOverlay getServiceLoaderOverlay() {
-        return serviceLoaderOverlay;
+    /** @return stable fixed-point model limitations */
+    public List<String> getModelLimitations() {
+        return modelLimitations;
+    }
+
+    /** @return true when a fixed-point model reported a limitation */
+    public boolean isModelInconclusive() {
+        return !modelLimitations.isEmpty();
+    }
+
+    /** @return true when invokedynamic modeling was incomplete */
+    public boolean hasDynamicModelLimitations() {
+        return !dynamicLimitations.isEmpty();
+    }
+
+    /** @return true when ServiceLoader modeling was incomplete */
+    public boolean hasServiceLoaderLimitations() {
+        return !serviceLoaderLimitations.isEmpty();
+    }
+
+    /** @return pre-graph immutable structural evidence */
+    public StructuralScanResult getStructuralScan() {
+        return structuralScan;
+    }
+
+    /**
+     * Returns metadata when the caller is a synthetic ServiceLoader model.
+     *
+     * @param caller WALA caller
+     * @return synthetic edge metadata, or null
+     */
+    public SyntheticEdgeMetadata syntheticEdge(final CGNode caller) {
+        if (!serviceLoaderModel.models(caller)) {
+            return null;
+        }
+        return new SyntheticEdgeMetadata(EdgeKind.SERVICE_LOADER,
+                "SERVICE_LOADER|FIXED_POINT|service="
+                        + serviceLoaderModel.serviceType(caller));
     }
 
     /**
@@ -150,6 +205,9 @@ public final class ModuleCallGraphSession {
                 type.getName().toString());
         if (value != null) {
             return value.getOrigin();
+        }
+        if (type instanceof SyntheticClass) {
+            return CodeOrigin.SYNTHETIC;
         }
         final ClassLoaderReference loader = type.getClassLoader()
                 .getReference();

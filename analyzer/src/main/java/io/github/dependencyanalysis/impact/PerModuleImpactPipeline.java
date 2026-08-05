@@ -28,7 +28,8 @@ import io.github.dependencyanalysis.dependency.ModuleDependencyTree;
 import io.github.dependencyanalysis.dependency.ResolvedArtifact;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
-import io.github.dependencyanalysis.jar.JarLocationResult;
+import io.github.dependencyanalysis.jar.CoordinateJarRepository;
+import io.github.dependencyanalysis.jar.IJarRepository;
 import io.github.dependencyanalysis.metrics.ManagedExecutorRegistry;
 import io.github.dependencyanalysis.metrics.ManagedExecutorRegistry
         .ManagedExecutor;
@@ -95,6 +96,9 @@ final class PerModuleImpactPipeline {
 
     /** Command temporary directory. */
     private final Path temporaryDirectory;
+
+    /** Immutable JAR repository for the active command. */
+    private IJarRepository jarRepository;
 
     /**
      * Creates the per-module pipeline.
@@ -165,6 +169,13 @@ final class PerModuleImpactPipeline {
                 dependency("target", targetScope).analyzeResolved();
         elapsed.put("target-dependency",
                 System.currentTimeMillis() - targetDependencyStart);
+        final List<ResolvedArtifact> repositoryInputs = new ArrayList<>();
+        repositoryInputs.addAll(front.baselineDependencies().getArtifacts());
+        repositoryInputs.addAll(targetDependencies.getArtifacts());
+        try (IJarRepository repository = CoordinateJarRepository.create(
+                repositoryInputs,
+                warning -> diagnostics.warn("jar-repository", warning))) {
+            jarRepository = repository;
         final List<ModuleDependencyTree> baselineTrees = selectedTrees(
                 front.baselineDependencies().getTrees(), baselineScope);
         final List<ModuleDependencyTree> targetTrees = selectedTrees(
@@ -184,10 +195,18 @@ final class PerModuleImpactPipeline {
                 front.baselineDependencies(), targetDependencies,
                 baselineTrees, targetTrees);
         elapsed.put("jar-diff", System.currentTimeMillis() - diffStart);
+        final Map<String, List<ArtifactCoord>> baselineArtifactsByModule =
+                externalArtifactsByModule(
+                        front.baselineDependencies(), baselineTrees,
+                        baselineScope);
+        final Map<String, List<ArtifactCoord>> targetArtifactsByModule =
+                externalArtifactsByModule(
+                        targetDependencies, targetTrees, targetScope);
         final List<ModuleAnalysisUnit> units = units(
                 new PreparedAnalysis(baselineScope, targetScope,
-                        front.targetBuild(), front.baselineDependencies(),
-                        targetDependencies, baselineTrees, targetTrees),
+                        front.targetBuild(), baselineArtifactsByModule,
+                        targetArtifactsByModule,
+                        baselineTrees, targetTrees),
                 bindings, changes);
         final Set<String> unmatchedEntrypointModules =
                 unmatchedEntrypointModules(units, bindings.failedModules());
@@ -214,7 +233,8 @@ final class PerModuleImpactPipeline {
                 System.currentTimeMillis() - modulesStart);
         final long ssaStart = System.currentTimeMillis();
         final List<ModuleAnalysisResult> filtered =
-                new SsaEquivalenceEngine(diagnostics, javaRuntime)
+                new SsaEquivalenceEngine(
+                        diagnostics, javaRuntime, repository())
                         .filter(analyzed);
         elapsed.put("ssa-equivalence",
                 System.currentTimeMillis() - ssaStart);
@@ -229,6 +249,9 @@ final class PerModuleImpactPipeline {
                         bindings.actualWorkers(),
                         codeEvidence.actualWorkers()), elapsed,
                 entrypointSelection);
+        } finally {
+            jarRepository = null;
+        }
     }
 
     private CodeEvidenceResult buildCodeComparisons(
@@ -254,7 +277,7 @@ final class PerModuleImpactPipeline {
         final ManagedExecutor managed = executors.fixed(
                 "code-comparison", workers);
         final ExecutorService executor = managed.executor();
-        final List<Future<PhysicalCodeEvidence>> futures = new ArrayList<>();
+        final List<Future<MemberCodeEvidence>> futures = new ArrayList<>();
         for (Map.Entry<String, List<BoundChangePoint>> request
                 : requests.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey()).toList()) {
@@ -264,9 +287,9 @@ final class PerModuleImpactPipeline {
         final Map<String, CodeComparisonEvidence> evidence =
                 new LinkedHashMap<>();
         try {
-            for (Future<PhysicalCodeEvidence> future : futures) {
+            for (Future<MemberCodeEvidence> future : futures) {
                 try {
-                    final PhysicalCodeEvidence value = future.get();
+                    final MemberCodeEvidence value = future.get();
                     evidence.put(value.key(), value.evidence());
                 } catch (ExecutionException exception) {
                     throw new IllegalStateException(
@@ -294,7 +317,7 @@ final class PerModuleImpactPipeline {
         return new CodeEvidenceResult(enriched, workers);
     }
 
-    private PhysicalCodeEvidence codeComparison(
+    private MemberCodeEvidence codeComparison(
             final String key, final BoundChangePoint point) {
         final DiagnosticContext context = DiagnosticContext.of(
                 "code-comparison", "decompile")
@@ -306,11 +329,11 @@ final class PerModuleImpactPipeline {
         final CodeComparisonEvidence evidence;
         try {
             evidence = new CodeComparisonBuilder(
-                    diagnostics, javaRuntime).build(point);
+                    diagnostics, javaRuntime, repository()).build(point);
         } catch (RuntimeException exception) {
             diagnostics.warn(context, "unavailable: "
                     + exception.getClass().getSimpleName());
-            return new PhysicalCodeEvidence(key,
+            return new MemberCodeEvidence(key,
                     new CodeComparisonEvidence(
                             CodeComparisonStatus.UNAVAILABLE, List.of(), "",
                             exception.getMessage() == null
@@ -324,13 +347,13 @@ final class PerModuleImpactPipeline {
             diagnostics.debug(context, "completed; status="
                     + evidence.getStatus());
         }
-        return new PhysicalCodeEvidence(key, evidence);
+        return new MemberCodeEvidence(key, evidence);
     }
 
     private String codeEvidenceKey(final BoundChangePoint bound) {
         final DependencyUpgradeKey key = bound.getDependencyUpgradeKey();
         final ChangePoint point = bound.getChangePoint();
-        return key.getOldPath() + "->" + key.getNewPath() + "|"
+        return key.getOldArtifact() + "->" + key.getNewArtifact() + "|"
                 + point.getKind() + "|" + point.getOwner() + "|"
                 + point.getName() + "|" + point.getOldDescriptor() + "|"
                 + point.getNewDescriptor() + "|" + point.getOldHash() + "|"
@@ -579,18 +602,15 @@ final class PerModuleImpactPipeline {
                     baselineTreeMap.get(moduleKey);
             final ModuleDependencyTree targetTree =
                     targetTreeMap.get(moduleKey);
-            final ResolvedArtifact oldArtifact =
-                    ArtifactPathBindingResolver.require(
-                            "baseline", baselineDependencies, baselineTree,
-                            change.getOldArtifact(), change.getModule());
-            final ResolvedArtifact newArtifact =
-                    ArtifactPathBindingResolver.require(
-                            "target", targetDependencies, targetTree,
-                            change.getNewArtifact(), change.getModule());
+            ArtifactPathBindingResolver.require(
+                    "baseline", baselineDependencies, baselineTree,
+                    change.getOldArtifact(), change.getModule());
+            ArtifactPathBindingResolver.require(
+                    "target", targetDependencies, targetTree,
+                    change.getNewArtifact(), change.getModule());
             final DependencyUpgradeKey key = new DependencyUpgradeKey(
                     module, change.getScope(), change.getOldArtifact(),
-                    change.getNewArtifact(), oldArtifact.getPath(),
-                    newArtifact.getPath());
+                    change.getNewArtifact());
             groups.computeIfAbsent(pairKey(key), ignored ->
                     new ArrayList<>()).add(key);
         }
@@ -686,16 +706,13 @@ final class PerModuleImpactPipeline {
         final DiagnosticContext context = DiagnosticContext.of(
                 "jar-diff", "pair").withArtifact(artifact);
         diagnostics.debug(context, "JAR comparison started");
-        diagnostics.trace(context, "old=" + upgrade.getOldPath()
-                + "; new=" + upgrade.getNewPath());
         try {
             final DependencyChange change = new DependencyChange(
                     ChangeType.VERSION_CHANGED,
                     upgrade.getOldArtifact(), upgrade.getNewArtifact(),
                     upgrade.getScope(), upgrade.getModuleId().stableKey());
             final List<ChangePoint> points = new BytecodeDiffEngine(kinds)
-                    .diff(new JarLocationResult(change,
-                            upgrade.getOldPath(), upgrade.getNewPath()));
+                    .diff(change, repository());
             diagnostics.debug(context, "JAR comparison completed; changes="
                     + points.size());
             return new PairDiff(key, points, null);
@@ -725,10 +742,10 @@ final class PerModuleImpactPipeline {
         final ReactorAnalysisScope baselineScope = prepared.baselineScope();
         final ReactorAnalysisScope targetScope = prepared.targetScope();
         final BuildResult build = prepared.targetBuild();
-        final DependencyAnalysisResult baselineDependencies =
-                prepared.baselineDependencies();
-        final DependencyAnalysisResult targetDependencies =
-                prepared.targetDependencies();
+        final Map<String, List<ArtifactCoord>> baselineArtifactsByModule =
+                prepared.baselineArtifactsByModule();
+        final Map<String, List<ArtifactCoord>> targetArtifactsByModule =
+                prepared.targetArtifactsByModule();
         final List<ModuleDependencyTree> baselineTrees =
                 prepared.baselineTrees();
         final List<ModuleDependencyTree> targetTrees =
@@ -762,12 +779,10 @@ final class PerModuleImpactPipeline {
             final List<Path> reactorClasses = targetTree == null
                     ? List.of() : reactorClasses(targetTree,
                     targetScope, outputs, key);
-            final List<ResolvedArtifact> targetArtifacts = targetTree == null
-                    ? List.of() : externalArtifacts(
-                    targetDependencies, targetTree, targetScope);
-            final List<ResolvedArtifact> baselineArtifacts =
-                    baselineTree == null ? List.of() : externalArtifacts(
-                    baselineDependencies, baselineTree, baselineScope);
+            final List<ArtifactCoord> targetArtifacts =
+                    targetArtifactsByModule.getOrDefault(key, List.of());
+            final List<ArtifactCoord> baselineArtifacts =
+                    baselineArtifactsByModule.getOrDefault(key, List.of());
             final ModulePresence presence = target == null
                     ? ModulePresence.BASELINE_ONLY
                     : baseline == null ? ModulePresence.TARGET_ONLY
@@ -868,7 +883,7 @@ final class PerModuleImpactPipeline {
             return new ModuleAnalysisResult.Builder(unit)
                     .status(ModuleAnalysisStatus.INCONCLUSIVE,
                             ModuleAnalysisReason.INCONCLUSIVE_BYTECODE_DIFF,
-                            "All relevant physical JAR diffs failed")
+                            "All relevant coordinate-pair JAR diffs failed")
                     .limitations(unit.getJarDiffFailureSummaries())
                     .elapsedMillis(System.currentTimeMillis() - start)
                     .stageElapsedMillis(stageElapsed)
@@ -901,21 +916,16 @@ final class PerModuleImpactPipeline {
         try {
             long stageStart = System.currentTimeMillis();
             final ScopeValidationResult scopeValidation =
-                    new ModuleScopeValidator().validate(unit);
+                    new ModuleScopeValidator(repository()).validate(unit);
             stageElapsed.put("scope-validation",
                     System.currentTimeMillis() - stageStart);
             reportScopeWarnings(unit, scopeValidation);
             stageStart = System.currentTimeMillis();
             final ModuleCallGraphSession session =
                     new ModuleCallGraphEngine(diagnostics, javaRuntime,
-                            entrypointSelection)
+                            entrypointSelection, repository())
                             .build(unit, callGraphTimeoutSeconds);
             stageElapsed.put("call-graph",
-                    System.currentTimeMillis() - stageStart);
-            stageStart = System.currentTimeMillis();
-            session.attachServiceLoaderOverlay(
-                    new ModuleServiceLoaderEnricher().enrich(unit, session));
-            stageElapsed.put("service-loader",
                     System.currentTimeMillis() - stageStart);
             stageStart = System.currentTimeMillis();
             final ModuleImpactQueryResult query =
@@ -924,14 +934,14 @@ final class PerModuleImpactPipeline {
                     System.currentTimeMillis() - stageStart);
             final List<String> limitations = new ArrayList<>(
                     scopeValidation.limitations());
-            limitations.addAll(session.getServiceLoaderOverlay()
-                    .getLimitations());
+            limitations.addAll(session.getModelLimitations());
             if (diffFailed) {
                 limitations.addAll(unit.getJarDiffFailureSummaries());
             }
             final ModuleAnalysisReason reason = coverageReason(
                     diffFailed,
-                    session.getServiceLoaderOverlay().isInconclusive(),
+                    session.hasDynamicModelLimitations(),
+                    session.hasServiceLoaderLimitations(),
                     scopeValidation.hasWarnings());
             final boolean inconclusive = reason
                     != ModuleAnalysisReason.NONE;
@@ -976,8 +986,20 @@ final class PerModuleImpactPipeline {
             final boolean diffFailed,
             final boolean serviceLoaderInconclusive,
             final boolean scopeValidationInconclusive) {
+        return coverageReason(diffFailed, false,
+                serviceLoaderInconclusive, scopeValidationInconclusive);
+    }
+
+    static ModuleAnalysisReason coverageReason(
+            final boolean diffFailed,
+            final boolean dynamicModelInconclusive,
+            final boolean serviceLoaderInconclusive,
+            final boolean scopeValidationInconclusive) {
         if (diffFailed) {
             return ModuleAnalysisReason.INCONCLUSIVE_BYTECODE_DIFF;
+        }
+        if (dynamicModelInconclusive) {
+            return ModuleAnalysisReason.INCONCLUSIVE_INVOKEDYNAMIC_MODEL;
         }
         if (serviceLoaderInconclusive) {
             return ModuleAnalysisReason.INCONCLUSIVE_SERVICE_LOADER;
@@ -995,10 +1017,7 @@ final class PerModuleImpactPipeline {
             diagnostics.warn(DiagnosticContext.of(
                             "scope-validation", "module")
                             .withModule(unit.getModuleId().stableKey())
-                            .withArtifact(warning.artifact()
-                                    .getArtifact().toString())
-                            .withPath(warning.artifact()
-                                    .getPath().toString()),
+                            .withArtifact(warning.artifact().toString()),
                     warning.summary());
         }
     }
@@ -1137,12 +1156,25 @@ final class PerModuleImpactPipeline {
                 .toList();
     }
 
-    private List<ResolvedArtifact> externalArtifacts(
+    private List<ArtifactCoord> externalArtifacts(
             final DependencyAnalysisResult analysis,
             final ModuleDependencyTree tree,
             final ReactorAnalysisScope scope) {
         return ModuleClasspathOrder.externalArtifacts(
                 analysis, tree, scope.getReactorCoordinates());
+    }
+
+    private Map<String, List<ArtifactCoord>> externalArtifactsByModule(
+            final DependencyAnalysisResult analysis,
+            final List<ModuleDependencyTree> trees,
+            final ReactorAnalysisScope scope) {
+        final Map<String, List<ArtifactCoord>> result =
+                new LinkedHashMap<>();
+        for (ModuleDependencyTree tree : trees) {
+            result.put(tree.getModule().diffKey(),
+                    externalArtifacts(analysis, tree, scope));
+        }
+        return Map.copyOf(result);
     }
 
     private boolean isAdded(final ChangePointKind kind) {
@@ -1152,9 +1184,12 @@ final class PerModuleImpactPipeline {
     }
 
     private String pairKey(final DependencyUpgradeKey key) {
-        return key.getOldArtifact() + "@" + key.getOldPath()
-                + "->" + key.getNewArtifact() + "@"
-                + key.getNewPath();
+        return key.getOldArtifact() + "->" + key.getNewArtifact();
+    }
+
+    private IJarRepository repository() {
+        return Objects.requireNonNull(jarRepository,
+                "Command JAR repository is not initialized");
     }
 
     private Comparator<ModuleAnalysisResult> moduleResultComparator() {
@@ -1193,9 +1228,9 @@ final class PerModuleImpactPipeline {
     }
 
     /**
-     * Unique physical pair diff.
+     * Unique logical coordinate-pair diff.
      *
-     * @param key physical pair key
+     * @param key coordinate-pair key
      * @param points raw ChangePoints
      * @param failure failure detail, nullable
      */
@@ -1234,12 +1269,12 @@ final class PerModuleImpactPipeline {
     }
 
     /**
-     * One unique physical code comparison result.
+     * One unique logical member code comparison result.
      *
-     * @param key physical member identity
+     * @param key logical member identity
      * @param evidence comparison evidence
      */
-    private record PhysicalCodeEvidence(
+    private record MemberCodeEvidence(
             String key,
             CodeComparisonEvidence evidence) {
     }
@@ -1250,8 +1285,8 @@ final class PerModuleImpactPipeline {
      * @param baselineScope baseline reactor scope
      * @param targetScope target reactor scope
      * @param targetBuild target build
-     * @param baselineDependencies baseline dependency analysis
-     * @param targetDependencies target dependency analysis
+     * @param baselineArtifactsByModule baseline logical classpath
+     * @param targetArtifactsByModule target logical classpath
      * @param baselineTrees selected baseline trees
      * @param targetTrees selected target trees
      */
@@ -1259,8 +1294,8 @@ final class PerModuleImpactPipeline {
             ReactorAnalysisScope baselineScope,
             ReactorAnalysisScope targetScope,
             BuildResult targetBuild,
-            DependencyAnalysisResult baselineDependencies,
-            DependencyAnalysisResult targetDependencies,
+            Map<String, List<ArtifactCoord>> baselineArtifactsByModule,
+            Map<String, List<ArtifactCoord>> targetArtifactsByModule,
             List<ModuleDependencyTree> baselineTrees,
             List<ModuleDependencyTree> targetTrees) {
     }

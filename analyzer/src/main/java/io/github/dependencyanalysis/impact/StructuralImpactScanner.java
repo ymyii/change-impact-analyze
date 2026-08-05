@@ -2,8 +2,11 @@ package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
+import io.github.dependencyanalysis.callgraph.ClassSource;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
-import io.github.dependencyanalysis.dependency.ResolvedArtifact;
+import io.github.dependencyanalysis.dependency.ArtifactCoord;
+import io.github.dependencyanalysis.jar.IJarRepository;
+import io.github.dependencyanalysis.jar.JarLease;
 
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
@@ -31,10 +34,19 @@ import java.util.jar.JarFile;
 import java.util.stream.Stream;
 
 /** Resolves class metadata references outside method-level WALA paths. */
-final class StructuralImpactScanner {
+public final class StructuralImpactScanner {
 
     /** ASM API. */
     private static final int API = Opcodes.ASM9;
+
+    /** Command-scoped dependency repository. */
+    private final IJarRepository jarRepository;
+
+    /** @param repository dependency repository */
+    public StructuralImpactScanner(final IJarRepository repository) {
+        jarRepository = java.util.Objects.requireNonNull(
+                repository, "repository");
+    }
 
     /**
      * Extracts stable metadata evidence for selected classes.
@@ -71,7 +83,7 @@ final class StructuralImpactScanner {
      * @param ownership effective target class definitions
      * @return classified structural references
      */
-    StructuralScanResult scan(
+    public StructuralScanResult scan(
             final ModuleAnalysisUnit unit,
             final ClassOwnershipIndex ownership) {
         final Map<String, List<BoundChangePoint>> targets = targets(unit);
@@ -87,11 +99,9 @@ final class StructuralImpactScanner {
                 scanDirectory(path, CodeOrigin.REACTOR_DEPENDENCY,
                         ownership, targets, references, seen);
             }
-            for (ResolvedArtifact artifact : unit.getTargetArtifacts()) {
-                if ("jar".equals(artifact.getArtifact().getType())) {
-                    scanJar(artifact.getPath(), CodeOrigin.DEPENDENCY,
-                            ownership, targets, references, seen);
-                }
+            for (ArtifactCoord artifact : unit.getTargetArtifacts()) {
+                scanJar(artifact, CodeOrigin.DEPENDENCY,
+                        ownership, targets, references, seen);
             }
         } catch (IOException | RuntimeException exception) {
             throw new ImpactException(
@@ -145,13 +155,14 @@ final class StructuralImpactScanner {
     }
 
     private void scanJar(
-            final Path jarPath,
+            final ArtifactCoord artifact,
             final CodeOrigin origin,
             final ClassOwnershipIndex ownership,
             final Map<String, List<BoundChangePoint>> targets,
             final List<StructuralReferenceMatch> references,
             final Set<String> seen) throws IOException {
-        try (JarFile jar = new JarFile(jarPath.toFile(), false)) {
+        try (JarLease lease = jarRepository.open(artifact)) {
+            final JarFile jar = lease.jarFile();
             final List<JarEntry> entries = jar.stream()
                     .filter(entry -> !entry.isDirectory())
                     .filter(entry -> entry.getName().endsWith(".class"))
@@ -161,7 +172,8 @@ final class StructuralImpactScanner {
                     .toList();
             for (JarEntry entry : entries) {
                 if (!ownership.isEffectiveDefinition(
-                        className(entry.getName()), jarPath)) {
+                        className(entry.getName()),
+                        ClassSource.artifact(artifact))) {
                     continue;
                 }
                 try (InputStream input = jar.getInputStream(entry)) {
@@ -514,35 +526,4 @@ final class StructuralImpactScanner {
      */
     private record MetadataReference(String target, String evidence) {
     }
-}
-
-/** Structural scan output. */
-final class StructuralScanResult {
-
-    /** All module-scope structural references. */
-    private final List<StructuralReferenceMatch> references;
-
-    StructuralScanResult(final List<StructuralReferenceMatch> values) {
-        references = List.copyOf(values);
-    }
-
-    static StructuralScanResult empty() {
-        return new StructuralScanResult(List.of());
-    }
-
-    List<StructuralReferenceMatch> references() {
-        return references;
-    }
-
-}
-
-/**
- * Binds one metadata reference to the changed dependency class.
- *
- * @param changePoint changed dependency class
- * @param reference structured metadata reference
- */
-record StructuralReferenceMatch(
-        BoundChangePoint changePoint,
-        StructuralReference reference) {
 }

@@ -6,6 +6,7 @@ import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.DependencyScope;
+import io.github.dependencyanalysis.testing.TestJarRepositories;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -29,7 +30,7 @@ class StructuralImpactScannerTest {
     private Path temporary;
 
     @Test
-    void detectsStructuralMetadataKinds() {
+    void detectsStructuralMetadataKinds() throws Exception {
         final ClassWriter writer = new ClassWriter(0);
         writer.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC,
                 "app/Consumer",
@@ -57,7 +58,8 @@ class StructuralImpactScannerTest {
                 "dep/RemovedException");
 
         final Map<String, Set<String>> evidence =
-                new StructuralImpactScanner().metadataEvidence(
+                new StructuralImpactScanner(
+                        TestJarRepositories.empty()).metadataEvidence(
                         writer.toByteArray(), targets);
 
         assertThat(evidence.get("dep/RemovedSuper"))
@@ -100,9 +102,7 @@ class StructuralImpactScannerTest {
                 "example", "dependency", "jar", "2");
         final BoundChangePoint point = new BoundChangePoint(
                 new DependencyUpgradeKey(moduleId, DependencyScope.COMPILE,
-                        oldArtifact, newArtifact,
-                        temporary.resolve("old.jar"),
-                        temporary.resolve("new.jar")),
+                        oldArtifact, newArtifact),
                 new ChangePoint(newArtifact, ChangePointKind.CLASS_REMOVED,
                         "dep/Removed", null, null, null, null));
         final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
@@ -110,7 +110,8 @@ class StructuralImpactScannerTest {
                 List.of(winner, loser), List.of(), List.of(),
                 new ModuleChangeSet(List.of(point), List.of()));
 
-        assertThat(new StructuralImpactScanner().scan(unit, ownership)
+        assertThat(new StructuralImpactScanner(
+                TestJarRepositories.empty()).scan(unit, ownership)
                 .references()).isEmpty();
     }
 

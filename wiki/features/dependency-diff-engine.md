@@ -7,7 +7,7 @@ relations:
   - path: "wiki/features/dependency-tree-extraction.md"
     desc: "依赖变动对比依赖前序阶段产出的 resolved dependency tree"
   - path: "wiki/features/jar-locator.md"
-    desc: "VERSION_CHANGED 依赖变动供 Jar Locator 定位 jar 文件"
+    desc: "VERSION_CHANGED coordinate 由 command-scoped repository 打开 JAR"
   - path: "wiki/features/bytecode-diff-engine.md"
     desc: "VERSION_CHANGED 依赖变动最终供 Bytecode Diff Engine 执行 bytecode diff"
 code_refs:
@@ -80,10 +80,10 @@ Dependency Diff Engine 对比 baseline 和 target 的 resolved dependency tree�
 
 - 依赖树中同一 artifact 通过多条传递路径出现时，flatten 保留第一次出现的节点。
 - `DependencyChange` 的 old/new artifact 组合与 ChangeType 不匹配时立即抛出 `IllegalArgumentException`。
-- 新增和移除依赖不进入 Jar Locator；只有 `VERSION_CHANGED` 会继续进入 jar 定位和 bytecode diff。
+- 新增和移除依赖不进入 JAR diff；只有 `VERSION_CHANGED` 会继续通过 `IJarRepository` 进入 bytecode diff。
 
 ## Implementation Boundaries
 
-- Dependency Diff Engine 不解析 Maven、不过滤 scope，也不定位 jar。
-- `DependencyChange` 是后续 Jar Locator、Bytecode Diff Engine 和 Report Generator 的共享数据合同。
+- Dependency Diff Engine 不解析 Maven、不过滤 scope，也不访问 JAR。
+- `DependencyChange` 是后续 coordinate repository、Bytecode Diff Engine 和 Report Generator 的共享 logical 数据合同，不包含 dependency JAR path。
 - API risk 判断只基于依赖 scope，不推断调用路径或实际业务影响。

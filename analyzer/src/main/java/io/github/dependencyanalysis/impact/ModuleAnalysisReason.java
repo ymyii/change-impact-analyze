@@ -18,11 +18,14 @@ public enum ModuleAnalysisReason {
     /** User entrypoint selectors matched no executable PROJECT method. */
     SKIPPED_USER_ENTRYPOINT_SCOPE,
 
-    /** At least one physical JAR pair could not be diffed. */
+    /** At least one logical coordinate pair could not be diffed. */
     INCONCLUSIVE_BYTECODE_DIFF,
 
     /** ServiceLoader metadata could not be resolved completely. */
     INCONCLUSIVE_SERVICE_LOADER,
+
+    /** Reachable invokedynamic bootstrap could not be modeled. */
+    INCONCLUSIVE_INVOKEDYNAMIC_MODEL,
 
     /** At least one candidate method returned SSA UNKNOWN. */
     INCONCLUSIVE_SSA_UNKNOWN,

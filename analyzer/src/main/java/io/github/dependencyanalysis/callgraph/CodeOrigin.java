@@ -15,6 +15,6 @@ public enum CodeOrigin {
     /** Classes loaded from the selected JDK 8 runtime. */
     JDK,
 
-    /** Synthetic terminal or conservative overlay node. */
+    /** Synthetic model or terminal evidence node. */
     SYNTHETIC
 }

@@ -35,22 +35,22 @@ code_refs: []
 - Summary: 只编译 target；reactor root compile 一次，leaf 使用 `-pl/-am`；baseline dependency 与 target build 并行。
 
 ### [Dependency Tree Extraction](features/dependency-tree-extraction.md)
-- Summary: `impact` 以 GraphML 作为唯一 mediation authority；Module-local Schema v2 JSON 不保存 Module/scope，只按 coordinates 绑定 Resolver path 或 effective `systemPath`。
+- Summary: GraphML 决定 mediation；Schema v2 manifest 只作为 command-scoped immutable `IJarRepository` 的 Resolver/systemPath ingestion 输入。
 
 ### [Dependency Diff Engine](features/dependency-diff-engine.md)
 - Summary: 对比 baseline/target resolved dependency tree，生成稳定排序的 dependency changes。
 
-### [Jar Locator](features/jar-locator.md)
-- Summary: Legacy JAR path 计算说明；`impact` production path 已改用 Maven resolved absolute artifact path。
+### [Coordinate JAR Repository](features/jar-locator.md)
+- Summary: `ArtifactCoord` 是 dependency JAR logical identity；repository deterministic 选择 Resolver binding，并以 tracked `JarLease` 隔离 physical handle。
 
 ### [Bytecode Diff Engine](features/bytecode-diff-engine.md)
-- Summary: physical JAR pair 并行去重 diff；MethodNode canonical hash覆盖 CFG/exception/bootstrap topology，SSA filtering 延迟到 candidate path 后。
+- Summary: logical coordinate pair 经 repository lease 并行去重 diff；MethodNode canonical hash覆盖 CFG/exception/bootstrap topology，SSA filtering 延迟到 candidate path 后。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
-- Summary: 每 Module 独立使用 target JDK 8、source-aware exclusion/duplicate winner、可配置 PROJECT entrypoints、WALA Vanilla 0-1-CFA 与 cooperative timeout-only monitor。
+- Summary: 每 Module 独立 Vanilla 0-1-CFA；ServiceLoader 与 exact-key `invokedynamic` model 在构图前进入 fixed point，session 保存 immutable evidence/limitations。
 
 ### [Impact Tracing](features/impact-tracing.md)
-- Summary: Call Graph 后从 live WALA graph 直接 reverse query，保留 Context、Structural Reference Path、duplicate-shadow disposition、serial SSA filtering 与 path-related code evidence。
+- Summary: 构图后 read-only deterministic reverse BFS；同一 ChangePoint/affected PROJECT method 跨 seed/Context 保留一条 shortest representative path。
 
 ### [Report Generator](features/report-generator.md)
 - Summary: `impact` 原子生成英文 Overall Index + 每个非-skip Module 三页；展示 path-related 与 duplicate-shadow changes、winner evidence、折叠 Unified diff、technical evidence 与 responsive navigation。

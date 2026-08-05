@@ -79,7 +79,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - 第五段使用 `key=value` 与 `;` 分隔。公共字段依次为 `command, side, reactor, module, artifact, path, check, scope, scopeId, progress, status, decision, elapsedMs`；Runtime Metrics 字段随后为 `sample, pool, core, max, size, active, queued, completed, tasks, shutdown, terminated, heapUsedMiB, heapCommittedMiB, heapMaxMiB`；扩展字段按 key 字典序追加。
 - `\\`、`;`、`=`、`[`、`]` 在 prefix 中统一转义。多行 message 和 stack trace 拆成独立物理行，每行重新添加完整 prefix。
 - `stageStarts` 以完整 context stable key 计时，同一 stage 的并发任务不会覆盖 elapsed。
-- `INFO` 输出 front branch、Module task start/end；`DEBUG` 输出每个 physical JAR pair start/end；`TRACE` 输出筛选后的 command/path evidence，不输出 credential、settings 内容或完整 user arguments。
+- `INFO` 输出 front branch、Module task start/end；`DEBUG` 输出每个 logical coordinate JAR pair start/end；`TRACE` 输出筛选后的 command/path evidence，不输出 credential、settings 内容或完整 user arguments。
 - 外部 dependency scope warning 使用 `[scope-validation][module][module=…][artifact=…]` context；每个 artifact 一条，warning text 同时进入 Module `Coverage limitations`。
 - Analyzer Diagnostic event 默认 retained，可进入 `impact` HTML Diagnostics。Preflight evidence/fallback、Maven output、exception stack trace 与 Runtime Metrics 是 transient，只进入 Console。
 - Console 与 HTML Report 对 retained event 共用 `DiagnosticLogFormatter`，包含同一 event timestamp 和 prefix；Module Diagnostics 只按 `DiagnosticEvent.module` 精确归属。

@@ -1,7 +1,7 @@
 package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.dependency.DependencyChange;
-import io.github.dependencyanalysis.dependency.ResolvedArtifact;
+import io.github.dependencyanalysis.dependency.ArtifactCoord;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -25,10 +25,10 @@ public final class ModuleAnalysisUnit {
     private final List<Path> reactorDependencyClasses;
 
     /** Target resolved external dependencies. */
-    private final List<ResolvedArtifact> targetArtifacts;
+    private final List<ArtifactCoord> targetArtifacts;
 
     /** Baseline resolved external dependencies for old-side SSA. */
-    private final List<ResolvedArtifact> baselineArtifacts;
+    private final List<ArtifactCoord> baselineArtifacts;
 
     /** Complete module dependency changes. */
     private final List<DependencyChange> dependencyChanges;
@@ -36,7 +36,7 @@ public final class ModuleAnalysisUnit {
     /** Module-bound ChangePoints. */
     private final List<BoundChangePoint> changePoints;
 
-    /** Isolated physical JAR diff failures for this module. */
+    /** Isolated coordinate-pair JAR diff failures for this module. */
     private final List<JarDiffFailure> jarDiffFailures;
 
     /**
@@ -55,8 +55,8 @@ public final class ModuleAnalysisUnit {
             final ModulePresence modulePresence,
             final Path classes,
             final List<Path> reactorClasses,
-            final List<ResolvedArtifact> targetDependencies,
-            final List<ResolvedArtifact> baselineDependencies,
+            final List<ArtifactCoord> targetDependencies,
+            final List<ArtifactCoord> baselineDependencies,
             final ModuleChangeSet changes) {
         moduleId = Objects.requireNonNull(id, "moduleId");
         presence = Objects.requireNonNull(modulePresence, "presence");
@@ -96,12 +96,12 @@ public final class ModuleAnalysisUnit {
     }
 
     /** @return target resolved artifacts */
-    public List<ResolvedArtifact> getTargetArtifacts() {
+    public List<ArtifactCoord> getTargetArtifacts() {
         return targetArtifacts;
     }
 
     /** @return baseline resolved artifacts */
-    public List<ResolvedArtifact> getBaselineArtifacts() {
+    public List<ArtifactCoord> getBaselineArtifacts() {
         return baselineArtifacts;
     }
 
@@ -115,7 +115,7 @@ public final class ModuleAnalysisUnit {
         return changePoints;
     }
 
-    /** @return isolated physical JAR diff failure evidence */
+    /** @return isolated coordinate-pair JAR diff failure evidence */
     public List<JarDiffFailure> getJarDiffFailures() {
         return jarDiffFailures;
     }

@@ -1,8 +1,10 @@
 package io.github.dependencyanalysis.bytecode;
 
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
+import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
-import io.github.dependencyanalysis.jar.JarLocationResult;
+import io.github.dependencyanalysis.jar.IJarRepository;
+import io.github.dependencyanalysis.jar.JarLease;
 
 import org.jetbrains.java.decompiler.api.Decompiler;
 import org.jetbrains.java.decompiler.main.extern.IContextSource;
@@ -71,15 +73,18 @@ public final class MethodBodyDecompiler {
      * Decompiles both sides of one method
      * body change without writing source files.
      *
-     * @param location old/new jar location
+     * @param change old/new logical artifact identity
+     * @param repository command-scoped JAR repository
      * @param point method body change point
      * @return best-effort evidence
+     * @throws IOException on repository access failure
      */
     public MethodBodyEvidence decompile(
-            final JarLocationResult location,
-            final ChangePoint point) {
-        Objects.requireNonNull(location,
-                "location");
+            final DependencyChange change,
+            final IJarRepository repository,
+            final ChangePoint point) throws IOException {
+        Objects.requireNonNull(change, "change");
+        Objects.requireNonNull(repository, "repository");
         Objects.requireNonNull(point,
                 "changePoint");
         if (point.getKind()
@@ -88,19 +93,19 @@ public final class MethodBodyDecompiler {
                     "Only METHOD_BODY_CHANGED can "
                             + "be decompiled");
         }
-        final ArtifactCoord oldArtifact =
-                location.getChange().getOldArtifact();
-        final ArtifactCoord newArtifact =
-                location.getChange().getNewArtifact();
-        final DecompiledMethod oldResult =
-                decompileMethod(location.getOldJar(), point,
-                        point.getOldDescriptor(), "old", oldArtifact);
-        final DecompiledMethod newResult =
-                decompileMethod(location.getNewJar(), point,
-                        point.getNewDescriptor(), "new", newArtifact);
-        return new MethodBodyEvidence(point,
-                oldArtifact, newArtifact,
-                oldResult, newResult);
+        final ArtifactCoord oldArtifact = change.getOldArtifact();
+        final ArtifactCoord newArtifact = change.getNewArtifact();
+        try (JarLease oldLease = repository.open(oldArtifact);
+             JarLease newLease = repository.open(newArtifact)) {
+            final DecompiledMethod oldResult = decompileMethod(
+                    Path.of(oldLease.jarFile().getName()), point,
+                    point.getOldDescriptor(), "old", oldArtifact);
+            final DecompiledMethod newResult = decompileMethod(
+                    Path.of(newLease.jarFile().getName()), point,
+                    point.getNewDescriptor(), "new", newArtifact);
+            return new MethodBodyEvidence(point,
+                    oldArtifact, newArtifact, oldResult, newResult);
+        }
     }
 
     /**

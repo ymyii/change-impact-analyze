@@ -23,9 +23,12 @@ import io.github.dependencyanalysis.callgraph.ClassOwnership;
 import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.DuplicateClassResolution;
+import io.github.dependencyanalysis.callgraph.DynamicCallEvidence;
+import io.github.dependencyanalysis.callgraph.DynamicCallEvidenceIndex;
 import io.github.dependencyanalysis.callgraph.EdgeKind;
 import io.github.dependencyanalysis.callgraph.MethodId;
 import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
+import io.github.dependencyanalysis.callgraph.SyntheticEdgeMetadata;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 
@@ -77,14 +80,11 @@ public final class ModuleImpactTracer {
                 new LinkedHashMap<>();
         final Map<QueryNode, ReverseTrace> traceCache = new HashMap<>();
         final StructuralScanResult structuralScan =
-                new StructuralImpactScanner().scan(
-                        unit, session.getOwnership());
+                session.getStructuralScan();
         final StructuralPathResult structures = materializeStructuralPaths(
                 unit.getModuleId(), structuralScan, session, traceCache);
-        final InvokeDynamicEvidenceIndex bootstrapEvidence =
-                requiresBootstrapEvidence(unit)
-                        ? InvokeDynamicEvidenceIndex.build(unit, session)
-                        : null;
+        final DynamicCallEvidenceIndex bootstrapEvidence =
+                session.getDynamicEvidence();
         for (BoundChangePoint point : unit.getChangePoints().stream()
                 .sorted(Comparator.comparing(BoundChangePoint::stableKey))
                 .toList()) {
@@ -109,13 +109,25 @@ public final class ModuleImpactTracer {
                 continue;
             }
             final int before = paths.size();
+            final Map<String, ImpactPath> representative =
+                    new LinkedHashMap<>();
             for (Seed seed : seeds) {
                 final ReverseTrace reverse = traceCache.computeIfAbsent(
                         seed.node(), node -> reverse(
                                 unit.getModuleId(), node, session));
-                paths.addAll(materialize(unit.getModuleId(), point,
-                        seed, reverse, session));
+                for (ImpactPath path : materialize(
+                        unit.getModuleId(), point,
+                        seed, reverse, session)) {
+                    final String affected = methodIdentity(
+                            path.getAffectedMethod());
+                    final ImpactPath previous = representative.get(affected);
+                    if (previous == null || representativePathComparator()
+                            .compare(path, previous) < 0) {
+                        representative.put(affected, path);
+                    }
+                }
             }
+            paths.addAll(representative.values());
             dispositions.put(point, paths.size() > before
                     || structures.hasPath(point)
                     ? ChangePointDisposition.IMPACT_REPORTED
@@ -139,9 +151,9 @@ public final class ModuleImpactTracer {
         if (resolution == null) {
             return null;
         }
-        final java.nio.file.Path changedSource = point
-                .getDependencyUpgradeKey().getNewPath()
-                .toAbsolutePath().normalize();
+        final io.github.dependencyanalysis.callgraph.ClassSource changedSource =
+                io.github.dependencyanalysis.callgraph.ClassSource.artifact(
+                        point.getDependencyUpgradeKey().getNewArtifact());
         return resolution.getLosers().stream()
                 .anyMatch(value -> value.getSource().equals(changedSource))
                 ? ChangePointDisposition.SHADOWED_BY_DUPLICATE : null;
@@ -205,14 +217,6 @@ public final class ModuleImpactTracer {
                     && matchesStructuralMember(reference,
                     node.getMethod().getReference())) {
                 result.add(queryNode(moduleId, node, session));
-            }
-        }
-        for (QueryNode node : session.getServiceLoaderOverlay().nodes()) {
-            if (reference.getReferencingClass().equals(
-                    node.methodId().owner())
-                    && matchesStructuralMember(reference,
-                    node.methodId())) {
-                result.add(node);
             }
         }
         return result.stream().sorted(queryNodeComparator()).toList();
@@ -294,11 +298,9 @@ public final class ModuleImpactTracer {
             final ModuleId moduleId,
             final ChangePoint point,
             final ModuleCallGraphSession session,
-            final InvokeDynamicEvidenceIndex bootstrapEvidence) {
+            final DynamicCallEvidenceIndex bootstrapEvidence) {
         final Set<Seed> result = new LinkedHashSet<>();
-        if (point.getKind() == ChangePointKind.METHOD_BODY_CHANGED
-                || point.getKind()
-                == ChangePointKind.METHOD_DESCRIPTOR_CHANGED) {
+        if (point.getKind() == ChangePointKind.METHOD_BODY_CHANGED) {
             for (CGNode node : session.getGraph()) {
                 if (matchesMethod(node.getMethod().getReference(),
                         point.getOwner(), point.getName(),
@@ -307,17 +309,6 @@ public final class ModuleImpactTracer {
                             EdgeKind.METHOD_CHANGE,
                             "target=" + methodIdentity(
                                     node.getMethod().getReference())));
-                }
-            }
-            for (QueryNode node
-                    : session.getServiceLoaderOverlay().nodes()) {
-                final MethodId method = node.methodId();
-                if (point.getOwner().equals(method.owner())
-                        && Objects.equals(point.getName(), method.name())
-                        && Objects.equals(point.getNewDescriptor(),
-                        method.descriptor())) {
-                    result.add(new Seed(node, EdgeKind.METHOD_CHANGE,
-                            "target=" + method));
                 }
             }
         }
@@ -338,15 +329,12 @@ public final class ModuleImpactTracer {
                     }
                 }
             });
-            if (bootstrapEvidence != null) {
-                for (BootstrapEvidence evidence : bootstrapEvidence.find(
-                        point.getOwner(), point.getName(),
-                        point.getOldDescriptor())) {
-                    result.add(new Seed(queryNode(
-                            moduleId, evidence.caller(), session),
-                            EdgeKind.DECLARED_INVOKE_REFERENCE,
-                            evidence.detail()));
-                }
+            for (DynamicCallEvidence evidence : bootstrapEvidence.find(
+                    point.getOwner(), point.getName(),
+                    point.getOldDescriptor())) {
+                result.add(new Seed(queryNode(
+                        moduleId, evidence.caller(), session),
+                        evidence.kind(), evidence.detail()));
             }
         } else if (point.getKind() == ChangePointKind.FIELD_REMOVED
                 || point.getKind()
@@ -470,15 +458,10 @@ public final class ModuleImpactTracer {
             final QueryNode caller,
             final QueryNode callee,
             final ModuleCallGraphSession session) {
-        final QueryEdge overlay = session.getServiceLoaderOverlay()
-                .edge(caller, callee);
-        if (overlay != null) {
-            return overlay;
-        }
         if (!(caller instanceof WalaQueryNode)
                 || !(callee instanceof WalaQueryNode)) {
             throw new IllegalStateException(
-                    "Missing overlay edge between synthetic nodes");
+                    "Impact paths must contain WALA graph nodes");
         }
         final CGNode callerNode = ((WalaQueryNode) caller).walaNode();
         final CGNode calleeNode = ((WalaQueryNode) callee).walaNode();
@@ -495,6 +478,12 @@ public final class ModuleImpactTracer {
                     QueryEdge.UNKNOWN_PC);
         }
         final CallSiteReference site = sites.get(0);
+        final SyntheticEdgeMetadata synthetic =
+                session.syntheticEdge(callerNode);
+        if (synthetic != null) {
+            return new QueryEdge(caller, callee, synthetic.kind(),
+                    synthetic.evidence(), site.getProgramCounter());
+        }
         return new QueryEdge(caller, callee,
                 invocationKind(site.getInvocationCode()),
                 "declaredTarget=" + site.getDeclaredTarget(),
@@ -513,7 +502,9 @@ public final class ModuleImpactTracer {
         final String module = codeOrigin == CodeOrigin.PROJECT
                 ? moduleId.stableKey() : codeOrigin.name();
         final String source = ownership == null
-                ? "<jdk>" : ownership.getSource().toString();
+                ? codeOrigin == CodeOrigin.JDK
+                ? "<jdk>" : "<synthetic>"
+                : ownership.getSource().toString();
         return new WalaQueryNode(node, new MethodId(owner,
                 method.getName().toString(),
                 method.getDescriptor().toString(), module, source),
@@ -653,15 +644,6 @@ public final class ModuleImpactTracer {
                 || kind == ChangePointKind.FIELD_ADDED;
     }
 
-    private boolean requiresBootstrapEvidence(
-            final ModuleAnalysisUnit unit) {
-        return unit.getChangePoints().stream().anyMatch(point ->
-                point.getChangePoint().getKind()
-                        == ChangePointKind.METHOD_REMOVED
-                        || point.getChangePoint().getKind()
-                        == ChangePointKind.METHOD_DESCRIPTOR_CHANGED);
-    }
-
     private ChangePointDisposition missingDisposition(
             final ChangePoint point) {
         return point.getKind() == ChangePointKind.METHOD_BODY_CHANGED
@@ -680,13 +662,6 @@ public final class ModuleImpactTracer {
             return ChangePointDisposition.UNREACHABLE_STRUCTURAL_REFERENCE;
         }
         return missingDisposition(change);
-    }
-
-    private Comparator<CGNode> nodeComparator() {
-        return Comparator
-                .comparing((CGNode node) -> methodIdentity(
-                        node.getMethod().getReference()))
-                .thenComparingInt(CGNode::getGraphNodeId);
     }
 
     private Comparator<Seed> seedComparator() {
@@ -711,6 +686,27 @@ public final class ModuleImpactTracer {
                         path.getAffectedMethod().descriptor())
                 .thenComparing(path -> path.getTerminal()
                         .getChangePoint().stableKey());
+    }
+
+    private Comparator<ImpactPath> representativePathComparator() {
+        return Comparator
+                .comparingInt((ImpactPath path) ->
+                        path.getOrderedEdges().size())
+                .thenComparing(this::impactPathStableKey);
+    }
+
+    private String impactPathStableKey(final ImpactPath path) {
+        final StringBuilder result = new StringBuilder();
+        for (QueryNode node : path.getNodes()) {
+            result.append(methodIdentity(node.methodId())).append('|')
+                    .append(queryNodeNumber(node)).append('|');
+        }
+        for (QueryEdge edge : path.getOrderedEdges()) {
+            result.append(edge.getBytecodePc()).append(':')
+                    .append(edge.getKind()).append(':')
+                    .append(edge.getEvidence()).append('|');
+        }
+        return result.toString();
     }
 
     private Comparator<StructuralReferencePath> structuralPathComparator() {
@@ -782,8 +778,7 @@ public final class ModuleImpactTracer {
             final ModuleId moduleId,
             final QueryNode node,
             final ModuleCallGraphSession session) {
-        final Set<QueryNode> result = new LinkedHashSet<>(
-                session.getServiceLoaderOverlay().predecessors(node));
+        final Set<QueryNode> result = new LinkedHashSet<>();
         if (node instanceof WalaQueryNode) {
             final CGNode walaNode = ((WalaQueryNode) node).walaNode();
             final List<CGNode> walaPredecessors = iteratorList(

@@ -19,14 +19,17 @@ import com.ibm.wala.ipa.cha.IClassHierarchy;
 import com.ibm.wala.ssa.SSAOptions;
 import com.ibm.wala.types.ClassLoaderReference;
 
-import io.github.dependencyanalysis.dependency.ResolvedArtifact;
+import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 import io.github.dependencyanalysis.impact.ModuleAnalysisUnit;
+import io.github.dependencyanalysis.impact.StructuralImpactScanner;
+import io.github.dependencyanalysis.impact.StructuralScanResult;
+import io.github.dependencyanalysis.jar.IJarRepository;
+import io.github.dependencyanalysis.jar.JarLease;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -50,16 +53,26 @@ public final class ModuleCallGraphEngine {
     /** User-selected PROJECT root boundary. */
     private final EntrypointSelection entrypointSelection;
 
+    /** Command-scoped dependency repository. */
+    private final IJarRepository jarRepository;
+
+    /** Exact invokedynamic models. */
+    private final InvokeDynamicBootstrapModelRegistry dynamicModels;
+
     /**
      * Creates a module Call Graph engine.
      *
      * @param collector diagnostics
      * @param runtime target JDK runtime
+     * @param repository dependency repository
      */
     public ModuleCallGraphEngine(
             final DiagnosticLog collector,
-            final JavaRuntimeDescriptor runtime) {
-        this(collector, runtime, EntrypointSelection.allProjectClasses());
+            final JavaRuntimeDescriptor runtime,
+            final IJarRepository repository) {
+        this(collector, runtime, EntrypointSelection.allProjectClasses(),
+                repository,
+                InvokeDynamicBootstrapModelRegistry.jdk8Defaults());
     }
 
     /**
@@ -68,14 +81,37 @@ public final class ModuleCallGraphEngine {
      * @param collector diagnostics
      * @param runtime target JDK runtime
      * @param selection entrypoint class selection
+     * @param repository dependency repository
      */
     public ModuleCallGraphEngine(
             final DiagnosticLog collector,
             final JavaRuntimeDescriptor runtime,
-            final EntrypointSelection selection) {
+            final EntrypointSelection selection,
+            final IJarRepository repository) {
+        this(collector, runtime, selection, repository,
+                InvokeDynamicBootstrapModelRegistry.jdk8Defaults());
+    }
+
+    /**
+     * Creates an engine with an explicit invokedynamic model registry.
+     *
+     * @param collector diagnostics
+     * @param runtime target JDK runtime
+     * @param selection entrypoint class selection
+     * @param repository dependency repository
+     * @param models exact invokedynamic models
+     */
+    public ModuleCallGraphEngine(
+            final DiagnosticLog collector,
+            final JavaRuntimeDescriptor runtime,
+            final EntrypointSelection selection,
+            final IJarRepository repository,
+            final InvokeDynamicBootstrapModelRegistry models) {
         diagnostics = Objects.requireNonNull(collector, "collector");
         javaRuntime = Objects.requireNonNull(runtime, "runtime");
         entrypointSelection = Objects.requireNonNull(selection, "selection");
+        jarRepository = Objects.requireNonNull(repository, "repository");
+        dynamicModels = Objects.requireNonNull(models, "models");
     }
 
     /**
@@ -97,6 +133,9 @@ public final class ModuleCallGraphEngine {
         final long initialMemory = usedMemory();
         try {
             final ClassOwnershipIndex ownership = ownership(unit);
+            final StructuralScanResult structuralScan =
+                    new StructuralImpactScanner(jarRepository).scan(
+                            unit, ownership);
             reportDuplicateResolutions(context, ownership);
             final AnalysisScope scope = scope(unit, ownership);
             final IClassHierarchy hierarchy = hierarchy(scope);
@@ -118,6 +157,14 @@ public final class ModuleCallGraphEngine {
                             Language.JAVA, options,
                             cache, hierarchy);
             MethodHandles.analyzeMethodHandles(options, builder);
+            final InvokeDynamicModelState dynamicState =
+                    new InvokeDynamicModelState();
+            options.setSelector(new InvokeDynamicModelTargetSelector(
+                    options.getMethodTargetSelector(), dynamicModels,
+                    dynamicState));
+            final ServiceLoaderFixedPointModel serviceLoader =
+                    ServiceLoaderFixedPointModel.create(scope, hierarchy);
+            serviceLoader.install(builder);
             final com.ibm.wala.ipa.callgraph.CallGraph graph;
             final Duration remaining = remainingTimeout(
                     timeoutSeconds, startedNanos);
@@ -154,9 +201,13 @@ public final class ModuleCallGraphEngine {
                     + entrypoints.size());
             diagnostics.endStage(context);
             return new ModuleCallGraphSession(graph, hierarchy, scope,
-                    ownership, cache, stats,
-                    new EntrypointSelectionMetrics(selectedClasses,
-                            entrypoints.size(), parameterCandidates));
+                    ownership, cache, new ModuleCallGraphMetadata(
+                            stats, new EntrypointSelectionMetrics(
+                            selectedClasses, entrypoints.size(),
+                            parameterCandidates),
+                            dynamicState.evidenceIndex(),
+                            dynamicState.limitations(), serviceLoader,
+                            structuralScan));
         } catch (CallGraphException exception) {
             diagnostics.failStage(context, exception.getMessage());
             throw exception;
@@ -174,9 +225,10 @@ public final class ModuleCallGraphEngine {
         for (Path path : unit.getReactorDependencyClasses()) {
             result.addDirectory(path, CodeOrigin.REACTOR_DEPENDENCY);
         }
-        for (ResolvedArtifact artifact : unit.getTargetArtifacts()) {
-            if (isJar(artifact)) {
-                result.addJar(artifact.getPath(), CodeOrigin.DEPENDENCY);
+        for (ArtifactCoord artifact : unit.getTargetArtifacts()) {
+            try (JarLease lease = jarRepository.open(artifact)) {
+                result.addJar(artifact, lease.jarFile(),
+                        CodeOrigin.DEPENDENCY);
             }
         }
         final SpringBackendJdkExclusions exclusions =
@@ -214,17 +266,28 @@ public final class ModuleCallGraphEngine {
                 javaRuntime.getExtensionClassPath(), exclusions, ownership);
         result.addToScope(ClassLoaderReference.Application,
                 filteredDirectory(unit.getProjectClasses(), ownership));
+        addServiceResources(result, unit.getProjectClasses());
         for (Path path : unit.getReactorDependencyClasses()) {
             result.addToScope(ClassLoaderReference.Application,
                     filteredDirectory(path, ownership));
+            addServiceResources(result, path);
         }
-        for (ResolvedArtifact artifact : unit.getTargetArtifacts()) {
-            if (isJar(artifact)) {
-                result.addToScope(ClassLoaderReference.Application,
-                        filteredJar(artifact.getPath(), ownership));
-            }
+        for (ArtifactCoord artifact : unit.getTargetArtifacts()) {
+            result.addToScope(ClassLoaderReference.Application,
+                    filteredJar(artifact, ownership));
         }
         return result;
+    }
+
+    private void addServiceResources(
+            final AnalysisScope scope,
+            final Path classes) throws IOException {
+        final ServiceResourceDirectoryModule resources =
+                new ServiceResourceDirectoryModule(classes);
+        if (resources.getEntries().hasNext()) {
+            scope.addToScope(
+                    ClassLoaderReference.Application, resources);
+        }
     }
 
     private void addJdkJars(
@@ -256,6 +319,15 @@ public final class ModuleCallGraphEngine {
         return new OwnershipFilteredModule(
                 new JarFileModule(new JarFile(path.toFile(), false)),
                 path, ownership);
+    }
+
+    private OwnershipFilteredModule filteredJar(
+            final ArtifactCoord artifact,
+            final ClassOwnershipIndex ownership) throws IOException {
+        final JarLease lease = jarRepository.open(artifact);
+        return new OwnershipFilteredModule(
+                new JarFileModule(lease.jarFile()),
+                ClassSource.artifact(artifact), ownership);
     }
 
     private void reportDuplicateResolutions(
@@ -355,11 +427,6 @@ public final class ModuleCallGraphEngine {
             result += graph.getSuccNodeCount(node);
         }
         return result;
-    }
-
-    private boolean isJar(final ResolvedArtifact artifact) {
-        return "jar".equals(artifact.getArtifact().getType())
-                && Files.isRegularFile(artifact.getPath());
     }
 
     private long usedMemory() {

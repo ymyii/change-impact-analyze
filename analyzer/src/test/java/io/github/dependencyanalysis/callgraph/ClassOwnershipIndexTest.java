@@ -50,7 +50,7 @@ class ClassOwnershipIndexTest {
         index.addDirectory(second, CodeOrigin.DEPENDENCY);
 
         assertThat(index.ownershipOf("sample/Duplicate").getSource())
-                .isEqualTo(first);
+                .isEqualTo(ClassSource.path(first));
         assertThat(index.duplicateClassResolutions()).singleElement()
                 .satisfies(resolution -> {
                     assertThat(resolution.getBinaryName())
@@ -59,7 +59,7 @@ class ClassOwnershipIndexTest {
                             .isEqualTo(CodeOrigin.PROJECT);
                     assertThat(resolution.getLosers()).singleElement()
                             .extracting(ClassOwnership::getSource)
-                            .isEqualTo(second);
+                            .isEqualTo(ClassSource.path(second));
                     assertThat(resolution.getPrecedenceReason())
                             .isEqualTo("Current module target/classes "
                                     + "precedence");
@@ -78,7 +78,7 @@ class ClassOwnershipIndexTest {
         index.addDirectory(second, CodeOrigin.DEPENDENCY);
 
         assertThat(index.ownershipOf("sample/Duplicate").getSource())
-                .isEqualTo(first);
+                .isEqualTo(ClassSource.path(first));
         assertThat(index.duplicateClassResolutions()).singleElement()
                 .extracting(DuplicateClassResolution::getPrecedenceReason)
                 .isEqualTo("External dependency GraphML order");
@@ -96,7 +96,7 @@ class ClassOwnershipIndexTest {
         index.addDirectory(reactor, CodeOrigin.REACTOR_DEPENDENCY);
 
         assertThat(index.ownershipOf("sample/Duplicate").getSource())
-                .isEqualTo(reactor);
+                .isEqualTo(ClassSource.path(reactor));
         assertThat(index.duplicateClassResolutions()).singleElement()
                 .extracting(DuplicateClassResolution::getPrecedenceReason)
                 .isEqualTo("Reactor dependency GraphML order");
@@ -159,7 +159,7 @@ class ClassOwnershipIndexTest {
         assertThat(index.ownershipOf("module-info")).isNull();
         assertThat(index.binaryNames()).containsExactly("sample/Owned");
         assertThat(index.ownershipOf("sample/Owned").getSource())
-                .isEqualTo(first);
+                .isEqualTo(ClassSource.path(first));
     }
 
     @Test
@@ -195,7 +195,7 @@ class ClassOwnershipIndexTest {
         index.validateJarDuplicates(jar, CodeOrigin.JDK, name -> true);
 
         assertThat(index.ownershipOf("sample/Duplicate").getSource())
-                .isEqualTo(jar);
+                .isEqualTo(ClassSource.path(jar));
         assertThat(index.duplicateClassResolutions()).singleElement()
                 .satisfies(resolution -> {
                     assertThat(resolution.getWinner().getOrigin())

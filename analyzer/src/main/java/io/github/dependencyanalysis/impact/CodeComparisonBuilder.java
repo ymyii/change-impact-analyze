@@ -6,6 +6,8 @@ import io.github.dependencyanalysis.bytecode.DecompiledMethod;
 import io.github.dependencyanalysis.bytecode.MethodBodyDecompiler;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
+import io.github.dependencyanalysis.jar.IJarRepository;
+import io.github.dependencyanalysis.jar.JarLease;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 
 import org.objectweb.asm.ClassReader;
@@ -37,13 +39,20 @@ final class CodeComparisonBuilder {
     /** Unified diff producer. */
     private final UnifiedDiffGenerator diffs = new UnifiedDiffGenerator();
 
+    /** Command-scoped dependency repository. */
+    private final IJarRepository jarRepository;
+
     /**
      * Creates a code comparison builder.
      *
      * @param diagnostics diagnostic collector
+     * @param repository dependency repository
      */
-    CodeComparisonBuilder(final DiagnosticLog diagnostics) {
+    CodeComparisonBuilder(
+            final DiagnosticLog diagnostics,
+            final IJarRepository repository) {
         decompiler = new MethodBodyDecompiler(diagnostics);
+        jarRepository = Objects.requireNonNull(repository, "repository");
     }
 
     /**
@@ -51,14 +60,17 @@ final class CodeComparisonBuilder {
      *
      * @param diagnostics diagnostic collector
      * @param runtime target JDK 8
+     * @param repository dependency repository
      */
     CodeComparisonBuilder(
             final DiagnosticLog diagnostics,
-            final JavaRuntimeDescriptor runtime) {
+            final JavaRuntimeDescriptor runtime,
+            final IJarRepository repository) {
         final java.util.ArrayList<Path> libraries =
                 new java.util.ArrayList<>(runtime.getBootClassPath());
         libraries.addAll(runtime.getExtensionClassPath());
         decompiler = new MethodBodyDecompiler(diagnostics, libraries);
+        jarRepository = Objects.requireNonNull(repository, "repository");
     }
 
     /**
@@ -70,25 +82,36 @@ final class CodeComparisonBuilder {
     CodeComparisonEvidence build(final BoundChangePoint bound) {
         final ChangePoint point = bound.getChangePoint();
         final DependencyUpgradeKey key = bound.getDependencyUpgradeKey();
-        final SideText oldSide = side(true, point, key.getOldPath(),
-                key.getOldArtifact());
-        final SideText newSide = side(false, point, key.getNewPath(),
-                key.getNewArtifact());
-        final String fallback = asmFallback(point, key);
-        if (!oldSide.available() || !newSide.available()) {
+        try (JarLease oldLease = jarRepository.open(key.getOldArtifact());
+             JarLease newLease = jarRepository.open(key.getNewArtifact())) {
+            final Path oldPath = Path.of(oldLease.jarFile().getName());
+            final Path newPath = Path.of(newLease.jarFile().getName());
+            final SideText oldSide = side(true, point, oldPath,
+                    key.getOldArtifact());
+            final SideText newSide = side(false, point, newPath,
+                    key.getNewArtifact());
+            final String fallback = asmFallback(
+                    point, oldPath, newPath);
+            if (!oldSide.available() || !newSide.available()) {
+                return new CodeComparisonEvidence(
+                        CodeComparisonStatus.UNAVAILABLE, List.of(), fallback,
+                        unavailableReason(oldSide, newSide));
+            }
+            final List<UnifiedDiffHunk> hunks = diffs.diff(
+                    oldSide.text(), newSide.text());
+            if (!hunks.isEmpty()) {
+                return new CodeComparisonEvidence(
+                        CodeComparisonStatus.AVAILABLE, hunks, "", "");
+            }
             return new CodeComparisonEvidence(
-                    CodeComparisonStatus.UNAVAILABLE, List.of(), fallback,
-                    unavailableReason(oldSide, newSide));
-        }
-        final List<UnifiedDiffHunk> hunks = diffs.diff(
-                oldSide.text(), newSide.text());
-        if (!hunks.isEmpty()) {
+                    CodeComparisonStatus.ASM_FALLBACK, List.of(), fallback,
+                    "Bytecode differs, but the decompiled Java text "
+                            + "is identical");
+        } catch (IOException exception) {
             return new CodeComparisonEvidence(
-                    CodeComparisonStatus.AVAILABLE, hunks, "", "");
+                    CodeComparisonStatus.UNAVAILABLE, List.of(), "",
+                    summarize(exception));
         }
-        return new CodeComparisonEvidence(
-                CodeComparisonStatus.ASM_FALLBACK, List.of(), fallback,
-                "Bytecode differs, but the decompiled Java text is identical");
     }
 
     private SideText side(
@@ -201,11 +224,13 @@ final class CodeComparisonBuilder {
     }
 
     private String asmFallback(
-            final ChangePoint point, final DependencyUpgradeKey key) {
+            final ChangePoint point,
+            final Path oldPath,
+            final Path newPath) {
         try {
-            final String oldText = asmText(key.getOldPath(), point, true);
+            final String oldText = asmText(oldPath, point, true);
             final String newText = isRemoved(point.getKind()) ? ""
-                    : asmText(key.getNewPath(), point, false);
+                    : asmText(newPath, point, false);
             return unifiedText(diffs.diff(oldText, newText),
                     "old/bytecode.asm", "new/bytecode.asm");
         } catch (IOException | RuntimeException exception) {

@@ -13,6 +13,7 @@ import io.github.dependencyanalysis.impact.ModuleId;
 import io.github.dependencyanalysis.impact.ModulePresence;
 import io.github.dependencyanalysis.runtime.Jdk8RuntimeProvider;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
+import io.github.dependencyanalysis.testing.TestJarRepositories;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -116,7 +117,8 @@ class JdkAnalysisStageTest {
             System.setErr(new PrintStream(stderr));
             final ModuleCallGraphSession session =
                     new ModuleCallGraphEngine(
-                            diagnostics(), runtime).build(unit, 0L);
+                            diagnostics(), runtime,
+                            TestJarRepositories.empty()).build(unit, 0L);
             assertThat(session.getEntrypointCount()).isPositive();
             assertThat(session.getStats().methodCount()).isPositive();
             assertThat(session.getStats().edgeCount()).isPositive();

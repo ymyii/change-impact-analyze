@@ -5,11 +5,11 @@ import io.github.dependencyanalysis.dependency.DependencyChange;
 import java.util.List;
 
 /**
- * Module-bound bytecode changes and isolated physical JAR diff failures.
+ * Module-bound bytecode changes and isolated coordinate-pair JAR diff failures.
  *
  * @param dependencyChanges complete module dependency changes
  * @param changePoints module-bound ChangePoints
- * @param jarDiffFailures physical JAR diff failure evidence
+ * @param jarDiffFailures coordinate-pair JAR diff failure evidence
  */
 public record ModuleChangeSet(
         List<DependencyChange> dependencyChanges,
@@ -21,7 +21,7 @@ public record ModuleChangeSet(
      *
      * @param dependencyChanges complete module dependency changes
      * @param changePoints module-bound ChangePoints
-     * @param jarDiffFailures physical JAR diff failure evidence
+     * @param jarDiffFailures coordinate-pair JAR diff failure evidence
      */
     public ModuleChangeSet {
         dependencyChanges = List.copyOf(dependencyChanges);
@@ -33,7 +33,7 @@ public record ModuleChangeSet(
      * Compatibility constructor for callers without dependency changes.
      *
      * @param changePoints module-bound ChangePoints
-     * @param jarDiffFailures physical JAR diff failures
+     * @param jarDiffFailures coordinate-pair JAR diff failures
      */
     public ModuleChangeSet(
             final List<BoundChangePoint> points,

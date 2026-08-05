@@ -1,7 +1,9 @@
 package io.github.dependencyanalysis.callgraph;
 
-import io.github.dependencyanalysis.dependency.ResolvedArtifact;
+import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.impact.ModuleAnalysisUnit;
+import io.github.dependencyanalysis.jar.IJarRepository;
+import io.github.dependencyanalysis.jar.JarLease;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -29,6 +31,19 @@ public final class ModuleScopeValidator {
     private final SpringBackendJdkExclusions exclusions =
             new SpringBackendJdkExclusions();
 
+    /** Command-scoped dependency repository. */
+    private final IJarRepository jarRepository;
+
+    /**
+     * Creates a validator using repository-owned JAR handles.
+     *
+     * @param repository dependency repository
+     */
+    public ModuleScopeValidator(final IJarRepository repository) {
+        jarRepository = java.util.Objects.requireNonNull(
+                repository, "repository");
+    }
+
     /**
      * Validates PROJECT, REACTOR_DEPENDENCY, and DEPENDENCY bytecode.
      * External dependency references are returned as warnings.
@@ -44,13 +59,11 @@ public final class ModuleScopeValidator {
             }
             final List<ScopeValidationWarning> warnings =
                     new ArrayList<>();
-            for (ResolvedArtifact artifact : unit.getTargetArtifacts()) {
-                if ("jar".equals(artifact.getArtifact().getType())) {
-                    final ScopeValidationWarning warning =
-                            validateExternalJar(artifact);
-                    if (warning != null) {
-                        warnings.add(warning);
-                    }
+            for (ArtifactCoord artifact : unit.getTargetArtifacts()) {
+                final ScopeValidationWarning warning =
+                        validateExternalJar(artifact);
+                if (warning != null) {
+                    warnings.add(warning);
                 }
             }
             return new ScopeValidationResult(warnings);
@@ -76,10 +89,10 @@ public final class ModuleScopeValidator {
     }
 
     private ScopeValidationWarning validateExternalJar(
-            final ResolvedArtifact artifact) throws IOException {
-        final Path path = artifact.getPath();
+            final ArtifactCoord artifact) throws IOException {
         final List<ReferenceFinding> findings = new ArrayList<>();
-        try (JarFile jar = new JarFile(path.toFile(), false)) {
+        try (JarLease lease = jarRepository.open(artifact)) {
+            final JarFile jar = lease.jarFile();
             final List<JarEntry> entries = new ArrayList<>();
             jar.stream()
                     .filter(entry -> !entry.isDirectory())

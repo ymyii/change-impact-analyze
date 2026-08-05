@@ -13,14 +13,14 @@ import java.util.Objects;
  * @param descriptor method JVM
  *                   descriptor
  * @param module     module name
- * @param sourcePath source path
+ * @param sourceId logical source identity
  */
 public record MethodId(
         String owner,
         String name,
         String descriptor,
         String module,
-        String sourcePath) {
+        String sourceId) {
 
     /**
      * Compact constructor with
@@ -36,6 +36,6 @@ public record MethodId(
         Objects.requireNonNull(
                 module, "module");
         Objects.requireNonNull(
-                sourcePath, "sourcePath");
+                sourceId, "sourceId");
     }
 }

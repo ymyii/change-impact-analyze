@@ -16,7 +16,7 @@ public final class OwnershipFilteredModule implements Module {
     private final Module delegate;
 
     /** Physical directory or JAR represented by the module. */
-    private final Path source;
+    private final ClassSource source;
 
     /** Effective class ownership. */
     private final ClassOwnershipIndex ownership;
@@ -32,9 +32,22 @@ public final class OwnershipFilteredModule implements Module {
             final Module original,
             final Path sourcePath,
             final ClassOwnershipIndex ownershipIndex) {
+        this(original, ClassSource.path(sourcePath), ownershipIndex);
+    }
+
+    /**
+     * Creates a filtered WALA module view for a logical source.
+     *
+     * @param original underlying module
+     * @param logicalSource logical classpath source
+     * @param ownershipIndex effective ownership
+     */
+    public OwnershipFilteredModule(
+            final Module original,
+            final ClassSource logicalSource,
+            final ClassOwnershipIndex ownershipIndex) {
         delegate = Objects.requireNonNull(original, "delegate");
-        source = Objects.requireNonNull(sourcePath, "source")
-                .toAbsolutePath().normalize();
+        source = Objects.requireNonNull(logicalSource, "logicalSource");
         ownership = Objects.requireNonNull(ownershipIndex, "ownership");
     }
 

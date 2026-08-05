@@ -1,5 +1,7 @@
 package io.github.dependencyanalysis.callgraph;
 
+import io.github.dependencyanalysis.dependency.ArtifactCoord;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -69,7 +71,8 @@ public final class ClassOwnershipIndex {
         for (Path file : files) {
             final String name = normalizeClassName(
                     directory.relativize(file).toString());
-            add(name, origin, directory, digest(Files.readAllBytes(file)));
+            add(name, origin, ClassSource.path(directory),
+                    digest(Files.readAllBytes(file)));
         }
     }
 
@@ -83,7 +86,30 @@ public final class ClassOwnershipIndex {
     public void addJar(final Path jarPath, final CodeOrigin origin)
             throws IOException {
         try (JarFile jar = new JarFile(jarPath.toFile(), false)) {
-            final List<JarEntry> entries = jar.stream()
+            addJar(jar, ClassSource.path(jarPath), origin);
+        }
+    }
+
+    /**
+     * Adds every Java 8-visible class from one dependency JAR.
+     *
+     * @param coordinate logical dependency source
+     * @param jar open JAR handle
+     * @param origin code origin
+     * @throws IOException on unreadable entry
+     */
+    public void addJar(
+            final ArtifactCoord coordinate,
+            final JarFile jar,
+            final CodeOrigin origin) throws IOException {
+        addJar(jar, ClassSource.artifact(coordinate), origin);
+    }
+
+    private void addJar(
+            final JarFile jar,
+            final ClassSource source,
+            final CodeOrigin origin) throws IOException {
+        final List<JarEntry> entries = jar.stream()
                     .filter(entry -> !entry.isDirectory())
                     .filter(entry -> entry.getName().endsWith(".class"))
                     .filter(entry -> !isModuleInfoClass(entry.getName()))
@@ -94,10 +120,9 @@ public final class ClassOwnershipIndex {
             for (JarEntry entry : entries) {
                 try (InputStream input = jar.getInputStream(entry)) {
                     add(normalizeClassName(entry.getName()), origin,
-                            jarPath, digest(input.readAllBytes()));
+                            source, digest(input.readAllBytes()));
                 }
             }
-        }
     }
 
     /**
@@ -130,7 +155,7 @@ public final class ClassOwnershipIndex {
                     continue;
                 }
                 try (InputStream input = jar.getInputStream(entry)) {
-                    add(name, origin, jarPath,
+                    add(name, origin, ClassSource.path(jarPath),
                             digest(input.readAllBytes()));
                 }
             }
@@ -140,7 +165,7 @@ public final class ClassOwnershipIndex {
     private void add(
             final String name,
             final CodeOrigin origin,
-            final Path source,
+            final ClassSource source,
             final String digest) {
         final ClassOwnership previous = classes.get(name);
         final ClassOwnership candidate = new ClassOwnership(
@@ -229,14 +254,26 @@ public final class ClassOwnershipIndex {
     public boolean isEffectiveDefinition(
             final String name,
             final Path source) {
+        return isEffectiveDefinition(name, ClassSource.path(source));
+    }
+
+    /**
+     * Tests whether one logical source owns the effective definition.
+     *
+     * @param name WALA-style or internal binary name
+     * @param source logical classpath source
+     * @return true when the entry should be exposed
+     */
+    public boolean isEffectiveDefinition(
+            final String name,
+            final ClassSource source) {
         final String normalized = normalizedLookupName(name);
         if ("module-info".equals(normalized)
                 || normalized.startsWith(MULTI_RELEASE_PREFIX)) {
             return false;
         }
         final ClassOwnership ownership = classes.get(normalized);
-        return ownership == null || ownership.getSource().equals(
-                source.toAbsolutePath().normalize());
+        return ownership == null || ownership.getSource().equals(source);
     }
 
     private DuplicateClassResolution resolution(final String name) {

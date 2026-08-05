@@ -10,14 +10,14 @@ public final class BoundChangePoint {
     /** Dependency resolution identity. */
     private final DependencyUpgradeKey dependencyUpgradeKey;
 
-    /** Physical JAR diff result. */
+    /** Coordinate-pair JAR diff result. */
     private final ChangePoint changePoint;
 
     /**
      * Creates a bound ChangePoint.
      *
      * @param key dependency upgrade identity
-     * @param point physical diff result
+     * @param point coordinate-pair diff result
      */
     public BoundChangePoint(
             final DependencyUpgradeKey key,
@@ -31,7 +31,7 @@ public final class BoundChangePoint {
         return dependencyUpgradeKey;
     }
 
-    /** @return physical ChangePoint */
+    /** @return bound ChangePoint */
     public ChangePoint getChangePoint() {
         return changePoint;
     }

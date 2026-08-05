@@ -4,7 +4,8 @@ import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.ChangeType;
 import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.dependency.DependencyScope;
-import io.github.dependencyanalysis.jar.JarLocationResult;
+import io.github.dependencyanalysis.jar.IJarRepository;
+import io.github.dependencyanalysis.testing.TestJarRepositories;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.objectweb.asm.ClassWriter;
@@ -381,7 +382,7 @@ class BytecodeDiffEngineTest {
         assertThatThrownBy(
                 () -> diff(badJar, okJar))
                 .isInstanceOf(
-                        BytecodeDiffException.class);
+                        IOException.class);
     }
 
     @Test
@@ -590,13 +591,12 @@ class BytecodeDiffEngineTest {
      * @param oldJar old jar path
      * @param newJar new jar path
      * @return change points
-     * @throws BytecodeDiffException
-     *  on error
+     * @throws Exception on repository or diff error
      */
     private List<ChangePoint> diff(
             final Path oldJar,
             final Path newJar)
-            throws BytecodeDiffException {
+            throws Exception {
         final DependencyChange change =
                 new DependencyChange(
                         ChangeType
@@ -605,11 +605,10 @@ class BytecodeDiffEngineTest {
                         DependencyScope
                                 .COMPILE,
                         "root");
-        final JarLocationResult loc =
-                new JarLocationResult(
-                        change, oldJar,
-                        newJar);
-        return engine.diff(loc);
+        try (IJarRepository repository = TestJarRepositories.pair(
+                OLD, oldJar, NEW, newJar)) {
+            return engine.diff(change, repository);
+        }
     }
 
     /**
@@ -620,14 +619,13 @@ class BytecodeDiffEngineTest {
      * @param oldJar old jar path
      * @param newJar new jar path
      * @return change points
-     * @throws BytecodeDiffException
-     *  on error
+     * @throws Exception on repository or diff error
      */
     private List<ChangePoint> diffWith(
             final BytecodeDiffEngine eng,
             final Path oldJar,
             final Path newJar)
-            throws BytecodeDiffException {
+            throws Exception {
         final DependencyChange change =
                 new DependencyChange(
                         ChangeType
@@ -636,11 +634,10 @@ class BytecodeDiffEngineTest {
                         DependencyScope
                                 .COMPILE,
                         "root");
-        final JarLocationResult loc =
-                new JarLocationResult(
-                        change, oldJar,
-                        newJar);
-        return eng.diff(loc);
+        try (IJarRepository repository = TestJarRepositories.pair(
+                OLD, oldJar, NEW, newJar)) {
+            return eng.diff(change, repository);
+        }
     }
 
     /**

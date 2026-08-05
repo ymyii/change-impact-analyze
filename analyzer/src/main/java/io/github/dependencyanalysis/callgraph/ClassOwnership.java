@@ -1,16 +1,15 @@
 package io.github.dependencyanalysis.callgraph;
 
-import java.nio.file.Path;
 import java.util.Objects;
 
-/** Physical ownership record for one binary class name. */
+/** Logical ownership record for one binary class name. */
 public final class ClassOwnership {
 
     /** Code origin. */
     private final CodeOrigin origin;
 
-    /** Physical owner entry. */
-    private final Path source;
+    /** Logical owner entry. */
+    private final ClassSource source;
 
     /** Content digest. */
     private final String digest;
@@ -19,16 +18,15 @@ public final class ClassOwnership {
      * Creates a class ownership record.
      *
      * @param value code origin
-     * @param sourcePath physical owner entry
+     * @param classSource logical owner entry
      * @param contentDigest content digest
      */
     ClassOwnership(
             final CodeOrigin value,
-            final Path sourcePath,
+            final ClassSource classSource,
             final String contentDigest) {
         origin = Objects.requireNonNull(value, "origin");
-        source = Objects.requireNonNull(sourcePath, "source")
-                .toAbsolutePath().normalize();
+        source = Objects.requireNonNull(classSource, "source");
         digest = Objects.requireNonNull(contentDigest, "digest");
     }
 
@@ -37,8 +35,8 @@ public final class ClassOwnership {
         return origin;
     }
 
-    /** @return physical source entry */
-    public Path getSource() {
+    /** @return logical source entry */
+    public ClassSource getSource() {
         return source;
     }
 

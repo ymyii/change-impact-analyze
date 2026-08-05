@@ -363,10 +363,8 @@ public final class PerModuleHtmlReportGenerator {
                 .append("<li>Reactor dependency: <code>")
                 .append(escape(path.toString())).append("</code></li>"));
         module.getUnit().getTargetArtifacts().forEach(artifact -> body
-                .append("<li>")
-                .append(escape(artifact.getArtifact().toString()))
-                .append(" <code>")
-                .append(escape(artifact.getPath().toString()))
+                .append("<li>External dependency: <code>")
+                .append(escape(artifact.toString()))
                 .append("</code></li>"));
         body.append("</ul></details></section>");
         appendDuplicateResolutions(body, module);
@@ -451,7 +449,7 @@ public final class PerModuleHtmlReportGenerator {
         }
         body.append("</table><details><summary>Technical details</summary>")
                 .append("<table><tr><th>Binary name</th><th>Role</th>")
-                .append("<th>Origin</th><th>Physical path</th></tr>");
+                .append("<th>Origin</th><th>Logical source</th></tr>");
         for (DuplicateClassResolution resolution : resolutions) {
             for (ClassOwnership candidate : resolution.getCandidates()) {
                 body.append("<tr><td><code>")
@@ -836,16 +834,16 @@ public final class PerModuleHtmlReportGenerator {
                         ? "Not compared" : equivalence.getStatus()))
                 .append(row("SSA reason", equivalence == null
                         ? "Not compared" : equivalence.getReason()))
-                .append(row("Old physical path", bound
-                        .getDependencyUpgradeKey().getOldPath()))
-                .append(row("New physical path", bound
-                        .getDependencyUpgradeKey().getNewPath()));
+                .append(row("Old artifact", bound
+                        .getDependencyUpgradeKey().getOldArtifact()))
+                .append(row("New artifact", bound
+                        .getDependencyUpgradeKey().getNewArtifact()));
         final DuplicateClassResolution resolution = duplicateResolution(
                 module, bound);
         if (resolution != null) {
             result.append(row("Duplicate winner",
                             ownershipLabel(resolution.getWinner())))
-                    .append(row("Duplicate winner physical path",
+                    .append(row("Duplicate winner logical source",
                             resolution.getWinner().getSource()))
                     .append(row("Duplicate precedence",
                             resolution.getPrecedenceReason()));
@@ -1150,7 +1148,7 @@ public final class PerModuleHtmlReportGenerator {
     private String contextEvidence(final QueryNode node) {
         return node instanceof WalaQueryNode
                 ? ((WalaQueryNode) node).walaNode().getContext().toString()
-                : node.origin() + " overlay";
+                : node.origin() + " synthetic evidence";
     }
 
     private long pathCount(
@@ -1205,10 +1203,16 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private String ownershipLabel(final ClassOwnership ownership) {
-        final Path fileName = ownership.getSource().getFileName();
-        return ownership.getOrigin().name() + " — "
-                + (fileName == null ? ownership.getSource()
-                : fileName.toString());
+        final String source = ownership.getSource().artifact()
+                .map(Object::toString)
+                .orElseGet(() -> {
+                    final Path path = ownership.getSource().path()
+                            .orElseThrow();
+                    final Path fileName = path.getFileName();
+                    return fileName == null ? path.toString()
+                            : fileName.toString();
+                });
+        return ownership.getOrigin().name() + " — " + source;
     }
 
     private long affectedMethodCount(final ModuleAnalysisResult module) {

@@ -4,8 +4,10 @@ import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.DependencyScope;
+import io.github.dependencyanalysis.dependency.ResolvedArtifact;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.LogVerbosity;
+import io.github.dependencyanalysis.testing.TestJarRepositories;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -19,6 +21,7 @@ import java.io.OutputStream;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -50,8 +53,8 @@ class CodeComparisonBuilderTest {
                 ChangePointKind.METHOD_BODY_CHANGED, OWNER, "value", "()I",
                 "old", "new");
 
-        final CodeComparisonEvidence evidence = builder().build(
-                bound(oldJar, newJar, point));
+        final CodeComparisonEvidence evidence = builder(oldJar, newJar)
+                .build(bound(point));
 
         assertThat(evidence.getStatus()).isEqualTo(
                 CodeComparisonStatus.AVAILABLE);
@@ -70,8 +73,8 @@ class CodeComparisonBuilderTest {
                 ChangePointKind.FIELD_REMOVED, OWNER, "count", "I",
                 null, null);
 
-        final CodeComparisonEvidence evidence = builder().build(
-                bound(oldJar, newJar, point));
+        final CodeComparisonEvidence evidence = builder(oldJar, newJar)
+                .build(bound(point));
 
         assertThat(evidence.getStatus()).isEqualTo(
                 CodeComparisonStatus.AVAILABLE);
@@ -105,21 +108,22 @@ class CodeComparisonBuilderTest {
         return result.toString();
     }
 
-    private CodeComparisonBuilder builder() {
+    private CodeComparisonBuilder builder(
+            final Path oldJar,
+            final Path newJar) throws Exception {
         final PrintStream sink = new PrintStream(new ByteArrayOutputStream());
         return new CodeComparisonBuilder(
-                new DiagnosticLog(sink, LogVerbosity.INFO));
+                new DiagnosticLog(sink, LogVerbosity.INFO),
+                TestJarRepositories.of(List.of(
+                        new ResolvedArtifact(OLD, oldJar),
+                        new ResolvedArtifact(TARGET, newJar))));
     }
 
-    private BoundChangePoint bound(
-            final Path oldJar,
-            final Path newJar,
-            final ChangePoint point) {
+    private BoundChangePoint bound(final ChangePoint point) {
         final ModuleId module = new ModuleId(
                 new ArtifactCoord("g", "app", "jar", "1"), Path.of("app"));
         return new BoundChangePoint(new DependencyUpgradeKey(
-                module, DependencyScope.COMPILE, OLD, TARGET,
-                oldJar, newJar), point);
+                module, DependencyScope.COMPILE, OLD, TARGET), point);
     }
 
     private Path jar(final String name, final byte[] classBytes)

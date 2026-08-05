@@ -2,9 +2,10 @@ package io.github.dependencyanalysis.bytecode;
 
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.DependencyChange;
-import io.github.dependencyanalysis.jar.JarLocationResult;
+import io.github.dependencyanalysis.jar.IJarRepository;
+import io.github.dependencyanalysis.jar.JarLease;
 
-import java.nio.file.Path;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -69,40 +70,30 @@ public final class BytecodeDiffEngine {
     }
 
     /**
-     * Computes bytecode diff for a
-     * version-changed dependency.
+     * Computes a bytecode diff through logical repository identities.
      *
-     * @param location jar location
-     * @return unmodifiable list of
-     *  change points
-     * @throws BytecodeDiffException
-     *  if jar is corrupt or class
-     *  cannot be parsed
+     * @param change version change
+     * @param repository command-scoped JAR repository
+     * @return stable change points
+     * @throws BytecodeDiffException on invalid class content
+     * @throws IOException on repository access failure
      */
     public List<ChangePoint> diff(
-            final JarLocationResult location)
-            throws BytecodeDiffException {
-        Objects.requireNonNull(
-                location, "location");
-        final DependencyChange change =
-                location.getChange();
-        final ArtifactCoord newArt =
-                change.getNewArtifact();
-        final Path oldJar =
-                location.getOldJar();
-        final Path newJar =
-                location.getNewJar();
-        final Map<String, ClassInfo> oldIdx =
-                JarClassIndexer.index(oldJar);
-        final Map<String, ClassInfo> newIdx =
-                JarClassIndexer.index(newJar);
-        final List<ChangePoint> result =
-                new ArrayList<>();
-        diffClasses(
-                oldIdx, newIdx, newArt,
-                result);
-        return Collections.unmodifiableList(
-                result);
+            final DependencyChange change,
+            final IJarRepository repository)
+            throws BytecodeDiffException, IOException {
+        Objects.requireNonNull(change, "change");
+        Objects.requireNonNull(repository, "repository");
+        try (JarLease oldLease = repository.open(change.getOldArtifact());
+             JarLease newLease = repository.open(change.getNewArtifact())) {
+            final Map<String, ClassInfo> oldIndex =
+                    JarClassIndexer.index(oldLease.jarFile());
+            final Map<String, ClassInfo> newIndex =
+                    JarClassIndexer.index(newLease.jarFile());
+            final List<ChangePoint> result = new ArrayList<>();
+            diffClasses(oldIndex, newIndex, change.getNewArtifact(), result);
+            return Collections.unmodifiableList(result);
+        }
     }
 
     /**

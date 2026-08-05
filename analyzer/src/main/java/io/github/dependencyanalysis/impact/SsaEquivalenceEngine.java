@@ -15,15 +15,17 @@ import com.ibm.wala.types.ClassLoaderReference;
 
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
+import io.github.dependencyanalysis.callgraph.ClassSource;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.OwnershipFilteredModule;
 import io.github.dependencyanalysis.callgraph.SpringBackendJdkExclusions;
-import io.github.dependencyanalysis.dependency.ResolvedArtifact;
+import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
+import io.github.dependencyanalysis.jar.IJarRepository;
+import io.github.dependencyanalysis.jar.JarLease;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -44,6 +46,9 @@ public final class SsaEquivalenceEngine {
     /** Target JDK. */
     private final JavaRuntimeDescriptor javaRuntime;
 
+    /** Command-scoped dependency repository. */
+    private final IJarRepository jarRepository;
+
     /** Comparator. */
     private final NormalizedSsaComparator comparator =
             new NormalizedSsaComparator();
@@ -53,12 +58,15 @@ public final class SsaEquivalenceEngine {
      *
      * @param collector diagnostics
      * @param runtime target JDK 8
+     * @param repository dependency repository
      */
     public SsaEquivalenceEngine(
             final DiagnosticLog collector,
-            final JavaRuntimeDescriptor runtime) {
+            final JavaRuntimeDescriptor runtime,
+            final IJarRepository repository) {
         diagnostics = Objects.requireNonNull(collector, "collector");
         javaRuntime = Objects.requireNonNull(runtime, "runtime");
+        jarRepository = Objects.requireNonNull(repository, "repository");
     }
 
     /**
@@ -218,25 +226,21 @@ public final class SsaEquivalenceEngine {
                     javaRuntime.getBootClassPath(), exclusions);
             addJdk(scope, ClassLoaderReference.Extension,
                     javaRuntime.getExtensionClassPath(), exclusions);
-            final Set<Path> paths = new LinkedHashSet<>();
-            for (ResolvedArtifact artifact : unit.getBaselineArtifacts()) {
-                if ("jar".equals(artifact.getArtifact().getType())) {
-                    paths.add(artifact.getPath());
-                }
-            }
+            final Set<ArtifactCoord> artifacts = new LinkedHashSet<>(
+                    unit.getBaselineArtifacts());
             for (BoundChangePoint point : unit.getChangePoints()) {
-                paths.add(point.getDependencyUpgradeKey().getOldPath());
+                artifacts.add(point.getDependencyUpgradeKey()
+                        .getOldArtifact());
             }
             final ClassOwnershipIndex ownership = new ClassOwnershipIndex();
-            for (Path path : paths) {
-                if (Files.isRegularFile(path)) {
-                    ownership.addJar(path, CodeOrigin.DEPENDENCY);
-                    scope.addToScope(ClassLoaderReference.Application,
-                            new OwnershipFilteredModule(
-                                    new JarFileModule(new JarFile(
-                                            path.toFile(), false)),
-                                    path, ownership));
-                }
+            for (ArtifactCoord artifact : artifacts) {
+                final JarLease lease = jarRepository.open(artifact);
+                ownership.addJar(artifact, lease.jarFile(),
+                        CodeOrigin.DEPENDENCY);
+                scope.addToScope(ClassLoaderReference.Application,
+                        new OwnershipFilteredModule(
+                                new JarFileModule(lease.jarFile()),
+                                ClassSource.artifact(artifact), ownership));
             }
             final IClassHierarchy hierarchy =
                     ClassHierarchyFactory.make(scope);

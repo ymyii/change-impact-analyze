@@ -6,6 +6,7 @@ import io.github.dependencyanalysis.impact.ModuleAnalysisUnit;
 import io.github.dependencyanalysis.impact.ModuleChangeSet;
 import io.github.dependencyanalysis.impact.ModuleId;
 import io.github.dependencyanalysis.impact.ModulePresence;
+import io.github.dependencyanalysis.testing.TestJarRepositories;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -48,12 +49,14 @@ class ModuleScopeValidatorTest {
                 "legacy.jar", jar("legacy.jar", entries));
 
         final ScopeValidationResult result =
-                new ModuleScopeValidator().validate(
+                new ModuleScopeValidator(TestJarRepositories.of(
+                        List.of(artifact))).validate(
                         unit(project, List.of(), List.of(artifact)));
 
         assertThat(result.hasWarnings()).isTrue();
         assertThat(result.warnings()).singleElement().satisfies(warning -> {
-            assertThat(warning.artifact()).isEqualTo(artifact);
+            assertThat(warning.artifact()).isEqualTo(
+                    artifact.getArtifact());
             assertThat(warning.findingCount()).isEqualTo(FINDING_COUNT);
             assertThat(warning.excludedTypeCount()).isEqualTo(2);
             assertThat(warning.examples()).containsExactly(
@@ -79,7 +82,8 @@ class ModuleScopeValidatorTest {
         writeClass(project, "sample/Project",
                 "java/applet/Applet");
 
-        assertThatThrownBy(() -> new ModuleScopeValidator().validate(
+        assertThatThrownBy(() -> new ModuleScopeValidator(
+                TestJarRepositories.empty()).validate(
                 unit(project, List.of(), List.of())))
                 .isInstanceOf(ScopeValidationException.class)
                 .hasMessageContaining("java/applet/Applet")
@@ -93,7 +97,8 @@ class ModuleScopeValidatorTest {
         writeClass(reactor, "sample/Reactor",
                 "javax/swing/JFrame");
 
-        assertThatThrownBy(() -> new ModuleScopeValidator().validate(
+        assertThatThrownBy(() -> new ModuleScopeValidator(
+                TestJarRepositories.empty()).validate(
                 unit(project, List.of(reactor), List.of())))
                 .isInstanceOf(ScopeValidationException.class)
                 .hasMessageContaining("javax/swing/JFrame")
@@ -110,7 +115,8 @@ class ModuleScopeValidatorTest {
                                 "java/lang/Object"))));
 
         final ScopeValidationResult result =
-                new ModuleScopeValidator().validate(
+                new ModuleScopeValidator(TestJarRepositories.of(
+                        List.of(artifact))).validate(
                         unit(project, List.of(), List.of(artifact)));
 
         assertThat(result.hasWarnings()).isFalse();
@@ -124,11 +130,10 @@ class ModuleScopeValidatorTest {
         final Path corrupt = temporary.resolve("corrupt.jar");
         Files.writeString(corrupt, "not a jar");
 
-        assertThatThrownBy(() -> new ModuleScopeValidator().validate(
-                unit(project, List.of(),
-                        List.of(artifact("corrupt.jar", corrupt)))))
-                .isInstanceOf(ScopeValidationException.class)
-                .hasMessageContaining("Unable to validate module scope");
+        final ResolvedArtifact artifact = artifact("corrupt.jar", corrupt);
+        assertThatThrownBy(() -> TestJarRepositories.of(
+                List.of(artifact)))
+                .isInstanceOf(java.io.IOException.class);
     }
 
     private ModuleAnalysisUnit unit(
@@ -138,7 +143,8 @@ class ModuleScopeValidatorTest {
         return new ModuleAnalysisUnit(
                 new ModuleId(new ArtifactCoord(
                         "example", "app", "jar", "1"), Path.of("app")),
-                ModulePresence.BOTH, project, reactors, artifacts,
+                ModulePresence.BOTH, project, reactors, artifacts.stream()
+                .map(ResolvedArtifact::getArtifact).toList(),
                 List.of(), new ModuleChangeSet(List.of(), List.of()));
     }
 

@@ -7,7 +7,7 @@ relations:
   - path: "wiki/features/impact-tracing.md"
     desc: "ChangePoint、Impact Path、Structural Reference Path、SSA 与代码 evidence"
   - path: "wiki/features/dependency-tree-extraction.md"
-    desc: "GraphML 与 resolved artifact path 输入"
+    desc: "GraphML、resolved artifact path ingestion 与 command-scoped repository"
   - path: "wiki/features/report-generator.md"
     desc: "impact/tree 的 HTML 输出边界"
 code_refs:
@@ -25,7 +25,7 @@ code_refs:
 
 ## Summary
 
-Root CLI 分发 `impact` 与 `tree`。`impact` 面向 Maven、Spring backend、JDK 8：只编译 target，只构建 target per-Module Call Graph；baseline 仅提供 dependency tree、old artifact path、old bytecode 和按需 old SSA。`tree` 保持独立 repository/reactor HTML pipeline。
+Root CLI 分发 `impact` 与 `tree`。`impact` 面向 Maven、Spring backend、JDK 8：只编译 target，只构建 target per-Module Call Graph；baseline 仅提供 dependency tree、old artifact coordinate、old bytecode 和按需 old SSA。`tree` 保持独立 repository/reactor HTML pipeline。
 
 ## Impact Runtime Flow
 
@@ -34,8 +34,8 @@ flowchart TD
   Scope["REACTOR / SINGLE_MODULE planning"] --> Plugin["prepare embedded tree + Artifact Path Plugins"]
   Plugin --> Front
   Front["parallel: baseline dependency + target compile"] --> TargetDep["target dependency"]
-  TargetDep --> DepDiff["dependency diff + resolved physical paths"]
-  DepDiff --> JarDiff["deduplicated parallel JAR diff"]
+  TargetDep --> DepDiff["dependency diff + coordinate repository"]
+  DepDiff --> JarDiff["deduplicated parallel coordinate-pair JAR diff"]
   JarDiff --> Bind["BoundChangePoint per Module"]
   Bind --> EntrySelection["lightweight PROJECT entrypoint class index"]
   EntrySelection --> ModulePool["bounded Module pool; analysis parallelism"]
@@ -60,9 +60,9 @@ flowchart TD
 - baseline dependency 与 target build 两个 Maven process 并行；任一失败时取消另一 process tree。
 - 两者 join 后才运行 target dependency；同一 target workspace 不并发执行两个 Maven process。
 - Baseline/target dependency 使用同一内嵌 Plugin runtime、settings overlay，并在各自单个 Maven process/session 中执行 fully-qualified `tree` 与 `resolve-artifact-paths` goal；target compile 不使用 overlay。
-- GraphML 是 `impact` 唯一的 mediation authority；Artifact Path Plugin 不执行第二次 collection，JSON 只绑定 selected dependency 的 physical path。非 `system` binding 来自 Resolver result，`system` binding 来自 effective `MavenProject.systemPath`。Analyzer 按 Module baseDirectory/coordinates 配对并验证 external dependency set 完全一致。Reactor dependency 不发起 artifact resolution，target 阶段映射到 `target/classes`。
+- GraphML 是 `impact` 唯一的 mediation authority；Artifact Path Plugin 不执行第二次 collection，JSON 只为 command-scoped `IJarRepository` 提供初始化 binding。非 `system` binding 来自 Resolver result，`system` binding 来自 effective `MavenProject.systemPath`。Repository 构建后以 `ArtifactCoord` 为唯一 key，业务对象不保留 dependency JAR path。Analyzer 按 Module baseDirectory/coordinates 配对并验证 external dependency set 完全一致。Reactor dependency 不发起 artifact resolution，target 阶段映射到 `target/classes`。
 - `--analysis-parallelism` 默认 `2`，分别控制 Module analysis、JAR diff 和 decompile bounded pool；各阶段再按 task 数计算 actual workers。超过 CPU 只 warning。
-- JAR diff 按 physical old/new pair 去重；code comparison 按 physical pair/member 去重并跨 Module 复用。
+- JAR diff 按 logical old/new coordinate pair 去重；code comparison 按 coordinate pair/member 去重并跨 Module 复用。physical path 只存在于 repository 内部和短生命周期 `JarLease`。
 - 每个 Module 内 WALA build/query 单线程；Module 之间并行。
 - SSA equivalence 全局串行。
 - Module 普通 failure/timeout 不取消其他 Module；global preparation failure 不替换旧 Report。
@@ -79,7 +79,8 @@ flowchart TD
 
 - Call Graph 是 Vanilla 0-1-CFA over-approximation。
 - Reflection/MethodHandle 使用 WALA `FULL`/MethodHandle extension，属于 best-effort。
-- ServiceLoader 使用 conservative overlay，允许 false-positive。
+- ServiceLoader 与注册的 `invokedynamic` 协议在 `makeCallGraph(...)` 前安装 WALA model，参与 points-to/call graph fixed point；构图后不允许 overlay 补图或 whole-scope JAR/classfile 重扫。
+- 非 constant ServiceLoader service type、非法 provider 与 reachable unknown bootstrap 产生 stable limitation，并使 Module `INCONCLUSIVE`。
 - Spring DI/AOP/annotation/XML/config、custom classloader 不完整建模。
 - 只允许 `PROVEN_EQUIVALENT` 删除 Impact Paths；`UNKNOWN` 保留路径。
 - Dependency Changes 只展示 candidate/final Impact Path 或 Structural Reference Path 关联 member；SSA-filtered candidate 仍保留调用链和 decompiled code evidence。

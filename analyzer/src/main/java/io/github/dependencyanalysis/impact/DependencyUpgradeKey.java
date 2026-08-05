@@ -3,10 +3,9 @@ package io.github.dependencyanalysis.impact;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.DependencyScope;
 
-import java.nio.file.Path;
 import java.util.Objects;
 
-/** Module-bound physical dependency upgrade identity. */
+/** Module-bound logical dependency upgrade identity. */
 public final class DependencyUpgradeKey {
 
     /** Owning module. */
@@ -21,12 +20,6 @@ public final class DependencyUpgradeKey {
     /** Target artifact. */
     private final ArtifactCoord newArtifact;
 
-    /** Canonical baseline artifact path. */
-    private final Path oldPath;
-
-    /** Canonical target artifact path. */
-    private final Path newPath;
-
     /**
      * Creates an upgrade key.
      *
@@ -34,22 +27,16 @@ public final class DependencyUpgradeKey {
      * @param dependencyScope dependency scope
      * @param oldValue old artifact
      * @param newValue new artifact
-     * @param oldArtifactPath canonical old path
-     * @param newArtifactPath canonical new path
      */
     public DependencyUpgradeKey(
             final ModuleId module,
             final DependencyScope dependencyScope,
             final ArtifactCoord oldValue,
-            final ArtifactCoord newValue,
-            final Path oldArtifactPath,
-            final Path newArtifactPath) {
+            final ArtifactCoord newValue) {
         moduleId = Objects.requireNonNull(module, "moduleId");
         scope = Objects.requireNonNull(dependencyScope, "scope");
         oldArtifact = Objects.requireNonNull(oldValue, "oldArtifact");
         newArtifact = Objects.requireNonNull(newValue, "newArtifact");
-        oldPath = Objects.requireNonNull(oldArtifactPath, "oldPath");
-        newPath = Objects.requireNonNull(newArtifactPath, "newPath");
     }
 
     /** @return owning module */
@@ -72,21 +59,10 @@ public final class DependencyUpgradeKey {
         return newArtifact;
     }
 
-    /** @return canonical old artifact path */
-    public Path getOldPath() {
-        return oldPath;
-    }
-
-    /** @return canonical new artifact path */
-    public Path getNewPath() {
-        return newPath;
-    }
-
     /** @return stable module and artifact key */
     public String stableKey() {
         return moduleId.stableKey() + ":" + scope + ":"
-                + oldArtifact + "->" + newArtifact + ":"
-                + oldPath + "->" + newPath;
+                + oldArtifact + "->" + newArtifact;
     }
 
     @Override
@@ -101,14 +77,11 @@ public final class DependencyUpgradeKey {
         return moduleId.equals(that.moduleId)
                 && scope == that.scope
                 && oldArtifact.equals(that.oldArtifact)
-                && newArtifact.equals(that.newArtifact)
-                && oldPath.equals(that.oldPath)
-                && newPath.equals(that.newPath);
+                && newArtifact.equals(that.newArtifact);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(moduleId, scope, oldArtifact,
-                newArtifact, oldPath, newPath);
+        return Objects.hash(moduleId, scope, oldArtifact, newArtifact);
     }
 }

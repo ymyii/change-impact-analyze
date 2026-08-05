@@ -3,7 +3,7 @@ title: "Bytecode Diff Engine"
 type: feature
 relations:
   - path: "wiki/features/dependency-tree-extraction.md"
-    desc: "resolved physical old/new JAR path"
+    desc: "resolved artifact ingestion 与 coordinate repository"
   - path: "wiki/features/impact-tracing.md"
     desc: "BoundChangePoint 与 deferred SSA filtering"
   - path: "wiki/runbooks/impact-benchmark.md"
@@ -11,6 +11,8 @@ relations:
 code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/BytecodeDiffEngine.java"
     desc: "class/method/field diff"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/jar/IJarRepository.java"
+    desc: "coordinate 到短生命周期 JarLease 的访问边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/StableHashMethodVisitor.java"
     desc: "ASM MethodNode canonical encoder"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/ChangePoint.java"
@@ -27,7 +29,7 @@ code_refs:
 
 ## Summary
 
-对唯一 physical `(oldJar,newJar)` pair 执行一次 ASM bytecode diff，再将 raw ChangePoint 重新绑定到各 Module 的 `DependencyUpgradeKey`。Pool 大小使用 `--analysis-parallelism`，再按 task 数计算 actual workers；merge 与排序 deterministic。
+对唯一 logical `(oldCoordinate,newCoordinate)` pair 通过 `IJarRepository` 执行一次 ASM bytecode diff，再将 raw ChangePoint 重新绑定到各 Module 的 `DependencyUpgradeKey`。Pool 大小使用 `--analysis-parallelism`，再按 task 数计算 actual workers；merge 与排序 deterministic。physical path 不进入 domain key。
 
 ## Stable Method Hash
 
@@ -61,5 +63,5 @@ code_refs:
 
 - Jump、switch、try/catch、bootstrap-only、`ConstantDynamic`、typed constant 变化可检出。
 - Line/debug-only 变化不产生 body ChangePoint。
-- 同一 physical pair 只 diff 一次；结果可绑定多个 Module。
+- 同一 logical coordinate pair 只 diff 一次；结果可绑定多个 Module。
 - Parallel/sequential fixture 的 ChangePoint 集合和排序一致。

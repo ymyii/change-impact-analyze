@@ -1,6 +1,6 @@
 package io.github.dependencyanalysis.callgraph;
 
-import io.github.dependencyanalysis.dependency.ResolvedArtifact;
+import io.github.dependencyanalysis.dependency.ArtifactCoord;
 
 import java.util.List;
 import java.util.Objects;
@@ -14,7 +14,7 @@ import java.util.Objects;
  * @param examples stable bounded source/reference examples
  */
 public record ScopeValidationWarning(
-        ResolvedArtifact artifact,
+        ArtifactCoord artifact,
         int findingCount,
         int excludedTypeCount,
         List<String> examples) {
@@ -46,7 +46,7 @@ public record ScopeValidationWarning(
     /** @return stable warning and coverage-limitation text */
     public String summary() {
         return "External dependency references excluded JDK classes: "
-                + "artifact=" + artifact.getArtifact()
+                + "artifact=" + artifact
                 + "; findings=" + findingCount
                 + "; excludedTypes=" + excludedTypeCount
                 + "; examples=[" + String.join(", ", examples) + "]"
@@ -57,6 +57,6 @@ public record ScopeValidationWarning(
 
     /** @return stable deterministic ordering key */
     public String stableKey() {
-        return artifact.bindingKey() + ":" + artifact.getPath();
+        return artifact.toString();
     }
 }

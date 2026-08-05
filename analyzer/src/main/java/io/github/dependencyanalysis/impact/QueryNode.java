@@ -3,7 +3,7 @@ package io.github.dependencyanalysis.impact;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.MethodId;
 
-/** Node used by direct WALA and conservative overlay traversal. */
+/** Node used by read-only WALA and terminal-evidence traversal. */
 public interface QueryNode {
 
     /** @return method identity */

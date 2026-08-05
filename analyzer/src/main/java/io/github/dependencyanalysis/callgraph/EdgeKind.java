@@ -27,7 +27,7 @@ public enum EdgeKind {
     /** ServiceLoader provider edge. */
     SERVICE,
 
-    /** Conservative ServiceLoader overlay edge. */
+    /** ServiceLoader fixed-point synthetic summary edge. */
     SERVICE_LOADER,
 
     /** Literal Class.forName edge. */
@@ -44,4 +44,10 @@ public enum EdgeKind {
 
     /** Terminal edge for a changed type reference. */
     TYPE_REFERENCE,
+
+    /** Terminal reference to an invokedynamic bootstrap method. */
+    INVOKEDYNAMIC_BOOTSTRAP,
+
+    /** Terminal reference to a direct bootstrap method-handle argument. */
+    INVOKEDYNAMIC_HANDLE_REFERENCE,
 }

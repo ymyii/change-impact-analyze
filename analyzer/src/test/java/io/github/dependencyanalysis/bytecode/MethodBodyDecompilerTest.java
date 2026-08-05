@@ -7,7 +7,8 @@ import io.github.dependencyanalysis.dependency.DependencyScope;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLevel;
-import io.github.dependencyanalysis.jar.JarLocationResult;
+import io.github.dependencyanalysis.jar.IJarRepository;
+import io.github.dependencyanalysis.testing.TestJarRepositories;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -63,14 +64,17 @@ class MethodBodyDecompilerTest {
     @Test
     void decompilesOldAndNewMethodWithExactDescriptor()
             throws Exception {
-        final JarLocationResult location = location(
-                createJar("old.jar", classBytes(1, 3)),
-                createJar("new.jar", classBytes(2, 4)));
+        final Path oldJar = createJar("old.jar", classBytes(1, 3));
+        final Path newJar = createJar("new.jar", classBytes(2, 4));
         final ChangePoint point = point(
                 "value", "()I");
 
-        final MethodBodyEvidence evidence =
-                decompiler.decompile(location, point);
+        final MethodBodyEvidence evidence;
+        try (IJarRepository repository = TestJarRepositories.pair(
+                OLD, oldJar, NEW, newJar)) {
+            evidence = decompiler.decompile(
+                    change(), repository, point);
+        }
 
         assertThat(evidence.getOldMethod().isAvailable())
                 .isTrue();
@@ -89,14 +93,19 @@ class MethodBodyDecompilerTest {
     @Test
     void decompilesConstructorByJvmIdentifier()
             throws Exception {
-        final JarLocationResult location = location(
-                createJar("ctor-old.jar", classBytes(1, 3)),
-                createJar("ctor-new.jar", classBytes(1, 4)));
+        final Path oldJar = createJar(
+                "ctor-old.jar", classBytes(1, 3));
+        final Path newJar = createJar(
+                "ctor-new.jar", classBytes(1, 4));
         final ChangePoint point = point(
                 "<init>", "()V");
 
-        final MethodBodyEvidence evidence =
-                decompiler.decompile(location, point);
+        final MethodBodyEvidence evidence;
+        try (IJarRepository repository = TestJarRepositories.pair(
+                OLD, oldJar, NEW, newJar)) {
+            evidence = decompiler.decompile(
+                    change(), repository, point);
+        }
 
         assertThat(evidence.getOldMethod().getSource())
                 .contains("Foo()")
@@ -113,9 +122,12 @@ class MethodBodyDecompilerTest {
         final Path present = createJar(
                 "present.jar", classBytes(2, 4));
 
-        final MethodBodyEvidence evidence = decompiler.decompile(
-                location(missing, present),
-                point("value", "()I"));
+        final MethodBodyEvidence evidence;
+        try (IJarRepository repository = TestJarRepositories.pair(
+                OLD, missing, NEW, present)) {
+            evidence = decompiler.decompile(
+                    change(), repository, point("value", "()I"));
+        }
 
         assertThat(evidence.getOldMethod().isAvailable())
                 .isFalse();
@@ -143,17 +155,12 @@ class MethodBodyDecompilerTest {
                 "old-hash", "new-hash");
     }
 
-    private JarLocationResult location(
-            final Path oldJar,
-            final Path newJar) {
-        final DependencyChange change =
-                new DependencyChange(
-                        ChangeType.VERSION_CHANGED,
-                        OLD, NEW,
-                        DependencyScope.COMPILE,
-                        "root");
-        return new JarLocationResult(change,
-                oldJar, newJar);
+    private DependencyChange change() {
+        return new DependencyChange(
+                ChangeType.VERSION_CHANGED,
+                OLD, NEW,
+                DependencyScope.COMPILE,
+                "root");
     }
 
     private Path createJar(

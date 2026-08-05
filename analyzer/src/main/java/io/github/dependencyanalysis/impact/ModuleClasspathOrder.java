@@ -4,7 +4,6 @@ import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.DependencyAnalysisResult;
 import io.github.dependencyanalysis.dependency.DependencyNode;
 import io.github.dependencyanalysis.dependency.ModuleDependencyTree;
-import io.github.dependencyanalysis.dependency.ResolvedArtifact;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -31,20 +30,21 @@ final class ModuleClasspathOrder {
         return List.copyOf(result);
     }
 
-    static List<ResolvedArtifact> externalArtifacts(
+    static List<ArtifactCoord> externalArtifacts(
             final DependencyAnalysisResult analysis,
             final ModuleDependencyTree tree,
             final Set<ArtifactCoord> reactorCoordinates) {
         final Set<String> reactor = reactorCoordinates.stream()
                 .map(ArtifactCoord::diffKey)
                 .collect(Collectors.toSet());
-        final Map<ArtifactCoord, ResolvedArtifact> bindings =
+        final Map<ArtifactCoord, ArtifactCoord> bindings =
                 new LinkedHashMap<>();
         analysis.artifactsFor(tree.getModulePath()).stream()
                 .filter(value -> !reactor.contains(
                         value.getArtifact().diffKey()))
-                .forEach(value -> bindings.put(value.getArtifact(), value));
-        final List<ResolvedArtifact> result = new ArrayList<>();
+                .forEach(value -> bindings.put(
+                        value.getArtifact(), value.getArtifact()));
+        final List<ArtifactCoord> result = new ArrayList<>();
         collectExternal(tree.getDependencies(), reactor, bindings, result);
         if (result.size() != bindings.size()) {
             throw new IllegalStateException(
@@ -71,11 +71,11 @@ final class ModuleClasspathOrder {
     private static void collectExternal(
             final List<DependencyNode> nodes,
             final Set<String> reactor,
-            final Map<ArtifactCoord, ResolvedArtifact> bindings,
-            final List<ResolvedArtifact> result) {
+            final Map<ArtifactCoord, ArtifactCoord> bindings,
+            final List<ArtifactCoord> result) {
         for (DependencyNode node : nodes) {
             if (!reactor.contains(node.getArtifact().diffKey())) {
-                final ResolvedArtifact artifact = bindings.get(
+                final ArtifactCoord artifact = bindings.get(
                         node.getArtifact());
                 if (artifact != null && !result.contains(artifact)) {
                     result.add(artifact);

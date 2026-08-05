@@ -4,7 +4,6 @@ import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.ChangeType;
 import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.dependency.DependencyScope;
-import io.github.dependencyanalysis.dependency.ResolvedArtifact;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.diagnostic.DiagnosticEvent;
@@ -26,7 +25,7 @@ import io.github.dependencyanalysis.impact.ImpactClassification;
 import io.github.dependencyanalysis.impact.ImpactPath;
 import io.github.dependencyanalysis.impact.MethodEquivalenceResult;
 import io.github.dependencyanalysis.impact.MethodEquivalenceStatus;
-import io.github.dependencyanalysis.impact.OverlayMethodNode;
+import io.github.dependencyanalysis.impact.QueryNode;
 import io.github.dependencyanalysis.impact.UnifiedDiffHunk;
 import io.github.dependencyanalysis.impact.ModuleAnalysisReason;
 import io.github.dependencyanalysis.impact.ModuleAnalysisResult;
@@ -55,6 +54,9 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
+import java.util.jar.JarOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -93,9 +95,7 @@ class PerModuleHtmlReportGeneratorTest {
                 DependencyScope.COMPILE, "example:app:jar:1");
         final DependencyUpgradeKey upgrade = new DependencyUpgradeKey(
                 moduleId, DependencyScope.COMPILE,
-                oldArtifact, newArtifact,
-                temporary.resolve("library-1.jar"),
-                temporary.resolve("library-2.jar"));
+                oldArtifact, newArtifact);
         final BoundChangePoint bound = new BoundChangePoint(upgrade,
                 new ChangePoint(newArtifact,
                         ChangePointKind.METHOD_REMOVED,
@@ -220,9 +220,8 @@ class PerModuleHtmlReportGeneratorTest {
         final ArtifactCoord newArtifact = new ArtifactCoord(
                 "example", "library", "jar", "2");
         final DependencyUpgradeKey upgrade = new DependencyUpgradeKey(
-                moduleId, DependencyScope.COMPILE, oldArtifact, newArtifact,
-                temporary.resolve("secret-old.jar"),
-                temporary.resolve("secret-new.jar"));
+                moduleId, DependencyScope.COMPILE,
+                oldArtifact, newArtifact);
         final BoundChangePoint affected = new BoundChangePoint(upgrade,
                 new ChangePoint(newArtifact,
                         ChangePointKind.METHOD_BODY_CHANGED,
@@ -233,7 +232,7 @@ class PerModuleHtmlReportGeneratorTest {
                         ChangePointKind.METHOD_REMOVED,
                         "example/library/Api", "hidden", "()V",
                         null, null));
-        final OverlayMethodNode root = new OverlayMethodNode(new MethodId(
+        final QueryNode root = new ReportQueryNode(new MethodId(
                 "example/app/Controller", "handle", "()V", "app",
                 "/secret/work/classes"), CodeOrigin.PROJECT);
         final ImpactPath candidate = new ImpactPath(List.of(root), List.of(),
@@ -306,9 +305,8 @@ class PerModuleHtmlReportGeneratorTest {
         final Path output = temporary.resolve("scope-warning.html");
         final ModuleId moduleId = new ModuleId(new ArtifactCoord(
                 "example", "app", "jar", "1"), Path.of("app"));
-        final ResolvedArtifact artifact = new ResolvedArtifact(
-                new ArtifactCoord("example", "legacy", "jar", "1"),
-                temporary.resolve("legacy.jar"));
+        final ArtifactCoord artifact = new ArtifactCoord(
+                "example", "legacy", "jar", "1");
         final ScopeValidationWarning warning = new ScopeValidationWarning(
                 artifact, 1, 1, List.of(
                         "legacy/AppletConfig.class -> java/applet/Applet"));
@@ -334,8 +332,7 @@ class PerModuleHtmlReportGeneratorTest {
         final DiagnosticEvent diagnostic = new DiagnosticEvent.Builder()
                 .stage("scope-validation").substage("module")
                 .module(moduleId.stableKey())
-                .artifact(artifact.getArtifact().toString())
-                .path(artifact.getPath().toString())
+                .artifact(artifact.toString())
                 .level(DiagnosticLevel.WARN)
                 .message(warning.summary()).build();
         final MavenDependencyPluginRuntime plugin =
@@ -371,7 +368,8 @@ class PerModuleHtmlReportGeneratorTest {
                         + "</strong>")
                 .contains("INCONCLUSIVE_SCOPE_VALIDATION")
                 .contains("[scope-validation][module][module=")
-                .contains(";artifact=example:legacy:jar:1;path=")
+                .contains(";artifact=example:legacy:jar:1]")
+                .doesNotContain("legacy.jar")
                 .doesNotContain("<strong>Failed:</strong>");
         assertThat(index.indexOf(warningPrefix, limitationHeading))
                 .isLessThan(diagnosticHeading);
@@ -384,21 +382,23 @@ class PerModuleHtmlReportGeneratorTest {
             throws Exception {
         final Path output = temporary.resolve("duplicate.html");
         final Path winner = temporary.resolve("winner-<unsafe>");
-        final Path shadowed = temporary.resolve("shadowed-dependency");
+        final Path shadowed = temporary.resolve("secret-shadowed.jar");
         writeClass(winner, "sample/Duplicate.class", new byte[]{1});
-        writeClass(shadowed, "sample/Duplicate.class", new byte[]{2});
+        writeJarClass(shadowed, "sample/Duplicate.class", new byte[]{2});
+        final ArtifactCoord newArtifact = new ArtifactCoord(
+                "example", "library", "jar", "2");
         final ClassOwnershipIndex ownership = new ClassOwnershipIndex();
         ownership.addDirectory(winner, CodeOrigin.PROJECT);
-        ownership.addDirectory(shadowed, CodeOrigin.DEPENDENCY);
+        try (JarFile jar = new JarFile(shadowed.toFile(), false)) {
+            ownership.addJar(newArtifact, jar, CodeOrigin.DEPENDENCY);
+        }
         final ModuleId moduleId = new ModuleId(new ArtifactCoord(
                 "example", "app", "jar", "1"), Path.of("app"));
         final ArtifactCoord oldArtifact = new ArtifactCoord(
                 "example", "library", "jar", "1");
-        final ArtifactCoord newArtifact = new ArtifactCoord(
-                "example", "library", "jar", "2");
         final DependencyUpgradeKey upgrade = new DependencyUpgradeKey(
-                moduleId, DependencyScope.COMPILE, oldArtifact, newArtifact,
-                temporary.resolve("library-1.jar"), shadowed);
+                moduleId, DependencyScope.COMPILE,
+                oldArtifact, newArtifact);
         final BoundChangePoint bound = new BoundChangePoint(upgrade,
                 new ChangePoint(newArtifact, ChangePointKind.METHOD_REMOVED,
                         "sample/Duplicate", "removed", "()V", null, null));
@@ -453,14 +453,28 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("sample.Duplicate")
                 .contains("Current module target/classes precedence")
                 .contains("winner-&lt;unsafe&gt;")
+                .contains("example:library:jar:2")
                 .contains("No module-specific limitation was recorded.")
-                .doesNotContain("winner-<unsafe>");
+                .doesNotContain("winner-<unsafe>")
+                .doesNotContain(shadowed.toString());
         assertThat(changes)
                 .contains("Method removed")
                 .contains("Shadowed by duplicate")
                 .contains("no Impact Path was generated")
                 .contains("PROJECT — winner-&lt;unsafe&gt;")
+                .contains("example:library:jar:2")
+                .doesNotContain(shadowed.toString())
                 .contains("SHADOWED_BY_DUPLICATE");
+    }
+
+    /**
+     * Minimal report-only query node.
+     *
+     * @param methodId method identity
+     * @param origin code origin
+     */
+    private record ReportQueryNode(MethodId methodId, CodeOrigin origin)
+            implements QueryNode {
     }
 
     private void writeClass(
@@ -470,6 +484,18 @@ class PerModuleHtmlReportGeneratorTest {
         final Path file = root.resolve(relative);
         Files.createDirectories(file.getParent());
         Files.write(file, content);
+    }
+
+    private void writeJarClass(
+            final Path jar,
+            final String relative,
+            final byte[] content) throws Exception {
+        try (JarOutputStream output = new JarOutputStream(
+                Files.newOutputStream(jar))) {
+            output.putNextEntry(new JarEntry(relative));
+            output.write(content);
+            output.closeEntry();
+        }
     }
 
     private MavenRuntimeDescriptor maven() {

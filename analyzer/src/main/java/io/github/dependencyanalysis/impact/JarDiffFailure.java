@@ -3,7 +3,7 @@ package io.github.dependencyanalysis.impact;
 import java.util.Objects;
 
 /**
- * Structured evidence for one failed physical JAR comparison.
+ * Structured evidence for one failed logical coordinate-pair comparison.
  *
  * @param dependencyUpgradeKey dependency upgrade identity
  * @param reason failure reason
