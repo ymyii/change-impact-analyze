@@ -18,8 +18,7 @@
 
     <properties>
         <maven.compiler.release>17</maven.compiler.release>
-        <artifact-path-plugin.resource-directory>${project.build.outputDirectory}/maven/artifact-path-plugin</artifact-path-plugin.resource-directory>
-        <artifact-path-plugin.resource-base>dependency-analyzer-artifact-path-maven-plugin-${artifact-path-plugin.version}</artifact-path-plugin.resource-base>
+        <plugin-repository.resource-directory>${project.build.outputDirectory}/maven/plugin-repositories</plugin-repository.resource-directory>
     </properties>
 
     <dependencies>
@@ -27,6 +26,8 @@
             <groupId>io.github.dependencyanalysis</groupId>
             <artifactId>dependency-analyzer-artifact-path-maven-plugin</artifactId>
             <version>${artifact-path-plugin.version}</version>
+            <type>zip</type>
+            <classifier>repository</classifier>
             <scope>provided</scope>
         </dependency>
         <dependency>
@@ -168,7 +169,7 @@
                 <artifactId>maven-dependency-plugin</artifactId>
                 <executions>
                     <execution>
-                        <id>copy-artifact-path-plugin</id>
+                        <id>copy-artifact-path-plugin-repository</id>
                         <phase>process-resources</phase>
                         <goals>
                             <goal>copy</goal>
@@ -179,41 +180,12 @@
                                     <groupId>io.github.dependencyanalysis</groupId>
                                     <artifactId>dependency-analyzer-artifact-path-maven-plugin</artifactId>
                                     <version>${artifact-path-plugin.version}</version>
-                                    <type>jar</type>
-                                    <outputDirectory>${artifact-path-plugin.resource-directory}</outputDirectory>
-                                    <destFileName>${artifact-path-plugin.resource-base}.jar</destFileName>
+                                    <type>zip</type>
+                                    <classifier>repository</classifier>
+                                    <outputDirectory>${plugin-repository.resource-directory}</outputDirectory>
+                                    <destFileName>dependency-analyzer-artifact-path-maven-plugin-${artifact-path-plugin.version}-repository.zip</destFileName>
                                 </artifactItem>
                             </artifactItems>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-antrun-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>checksum-artifact-path-plugin</id>
-                        <phase>process-resources</phase>
-                        <goals>
-                            <goal>run</goal>
-                        </goals>
-                        <configuration>
-                            <target>
-                                <mkdir dir="${artifact-path-plugin.resource-directory}"/>
-                                <copy file="${maven.multiModuleProjectDirectory}/build-support/artifact-path-plugin-consumer.pom.template"
-                                      tofile="${artifact-path-plugin.resource-directory}/${artifact-path-plugin.resource-base}.pom"
-                                      overwrite="true">
-                                    <filterset>
-                                        <filter token="ARTIFACT_PATH_PLUGIN_VERSION"
-                                                value="${artifact-path-plugin.version}"/>
-                                    </filterset>
-                                </copy>
-                                <checksum file="${artifact-path-plugin.resource-directory}/${artifact-path-plugin.resource-base}.jar"
-                                          algorithm="SHA-512" fileext=".sha512" forceOverwrite="yes"/>
-                                <checksum file="${artifact-path-plugin.resource-directory}/${artifact-path-plugin.resource-base}.pom"
-                                          algorithm="SHA-512" fileext=".sha512" forceOverwrite="yes"/>
-                            </target>
                         </configuration>
                     </execution>
                 </executions>

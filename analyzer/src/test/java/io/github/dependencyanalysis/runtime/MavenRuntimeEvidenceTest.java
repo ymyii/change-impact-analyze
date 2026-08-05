@@ -15,7 +15,7 @@ class MavenRuntimeEvidenceTest {
                 MavenRuntimeSource.USER_CONFIGURED,
                 Path.of("/opt/apache-maven-3.9.16/bin/mvn"),
                 MavenVersion.parse("Apache Maven 3.9.16"),
-                null, Path.of("config"), "");
+                null, Path.of("config"));
 
         assertThat(MavenRuntimeEvidence.source(runtime))
                 .isEqualTo("source=USER_CONFIGURED")

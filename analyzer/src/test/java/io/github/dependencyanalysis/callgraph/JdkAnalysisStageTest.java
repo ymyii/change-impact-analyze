@@ -26,7 +26,6 @@ import java.util.jar.JarOutputStream;
 import javax.tools.ToolProvider;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /** Tests target JDK archive scope placement. */
 class JdkAnalysisStageTest {
@@ -68,8 +67,9 @@ class JdkAnalysisStageTest {
     void java17AnalyzerLoadsRealJdk8AndBuildsVanillaZeroOneCfa()
             throws Exception {
         final String configured = System.getenv("TEST_JDK8_HOME");
-        assumeTrue(configured != null && !configured.isBlank(),
-                "TEST_JDK8_HOME unavailable");
+        assertThat(configured)
+                .as("TEST_JDK8_HOME")
+                .isNotBlank();
         final Path source = temporary.resolve("src/App.java");
         final Path classes = temporary.resolve("classes");
         Files.createDirectories(source.getParent());

@@ -703,7 +703,7 @@ class TreeReportRendererTest {
                         MavenRuntimeSource.EMBEDDED,
                         temporary.resolve("mvn"),
                         MavenVersion.parse("3.6.3"),
-                        null, temporary, "sha");
+                        null, temporary);
         return new TreeRepositoryResult(snapshot,
                 runtime, List.of(), Set.of("compile"),
                 new PreflightReport(List.of()), reactors);

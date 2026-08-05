@@ -332,12 +332,12 @@ final class TreePreflightService {
         final MavenRuntimeDescriptor runtime = context.get(
                 MAVEN_RUNTIME,
                 MavenRuntimeDescriptor.class);
-        final MavenDependencyPluginRuntime plugin =
+        final MavenDependencyPluginRuntime plugin = context.own(
                 new MavenDependencyPluginRuntimeManager()
                         .prepare(runtime.getConfigDir(),
                                 context.get(MAVEN_ARGS,
                                         List.class),
-                                pluginVersion);
+                                pluginVersion));
         context.put(DEPENDENCY_PLUGIN_RUNTIME, plugin);
         return PreflightOutcome.pass(
                 "Maven Dependency Plugin runtime prepared",

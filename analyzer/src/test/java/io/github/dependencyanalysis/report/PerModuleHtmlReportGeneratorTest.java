@@ -476,7 +476,7 @@ class PerModuleHtmlReportGeneratorTest {
         return new MavenRuntimeDescriptor(
                 MavenRuntimeSource.USER_CONFIGURED,
                 Path.of("mvn"), MavenVersion.parse("3.9.9"),
-                null, temporary, "");
+                null, temporary);
     }
 
     private JavaRuntimeDescriptor java() {

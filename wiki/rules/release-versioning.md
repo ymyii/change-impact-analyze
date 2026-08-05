@@ -3,78 +3,68 @@ title: "Release Versioning"
 type: rule
 relations:
   - path: "wiki/project/dependency-analyzer.md"
-    desc: "Analyzer 与内置 Maven Plugin 的 module/GAV 边界"
+    desc: "Analyzer 与内置 Maven Plugin 的 reactor/GAV 边界"
   - path: "wiki/features/maven-runtime.md"
-    desc: "内置 Plugin release coordinate 与 runtime fingerprint"
+    desc: "内嵌 Plugin coordinate 与 Stable/Snapshot cache 行为"
   - path: "wiki/runbooks/version-and-distribution.md"
-    desc: "执行 version bump 与 distribution build 的操作入口"
+    desc: "执行 version iteration、release build、commit 与 tag 的入口"
   - path: "wiki/runbooks/build-test-package.md"
-    desc: "日常 Maven quality gate 与正式 distribution gate 的分工"
+    desc: "日常双 reactor quality gate"
 code_refs:
-  - path: "build-support/version-contract.properties"
-    desc: "当前 version、历史 release fingerprint 与稳定 output timestamp ledger"
-  - path: "scripts/version.sh"
-    desc: "Version contract 的 POSIX shell 入口"
-  - path: "scripts/internal/VersionTool.java"
-    desc: "SemVer、fingerprint、单调性与原子 bump 实现"
   - path: "pom.xml"
-    desc: "Analyzer revision、Plugin dependency version 与 reproducible timestamp"
+    desc: "Analyzer revision、Plugin repository dependency 与 release profile"
+  - path: "plugins/pom.xml"
+    desc: "Artifact Path Plugin revision、Java 8 与 release profile"
+  - path: "analyzer/pom.xml"
+    desc: "Analyzer 对 Plugin repository ZIP 的 versioned dependency"
   - path: "plugins/artifact-path-resolver/pom.xml"
-    desc: "Artifact Path Plugin 独立 release version"
+    desc: "Plugin attached repository ZIP 与 flattened install POM"
 ---
 
 # Rule: Release Versioning
 
 ## Summary
 
-Analyzer 与每个内置 Maven Plugin 使用独立 SemVer。Release version、source fingerprint 和稳定 build timestamp 由 `build-support/version-contract.properties` 统一登记；已登记的 release version 不可复写、回退或绑定不同输入。
+Analyzer 与 Artifact Path Plugin 使用独立 SemVer。Git annotated tag 是 release version 记录；Maven POM 是当前开发或 release version 的 build source。Repository 不维护额外 version contract、source fingerprint 或发布脚本。
 
-<!-- version-contract:start -->
-- Analyzer release: `1.1.0`
-- Artifact Path Plugin release: `2.0.0`
-<!-- version-contract:end -->
+## Reusable Constraint
 
-## Version Contract
+- Version 只允许 `MAJOR.MINOR.PATCH` 或 `MAJOR.MINOR.PATCH-SNAPSHOT`。
+- 日常开发使用下一次计划 release 的固定 Snapshot version；同一 release 周期内重复 `clean install`，不因每次自测 bump。
+- Analyzer version 位于 root `revision`；Artifact Path Plugin version 位于 `plugins/pom.xml` 的 `revision`；Analyzer 引用 version 位于 root `artifact-path-plugin.version`。
+- Plugin source、consumer POM 或 repository packaging 变化后必须先执行 Plugin reactor `clean install`，确保同一 Snapshot coordinate 在 Maven local repository 中更新，再构建 Analyzer。
+- Plugin stable release 必须先完成并安装，Analyzer release 才能引用该 stable repository ZIP。
+- `release` profile 只接受 Stable SemVer，并拒绝 Snapshot dependency；默认 profile 同时接受 Stable 与 Snapshot。
+- `MAJOR` 用于 CLI/Schema/Plugin goal 等 breaking change；`MINOR` 用于向后兼容能力；`PATCH` 用于 bug fix、可靠性、内部重构和 build 修复。
+- Release commit 同时包含已验证的 stable POM 与文档；Analyzer tag `analyzer-vX.Y.Z`、Plugin tag `artifact-path-plugin-vX.Y.Z` 指向该 commit。
+- Dev build 不要求 Git commit 或 tag。Release 才要求 commit/tag；本规则不要求 clean worktree fingerprint gate。
 
-- 正式 version 必须严格匹配 `MAJOR.MINOR.PATCH`；禁止 `SNAPSHOT`、pre-release 和 build metadata。
-- `MAJOR`：CLI option/exit code、公开 Schema、Plugin goal/parameter、Maven compatibility boundary 或其他 breaking change。
-- `MINOR`：向后兼容的新功能、可选字段或新能力。
-- `PATCH`：bug fix、性能/可靠性修复、内部重构和 dependency/build 修复。
-- Analyzer production binary 输入变化必须提升 Analyzer version。
-- Artifact Path Plugin production binary或 consumer POM template 变化必须提升 Plugin version。
-- Plugin bump 必须同时 bump Analyzer，因为 distribution 内嵌 Plugin；Analyzer-only change 不要求 Plugin bump。
-- Plugin release GAV 不可复写。Maven local repository 中的旧 release 通过新 version coordinate 自然隔离，不删除用户 cache。
-- Version magnitude 由开发者依据 compatibility 判断；version tool 只验证合法性、单调性、fingerprint 和跨 module 一致性。
+## Applicability
 
-## Fingerprint Boundary
+- 修改任一 reactor version、Analyzer 内嵌 Plugin version、Plugin source/package 或 release 操作时适用。
+- Maven Dependency Plugin `3.6.1` 与 Apache Maven `3.6.3` 是 runtime dependency version，不使用本项目 tag namespace。
 
-Analyzer fingerprint 覆盖：
+## Stable Verification
 
-- root `pom.xml` 与 `analyzer/pom.xml`；
-- `analyzer/src/main/` production source/resources；
-- 由 root POM 引入的 Artifact Path Plugin version 与 fingerprint。
-
-Artifact Path Plugin fingerprint 覆盖：
-
-- `plugins/pom.xml` 与 `plugins/artifact-path-resolver/pom.xml`；
-- Plugin `src/main/` production source/resources；
-- `build-support/artifact-path-plugin-consumer.pom.template`。
-
-Tests、wiki 和 user manual 不进入 binary fingerprint。它们仍必须与当前 contract 保持一致；受控 current-version marker 在 `version.sh bump` 中统一更新。
-
-## Required Gate
-
-任何 production build 前执行：
+默认 SemVer、Java 与 JDK 8 文件约束由 Maven Enforcer 在 `validate` 阶段执行。Release 约束由两个 reactor 的 `release` profile 执行：
 
 ```sh
-./scripts/version.sh verify
+mvn -f plugins/pom.xml -Prelease clean install
+TEST_JDK8_HOME=/absolute/path/to/jdk8 mvn -Prelease clean verify
 ```
 
-若 source fingerprint 与 ledger 不一致，必须先选择正确的 SemVer magnitude 并执行 bump；禁止直接编辑 ledger 中的 SHA-512 绕过 gate。
+Version 修改使用 Versions Maven Plugin；禁止引入新的 project-owned version ledger 或发布脚本。
 
-## Non-Goals
+Git record verification：
 
-- 不根据 diff 自动猜测 breaking change。
-- 不允许相同 version 重新 seal 新 fingerprint。
-- 不以 Git tag 或 Maven local repository 代替 tracked release ledger。
-- 不承诺 Maven 4 compatibility；当前 Plugin compatibility boundary 为 `3.6.3 <= Maven version < 4.0.0`。
+```sh
+git show analyzer-vX.Y.Z
+git show artifact-path-plugin-vX.Y.Z
+```
+
+## Reference Files
+
+- `pom.xml` - Analyzer SemVer、Artifact Path Plugin dependency version 和 release gate。
+- `plugins/pom.xml` - Plugin SemVer、Java 8 compile target 和 release gate。
+- `plugins/artifact-path-resolver/pom.xml` - Maven Plugin 与 repository ZIP attachment。
+- `analyzer/pom.xml` - versioned repository ZIP copy 和 final Analyzer JAR。

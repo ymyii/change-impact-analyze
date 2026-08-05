@@ -94,9 +94,9 @@ class DependencyAnalyzerCliIT {
             throws Exception {
         final String jdk8Home = System.getenv(
                 "TEST_JDK8_HOME");
-        assumeTrue(jdk8Home != null
-                        && !jdk8Home.isBlank(),
-                "TEST_JDK8_HOME unavailable");
+        assertThat(jdk8Home)
+                .as("TEST_JDK8_HOME")
+                .isNotBlank();
         final Path repository = createRepository(
                 temporary.resolve("impact"));
         final Path longOutput = temporary.resolve(

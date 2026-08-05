@@ -24,14 +24,11 @@ import org.eclipse.aether.resolution.ArtifactResult;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.CodeSource;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -50,22 +47,6 @@ public final class ResolveArtifactPathsMojo extends AbstractMojo {
 
     /** Stable implementation marker printed for runtime verification. */
     private static final String IMPLEMENTATION_MARKER = "graphml-v2";
-
-    /** SHA-512 stream buffer size. */
-    private static final int DIGEST_BUFFER_SIZE = 8192;
-
-    /** Unsigned byte mask. */
-    private static final int BYTE_MASK = 0xff;
-
-    /** Low nibble mask. */
-    private static final int NIBBLE_MASK = 0x0f;
-
-    /** Bits in a hexadecimal nibble. */
-    private static final int NIBBLE_BITS = 4;
-
-    /** Lowercase hexadecimal digits. */
-    private static final char[] HEX_DIGITS =
-            "0123456789abcdef".toCharArray();
 
     /** Resolver request context for project dependencies. */
     private static final String REQUEST_CONTEXT = "project";
@@ -179,7 +160,6 @@ public final class ResolveArtifactPathsMojo extends AbstractMojo {
         final String version = pluginDescriptor == null
                 ? "unavailable" : pluginDescriptor.getVersion();
         String sourceValue = "unavailable";
-        String checksum = "unavailable";
         try {
             final CodeSource codeSource = ResolveArtifactPathsMojo.class
                     .getProtectionDomain().getCodeSource();
@@ -193,9 +173,8 @@ public final class ResolveArtifactPathsMojo extends AbstractMojo {
                 throw new IOException(
                         "code source is not a regular JAR: " + source);
             }
-            checksum = sha512(source);
         } catch (IOException | URISyntaxException
-                 | NoSuchAlgorithmException | RuntimeException exception) {
+                 | RuntimeException exception) {
             getLog().warn("Artifact Path Plugin JAR evidence unavailable: "
                     + safeEvidence(exception.getMessage()));
         }
@@ -203,29 +182,8 @@ public final class ResolveArtifactPathsMojo extends AbstractMojo {
                 + IMPLEMENTATION_MARKER
                 + "; version=" + safeEvidence(version)
                 + "; source=" + safeEvidence(sourceValue)
-                + "; sha512=" + checksum
                 + "; dependencyGraphFileName="
                 + safeEvidence(graphFilename));
-    }
-
-    private String sha512(final Path source)
-            throws IOException, NoSuchAlgorithmException {
-        final MessageDigest digest = MessageDigest.getInstance("SHA-512");
-        final byte[] buffer = new byte[DIGEST_BUFFER_SIZE];
-        try (InputStream input = Files.newInputStream(source)) {
-            int read;
-            while ((read = input.read(buffer)) != -1) {
-                digest.update(buffer, 0, read);
-            }
-        }
-        final byte[] bytes = digest.digest();
-        final char[] result = new char[bytes.length * 2];
-        for (int index = 0; index < bytes.length; index++) {
-            final int value = bytes[index] & BYTE_MASK;
-            result[index * 2] = HEX_DIGITS[value >>> NIBBLE_BITS];
-            result[index * 2 + 1] = HEX_DIGITS[value & NIBBLE_MASK];
-        }
-        return new String(result);
     }
 
     private String safeEvidence(final String value) {

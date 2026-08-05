@@ -43,7 +43,7 @@ code_refs:
 
 - `DependencyAnalyzer.analyzeResolved()` 生成唯一 GraphML/JSON filename、执行 combined Maven command，并消费两个输出。
 - Maven Dependency Plugin `3.6.1:tree` 生成每个 Module 的 GraphML。
-- Artifact Path Plugin `2.0.0:resolve-artifact-paths` 读取同一 Module 的 GraphML，解析 external artifact physical path。
+- Artifact Path Plugin `2.1.0:resolve-artifact-paths` 读取同一 Module 的 GraphML，解析 external artifact physical path。
 - Analyzer 将 Reactor dependency 映射到 target Module 的 `target/classes`。
 
 ## Behavior Contract

@@ -14,7 +14,7 @@ import java.util.concurrent.Future;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** Embedded Maven Dependency Plugin runtime tests. */
+/** Embedded Maven Plugin repository runtime tests. */
 class MavenDependencyPluginRuntimeManagerTest {
 
     /** Concurrent preparation count. */
@@ -29,77 +29,64 @@ class MavenDependencyPluginRuntimeManagerTest {
     private Path temporary;
 
     @Test
-    void extractsVerifiedRepositoryAndReusesSettings()
-            throws Exception {
+    void preparesTwoRepositoriesAndCommandScopedSettings() throws Exception {
         final Path config = temporary.resolve("config");
         final MavenDependencyPluginRuntimeManager manager =
                 new MavenDependencyPluginRuntimeManager();
-
-        final MavenDependencyPluginRuntime first =
-                manager.prepare(config,
-                        List.of("-DskipTests"), null);
-        final Path settings = settings(first);
-        final long modified = Files.getLastModifiedTime(
-                settings).toMillis();
-        final MavenDependencyPluginRuntime second =
-                manager.prepare(config,
-                        List.of("-DskipTests"), "");
+        final MavenDependencyPluginRuntime first = manager.prepare(
+                config, List.of("-DskipTests"), null);
+        final MavenDependencyPluginRuntime second = manager.prepare(
+                config, List.of("-DskipTests"), "");
+        final Path firstSettings = settings(first);
+        final Path secondSettings = settings(second);
 
         assertThat(first.isEmbedded()).isTrue();
         assertThat(first.getVersion()).isEqualTo("3.6.1");
         assertThat(first.getGoal()).isEqualTo(
                 "org.apache.maven.plugins:"
                         + "maven-dependency-plugin:3.6.1:tree");
-        assertThat(first.getGoal("list")).isEqualTo(
-                "org.apache.maven.plugins:"
-                        + "maven-dependency-plugin:3.6.1:list");
+        assertThat(first.getGoal("list")).endsWith(":3.6.1:list");
         assertThat(first.getArtifactPathGoal()).isEqualTo(
                 "io.github.dependencyanalysis:"
                         + "dependency-analyzer-artifact-path-maven-plugin:"
                         + ARTIFACT_PATH_PLUGIN_VERSION
                         + ":resolve-artifact-paths");
-        assertThat(first.getArtifactPathPluginVersion())
-                .isEqualTo(ARTIFACT_PATH_PLUGIN_VERSION);
-        assertThat(first.getArtifactPathJarSha512())
-                .matches("[0-9a-f]{128}");
-        assertThat(first.getRepositorySha512())
-                .matches("[0-9a-f]{128}");
-        assertThat(first.getRepository().resolve(
-                "org/apache/maven/plugins/"
-                        + "maven-dependency-plugin/3.6.1/"
-                        + "maven-dependency-plugin-3.6.1.jar"))
-                .isRegularFile();
-        assertThat(first.getRepository().resolve(
-                "io/github/dependencyanalysis/"
-                        + "dependency-analyzer-artifact-path-maven-plugin/"
-                        + ARTIFACT_PATH_PLUGIN_VERSION + "/"
-                        + "dependency-analyzer-artifact-path-maven-plugin-"
-                        + ARTIFACT_PATH_PLUGIN_VERSION + ".jar"))
-                .isRegularFile();
-        assertThat(settings).content()
-                .contains(first.getRepository().toUri()
-                        .toASCIIString())
-                .contains("<pluginRepositories>")
-                .contains("<updatePolicy>always</updatePolicy>")
-                .contains("<checksumPolicy>fail</checksumPolicy>");
-        assertThat(settings(second)).isEqualTo(settings);
-        assertThat(Files.getLastModifiedTime(
-                settings(second)).toMillis())
-                .isEqualTo(modified);
+        assertThat(first.getRepositories()).hasSize(2);
+        assertThat(dependencyJar(first)).isRegularFile();
+        assertThat(artifactPathJar(first)).isRegularFile();
+        assertThat(first.getRepositories().get(0))
+                .isEqualTo(second.getRepositories().get(0));
+        if (isSnapshot()) {
+            assertThat(first.getRepositories().get(1))
+                    .isNotEqualTo(second.getRepositories().get(1));
+            assertThat(first.getMavenArguments()).contains("-U");
+        } else {
+            assertThat(first.getRepositories().get(1))
+                    .isEqualTo(second.getRepositories().get(1));
+            assertThat(first.getMavenArguments()).doesNotContain("-U");
+        }
+        assertThat(firstSettings).isNotEqualTo(secondSettings);
+        assertThat(firstSettings).content()
+                .contains(first.getRepositories().get(0)
+                        .toUri().toASCIIString())
+                .contains(first.getRepositories().get(1)
+                        .toUri().toASCIIString())
+                .contains("dependency-analyzer-maven-dependency-plugin-3.6.1")
+                .contains("dependency-analyzer-dependency-analyzer-artifact-"
+                        + "path-maven-plugin-"
+                        + ARTIFACT_PATH_PLUGIN_VERSION.toLowerCase())
+                .doesNotContain("checksumPolicy");
 
-        Files.writeString(settings, "damaged");
-        final MavenDependencyPluginRuntime repaired =
-                manager.prepare(config,
-                        List.of("-DskipTests"), null);
-        assertThat(settings(repaired)).content()
-                .contains("<pluginRepositories>");
+        first.close();
+        second.close();
+        assertThat(firstSettings).doesNotExist();
+        assertThat(secondSettings).doesNotExist();
     }
 
     @Test
-    void mergesGlobalSettingsAndPreservesUserSettingsOption()
+    void mergesGlobalSettingsAndExcludesBothRepositoriesFromMirror()
             throws Exception {
-        final Path global = temporary.resolve(
-                "global-settings.xml");
+        final Path global = temporary.resolve("global-settings.xml");
         Files.writeString(global, """
                 <?xml version="1.0" encoding="UTF-8"?>
                 <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
@@ -112,118 +99,118 @@ class MavenDependencyPluginRuntimeManagerTest {
                   </mirrors>
                 </settings>
                 """);
-        final Path user = temporary.resolve(
-                "user-settings.xml");
+        final Path user = temporary.resolve("user-settings.xml");
         Files.writeString(user, "<settings/>");
 
-        final MavenDependencyPluginRuntime runtime =
-                new MavenDependencyPluginRuntimeManager()
-                        .prepare(temporary.resolve("merge"),
-                                List.of("-gs", global.toString(),
-                                        "-s", user.toString(),
-                                        "-Pdev"), null);
-
-        assertThat(runtime.getMavenArguments())
-                .containsSubsequence("-s", user.toString())
-                .contains("-Pdev")
-                .doesNotContain(global.toString());
-        assertThat(settings(runtime)).content()
-                .contains("https://repo.example.test/maven")
-                .contains(",!dependency-analyzer-plugin-")
-                .contains("dependency-analyzer-plugin-");
+        try (MavenDependencyPluginRuntime runtime =
+                     new MavenDependencyPluginRuntimeManager().prepare(
+                             temporary.resolve("merge"),
+                             List.of("-gs", global.toString(),
+                                     "-s", user.toString(), "-Pdev"),
+                             null)) {
+            assertThat(runtime.getMavenArguments())
+                    .containsSubsequence("-s", user.toString())
+                    .contains("-Pdev")
+                    .doesNotContain(global.toString());
+            assertThat(settings(runtime)).content()
+                    .contains("https://repo.example.test/maven")
+                    .contains("!dependency-analyzer-maven-dependency-"
+                            + "plugin-3.6.1")
+                    .contains("!dependency-analyzer-dependency-analyzer-"
+                            + "artifact-path-maven-plugin-");
+        }
     }
 
     @Test
-    void damagedRepositoryRebuildsAndPreservesUnknownFiles()
+    void missingRequiredFileRebuildsWithoutContentFingerprinting()
             throws Exception {
-        final Path config = temporary.resolve("damaged");
+        final Path config = temporary.resolve("rebuild");
         final MavenDependencyPluginRuntimeManager manager =
                 new MavenDependencyPluginRuntimeManager();
-        final MavenDependencyPluginRuntime first =
-                manager.prepare(config, List.of(), null);
-        final Path plugin = first.getRepository().resolve(
-                "org/apache/maven/plugins/"
-                        + "maven-dependency-plugin/3.6.1/"
-                        + "maven-dependency-plugin-3.6.1.jar");
+        final MavenDependencyPluginRuntime first = manager.prepare(
+                config, List.of(), null);
+        final Path plugin = dependencyJar(first);
         final long expectedSize = Files.size(plugin);
-        Files.writeString(plugin, "damaged");
-        final Path unknown = config.resolve("user.txt");
-        Files.writeString(unknown, "keep");
+        Files.delete(plugin);
 
-        final MavenDependencyPluginRuntime rebuilt =
-                manager.prepare(config, List.of(), null);
-
-        assertThat(Files.size(rebuilt.getRepository().resolve(
-                first.getRepository().relativize(plugin))))
+        final MavenDependencyPluginRuntime rebuilt = manager.prepare(
+                config, List.of(), null);
+        assertThat(Files.size(dependencyJar(rebuilt)))
                 .isEqualTo(expectedSize);
-        assertThat(unknown).hasContent("keep");
+
+        Files.writeString(dependencyJar(rebuilt), "damaged-but-present");
+        final MavenDependencyPluginRuntime reused = manager.prepare(
+                config, List.of(), null);
+        assertThat(dependencyJar(reused)).hasContent("damaged-but-present");
+
+        first.close();
+        rebuilt.close();
+        reused.close();
     }
 
     @Test
-    void concurrentPreparationPublishesOneCompleteRepository()
+    void concurrentPreparationKeepsStableRepositoryConsistent()
             throws Exception {
         final Path config = temporary.resolve("concurrent");
         final MavenDependencyPluginRuntimeManager manager =
                 new MavenDependencyPluginRuntimeManager();
-        final ExecutorService executor =
-                Executors.newFixedThreadPool(
-                        CONCURRENT_PREPARATIONS);
+        final ExecutorService executor = Executors.newFixedThreadPool(
+                CONCURRENT_PREPARATIONS);
+        final List<MavenDependencyPluginRuntime> runtimes =
+                new ArrayList<>();
         try {
             final List<java.util.concurrent.Callable<
-                    MavenDependencyPluginRuntime>> tasks =
-                    new ArrayList<>();
-            for (int index = 0;
-                 index < CONCURRENT_PREPARATIONS; index++) {
-                tasks.add(() -> manager.prepare(
-                        config, List.of(), null));
+                    MavenDependencyPluginRuntime>> tasks = new ArrayList<>();
+            for (int index = 0; index < CONCURRENT_PREPARATIONS; index++) {
+                tasks.add(() -> manager.prepare(config, List.of(), null));
             }
-            final List<Future<
-                    MavenDependencyPluginRuntime>> futures =
+            final List<Future<MavenDependencyPluginRuntime>> futures =
                     executor.invokeAll(tasks);
-            final List<Path> repositories =
-                    new ArrayList<>();
-            for (Future<MavenDependencyPluginRuntime> future
-                    : futures) {
-                repositories.add(future.get()
-                        .getRepository());
+            for (Future<MavenDependencyPluginRuntime> future : futures) {
+                runtimes.add(future.get());
             }
-
-            assertThat(repositories)
-                    .containsOnly(repositories.get(0));
-            assertThat(repositories).allMatch(
-                    Files::isDirectory);
+            assertThat(runtimes.stream()
+                    .map(runtime -> runtime.getRepositories().get(0))
+                    .toList()).containsOnly(
+                    runtimes.get(0).getRepositories().get(0));
+            assertThat(runtimes).allMatch(runtime ->
+                    Files.isRegularFile(dependencyJar(runtime))
+                            && Files.isRegularFile(artifactPathJar(runtime)));
+            if (isSnapshot()) {
+                assertThat(runtimes.stream()
+                        .map(runtime -> runtime.getRepositories().get(1))
+                        .distinct().count())
+                        .isEqualTo(CONCURRENT_PREPARATIONS);
+            }
         } finally {
+            for (MavenDependencyPluginRuntime runtime : runtimes) {
+                runtime.close();
+            }
             executor.shutdownNow();
         }
     }
 
     @Test
-    void overrideKeepsBuiltInArtifactPluginAndBlocksOldCapability() {
-        final MavenDependencyPluginRuntime runtime =
-                new MavenDependencyPluginRuntimeManager()
-                        .prepare(temporary.resolve("override"),
-                                List.of("-Pdev"), "3.5.0");
-
-        assertThat(runtime.isEmbedded()).isTrue();
-        assertThat(runtime.getMavenArguments())
-                .contains("-Pdev", "-gs");
-        assertThat(runtime.getGoal()).endsWith(
-                ":3.5.0:tree");
+    void overrideKeepsRepositoriesAndBlocksOldCapability() throws Exception {
+        try (MavenDependencyPluginRuntime runtime =
+                     new MavenDependencyPluginRuntimeManager().prepare(
+                             temporary.resolve("override"),
+                             List.of("-Pdev"), "3.5.0")) {
+            assertThat(runtime.getRepositories()).hasSize(2);
+            assertThat(runtime.getMavenArguments()).contains("-Pdev", "-gs");
+            assertThat(runtime.getGoal()).endsWith(":3.5.0:tree");
+        }
         assertThatThrownBy(() ->
-                new MavenDependencyPluginRuntimeManager()
-                        .prepare(temporary.resolve("blocked"),
-                                List.of(), "2.8"))
+                new MavenDependencyPluginRuntimeManager().prepare(
+                        temporary.resolve("blocked"), List.of(), "2.8"))
                 .isInstanceOf(MavenRuntimeException.class)
-                .hasMessageContaining(
-                        "does not provide complete");
+                .hasMessageContaining("does not provide complete");
         assertThat(MavenDependencyPluginRuntimeManager
-                .supportsCompleteEvidence("3.6.1:help"))
-                .isFalse();
+                .supportsCompleteEvidence("3.6.1:help")).isFalse();
     }
 
     @Test
-    void executesFromEmbeddedRepositoryWithExternalMirrorBlocked()
-            throws Exception {
+    void executesBothGoalsWithExternalMirrorBlocked() throws Exception {
         final Path config = temporary.resolve("execution");
         final Path project = temporary.resolve("project");
         Files.createDirectories(project);
@@ -247,57 +234,68 @@ class MavenDependencyPluginRuntimeManagerTest {
                   </mirrors>
                 </settings>
                 """);
-        final MavenRuntimeDescriptor maven =
-                new MavenRuntimeManager().prepare(
-                        null, config, null);
-        final MavenDependencyPluginRuntime plugin =
-                new MavenDependencyPluginRuntimeManager()
-                        .prepare(config,
-                                List.of("-gs", global.toString(),
-                                        "-Dmaven.repo.local="
-                                                + temporary.resolve(
-                                                "empty-local")),
-                                null);
-        final List<String> arguments = new ArrayList<>(
-                plugin.getMavenArguments());
-        arguments.add("-X");
-        arguments.add("-B");
-        arguments.add("-f");
-        arguments.add(project.resolve("pom.xml").toString());
-        arguments.add(plugin.getGoal());
-        arguments.add("-DoutputFile=tree.graphml");
-        arguments.add("-DoutputType=graphml");
-        arguments.add(plugin.getArtifactPathGoal());
-        arguments.add("-Dcia.dependencyGraphFileName=tree.graphml");
-        arguments.add("-Dcia.resolvedArtifactsFileName=artifacts.json");
+        final MavenRuntimeDescriptor maven = new MavenRuntimeManager()
+                .prepare(null, config, null);
+        try (MavenDependencyPluginRuntime plugin =
+                     new MavenDependencyPluginRuntimeManager().prepare(
+                             config,
+                             List.of("-gs", global.toString(),
+                                     "-Dmaven.repo.local="
+                                             + temporary.resolve(
+                                             "empty-local")),
+                             null)) {
+            final List<String> arguments = new ArrayList<>(
+                    plugin.getMavenArguments());
+            arguments.addAll(List.of(
+                    "-X", "-B", "-f", project.resolve("pom.xml").toString(),
+                    plugin.getGoal(), "-DoutputFile=tree.graphml",
+                    "-DoutputType=graphml", plugin.getArtifactPathGoal(),
+                    "-Dcia.dependencyGraphFileName=tree.graphml",
+                    "-Dcia.resolvedArtifactsFileName=artifacts.json"));
 
-        final MavenExecutionResult result =
-                new MavenExecutor().execute(
-                        maven, project, arguments);
+            final MavenExecutionResult result = new MavenExecutor().execute(
+                    maven, project, arguments);
 
-        assertThat(result.getExitCode())
-                .describedAs(result.getCombinedOutput())
-                .isZero();
-        assertThat(result.getCombinedOutput())
-                .contains("maven-dependency-plugin:3.6.1:tree")
-                .contains("(f) dependencyGraphFileName = tree.graphml")
-                .contains("Artifact Path Plugin implementation=graphml-v2")
-                .contains("version=" + ARTIFACT_PATH_PLUGIN_VERSION)
-                .contains("sha512="
-                        + plugin.getArtifactPathJarSha512());
-        assertThat(project.resolve("tree.graphml"))
-                .isRegularFile();
-        assertThat(project.resolve("artifacts.json"))
-                .content().contains("\"schemaVersion\" : 2")
-                .contains("\"artifacts\" : [ ]")
-                .doesNotContain("\"module\"")
-                .doesNotContain("\"scope\"");
+            assertThat(result.getExitCode())
+                    .describedAs(result.getCombinedOutput()).isZero();
+            assertThat(result.getCombinedOutput())
+                    .contains("maven-dependency-plugin:3.6.1:tree")
+                    .contains("(f) dependencyGraphFileName = tree.graphml")
+                    .contains("Artifact Path Plugin implementation=graphml-v2")
+                    .contains("version=" + ARTIFACT_PATH_PLUGIN_VERSION)
+                    .doesNotContain("sha512=");
+            assertThat(project.resolve("tree.graphml")).isRegularFile();
+            assertThat(project.resolve("artifacts.json")).content()
+                    .contains("\"schemaVersion\" : 2")
+                    .contains("\"artifacts\" : [ ]")
+                    .doesNotContain("\"module\"")
+                    .doesNotContain("\"scope\"");
+        }
     }
 
-    private Path settings(
+    private Path dependencyJar(
             final MavenDependencyPluginRuntime runtime) {
-        final List<String> arguments =
-                runtime.getMavenArguments();
+        return runtime.getRepositories().get(0).resolve(
+                "org/apache/maven/plugins/maven-dependency-plugin/3.6.1/"
+                        + "maven-dependency-plugin-3.6.1.jar");
+    }
+
+    private Path artifactPathJar(
+            final MavenDependencyPluginRuntime runtime) {
+        return runtime.getRepositories().get(1).resolve(
+                "io/github/dependencyanalysis/"
+                        + "dependency-analyzer-artifact-path-maven-plugin/"
+                        + ARTIFACT_PATH_PLUGIN_VERSION + "/"
+                        + "dependency-analyzer-artifact-path-maven-plugin-"
+                        + ARTIFACT_PATH_PLUGIN_VERSION + ".jar");
+    }
+
+    private boolean isSnapshot() {
+        return ARTIFACT_PATH_PLUGIN_VERSION.endsWith("-SNAPSHOT");
+    }
+
+    private Path settings(final MavenDependencyPluginRuntime runtime) {
+        final List<String> arguments = runtime.getMavenArguments();
         final int option = arguments.indexOf("-gs");
         assertThat(option).isNotNegative();
         return Path.of(arguments.get(option + 1));

@@ -21,9 +21,6 @@ public final class MavenRuntimeDescriptor {
     /** Complete application config directory. */
     private final Path configDir;
 
-    /** Embedded ZIP SHA-512, empty for user runtime. */
-    private final String distributionSha512;
-
     /**
      * Creates a runtime descriptor.
      *
@@ -32,29 +29,22 @@ public final class MavenRuntimeDescriptor {
      * @param runtimeVersion version, nullable
      * @param runtimeJavaHome Java home, nullable
      * @param runtimeConfigDir config directory
-     * @param sha512 distribution checksum
      */
     public MavenRuntimeDescriptor(
             final MavenRuntimeSource runtimeSource,
             final Path runtimeExecutable,
             final MavenVersion runtimeVersion,
             final Path runtimeJavaHome,
-            final Path runtimeConfigDir,
-            final String sha512) {
-        source = Objects.requireNonNull(
-                runtimeSource, "source");
+            final Path runtimeConfigDir) {
+        source = Objects.requireNonNull(runtimeSource, "source");
         executable = Objects.requireNonNull(
                 runtimeExecutable, "executable")
                 .toAbsolutePath().normalize();
         version = runtimeVersion;
         javaHome = runtimeJavaHome == null
-                ? null : runtimeJavaHome
+                ? null : runtimeJavaHome.toAbsolutePath().normalize();
+        configDir = Objects.requireNonNull(runtimeConfigDir, "configDir")
                 .toAbsolutePath().normalize();
-        configDir = Objects.requireNonNull(
-                runtimeConfigDir, "configDir")
-                .toAbsolutePath().normalize();
-        distributionSha512 = Objects.requireNonNull(
-                sha512, "distributionSha512");
     }
 
     /** @return runtime source */
@@ -82,22 +72,14 @@ public final class MavenRuntimeDescriptor {
         return configDir;
     }
 
-    /** @return embedded distribution checksum */
-    public String getDistributionSha512() {
-        return distributionSha512;
-    }
-
     /**
      * Returns a copy with detected version.
      *
      * @param detected detected version
      * @return new descriptor
      */
-    public MavenRuntimeDescriptor withVersion(
-            final MavenVersion detected) {
+    public MavenRuntimeDescriptor withVersion(final MavenVersion detected) {
         return new MavenRuntimeDescriptor(
-                source, executable, detected,
-                javaHome, configDir,
-                distributionSha512);
+                source, executable, detected, javaHome, configDir);
     }
 }

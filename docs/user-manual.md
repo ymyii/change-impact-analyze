@@ -7,18 +7,13 @@ Dependency Analyzer 是 Java 17 CLI，面向 Maven project：
 - `impact`：比较 dependency 升级前后的 resolved dependency、bytecode 和业务调用影响，输出 Overall HTML Index；每个非 `SKIPPED` Module 输出 Module Index、Affected Call Chains、Dependency Changes 三个英文页面。
 - `tree`：扫描一个 Git repository 内的 Maven reactor，输出 repository 级 offline HTML dependency tree report。
 
-<!-- version-contract:start -->
-- Analyzer release: `1.1.0`
-- Artifact Path Plugin release: `2.0.0`
-<!-- version-contract:end -->
+当前稳定 release 为 Analyzer `2.0.0`、Artifact Path Plugin `2.1.0`。Root command 为 `dependency-analyzer`。
 
-当前 Analyzer version 为 `1.1.0`。Root command 为 `dependency-analyzer`。
-
-Source repository 使用 Maven multi-module：根 `pom.xml` 是 parent/aggregator；
-`analyzer/` 是 Java 17 CLI，仍生成 `target/dependency-analyzer.jar`；`plugins/` 是
-内置 Maven Plugin aggregator，当前包含 Java 8 的
-`plugins/artifact-path-resolver/`。Artifact Path Plugin goal 为
-`io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:2.0.0:resolve-artifact-paths`。
+Source repository 包含两个独立 Maven reactor：根 `pom.xml` 只聚合 Java 17 的
+`analyzer/`，生成 `target/dependency-analyzer.jar`；`plugins/pom.xml` 独立聚合 Java 8
+Plugin `plugins/artifact-path-resolver/`。两个 reactor 通过 Maven local repository
+交付 attached `repository` ZIP。Artifact Path Plugin goal 为
+`io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:2.1.0:resolve-artifact-paths`。
 
 ## 2. 环境与运行
 
@@ -59,7 +54,7 @@ Global options 可放在 subcommand 前或后：
 Maven 选择优先级：
 
 1. `--maven` 指定 executable。
-2. Config dir 中已经通过 SHA-512 校验的 Apache Maven 3.6.3 runtime。
+2. Config dir 中 completion marker 与必要文件完整的 Apache Maven 3.6.3 runtime。
 3. 从 JAR resource 离线解压 Apache Maven 3.6.3。
 
 工具不会隐式使用 PATH Maven，也不会自动使用 repository Maven Wrapper。支持 version 为 `>=3.6.3 && <4.0.0`；Maven 3.6.2 和 Maven 4 会在 preflight 阻断。
@@ -68,9 +63,12 @@ Maven 选择优先级：
 
 ```text
 ${user.home}/.dependency-analyzer/
-├─ runtime/apache-maven/3.6.3/<zip-sha512>/
-├─ runtime/maven-dependency-plugin/3.6.1/<combined-runtime-fingerprint>/
-├─ runtime/maven-dependency-plugin/settings/<settings-sha512>.xml
+├─ runtime/apache-maven/3.6.3/content/
+├─ runtime/plugin-repositories/
+│  ├─ maven-dependency-plugin/3.6.1/content/
+│  ├─ dependency-analyzer-artifact-path-maven-plugin/<version>/content/
+│  ├─ dependency-analyzer-artifact-path-maven-plugin/<snapshot>/runs/<uuid>/
+│  └─ settings/command-<random>.xml
 ├─ locks/
 ├─ impact/
 │  ├─ workspaces/<run-id>/
@@ -82,17 +80,17 @@ ${user.home}/.dependency-analyzer/
 
 Apache Maven 3.6.3 已 EOL；只有实际选择内嵌 3.6.3 时，version evidence 才展示该 warning。显式 `--maven` 时，所有 Maven process 和 Report 使用用户 executable 的实际 probe version；runtime evidence 只描述 `USER_CONFIGURED` 或 `EMBEDDED` source。
 
-Config dir 中未知文件和用户文件不会被自动删除。Runtime 损坏时只重建明确归属工具的 version/SHA leaf。
+Config dir 中未知文件和用户文件不会被自动删除。Runtime marker 或必要文件缺失时只重建明确归属工具的 component/version leaf；工具不对完整 archive 内容计算额外 fingerprint。
 
 每次 command 使用 UUID `run-id`、owner marker 和 `<config-dir>/locks/` file lock。Detached worktree、GraphML probe 和 command-generated intermediate file 只写入对应 subcommand run。正常和异常关闭只清理当前 run；启动时只回收 owner marker 有效且未被其他 process lock 的 stale run。`impact` 的 Maven build/dependency output 不写 `.log`，按 `-v` 直接输出到 Console；failure 只在内存保留 bounded tail。
 
-`impact` 固定使用 JAR 内嵌 Maven Dependency Plugin `3.6.1` 和 Artifact Path Plugin `2.0.0`；`tree` 默认也使用前者，但保留高级 version override。工具从 JAR 解压经过 SHA-512 校验的 Dependency Plugin file repository，并将 self-contained Artifact Path Plugin JAR、consumer POM 和 checksum 安装到同一 repository。Runtime fingerprint 同时覆盖 repository ZIP、Artifact Path Plugin JAR 和 consumer POM，任一内容变化都会生成新的 cache leaf。Artifact Path Plugin 使用不可复写的 release GAV；实现变化时升级 version，避免 Maven local repository 复用旧 release。随后生成 global settings overlay：将内嵌 repository 加入 active profile，保留用户 `-gs` 中的 mirror、proxy、server、local repository 等配置以及独立 `-s` 参数；内置 repository 会从通配 mirror 中排除。Overlay 按内容 hash 复用，使用 file lock、owner-only permission 和 atomic publish，且不会在 Console 输出用户 settings 内容。Overlay 用于工具控制的 Plugin goal，不应用于 target `compile`。
+`impact` 固定使用 JAR 内嵌 Maven Dependency Plugin `3.6.1` 和 Artifact Path Plugin `2.1.0`；`tree` 默认也使用前者，但保留高级 version override。两个 Plugin 都以内嵌 Maven repository ZIP 提供，runtime 分别解压到独立 cache，不再把 Artifact Path Plugin loose JAR/POM 手工安装进 Dependency Plugin repository。Stable version 复用 component/version cache；Artifact Path Plugin Snapshot 每次 command 解压独立 leaf、启用 `updatePolicy=always` 并传入 `-U`，不会刷新大型 Dependency Plugin repository。
 
-Preflight evidence 包含 `artifactPathPlugin=2.0.0`、内嵌 Plugin JAR 的完整
-`artifactPathSha512` 和组合 `runtimeFingerprint`。Mojo 启动后输出
-`implementation=graphml-v2`、Maven 实际加载的 JAR absolute path、实际 SHA-512 与
-`dependencyGraphFileName`。内嵌与实际加载 SHA-512 应一致；若 CodeSource 证据不可用，
-Plugin 输出 warning 但继续执行。Maven `-X` output 中的
+Runtime 生成 command-scoped global settings overlay：一个 active profile 注册两个 file `pluginRepository`，保留用户 `-gs` 中的 mirror、proxy、server、local repository 等配置以及独立 `-s` 参数；两个内置 repository ID 从通配 mirror 中排除。Settings 使用 owner-only permission，command 结束时删除；内容不会输出到 Console。Overlay 用于工具控制的 Plugin goal，不应用于 target `compile`。
+
+Preflight evidence 包含 `artifactPathPlugin=2.1.0` 与 `repositories=2`。Mojo 启动后输出
+`implementation=graphml-v2`、Maven 实际加载的 JAR absolute path 与
+`dependencyGraphFileName`。若 CodeSource evidence 不可用，Plugin 输出 warning 但继续执行。Maven `-X` output 中的
 `(f) dependencyGraphFileName = ...` 是新 Plugin descriptor 已加载的额外证据。
 
 Artifact Path Plugin 支持 `3.6.3 <= Maven version < 4.0.0`，编译为 Java 8 bytecode。它以 Maven 3.6.3 所携 Resolver API 为最低编译基线，只使用 Maven 3.x 共享的 public Maven/Resolver API；Maven 4 不在兼容范围。
@@ -198,7 +196,7 @@ java -jar dependency-analyzer.jar \
 
 Preflight 后先识别模式：选择 reactor root 时，全 reactor 只 compile 一次并逐 Module 分析；选择 leaf POM 时，从 reactor root 使用 `-pl <module> -am` compile，只报告该 Module。当前 Module 是 `PROJECT`，上游 reactor Module 是 `REACTOR_DEPENDENCY`。
 
-前置阶段并行执行 baseline dependency resolution 与 target Maven compile；join 后执行 target dependency resolution。Baseline 不 compile、不构建 Call Graph。每次 dependency analysis 在原 project 的同一个 Maven process/session 中依次执行 fully-qualified `org.apache.maven.plugins:maven-dependency-plugin:3.6.1:tree` 和 `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:2.0.0:resolve-artifact-paths`；Analyzer 通过 `-Dcia.dependencyGraphFileName=<unique>.graphml` 将前一个 goal 的 Module-local GraphML 传给后一个 goal。Target `compile` 仍只使用普通 user Maven arguments。
+前置阶段并行执行 baseline dependency resolution 与 target Maven compile；join 后执行 target dependency resolution。Baseline 不 compile、不构建 Call Graph。每次 dependency analysis 在原 project 的同一个 Maven process/session 中依次执行 fully-qualified `org.apache.maven.plugins:maven-dependency-plugin:3.6.1:tree` 和 `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:2.1.0:resolve-artifact-paths`；Analyzer 通过 `-Dcia.dependencyGraphFileName=<unique>.graphml` 将前一个 goal 的 Module-local GraphML 传给后一个 goal。Target `compile` 仍只使用普通 user Maven arguments。
 
 GraphML 是 `impact` 唯一的 mediation authority，决定 selected coordinate 与 effective scope；Artifact Path JSON 只负责 physical artifact binding。Artifact Path Plugin 不执行第二次 dependency collection。它安全解析 GraphML，校验 root coordinate 与当前 `MavenProject` 一致，只读取 selected `compile/runtime/provided/system` dependency，并完全忽略 `test`。因此 `test` 不进入 dependency diff、path binding、JAR diff 或 Call Graph。Exclusion 与 conflict loser 已由 GraphML 结论排除，不会创建下载请求；Reactor coordinate 直接跳过，由 Analyzer 映射到 target `target/classes`。
 
@@ -489,66 +487,38 @@ Dependency Analyzer 不把 project dependency local repository 放入 config dir
 
 ### Config dir runtime 损坏
 
-再次执行 command 会自动校验并只重建对应 Maven 或 Dependency Plugin version/SHA leaf；损坏的 generated settings 也会按内容重建。不要整体删除 config dir；其中可能包含未来配置或用户文件。
+再次执行 command 会检查 completion marker 和必要文件，并只重建对应 Maven 或 Plugin component/version leaf。Generated settings 为 command-scoped temporary file。不要整体删除 config dir；其中可能包含未来配置或用户文件。工具不执行 archive 内容 fingerprint；文件存在但内容被外部修改时，可删除对应 completion marker 或必要文件触发重建。
 
 ## 10. Version 与 Distribution 构建
 
-Analyzer 与每个内置 Maven Plugin 使用独立 SemVer。正式 release 只接受
-`MAJOR.MINOR.PATCH`，不使用 `SNAPSHOT`。Analyzer binary 输入变化时提升 Analyzer
-version；Artifact Path Plugin 或 consumer POM 输入变化时同时提升 Plugin 与 Analyzer
-version。Release version、source fingerprint 与稳定 build timestamp 记录在
-`build-support/version-contract.properties`，已登记 version 不可复写或回退。
-
-查看并校验当前 version contract：
+Analyzer 与 Artifact Path Plugin 使用独立 SemVer。日常开发在下一次 release 前复用固定 `X.Y.Z-SNAPSHOT`，不因每次本地自测 bump 或 commit。Plugin source/package 变化后，用同一个 Snapshot coordinate 重新 `clean install`，再构建 Analyzer：
 
 ```sh
-./scripts/version.sh show
-./scripts/version.sh verify
+mvn -f plugins/pom.xml clean install
+TEST_JDK8_HOME=/absolute/path/to/jdk8 mvn clean verify
 ```
 
-Analyzer-only PATCH 示例：
+Version 修改完全使用 Versions Maven Plugin。例如切换 Plugin stable version：
 
 ```sh
-./scripts/version.sh bump --analyzer patch
+mvn -f plugins/pom.xml versions:set-property \
+  -Dproperty=revision \
+  -DnewVersion=2.1.0 \
+  -DgenerateBackupPoms=false
 ```
 
-Plugin PATCH 必须同步 bump Analyzer：
+正式 release 先构建并安装 Plugin，再构建 Analyzer：
 
 ```sh
-./scripts/version.sh bump \
-  --analyzer patch \
-  --plugin patch
-```
-
-正式 distribution 必须来自 clean commit，并完成真实 JDK 8 smoke：
-
-```sh
+mvn -f plugins/pom.xml -Prelease clean install
 TEST_JDK8_HOME=/absolute/path/to/jdk8 \
-  ./scripts/build-distribution.sh
+  mvn -Prelease clean verify
+java -jar target/dependency-analyzer.jar --version
 ```
 
-输出保留兼容路径 `target/dependency-analyzer.jar`，并发布：
+`release` profile 只接受 Stable SemVer，并拒绝 Snapshot dependency。正式 Analyzer artifact 是 `target/dependency-analyzer.jar`；不生成 project-owned checksum、build manifest 或额外 distribution directory。
 
-```text
-target/distribution/
-├── dependency-analyzer-1.1.0.jar
-├── dependency-analyzer-1.1.0.jar.sha512
-└── dependency-analyzer-1.1.0-build-manifest.json
-```
-
-本地 dirty worktree 或暂时没有 JDK 8 时，只能生成不可正式交付的 dev bundle：
-
-```sh
-./scripts/build-distribution.sh \
-  --allow-dirty \
-  --skip-jdk8-smoke
-```
-
-Dev 输出位于 `target/distribution-dev/`，manifest 中
-`releaseEligible=false`。无论正式或 dev build，自动化都会检查 dynamic CLI version、
-内嵌 Plugin version/checksum/descriptor/class major/shading boundary，使用隔离 Maven
-local repository 运行 combined-goal packaged smoke，并对两次固定 timestamp build 的
-CLI JAR SHA-512 进行比较。
+Release 验证通过后，创建一个 commit，并使 `artifact-path-plugin-v2.1.0` 与 `analyzer-v2.0.0` 两个 annotated tag 指向同一 commit。Git tag 是 release record；日常 build 不需要 tag。
 
 Version policy、failure entrypoints 与完整发布步骤见
 [`wiki/runbooks/version-and-distribution.md`](../wiki/runbooks/version-and-distribution.md)。
@@ -558,7 +528,8 @@ Version policy、failure entrypoints 与完整发布步骤见
 Repository 内置 Git 管理的中型 `impact` benchmark。它从 source 生成 42 个 compile-scope external dependencies、带 `impact-baseline`/`impact-target` refs 的临时 Git project，并校验 9 类 raw `ChangePointKind`、`6 / 5` candidate/final call chains、Structural Reference Path、过滤候选与反编译代码 evidence，以及四页 HTML report。
 
 ```sh
-mvn package
+mvn -f plugins/pom.xml clean install
+TEST_JDK8_HOME=/absolute/path/to/jdk8 mvn package
 JAVA8_HOME=/absolute/path/to/jdk8 \
   benchmarks/impact-medium/run-benchmark.sh candidate-01
 ```
@@ -567,6 +538,6 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 
 ## 12. Third-Party Attribution
 
-Uber JAR 内包含未修改的 Apache Maven 3.6.3 binary distribution，以及 distribution 的 `LICENSE`、`NOTICE` 和官方 SHA-512；同时包含 Maven Dependency Plugin 3.6.1 的完整运行 dependency repository、SHA-512、`LICENSE`、`NOTICE` 和 `DEPENDENCIES`，以及 Artifact Path Plugin JAR、consumer POM 和各自 SHA-512。Source repository 中静态 resources 位于 `analyzer/src/main/resources/maven/`，Plugin source 位于 `plugins/artifact-path-resolver/`。
+Uber JAR 内包含未修改的 Apache Maven 3.6.3 binary distribution，以及 distribution 的 `LICENSE`、`NOTICE`；同时包含 Maven Dependency Plugin 3.6.1 完整运行 repository ZIP、`LICENSE`、`NOTICE`、`DEPENDENCIES`，以及 Artifact Path Plugin repository ZIP。Artifact Path Plugin ZIP 只包含当前 version 的 self-contained JAR 与 consumer POM。项目不生成或验证额外 checksum；Dependency Plugin repository ZIP 内既有第三方 `.sha1` sidecar 保持不变。Source repository 中静态 resources 位于 `analyzer/src/main/resources/maven/`，Plugin source/package 位于 `plugins/artifact-path-resolver/`。
 
 WALA 1.8.0 以 EPL-2.0 使用，Vineflower 1.12.0 slim 以 Apache-2.0 使用；attribution 位于 `analyzer/src/main/resources/licenses/` 并随 uber JAR 打包。Vineflower 代码和 runtime dependency 已内嵌，内网执行 `impact` 不下载 decompiler artifact；重新构建工程时仍需要 Maven mirror 或已缓存 artifact。

@@ -6,15 +6,12 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.jar.JarFile;
@@ -86,17 +83,22 @@ class PackagedJarCliIT {
                     .isNotNull();
             assertThat(jar.getEntry(
                     "maven/apache-maven-3.6.3-bin.zip.sha512"))
-                    .isNotNull();
+                    .isNull();
             assertThat(jar.getEntry("maven/LICENSE"))
                     .isNotNull();
             assertThat(jar.getEntry("maven/NOTICE"))
                     .isNotNull();
-            assertThat(jar.getEntry("maven/dependency-plugin/"
-                    + "maven-dependency-plugin-3.6.1-"
-                    + "repository.zip")).isNotNull();
-            assertThat(jar.getEntry("maven/dependency-plugin/"
-                    + "maven-dependency-plugin-3.6.1-"
-                    + "repository.zip.sha512")).isNotNull();
+            final String dependencyRepository =
+                    "maven/plugin-repositories/"
+                            + "maven-dependency-plugin-3.6.1-"
+                            + "repository.zip";
+            final String artifactPathRepository =
+                    "maven/plugin-repositories/"
+                            + "dependency-analyzer-artifact-path-"
+                            + "maven-plugin-" + ARTIFACT_PATH_PLUGIN_VERSION
+                            + "-repository.zip";
+            assertThat(jar.getEntry(dependencyRepository)).isNotNull();
+            assertThat(jar.getEntry(artifactPathRepository)).isNotNull();
             assertThat(jar.getEntry(
                     "maven/dependency-plugin/LICENSE"))
                     .isNotNull();
@@ -106,17 +108,14 @@ class PackagedJarCliIT {
             assertThat(jar.getEntry(
                     "maven/dependency-plugin/DEPENDENCIES"))
                     .isNotNull();
-            final String artifactPath = "maven/artifact-path-plugin/"
-                    + "dependency-analyzer-artifact-path-"
-                    + "maven-plugin-" + ARTIFACT_PATH_PLUGIN_VERSION;
-            assertThat(jar.getEntry(artifactPath + ".jar"))
-                    .isNotNull();
-            assertThat(jar.getEntry(artifactPath + ".pom"))
-                    .isNotNull();
-            assertThat(jar.getEntry(artifactPath + ".jar.sha512"))
-                    .isNotNull();
-            assertThat(jar.getEntry(artifactPath + ".pom.sha512"))
-                    .isNotNull();
+            assertThat(jar.stream().map(entry -> entry.getName())
+                    .filter(name -> name.startsWith(
+                            "maven/plugin-repositories/"))
+                    .filter(name -> name.endsWith("-repository.zip"))
+                    .toList()).containsExactlyInAnyOrder(
+                    dependencyRepository, artifactPathRepository);
+            assertThat(jar.getEntry("maven/artifact-path-plugin/"))
+                    .isNull();
             assertThat(jar.getEntry(
                     "licenses/vineflower-LICENSE.txt"))
                     .isNotNull();
@@ -127,9 +126,6 @@ class PackagedJarCliIT {
                     "org/jetbrains/java/decompiler/api/"
                             + "Decompiler.class"))
                     .isNotNull();
-            assertEmbeddedChecksum(jar);
-            assertPluginChecksum(jar);
-            assertArtifactPathPluginChecksums(jar, artifactPath);
             assertThat(jar.getEntry("maven/artifact-path-plugin/"
                     + "dependency-analyzer-artifact-path-"
                     + "maven-plugin-1.0.0.jar")).isNull();
@@ -243,8 +239,9 @@ class PackagedJarCliIT {
             throws Exception {
         final String jdk8Home = System.getenv(
                 "TEST_JDK8_HOME");
-        assumeTrue(jdk8Home != null && !jdk8Home.isBlank(),
-                "TEST_JDK8_HOME unavailable");
+        assertThat(jdk8Home)
+                .as("TEST_JDK8_HOME")
+                .isNotBlank();
         final Path repository = createRepository(
                 temporary.resolve("impact-repository"),
                 true);
@@ -434,77 +431,6 @@ class PackagedJarCliIT {
         }
         assertThat(readOnlyReactorPage(output))
                 .contains("test:a:jar:1");
-    }
-
-    private void assertEmbeddedChecksum(final JarFile jar)
-            throws Exception {
-        final byte[] archive;
-        final String expected;
-        try (InputStream input = jar.getInputStream(
-                jar.getEntry(
-                        "maven/apache-maven-3.6.3-bin.zip"))) {
-            archive = input.readAllBytes();
-        }
-        try (InputStream input = jar.getInputStream(
-                jar.getEntry("maven/apache-maven-3.6.3-bin.zip"
-                        + ".sha512"))) {
-            expected = new String(input.readAllBytes(),
-                    StandardCharsets.UTF_8).trim();
-        }
-        final String actual = HexFormat.of().formatHex(
-                MessageDigest.getInstance("SHA-512")
-                        .digest(archive));
-        assertThat(actual).isEqualTo(expected);
-    }
-
-    private void assertPluginChecksum(final JarFile jar)
-            throws Exception {
-        final String resource = "maven/dependency-plugin/"
-                + "maven-dependency-plugin-3.6.1-repository.zip";
-        final byte[] archive;
-        final String expected;
-        try (InputStream input = jar.getInputStream(
-                jar.getEntry(resource))) {
-            archive = input.readAllBytes();
-        }
-        try (InputStream input = jar.getInputStream(
-                jar.getEntry(resource + ".sha512"))) {
-            expected = new String(input.readAllBytes(),
-                    StandardCharsets.UTF_8).trim()
-                    .split("\\s+")[0];
-        }
-        final String actual = HexFormat.of().formatHex(
-                MessageDigest.getInstance("SHA-512")
-                        .digest(archive));
-        assertThat(actual).isEqualTo(expected);
-    }
-
-    private void assertArtifactPathPluginChecksums(
-            final JarFile jar,
-            final String resourceBase) throws Exception {
-        assertResourceChecksum(jar, resourceBase + ".jar");
-        assertResourceChecksum(jar, resourceBase + ".pom");
-    }
-
-    private void assertResourceChecksum(
-            final JarFile jar,
-            final String resource) throws Exception {
-        final byte[] content;
-        final String expected;
-        try (InputStream input = jar.getInputStream(
-                jar.getEntry(resource))) {
-            content = input.readAllBytes();
-        }
-        try (InputStream input = jar.getInputStream(
-                jar.getEntry(resource + ".sha512"))) {
-            expected = new String(input.readAllBytes(),
-                    StandardCharsets.UTF_8).trim()
-                    .split("\\s+")[0];
-        }
-        final String actual = HexFormat.of().formatHex(
-                MessageDigest.getInstance("SHA-512")
-                        .digest(content));
-        assertThat(actual).isEqualTo(expected);
     }
 
     private Path createRepository(

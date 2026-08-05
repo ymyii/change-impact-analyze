@@ -10,6 +10,8 @@ import io.github.dependencyanalysis.runtime
         .MavenExecutor;
 import io.github.dependencyanalysis.runtime
         .MavenRuntimeDescriptor;
+import io.github.dependencyanalysis.runtime
+        .MavenRuntimeException;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -51,13 +53,17 @@ public final class TreeDependencyCollector {
             final List<String> mavenArguments,
             final Set<String> scopes,
             final String pluginVersion) {
-        final MavenDependencyPluginRuntime pluginRuntime =
-                new MavenDependencyPluginRuntimeManager()
-                        .prepare(runtime.getConfigDir(),
-                                mavenArguments,
-                                pluginVersion);
-        return collect(snapshot, inventory, reactor,
-                runtime, pluginRuntime, scopes);
+        try (MavenDependencyPluginRuntime pluginRuntime =
+                     new MavenDependencyPluginRuntimeManager()
+                             .prepare(runtime.getConfigDir(),
+                                     mavenArguments,
+                                     pluginVersion)) {
+            return collect(snapshot, inventory, reactor,
+                    runtime, pluginRuntime, scopes);
+        } catch (java.io.IOException exception) {
+            throw new MavenRuntimeException(
+                    "Unable to clean Maven Plugin runtime", exception);
+        }
     }
 
     /**

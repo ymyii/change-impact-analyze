@@ -32,7 +32,7 @@ class MavenRuntimeManagerTest {
     private Path temporary;
 
     @Test
-    void extractsAndReusesVerifiedRuntime()
+    void extractsAndReusesVersionedRuntime()
             throws Exception {
         final Path config = temporary.resolve("config");
         final MavenRuntimeManager manager =
@@ -57,7 +57,7 @@ class MavenRuntimeManagerTest {
     }
 
     @Test
-    void damagedRuntimeWithMarkerRebuildsAndPreservesUnknownFiles()
+    void missingRequiredFileRebuildsAndPreservesUnknownFiles()
             throws Exception {
         final Path config = temporary.resolve("damaged");
         final MavenRuntimeManager manager =
@@ -67,8 +67,10 @@ class MavenRuntimeManagerTest {
         final Path unknown = config.resolve(
                 "future-user-file.txt");
         Files.writeString(unknown, "keep");
-        Files.writeString(first.getExecutable(),
-                "damaged");
+        final Path settings = first.getExecutable()
+                .getParent().getParent()
+                .resolve("conf/settings.xml");
+        Files.delete(settings);
         final Path marker = first.getExecutable()
                 .getParent().getParent()
                 .getParent().resolve(
@@ -84,6 +86,21 @@ class MavenRuntimeManagerTest {
                 rebuilt.getExecutable()))
                 .isGreaterThan(MINIMUM_SCRIPT_SIZE);
         assertThat(unknown).hasContent("keep");
+    }
+
+    @Test
+    void presentRuntimeContentIsNotFingerprinted() throws Exception {
+        final Path config = temporary.resolve("content-change");
+        final MavenRuntimeManager manager = new MavenRuntimeManager();
+        final MavenRuntimeDescriptor first = manager.prepare(
+                null, config, null);
+        Files.writeString(first.getExecutable(), "damaged-but-present");
+
+        final MavenRuntimeDescriptor reused = manager.prepare(
+                null, config, null);
+
+        assertThat(reused.getExecutable()).hasContent(
+                "damaged-but-present");
     }
 
     @Test

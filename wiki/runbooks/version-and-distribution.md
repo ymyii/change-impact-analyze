@@ -3,155 +3,153 @@ title: "Version and Distribution"
 type: runbook
 relations:
   - path: "wiki/rules/release-versioning.md"
-    desc: "独立 SemVer、immutable release 与 fingerprint gate"
+    desc: "独立 SemVer、Snapshot 复用、Stable release 与 Git tag 规则"
   - path: "wiki/runbooks/build-test-package.md"
-    desc: "日常 Maven build/test/package 命令"
+    desc: "日常双 reactor build/test/package 命令"
   - path: "wiki/features/maven-runtime.md"
-    desc: "distribution 内嵌 Maven/Plugin runtime 及实际加载 evidence"
+    desc: "Analyzer 内嵌的两个 repository ZIP 与 runtime cache"
   - path: "wiki/project/dependency-analyzer.md"
-    desc: "Module map、artifact 名称与 runtime boundary"
+    desc: "双 reactor boundary、artifact 名称与 runtime boundary"
 code_refs:
-  - path: "scripts/version.sh"
-    desc: "Version show、verify 与 bump 入口"
-  - path: "scripts/build-distribution.sh"
-    desc: "正式与 dev distribution 的统一入口"
-  - path: "scripts/internal/VersionTool.java"
-    desc: "Version ledger 与 fingerprint helper"
-  - path: "scripts/internal/DistributionTool.java"
-    desc: "Packaged JAR inspection、reproducibility compare 与 manifest publish"
-  - path: "scripts/internal/PackagedRuntimeSmoke.java"
-    desc: "隔离 local repository 的 combined-goal packaged smoke"
-  - path: "build-support/version-contract.properties"
-    desc: "Release ledger 与固定 outputTimestamp"
+  - path: "pom.xml"
+    desc: "Analyzer revision、Plugin version property 与 release profile"
+  - path: "plugins/pom.xml"
+    desc: "Plugin revision、Java 8 与 release profile"
+  - path: "analyzer/pom.xml"
+    desc: "Stable Plugin repository ZIP dependency 与 final Analyzer JAR"
+  - path: "plugins/artifact-path-resolver/pom.xml"
+    desc: "Plugin JAR、flattened POM 与 attached repository ZIP"
 ---
 
 # Runbook: Version and Distribution
 
 ## Summary
 
-本 runbook 是 version iteration 与正式 distribution 的稳定入口。日常开发可运行 Maven quality gate；对外交付必须先 seal version contract，再由 `build-distribution.sh` 完成 packaged smoke、可复现重建和原子发布。
+本 runbook 使用 Maven 自身的 Versions、Enforcer、Install、Assembly、Shade、Surefire 与 Failsafe 能力完成 version iteration 和 release。Repository 不提供自有 version/release script，也不维护 version contract 或 fingerprint ledger。
 
-<!-- version-contract:start -->
-- Analyzer release: `1.1.0`
-- Artifact Path Plugin release: `2.0.0`
-<!-- version-contract:end -->
+当前新的 release 起点：Analyzer `2.0.0`，Artifact Path Plugin `2.1.0`。
 
 ## Prerequisites
 
-- macOS/Linux、POSIX shell、Git。
-- Java 17 JDK 与 Maven `3.6.3 <= version < 4.0.0`。
-- 正式 distribution 需要 clean Git commit。
-- 正式 distribution 通过 `TEST_JDK8_HOME` 指向完整 JDK 8，至少存在 executable `bin/java`、`bin/javac` 与 JDK 8 runtime。
+- Java 17 JDK、Maven 3.x、Git。
+- `TEST_JDK8_HOME` 指向 absolute、完整且实际 version 为 Java 8 的 JDK root。
+- Plugin 与 Analyzer release version 已依据 compatibility 选择。
 - 所有 command 从 repository root 执行。
 
-## Inspect and Verify
+## Snapshot Iteration
+
+一个 release 周期只设置一次下一版本 Snapshot，之后重复使用：
 
 ```sh
-./scripts/version.sh show
-./scripts/version.sh verify
+mvn -f plugins/pom.xml versions:set-property \
+  -Dproperty=revision \
+  -DnewVersion=2.2.0-SNAPSHOT \
+  -DgenerateBackupPoms=false
+
+mvn versions:set-property \
+  -Dproperty=revision \
+  -DnewVersion=2.1.0-SNAPSHOT \
+  -DgenerateBackupPoms=false
+
+mvn versions:set-property \
+  -Dproperty=artifact-path-plugin.version \
+  -DnewVersion=2.2.0-SNAPSHOT \
+  -DgenerateBackupPoms=false
 ```
 
-`verify` 同时检查 strict SemVer、POM/build metadata/template 一致性、current version 单调性，以及 Analyzer/Plugin source fingerprint。失败时先判断改动属于 Analyzer、Plugin 或两者，再进行 bump。
-
-## Version Bump
-
-Analyzer-only PATCH：
+Plugin source 变化后刷新同一个 Snapshot coordinate：
 
 ```sh
-./scripts/version.sh bump --analyzer patch
+mvn -f plugins/pom.xml clean install
+TEST_JDK8_HOME=/absolute/path/to/jdk8 mvn clean verify
 ```
 
-Analyzer MINOR/MAJOR：
+无需为每次本地自测 bump 或 commit。Analyzer build 会重新 copy local repository 中的 Snapshot repository ZIP；runtime 为 Artifact Path Plugin Snapshot 添加 `-U`，并只刷新该小型 repository cache。
+
+## Stable Release
+
+以下示例发布 Artifact Path Plugin `2.1.0` 与 Analyzer `2.0.0`。
+
+### 1. 切换并安装 Plugin Stable version
 
 ```sh
-./scripts/version.sh bump --analyzer minor
-./scripts/version.sh bump --analyzer major
+mvn -f plugins/pom.xml versions:set-property \
+  -Dproperty=revision \
+  -DnewVersion=2.1.0 \
+  -DgenerateBackupPoms=false
+
+mvn -f plugins/pom.xml -Prelease clean install
 ```
 
-Plugin 输入变化时必须同步 bump Analyzer：
+### 2. 切换 Analyzer Stable version 和 Plugin dependency
 
 ```sh
-./scripts/version.sh bump \
-  --analyzer patch \
-  --plugin patch
+mvn versions:set-property \
+  -Dproperty=revision \
+  -DnewVersion=2.0.0 \
+  -DgenerateBackupPoms=false
+
+mvn versions:set-property \
+  -Dproperty=artifact-path-plugin.version \
+  -DnewVersion=2.1.0 \
+  -DgenerateBackupPoms=false
 ```
 
-Command 原子更新 ledger、root revision、Plugin POM/property、稳定 timestamp 与文档 current-version marker，随后重新计算并 seal fingerprint。任一步失败会恢复原文件。Bump 后先 review diff，再 commit；不要手工复用历史 version。
-
-## Formal Distribution
+### 3. 执行 release quality gate
 
 ```sh
 TEST_JDK8_HOME=/absolute/path/to/jdk8 \
-  ./scripts/build-distribution.sh
+  mvn -Prelease clean verify
+
+java -jar target/dependency-analyzer.jar --version
 ```
 
-正式模式依次执行：
+Expected version output：`Dependency Analyzer 2.0.0`。
 
-1. `version.sh verify`；
-2. clean worktree、release SemVer 与完整 JDK 8 gate；
-3. 使用 ledger `outputTimestamp` 执行 `mvn clean verify`；
-4. 检查 CLI dynamic version、manifest、内嵌 Plugin/consumer POM/checksum、`plugin.xml`、Java 8 class major 与 shading boundary；
-5. 使用隔离 Maven local repository 执行 packaged `dependency:tree + resolve-artifact-paths` smoke，并保留旧 `1.0.0/1.0.1` cache regression fixture；
-6. 使用相同 timestamp 再次重建并比较完整 CLI JAR SHA-512；
-7. 原子发布正式 bundle。
-
-正式输出：
-
-```text
-target/dependency-analyzer.jar
-target/distribution/
-├── dependency-analyzer-1.1.0.jar
-├── dependency-analyzer-1.1.0.jar.sha512
-└── dependency-analyzer-1.1.0-build-manifest.json
-```
-
-## Dev Prevalidation
-
-Dirty worktree 或暂时没有 JDK 8 时：
+检查打包资源：
 
 ```sh
-./scripts/build-distribution.sh \
-  --allow-dirty \
-  --skip-jdk8-smoke
+jar tf target/dependency-analyzer.jar | \
+  grep '^maven/plugin-repositories/.*-repository.zip$'
 ```
 
-Dev 模式仍执行 version gate、完整 Maven verify、packaged combined-goal smoke、binary inspection 和 reproducibility comparison，但允许 dirty Git 并跳过真实 JDK 8 impact smoke。输出固定到 `target/distribution-dev/`；manifest 中 `releaseEligible=false`，不能作为正式交付。
+必须恰好得到 `maven-dependency-plugin-3.6.1-repository.zip` 与 `dependency-analyzer-artifact-path-maven-plugin-2.1.0-repository.zip`。
 
-## Manifest Contract
+### 4. Commit 并记录 Git tags
 
-Build manifest `schemaVersion` 为 `1`，至少包含：
+Release 验证通过后创建一个 commit；两个 annotated tag 指向同一 commit：
 
-```text
-schemaVersion
-releaseEligible
-analyzerVersion
-artifactPathPluginVersion
-gitCommit
-gitDirty
-outputTimestamp
-javaVersion
-mavenVersion
-artifactSha512
-embeddedPluginSha512
+```sh
+git add -A
+git commit -m "build(release): start analyzer 2.0.0 and plugin 2.1.0"
+git tag -a artifact-path-plugin-v2.1.0 -m "Artifact Path Plugin 2.1.0"
+git tag -a analyzer-v2.0.0 -m "Dependency Analyzer 2.0.0"
 ```
 
-Versioned JAR 的 `.sha512` 与 manifest `artifactSha512` 必须一致。内嵌 Plugin `.jar.sha512`、preflight expected SHA-512 与 Mojo actual-loaded SHA-512 必须一致。
+Tag 是 release record。是否 push commit/tag 或创建远端 release 由后续明确操作决定。
 
 ## Success Criteria
 
-- CLI `--version` 输出 ledger Analyzer version。
-- JAR 只包含 ledger 指定 Plugin version，不包含旧 Plugin release resource。
-- Plugin descriptor 声明 `dependencyGraphFileName`；packaged smoke Console 出现 `(f) dependencyGraphFileName` 与 `implementation=graphml-v2`，Artifact Path output 为 Schema v2 且不包含 Module/scope。
-- Plugin base class major 不超过 `52`，不携带 Maven/Resolver implementation class，Jackson 已 relocate。
-- 两次固定 timestamp build 得到相同 CLI JAR SHA-512。
-- 正式 manifest 为 `releaseEligible=true`；任一 dirty/skip gate 只能产生 dev manifest。
+- Plugin `-Prelease` 只使用 Stable SemVer，生成 JAR 与 attached `repository` ZIP，class major `<=52`。
+- Analyzer `-Prelease` 只使用 Stable SemVer 与 Stable Plugin dependency，Surefire/Failsafe 全部通过且无 skip。
+- Analyzer JAR `--version` 输出 `2.0.0`。
+- Analyzer JAR 只包含两个 repository ZIP，不包含旧 loose Plugin JAR/POM 或项目生成 checksum。
+- Empty local repository 在 Plugin install 前不能构建 Analyzer；Plugin install 后可以构建。
+- Git tags `artifact-path-plugin-v2.1.0` 与 `analyzer-v2.0.0` 指向同一 release commit。
+- Stable POM 保留在 release commit；开始下一开发周期时再切换下一 Snapshot。
 
 ## Failure Entrypoints
 
-- `Analyzer inputs changed` / `Plugin inputs changed`：按 release rule 选择 bump；不要修改 SHA-512 值。
-- `formal build requires a clean Git worktree`：review、commit 后重跑；本地预验证使用 dev mode。
-- `TEST_JDK8_HOME must point to a complete JDK 8`：修正 JDK 8 root；不得用 `--skip-jdk8-smoke` 生成正式 bundle。
-- Packaged smoke 缺少 `(f) dependencyGraphFileName`：检查内嵌 Plugin version、consumer POM、runtime goal 与 `plugin.xml`。
-- Expected/actual Plugin SHA 不同：检查 Maven 实际加载 source path、旧 local repository coordinate 和 runtime fingerprint。
-- Reproducibility mismatch：检查未受 `project.build.outputTimestamp` 控制的 archive timestamp、entry ordering 或生成 metadata。
-- Maven test failure：查看 `target/surefire-reports/` 与 `target/failsafe-reports/`。
+- `release revision must be stable`：仍为 `-SNAPSHOT`；重新执行对应 `versions:set-property`。
+- `requireReleaseDeps` failure：Analyzer 仍引用 Snapshot Plugin repository；先安装 Plugin Stable version 并更新 root property。
+- Plugin attached ZIP 无法解析：确认 `mvn -f plugins/pom.xml -Prelease clean install` 成功，检查 Maven local repository classifier `repository`。
+- `TEST_JDK8_HOME` failure：修正 absolute JDK 8 root；不得通过跳过 tests 发布。
+- `--version` 不一致：检查 root `revision` 和 filtered build metadata。
+- Tag 已存在：先检查它是否为既有 release record；禁止移动或覆盖已发布 tag。
+
+## Configuration
+
+- 默认 profile：接受 `X.Y.Z` 或 `X.Y.Z-SNAPSHOT`。
+- `release` profile：只接受 `X.Y.Z`，并执行 `requireReleaseDeps`。
+- Maven build 本身使用 Java 17；Plugin compilation 由 `maven.compiler.release=8` 控制。
+- Release 不要求额外 checksum、fingerprint、build manifest 或 distribution directory；正式 Analyzer artifact 是 `target/dependency-analyzer.jar`。

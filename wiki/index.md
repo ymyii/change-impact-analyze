@@ -1,9 +1,16 @@
+---
+title: "Wiki Index"
+type: project
+relations: []
+code_refs: []
+---
+
 # Wiki Index
 
 ## Project
 
 ### [Dependency Analyzer](project/dependency-analyzer.md)
-- Summary: Maven multi-module；Java 17 Analyzer + Java 8 内置 Plugin；`impact` 分析显式 JDK 8 target，`tree` 生成 repository 级 report。
+- Summary: 两个独立 Maven reactor；Java 17 Analyzer + Java 8 内置 Plugin；`impact` 分析显式 JDK 8 target，`tree` 生成 repository 级 report。
 
 ## Architecture
 
@@ -16,7 +23,7 @@
 - Summary: 全局 verbosity、stable Diagnostic context、impact Preflight，以及 scope warning、`INCONCLUSIVE` 与 exit code 契约。
 
 ### [Maven Runtime](features/maven-runtime.md)
-- Summary: 用户 executable、跨平台内嵌 Maven 3.6.3，以及 versioned Plugin repository 的离线准备、fingerprint 与实际加载 JAR SHA-512 evidence。
+- Summary: 用户 executable、跨平台内嵌 Maven 3.6.3、两个独立 repository ZIP，以及 Stable/Snapshot 分离 cache 与 command-scoped settings。
 
 ### [Repository Dependency Tree Report](features/repository-dependency-tree-report.md)
 - Summary: Git snapshot、bounded/full reactor execution、纯 aggregator result boundary、incremental checkpoint 与 Module-tab offline report。
@@ -51,7 +58,7 @@
 ## Rules
 
 ### [Release Versioning](rules/release-versioning.md)
-- Summary: Analyzer/内置 Plugin 独立 SemVer、immutable release coordinate、source fingerprint 与 version bump gate。
+- Summary: Analyzer/Artifact Path Plugin 独立 SemVer、Snapshot 周期复用、Maven release profile 与 Git annotated tag。
 
 ### [Process Command Resolution](rules/process-command-resolution.md)
 - Summary: 所有 production external process token 在 `ProcessBuilder` 前必须经过 `CommandResolver.resolve()`。
@@ -59,10 +66,10 @@
 ## Runbooks
 
 ### [Build, Test, Package](runbooks/build-test-package.md)
-- Summary: 日常 Checkstyle、unit/integration tests、全量 Maven quality gate、uber JAR 和 CLI smoke commands。
+- Summary: 双 reactor bootstrap、完整 JDK 8 gate、unit/integration tests、两个 repository ZIP、uber JAR 和 CLI smoke。
 
 ### [Version and Distribution](runbooks/version-and-distribution.md)
-- Summary: Version contract verify/bump、正式/dev distribution、packaged smoke、reproducibility 与 build manifest。
+- Summary: Maven Versions/Enforcer 驱动的 Snapshot iteration、Stable release、commit 与双 Git tag。
 
 ### [Impact Benchmark](runbooks/impact-benchmark.md)
 - Summary: 从 Git 管理的 source fixture 生成 42 个 dependencies 与 9 类 ChangePoint，执行 impact、采集资源并校验四页 HTML report。
