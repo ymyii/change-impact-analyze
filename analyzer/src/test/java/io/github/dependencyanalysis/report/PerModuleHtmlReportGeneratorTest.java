@@ -160,11 +160,14 @@ class PerModuleHtmlReportGeneratorTest {
         assertThat(index).contains("How to read this report")
                 .contains("Analysis scope and limitations")
                 .contains("Terminology")
+                .contains("optimized-0-1-cfa")
+                .contains("Optimized 0-1-CFA")
                 .contains("Maven Dependency Plugin")
                 .contains("embedded 3.6.1")
                 .contains("example:app:jar:1")
                 .contains("example:new-module:jar:1")
-                .contains("Skipped");
+                .contains("Skipped")
+                .doesNotContain("vanilla-0-1-cfa");
         assertThat(owned.resolve("stale.html")).doesNotExist();
         try (Stream<Path> pages = Files.list(owned)) {
             final List<Path> values = pages.toList();

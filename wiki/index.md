@@ -47,7 +47,7 @@ code_refs: []
 - Summary: logical coordinate pair 经 repository lease 并行去重 diff；MethodNode canonical hash覆盖 CFG/exception/bootstrap topology，SSA filtering 延迟到 candidate path 后。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
-- Summary: 每 Module 以 immutable `target/classes` index和 declared-type placeholder构造 Vanilla 0-1-CFA roots；ServiceLoader 与 exact-key `invokedynamic` model 在构图前进入 fixed point。
+- Summary: 每 Module 以 immutable `target/classes` index和 declared-type placeholder构造 optimized 0-1-CFA roots；保留 allocation/constant identity并smush高成本对象。
 
 ### [Impact Tracing](features/impact-tracing.md)
 - Summary: 构图后 read-only deterministic reverse BFS；同一 ChangePoint/affected PROJECT method 跨 seed/Context 保留一条 shortest representative path。

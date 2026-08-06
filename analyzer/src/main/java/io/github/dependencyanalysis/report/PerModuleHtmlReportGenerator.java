@@ -49,6 +49,10 @@ import java.util.UUID;
 /** Atomically publishes the English multi-page Impact HTML report. */
 public final class PerModuleHtmlReportGenerator {
 
+    /** Stable Call Graph algorithm identifier. */
+    private static final String CALL_GRAPH_ALGORITHM =
+            "optimized-0-1-cfa";
+
     /** Shared Console/Report Diagnostic prefix formatter. */
     private final DiagnosticLogFormatter diagnosticFormatter =
             new DiagnosticLogFormatter();
@@ -245,7 +249,7 @@ public final class PerModuleHtmlReportGenerator {
                 .append("</table>");
         appendStageMetrics(body, run.getStageElapsedMillis());
         body.append("<details><summary>Technical details</summary><table>")
-                .append(row("Algorithm", "vanilla-0-1-cfa"))
+                .append(row("Algorithm", CALL_GRAPH_ALGORITHM))
                 .append(row("WALA", walaVersion()))
                 .append(row("SSA equivalence workers", 1))
                 .append(row("Raw changed members", rawChangeCount(run)))
@@ -915,9 +919,11 @@ public final class PerModuleHtmlReportGenerator {
                         + "discover possible call relationships."))
                 .append(term("Call Graph", "A graph whose nodes are methods "
                         + "and whose edges are possible calls."))
-                .append(term("0-1-CFA", "The WALA call analysis used here. "
-                        + "It distinguishes useful receiver allocation "
-                        + "contexts while remaining conservative."))
+                .append(term("Optimized 0-1-CFA", "The conservative WALA "
+                        + "call analysis used here. It preserves allocation "
+                        + "and constant-specific identity while merging "
+                        + "String, Throwable, primitive-holder, and excessive "
+                        + "same-type allocations to reduce analysis cost."))
                 .append(term("Conservative / false positive", "Conservative "
                         + "analysis keeps possible calls to avoid silently "
                         + "missing them; a false positive is a reported call "

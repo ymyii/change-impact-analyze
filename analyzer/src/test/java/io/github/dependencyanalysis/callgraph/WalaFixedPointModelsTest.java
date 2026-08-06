@@ -166,6 +166,34 @@ class WalaFixedPointModelsTest {
     }
 
     @Test
+    void reportsOptimizedZeroOneCfaAlgorithm() throws Exception {
+        final Path classes = compile("AlgorithmDiagnostic", """
+                public class AlgorithmDiagnostic {
+                    public void run() { }
+                }
+                """);
+        final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                moduleId(), ModulePresence.BOTH, classes, List.of(),
+                List.of(), List.of(),
+                new ModuleChangeSet(List.of(), List.of()));
+        final JavaRuntimeDescriptor runtime = new Jdk8RuntimeProvider()
+                .probe(Path.of(System.getenv("TEST_JDK8_HOME")));
+        final DiagnosticLog collector = diagnostics();
+
+        try (IJarRepository repository = TestJarRepositories.empty()) {
+            new ModuleCallGraphEngine(collector, runtime,
+                    EntrypointSelection.allProjectClasses(), repository)
+                    .build(unit, GRAPH_TIMEOUT_SECONDS);
+        }
+
+        assertThat(collector.getEvents())
+                .anySatisfy(event -> assertThat(event.getMessage())
+                        .startsWith("algorithm=optimized-0-1-cfa;"))
+                .allSatisfy(event -> assertThat(event.getMessage())
+                        .doesNotContain("vanilla-0-1-cfa"));
+    }
+
+    @Test
     void abstractEntrypointClassUsesOneSharedFakeReceiver()
             throws Exception {
         final Path classes = compile("AbstractEntrypoint", """

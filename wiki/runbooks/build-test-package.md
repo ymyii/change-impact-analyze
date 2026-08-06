@@ -103,7 +103,7 @@ java -jar target/dependency-analyzer.jar tree --help
 - Plugin reactor 输出 `0 Checkstyle violations`，tests 全部通过，Plugin class major 不超过 `52`。
 - Plugin repository ZIP 只有 Maven layout 下当前 version 的 JAR 与 consumer POM，不包含项目生成的 checksum sidecar。
 - Analyzer `mvn clean verify` 的 Surefire 与 Failsafe tests 全部通过且 `Skipped: 0`。
-- 真实 JDK 8 test 完成 JDK probe、WALA scope、CHA 与 Vanilla 0-1-CFA，不因缺少环境变量跳过。
+- 真实 JDK 8 test 完成 JDK probe、WALA scope、CHA 与 optimized 0-1-CFA，不因缺少环境变量跳过。
 - `target/dependency-analyzer.jar` 存在，manifest `Main-Class` 为 `io.github.dependencyanalysis.cli.DependencyAnalyzerCli`。
 - Analyzer JAR 在 `maven/plugin-repositories/` 下恰有 Maven Dependency Plugin 与 Artifact Path Plugin 两个 `repository` ZIP；不存在旧 loose Artifact Path Plugin JAR/POM/checksum resource。
 - Empty Maven local repository + blocked wildcard mirror 下，packaged runtime 可执行 `dependency:tree + resolve-artifact-paths`。

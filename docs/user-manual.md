@@ -242,7 +242,7 @@ JSON 为 UTF-8；`artifacts` 按完整 coordinates、absolutePath 排序，无 e
 
 Scope 只存在于 GraphML dependency graph。相同 coordinates/version 只有 scope 变化时不产生 impact change；version 与 scope 同时变化时只产生一个 `VERSION_CHANGED`。Baseline 与 target physical path 分别按各自 Module-local manifest 中的 coordinates 查找，不使用 `DependencyChange.scope`。
 
-Physical JAR pair 按 `--analysis-parallelism` 并行 bytecode diff。每个 relevant target Module 的 `target/classes` 只扫描一次，生成的 immutable entrypoint class index 同时用于 selector 门禁和实际 Call Graph roots；该步骤只缩小 root methods，不裁剪 Module scope、CHA、Reflection、ServiceLoader 或其他 origin reachability。Entrypoint 参数按 declared type 建模，interface/abstract type使用 synthetic placeholder，不枚举真实 subtype。存在 removal/modification ChangePoint 且命中 entrypoint scope 的 Module 独立执行 scope validation、JDK 8 CHA、WALA Vanilla 0-1-CFA、`ReflectionOptions.FULL`、MethodHandle extension 和 direct WALA query。Module 内 build/query 单线程，Module 之间按 `--analysis-parallelism` 并行。没有 seed pre-scan、零 seed skip、CHA pre-graph 或 full predecessor copy。
+Physical JAR pair 按 `--analysis-parallelism` 并行 bytecode diff。每个 relevant target Module 的 `target/classes` 只扫描一次，生成的 immutable entrypoint class index 同时用于 selector 门禁和实际 Call Graph roots；该步骤只缩小 root methods，不裁剪 Module scope、CHA、Reflection、ServiceLoader 或其他 origin reachability。Entrypoint 参数按 declared type 建模，interface/abstract type使用 synthetic placeholder，不枚举真实 subtype。存在 removal/modification ChangePoint 且命中 entrypoint scope 的 Module 独立执行 scope validation、JDK 8 CHA、WALA optimized 0-1-CFA、`ReflectionOptions.FULL`、MethodHandle extension 和 direct WALA query。Optimized policy保留 allocation-site/constant identity，并smush String、Throwable、primitive holder和单 node内过量同类allocation。Module 内 build/query 单线程，Module 之间按 `--analysis-parallelism` 并行。没有 seed pre-scan、零 seed skip、CHA pre-graph 或 full predecessor copy。
 
 Module analysis 检查分类如下。这里的“阻塞”只终止当前 Module，其他 Module 继续；全部 Module 完成后再按既有规则形成 Overall status 与 exit code。
 
@@ -473,7 +473,7 @@ Exit code：
 
 ### Call Graph 长时间运行
 
-Vanilla 0-1-CFA 对大型 Module 可能运行较久。WALA monitor 只提供 cooperative timeout/cancel，不创建后台 scheduler，也不输出 progress event。默认无 timeout；设置正数 `--call-graph-timeout-seconds` 后，仅超时 Module fail，其他 Module 继续并发布 partial Report。需要观察资源时使用 `-vv`：command-scoped Runtime Metrics 每 10 秒输出 heap 和 Analyzer-owned thread pool 状态；它不代表 WALA internal progress。
+Optimized 0-1-CFA 对大型 Module 仍可能运行较久。WALA monitor 只提供 cooperative timeout/cancel，不创建后台 scheduler，也不输出 progress event。默认无 timeout；设置正数 `--call-graph-timeout-seconds` 后，仅超时 Module fail，其他 Module 继续并发布 partial Report。需要观察资源时使用 `-vv`：command-scoped Runtime Metrics 每 10 秒输出 heap 和 Analyzer-owned thread pool 状态；它不代表 WALA internal progress。
 
 ### Duplicate class warning
 

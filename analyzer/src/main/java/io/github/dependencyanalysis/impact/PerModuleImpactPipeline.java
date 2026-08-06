@@ -58,7 +58,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-/** Executes the Spring backend per-module Vanilla 0-1-CFA pipeline. */
+/** Executes the Spring backend per-module optimized 0-1-CFA pipeline. */
 final class PerModuleImpactPipeline {
 
     /** Maximum wait for canceled preparation tasks to release processes. */

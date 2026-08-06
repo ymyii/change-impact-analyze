@@ -10,7 +10,7 @@ relations:
     desc: "read-only query 消费 live session"
 code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/ModuleCallGraphEngine.java"
-    desc: "per-Module Vanilla 0-1-CFA builder 与 extension 安装顺序"
+    desc: "per-Module optimized 0-1-CFA policy 与 extension 安装顺序"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/EntrypointClassIndex.java"
     desc: "current Module target/classes 的 immutable root class selection"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/DeclaredTypesEntrypoint.java"
@@ -39,7 +39,19 @@ code_refs:
 
 ## Summary
 
-每个 relevant target Module 构建一个独立 WALA Vanilla 0-1-CFA Call Graph。ServiceLoader 与已注册 `invokedynamic` 协议在 `makeCallGraph(...)` 前安装，allocation、constructor call、implementation call 与 points-to 一起进入 fixed point。构图完成后 session 只暴露 graph、IR、ownership、model evidence、limitations 与 synthetic edge metadata；不再运行 overlay 补图或 whole-scope bootstrap scan。
+每个 relevant target Module 构建一个独立 WALA optimized 0-1-CFA Call Graph。Builder 保留 allocation-site 与 constant-specific identity，并对 String、Throwable、primitive holder 和单 node 内过量同类 allocation执行 smushing。ServiceLoader 与已注册 `invokedynamic` 协议在 `makeCallGraph(...)` 前安装，allocation、constructor call、implementation call 与 points-to 一起进入 fixed point。构图完成后 session 只暴露 graph、IR、ownership、model evidence、limitations 与 synthetic edge metadata。
+
+## Design Decisions
+
+- `optimized-0-1-cfa` 是唯一 Call Graph算法，不提供 Vanilla、`0-CFA` CLI选项或 timeout fallback，避免同一 Report contract出现不可比较的算法语义。
+- Policy保留 `ALLOCATIONS` 与 `CONSTANT_SPECIFIC`，保证 ServiceLoader的 constant service type和 allocation Context能够参与 fixed point；只启用 WALA的 `SMUSH_MANY`、`SMUSH_PRIMITIVE_HOLDERS`、`SMUSH_STRINGS` 与 `SMUSH_THROWABLES` 降低分析成本。
+- 不使用 class-based `0-CFA`：跨 entrypoint合并同类对象会扩大 points-to set与 possible target，并破坏当前 ServiceLoader receiver Context传播。
+
+## Behavior Contract
+
+- Diagnostic与HTML Report使用稳定算法标识 `optimized-0-1-cfa`。
+- Call Graph保持 conservative over-approximation；smushing可能改变 nodes、edges、contexts与候选 Impact Path数量，但不改变 Module status、timeout、query和publication contract。
+- Reflection继续使用 `FULL`；ServiceLoader、MethodHandle与注册的 `invokedynamic` model必须保持 fixed-point内行为。
 
 ## Scope and Logical Ownership
 
@@ -53,8 +65,9 @@ code_refs:
 - byte-identical duplicate 静默去重。内容不同的 duplicate 记录 winner、loser logical source 与 precedence reason；不改变 Module status。
 - `module-info.class` 与 `META-INF/versions/**` 不参与 ownership。Ownership filter 只隐藏 loser class entry，JAR 内其他唯一 class/resource 仍向 WALA 暴露。
 
-## Entrypoints
+## Actors / Entrypoints
 
+- `impact` per-Module pipeline触发构图；用户只通过 Module选择和 repeatable entrypoint selector控制 PROJECT roots。
 - Entrypoint class只由当前 Module `target/classes/**/*.class` 的 immutable `EntrypointClassIndex` 提供，不通过 CHA ownership或 classpath precedence识别。ASM internal name是唯一 identity；duplicate name、CHA missing class或 binary name不一致使当前 Module fail。
 - Scanner排除 `module-info.class`、interface与annotation。Abstract class保留；每个 selected class选择全部 non-abstract declared methods，包括 constructor、`<clinit>`、static、native、concrete bridge/synthetic method，不自动加入 inherited method。
 - Slash selector直接匹配无前缀 JVM internal name。普通 segment支持 `*` 与 `?`；`**` 只能作为最后一个完整 segment。Include取并集，exclude优先。Interface-only匹配等同于零匹配。
@@ -68,9 +81,14 @@ code_refs:
 ```java
 AnalysisOptions options = new AnalysisOptions(scope, entrypoints);
 options.setReflectionOptions(AnalysisOptions.ReflectionOptions.FULL);
+Util.addDefaultSelectors(options, hierarchy);
+Util.addDefaultBypassLogic(options, Util.class.getClassLoader(), hierarchy);
 SSAPropagationCallGraphBuilder builder =
-        Util.makeVanillaZeroOneCFABuilder(
-                Language.JAVA, options, cache, hierarchy);
+        ZeroXCFABuilder.make(
+                Language.JAVA, hierarchy, options, cache, null, null,
+                ALLOCATIONS | CONSTANT_SPECIFIC
+                        | SMUSH_MANY | SMUSH_PRIMITIVE_HOLDERS
+                        | SMUSH_STRINGS | SMUSH_THROWABLES);
 MethodHandles.analyzeMethodHandles(options, builder);
 options.setSelector(new InvokeDynamicModelTargetSelector(...));
 serviceLoaderModel.install(builder);
@@ -80,6 +98,14 @@ CallGraph graph = builder.makeCallGraph(options, monitor);
 固定顺序：WALA default builder/selectors（含 `LambdaMethodTargetSelector`）→ `MethodHandles.analyzeMethodHandles(...)` → `InvokeDynamicBootstrapModelRegistry` outer selector → ServiceLoader delegating `ContextSelector`/`SSAContextInterpreter` → `makeCallGraph(...)`。
 
 `AnalysisCacheImpl` 使用 `SSAOptions.defaultOptions()`。Builder/query 在 Module 内单线程；不同 Module 受 `--analysis-parallelism` 控制。`CallGraphTimeoutMonitor` 仅使用 WALA cooperative cancel；`0` 表示无限等待，timeout 不输出 partial graph。
+
+## Core Flow
+
+1. 建立 winner-only ownership、structural metadata、WALA scope与CHA。
+2. 从 immutable PROJECT class index生成 declared-type entrypoints。
+3. 安装 optimized instance policy、default selectors/bypass、MethodHandle、`invokedynamic`与ServiceLoader model。
+4. 单线程求解 points-to与Call Graph fixed point；timeout仅通过 cooperative monitor取消。
+5. 将 graph、IR cache、ownership和immutable model metadata封装为只读 query session。
 
 ## ServiceLoader Model
 
@@ -104,7 +130,7 @@ CallGraph graph = builder.makeCallGraph(options, monitor);
 - Unknown bootstrap 不把 argument handle 强制转换为 graph edge。reachable unknown bootstrap 记录 terminal evidence 与 limitation，使 Module `INCONCLUSIVE_INVOKEDYNAMIC_MODEL`；unreachable bootstrap 不产生 evidence/limitation。
 - 当前 target 是 JDK 8；不承诺 `ConstantDynamic` 或 newer-JDK bootstrap coverage。新增协议通过 registry 扩展。
 
-## Structural and Post-graph Boundary
+## Implementation Boundaries
 
 - Winner-only Structural Reference metadata 在 `makeCallGraph(...)` 前经 repository lease 收集，并作为 immutable `StructuralScanResult` 放入 session。
 - 构图后禁止新增 node/edge、attachment overlay、重新扫描 whole scope classfile 或构建第二张 Call Graph。
@@ -118,8 +144,23 @@ CallGraph graph = builder.makeCallGraph(options, monitor);
 
 ## Acceptance
 
-- Provider constructor、provider implementation 与 provider 内部调用存在于 WALA graph；删除 overlay 后不产生 compatible-callsite false-positive。
-- 多 service type 与 field/helper receiver propagation 不发生 provider 污染；nonconstant/missing/invalid service 形成 stable limitation。
-- Standard lambda/MethodHandles 原有行为保留；capturing/serializable `altMetafactory` synthetic class 实现 marker interface 与 bridge trampoline，并调用存在的 implementation。
-- Reachable unknown bootstrap 使 Module `INCONCLUSIVE`；unreachable unknown bootstrap 不污染结果；custom registry model 可参与 fixed point。
-- 分析期间不存在 post-build ASM whole-scope `invokedynamic` scan。
+### Functional
+
+- Given constant ServiceLoader配置；When optimized builder完成 fixed point；Then provider constructor、implementation和内部调用存在于 graph，且 field/helper receiver传播与多 service type不发生 provider污染。
+- Given standard lambda、MethodHandle或 supported `altMetafactory`；When reachable callsite被求解；Then既有 synthetic allocation、trampoline和implementation edge contract保持成立。
+- Given reachable unknown bootstrap；When registry无对应 model；Then Module为 `INCONCLUSIVE`；unreachable bootstrap不产生 evidence或limitation。
+- Given Call Graph成功完成；When生成 Diagnostic与Report；Then算法标识为 `optimized-0-1-cfa`，且不存在 `vanilla-0-1-cfa`。
+
+### Non-Functional
+
+- Given任意 Module进入构图；When创建 optimized builder；Then `ALLOCATIONS`、`CONSTANT_SPECIFIC`与四类 smushing policy作为固定组合启用。
+- Given Module analysis开始；When执行 builder与query；Then Module内保持单线程，Module间并发边界不变。
+- Given fixed point完成；When进入Impact query；Then不执行 overlay、whole-scope重扫或第二张 target Call Graph。
+- Given版本、scope、selector与环境相同；When重复执行分析；Then输出保持 deterministic。
+
+## Edge Cases
+
+- nonconstant/missing/invalid ServiceLoader配置形成 stable limitation，不回退到 broad compatible-callsite matching。
+- timeout不发布 partial graph；Module按 `FAILED_CALL_GRAPH_TIMEOUT`处理，其他 Module继续。
+- 零 PROJECT entrypoint、scope unreadable或CHA/Call Graph failure属于 blocking Module结果。
+- smushing可能增加 conservative edge与candidate path；只有后续 `PROVEN_EQUIVALENT` SSA结果允许删除候选路径。

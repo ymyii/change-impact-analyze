@@ -11,8 +11,10 @@ import com.ibm.wala.ipa.callgraph.AnalysisOptions;
 import com.ibm.wala.ipa.callgraph.AnalysisScope;
 import com.ibm.wala.ipa.callgraph.Entrypoint;
 import com.ibm.wala.ipa.callgraph.IAnalysisCacheView;
-import com.ibm.wala.ipa.callgraph.propagation.SSAPropagationCallGraphBuilder;
 import com.ibm.wala.ipa.callgraph.impl.Util;
+import com.ibm.wala.ipa.callgraph.propagation.SSAPropagationCallGraphBuilder;
+import com.ibm.wala.ipa.callgraph.propagation.cfa.ZeroXCFABuilder;
+import com.ibm.wala.ipa.callgraph.propagation.cfa.ZeroXInstanceKeys;
 import com.ibm.wala.ipa.cha.ClassHierarchyException;
 import com.ibm.wala.ipa.cha.ClassHierarchyFactory;
 import com.ibm.wala.ipa.cha.IClassHierarchy;
@@ -39,8 +41,20 @@ import java.util.List;
 import java.util.Objects;
 import java.util.jar.JarFile;
 
-/** Builds one independent Vanilla 0-1-CFA graph per analysis module. */
+/** Builds one independent optimized 0-1-CFA graph per analysis module. */
 public final class ModuleCallGraphEngine {
+
+    /** Stable algorithm identifier exposed in diagnostics. */
+    private static final String ALGORITHM = "optimized-0-1-cfa";
+
+    /** Allocation precision retained around WALA's safe smushing policies. */
+    private static final int OPTIMIZED_INSTANCE_POLICY =
+            ZeroXInstanceKeys.ALLOCATIONS
+                    | ZeroXInstanceKeys.CONSTANT_SPECIFIC
+                    | ZeroXInstanceKeys.SMUSH_MANY
+                    | ZeroXInstanceKeys.SMUSH_PRIMITIVE_HOLDERS
+                    | ZeroXInstanceKeys.SMUSH_STRINGS
+                    | ZeroXInstanceKeys.SMUSH_THROWABLES;
 
     /** Duplicate winner examples retained in one warning. */
     private static final int MAX_DUPLICATE_EXAMPLES = 3;
@@ -170,10 +184,14 @@ public final class ModuleCallGraphEngine {
                     AnalysisOptions.ReflectionOptions.FULL);
             final IAnalysisCacheView cache = new AnalysisCacheImpl(
                     SSAOptions.defaultOptions());
+            // Wiki: wiki/features/call-graph-engine.md - optimized builder.
+            Util.addDefaultSelectors(options, hierarchy);
+            Util.addDefaultBypassLogic(options,
+                    Util.class.getClassLoader(), hierarchy);
             final SSAPropagationCallGraphBuilder builder =
-                    Util.makeVanillaZeroOneCFABuilder(
-                            Language.JAVA, options,
-                            cache, hierarchy);
+                    ZeroXCFABuilder.make(
+                            Language.JAVA, hierarchy, options, cache,
+                            null, null, OPTIMIZED_INSTANCE_POLICY);
             MethodHandles.analyzeMethodHandles(options, builder);
             final InvokeDynamicModelState dynamicState =
                     new InvokeDynamicModelState();
@@ -213,7 +231,7 @@ public final class ModuleCallGraphEngine {
                     entrypoints);
             final int selectedClasses =
                     entrypointIndex.selectedClassNames().size();
-            diagnostics.info(context, "algorithm=vanilla-0-1-cfa; nodes="
+            diagnostics.info(context, "algorithm=" + ALGORITHM + "; nodes="
                     + stats.methodCount() + "; edges="
                     + stats.edgeCount() + "; entrypoints="
                     + entrypoints.size());
