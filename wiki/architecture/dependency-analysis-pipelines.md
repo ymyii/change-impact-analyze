@@ -37,7 +37,7 @@ flowchart TD
   TargetDep --> DepDiff["dependency diff + coordinate repository"]
   DepDiff --> JarDiff["deduplicated parallel coordinate-pair JAR diff"]
   JarDiff --> Bind["BoundChangePoint per Module"]
-  Bind --> EntrySelection["lightweight PROJECT entrypoint class index"]
+  Bind --> EntrySelection["immutable target/classes entrypoint class index"]
   EntrySelection --> ModulePool["bounded Module pool; analysis parallelism"]
   ModulePool --> ScopeValidation["scope validation"]
   ScopeValidation --> CFA["per-Module Vanilla 0-1-CFA"]
@@ -52,7 +52,8 @@ flowchart TD
 - Reactor root：target reactor 执行一次 `mvn compile`；全部 active、analysis-eligible Module 独立分析。
 - Leaf Module：从所属 reactor root 执行 `-pl <relativePath> -am compile`；只报告当前 Module。
 - 当前 Module classes 为 `PROJECT`；上游 reactor Module 为 `REACTOR_DEPENDENCY`；外部 artifact 为 `DEPENDENCY`；JDK 8 为 `JDK`。
-- 只有 `PROJECT` method 成为 entrypoint。默认选择全部 non-abstract declared methods；用户可通过 repeatable package/class include/exclude selector 缩小 roots。Selector 不裁剪 scope、subtype candidates 或其他 origin reachability。
+- Entrypoint class仅由当前 Module `target/classes` index产生；interface/annotation排除，abstract class的 non-abstract declared method保留。Repeatable slash selector可缩小 roots；门禁与 Call Graph构造复用同一个 immutable index，ownership/classpath precedence不参与 root识别。
+- 每个 entrypoint JVM parameter slot只使用一个 declared-type candidate；resolved interface/abstract type使用共享 synthetic placeholder，不枚举 concrete subtype或implementor。Selector与 placeholder均不裁剪 scope、CHA、Reflection、model provider或其他 origin reachability，但可能遗漏 implementation-only impact path。
 - 每个 Module 拥有独立 scope、ownership index、CHA、WALA graph 和 cache。不同 Module 不共享可变 WALA 状态。
 
 ## Concurrency Contract
@@ -78,6 +79,7 @@ flowchart TD
 ## Analysis Model Boundaries
 
 - Call Graph 是 Vanilla 0-1-CFA over-approximation。
+- Entrypoint fake receiver/parameter只表达 declared interface/abstract type，不探索真实 implementation；因此 implementation-only path可能不可达。
 - Reflection/MethodHandle 使用 WALA `FULL`/MethodHandle extension，属于 best-effort。
 - ServiceLoader 与注册的 `invokedynamic` 协议在 `makeCallGraph(...)` 前安装 WALA model，参与 points-to/call graph fixed point；构图后不允许 overlay 补图或 whole-scope JAR/classfile 重扫。
 - 非 constant ServiceLoader service type、非法 provider 与 reachable unknown bootstrap 产生 stable limitation，并使 Module `INCONCLUSIVE`。

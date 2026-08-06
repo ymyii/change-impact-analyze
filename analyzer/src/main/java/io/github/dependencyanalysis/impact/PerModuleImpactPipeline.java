@@ -8,9 +8,9 @@ import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.bytecode.MemberDescriptors;
 import io.github.dependencyanalysis.callgraph.CallGraphException;
+import io.github.dependencyanalysis.callgraph.EntrypointClassIndex;
 import io.github.dependencyanalysis.callgraph.EntrypointClassScanner;
 import io.github.dependencyanalysis.callgraph.EntrypointSelection;
-import io.github.dependencyanalysis.callgraph.EntrypointSelectionMetrics;
 import io.github.dependencyanalysis.callgraph.ModuleCallGraphEngine;
 import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
 import io.github.dependencyanalysis.callgraph.ModuleScopeValidator;
@@ -208,8 +208,10 @@ final class PerModuleImpactPipeline {
                         targetArtifactsByModule,
                         baselineTrees, targetTrees),
                 bindings, changes);
+        final EntrypointPreparation entrypoints = prepareEntrypoints(
+                units, bindings.failedModules());
         final Set<String> unmatchedEntrypointModules =
-                unmatchedEntrypointModules(units, bindings.failedModules());
+                entrypoints.unmatchedModules();
         final int relevantCount = (int) units.stream()
                 .filter(unit -> !unit.getChangePoints().isEmpty()
                         || bindings.failedModules().contains(
@@ -228,7 +230,7 @@ final class PerModuleImpactPipeline {
         final long modulesStart = System.currentTimeMillis();
         final List<ModuleAnalysisResult> analyzed = analyzeModules(
                 units, bindings.failedModules(), unmatchedEntrypointModules,
-                actualParallelism);
+                entrypoints, actualParallelism);
         elapsed.put("module-analysis",
                 System.currentTimeMillis() - modulesStart);
         final long ssaStart = System.currentTimeMillis();
@@ -360,13 +362,17 @@ final class PerModuleImpactPipeline {
                 + point.getNewHash();
     }
 
-    private Set<String> unmatchedEntrypointModules(
+    private EntrypointPreparation prepareEntrypoints(
             final List<ModuleAnalysisUnit> units,
             final Set<String> failedDiffModules) {
         if (!entrypointSelection.isFiltered()) {
-            return Set.of();
+            return EntrypointPreparation.empty();
         }
         final Set<String> unmatched = new LinkedHashSet<>();
+        final Map<String, EntrypointClassIndex> indexes =
+                new LinkedHashMap<>();
+        final Map<String, CallGraphException> failures =
+                new LinkedHashMap<>();
         int relevant = 0;
         int matched = 0;
         final EntrypointClassScanner scanner = new EntrypointClassScanner();
@@ -381,8 +387,17 @@ final class PerModuleImpactPipeline {
             final DiagnosticContext context = DiagnosticContext.of(
                     "module-analysis", "entrypoint-selection").withModule(
                     unit.getModuleId().stableKey());
-            final EntrypointSelectionMetrics metrics = scanner.scan(
-                    unit.getProjectClasses(), entrypointSelection);
+            final EntrypointClassIndex index;
+            try {
+                index = scanner.scan(
+                        unit.getProjectClasses(), entrypointSelection);
+            } catch (CallGraphException exception) {
+                failures.put(unit.getModuleId().coordinateKey(), exception);
+                diagnostics.error(context, exception.getMessage());
+                continue;
+            }
+            indexes.put(unit.getModuleId().coordinateKey(), index);
+            final var metrics = index.metrics();
             diagnostics.info(context, "selectedClasses="
                     + metrics.selectedClassCount() + "; entrypoints="
                     + metrics.entrypointCount());
@@ -392,12 +407,13 @@ final class PerModuleImpactPipeline {
                 matched++;
             }
         }
-        if (relevant > 0 && matched == 0) {
+        if (relevant > 0 && matched == 0 && failures.isEmpty()) {
             throw new EntrypointSelectionException(
                     "No relevant Module matched the configured PROJECT "
                             + "entrypoint selectors");
         }
-        return Set.copyOf(unmatched);
+        return new EntrypointPreparation(
+                indexes, unmatched, failures);
     }
 
     private FrontPreparation prepareFront(
@@ -805,6 +821,7 @@ final class PerModuleImpactPipeline {
             final List<ModuleAnalysisUnit> units,
             final Set<String> failedDiffModules,
             final Set<String> unmatchedEntrypointModules,
+            final EntrypointPreparation entrypoints,
             final int actualParallelism) throws InterruptedException {
         final Map<String, ModuleAnalysisUnit> unitsByKey = new HashMap<>();
         units.forEach(unit -> unitsByKey.put(
@@ -839,9 +856,11 @@ final class PerModuleImpactPipeline {
         final ExecutorService executor = managed.executor();
         final List<Future<ModuleAnalysisResult>> futures = new ArrayList<>();
         for (ModuleAnalysisUnit unit : active) {
+            final String key = unit.getModuleId().coordinateKey();
             futures.add(executor.submit(() -> analyzeModuleTask(
-                    unit, failedDiffModules.contains(
-                            unit.getModuleId().coordinateKey()))));
+                    unit, failedDiffModules.contains(key),
+                    entrypoints.indexes().get(key),
+                    entrypoints.failures().get(key))));
         }
         try {
             for (Future<ModuleAnalysisResult> future : futures) {
@@ -862,13 +881,16 @@ final class PerModuleImpactPipeline {
 
     private ModuleAnalysisResult analyzeModuleTask(
             final ModuleAnalysisUnit unit,
-            final boolean diffFailed) {
+            final boolean diffFailed,
+            final EntrypointClassIndex preparedEntrypoints,
+            final CallGraphException entrypointFailure) {
         final DiagnosticContext context = DiagnosticContext.of(
                 "module-analysis", "module").withModule(
                 unit.getModuleId().stableKey());
         diagnostics.startStage(context);
         try {
-            return analyzeModule(unit, diffFailed);
+            return analyzeModule(unit, diffFailed,
+                    preparedEntrypoints, entrypointFailure);
         } finally {
             diagnostics.endStage(context);
         }
@@ -876,7 +898,9 @@ final class PerModuleImpactPipeline {
 
     private ModuleAnalysisResult analyzeModule(
             final ModuleAnalysisUnit unit,
-            final boolean diffFailed) {
+            final boolean diffFailed,
+            final EntrypointClassIndex preparedEntrypoints,
+            final CallGraphException entrypointFailure) {
         final long start = System.currentTimeMillis();
         final Map<String, Long> stageElapsed = new LinkedHashMap<>();
         if (unit.getChangePoints().isEmpty()) {
@@ -914,6 +938,14 @@ final class PerModuleImpactPipeline {
                     .build();
         }
         try {
+            if (entrypointFailure != null) {
+                throw entrypointFailure;
+            }
+            final EntrypointClassIndex entrypointIndex =
+                    preparedEntrypoints == null
+                            ? new EntrypointClassScanner().scan(
+                            unit.getProjectClasses(), entrypointSelection)
+                            : preparedEntrypoints;
             long stageStart = System.currentTimeMillis();
             final ScopeValidationResult scopeValidation =
                     new ModuleScopeValidator(repository()).validate(unit);
@@ -924,7 +956,8 @@ final class PerModuleImpactPipeline {
             final ModuleCallGraphSession session =
                     new ModuleCallGraphEngine(diagnostics, javaRuntime,
                             entrypointSelection, repository())
-                            .build(unit, callGraphTimeoutSeconds);
+                            .build(unit, entrypointIndex,
+                                    callGraphTimeoutSeconds);
             stageElapsed.put("call-graph",
                     System.currentTimeMillis() - stageStart);
             stageStart = System.currentTimeMillis();
@@ -1277,6 +1310,30 @@ final class PerModuleImpactPipeline {
     private record MemberCodeEvidence(
             String key,
             CodeComparisonEvidence evidence) {
+    }
+
+    /**
+     * Prepared filtered entrypoint indexes and isolated scan failures.
+     *
+     * @param indexes selected indexes keyed by module coordinate
+     * @param unmatchedModules modules with zero selected executable methods
+     * @param failures isolated scanner failures keyed by module coordinate
+     */
+    private record EntrypointPreparation(
+            Map<String, EntrypointClassIndex> indexes,
+            Set<String> unmatchedModules,
+            Map<String, CallGraphException> failures) {
+
+        EntrypointPreparation {
+            indexes = Map.copyOf(indexes);
+            unmatchedModules = Set.copyOf(unmatchedModules);
+            failures = Map.copyOf(failures);
+        }
+
+        static EntrypointPreparation empty() {
+            return new EntrypointPreparation(
+                    Map.of(), Set.of(), Map.of());
+        }
     }
 
     /**

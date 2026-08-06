@@ -195,6 +195,17 @@ class DependencyAnalyzerCliTest {
     }
 
     @Test
+    void legacyEntrypointSelectorSyntaxIsRejected() {
+        final int code = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli())
+                .execute("impact", "--baseline", "HEAD",
+                        "--output", "report.html",
+                        "--entrypoint-include", "com.icbc:A");
+
+        assertThat(code).isEqualTo(1);
+    }
+
+    @Test
     void repeatedVerboseFlagSelectsLogLevel() {
         final DependencyAnalyzerCli defaultRoot =
                 new DependencyAnalyzerCli();

@@ -11,6 +11,12 @@ relations:
 code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/ModuleCallGraphEngine.java"
     desc: "per-Module Vanilla 0-1-CFA builder 与 extension 安装顺序"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/EntrypointClassIndex.java"
+    desc: "current Module target/classes 的 immutable root class selection"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/DeclaredTypesEntrypoint.java"
+    desc: "单 candidate declared-type 参数建模"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/EntrypointSyntheticTypeRegistry.java"
+    desc: "per-CHA interface/abstract synthetic placeholder复用"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/ModuleCallGraphSession.java"
     desc: "live graph、CHA、cache、ownership 与 immutable model metadata"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/ServiceLoaderFixedPointModel.java"
@@ -49,10 +55,13 @@ code_refs:
 
 ## Entrypoints
 
-- 默认选择 `PROJECT` 中全部 non-abstract declared methods，包括 concrete bridge/synthetic method。
-- `--entrypoint-include`/`--entrypoint-exclude` 只限制 PROJECT roots，不裁剪 scope、CHA、Reflection 或 model provider。
-- Reference 参数枚举 scope 内 concrete assignable type，稳定排序。
-- `REACTOR_DEPENDENCY`、`DEPENDENCY`、`JDK` 只通过 reachability 进入；零 PROJECT entrypoint 使当前 Module fail。
+- Entrypoint class只由当前 Module `target/classes/**/*.class` 的 immutable `EntrypointClassIndex` 提供，不通过 CHA ownership或 classpath precedence识别。ASM internal name是唯一 identity；duplicate name、CHA missing class或 binary name不一致使当前 Module fail。
+- Scanner排除 `module-info.class`、interface与annotation。Abstract class保留；每个 selected class选择全部 non-abstract declared methods，包括 constructor、`<clinit>`、static、native、concrete bridge/synthetic method，不自动加入 inherited method。
+- Slash selector直接匹配无前缀 JVM internal name。普通 segment支持 `*` 与 `?`；`**` 只能作为最后一个完整 segment。Include取并集，exclude优先。Interface-only匹配等同于零匹配。
+- Selector门禁与 Call Graph构造复用同一个 index。`--entrypoint-include`/`--entrypoint-exclude` 不裁剪 scope、CHA、Reflection、model provider或其他 origin reachability。
+- 每个 JVM parameter slot只有一个 candidate：primitive、array、concrete或 unresolved reference保留 declared `TypeReference`；resolved interface/abstract reference使用 Module/CHA 内共享的 `BypassSyntheticClass` placeholder。普通 instance method的 `this`遵循相同规则；abstract class的 concrete instance method与 constructor因此使用 fake receiver。
+- Placeholder仅提供 concrete、assignable identity，不生成 abstract method body，也不枚举或连接真实 subtype/implementor。该边界可能遗漏 implementation-only impact path。`parameterCandidateCount` 是所有 entrypoint JVM parameter slot总数，包含 instance `this`，不随 subtype数量增长。
+- `REACTOR_DEPENDENCY`、`DEPENDENCY`、`JDK` 只通过 reachability 进入；零 target entrypoint 使当前 Module fail。
 
 ## Fixed-point Installation Order
 

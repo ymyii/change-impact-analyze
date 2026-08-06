@@ -100,13 +100,13 @@ public final class ImpactCommand
 
     /** Included PROJECT entrypoint classes. */
     @Option(names = "--entrypoint-include",
-            description = "Repeatable package-pattern:class-pattern "
+            description = "Repeatable slash-separated class-path pattern "
                     + "PROJECT entrypoint include.")
     private List<String> entrypointIncludes = new java.util.ArrayList<>();
 
     /** Excluded PROJECT entrypoint classes. */
     @Option(names = "--entrypoint-exclude",
-            description = "Repeatable package-pattern:class-pattern "
+            description = "Repeatable slash-separated class-path pattern "
                     + "PROJECT entrypoint exclude.")
     private List<String> entrypointExcludes = new java.util.ArrayList<>();
 

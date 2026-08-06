@@ -2,6 +2,7 @@ package io.github.dependencyanalysis.callgraph;
 
 import com.ibm.wala.classLoader.IMethod;
 import com.ibm.wala.ipa.callgraph.CGNode;
+import com.ibm.wala.ipa.summaries.BypassSyntheticClass;
 import com.ibm.wala.types.ClassLoaderReference;
 import com.ibm.wala.types.MethodReference;
 
@@ -42,12 +43,19 @@ import java.util.List;
 import javax.tools.ToolProvider;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** End-to-end fixed-point model tests against the configured JDK 8. */
 class WalaFixedPointModelsTest {
 
     /** Keeps a malformed model from exhausting the test JVM. */
     private static final long GRAPH_TIMEOUT_SECONDS = 30L;
+
+    /** Constructor receiver plus entry receiver and five arguments. */
+    private static final int DECLARED_PARAMETER_CANDIDATES = 7;
+
+    /** Concrete types that must not expand declared entrypoint parameters. */
+    private static final int UNUSED_IMPLEMENTATION_COUNT = 32;
 
     /** Custom Java 8 bootstrap descriptor. */
     private static final String BOOTSTRAP_DESCRIPTOR =
@@ -58,6 +66,134 @@ class WalaFixedPointModelsTest {
     /** Temporary source and class roots. */
     @TempDir
     private Path temporary;
+
+    @Test
+    void entrypointParametersUseOneDeclaredTypePlaceholder()
+            throws Exception {
+        final StringBuilder implementations = new StringBuilder();
+        for (int index = 0; index < UNUSED_IMPLEMENTATION_COUNT; index++) {
+            implementations.append("static class ContractImpl")
+                    .append(index)
+                    .append(" implements Contract { public void run() { } }")
+                    .append(System.lineSeparator());
+            implementations.append("static class BaseImpl")
+                    .append(index)
+                    .append(" extends Base { void run() { } }")
+                    .append(System.lineSeparator());
+        }
+        final Path classes = compile("EntrypointParameters", """
+                public class EntrypointParameters {
+                    interface Contract { void run(); }
+                    abstract static class Base {
+                        abstract void run();
+                    }
+                    %s
+                    static class Concrete { }
+                    public void entry(
+                            Contract contract,
+                            Base base,
+                            Concrete concrete,
+                            int primitive,
+                            Concrete[] array) {
+                        contract.run();
+                        base.run();
+                    }
+                }
+                """.formatted(implementations));
+        final EntrypointSelection selection = EntrypointSelection.parse(
+                List.of("EntrypointParameters"), List.of());
+
+        try (IJarRepository repository = TestJarRepositories.empty()) {
+            final ModuleCallGraphSession session = build(
+                    classes, repository, List.of(),
+                    InvokeDynamicBootstrapModelRegistry.jdk8Defaults(),
+                    selection);
+
+            assertThat(session.getSelectedEntrypointClassCount()).isEqualTo(1);
+            assertThat(session.getEntrypointCount()).isEqualTo(2);
+            assertThat(session.getParameterCandidateCount())
+                    .isEqualTo(DECLARED_PARAMETER_CANDIDATES);
+            assertThat(session.getHierarchy()).anySatisfy(type -> {
+                assertThat(type).isInstanceOf(BypassSyntheticClass.class);
+                final BypassSyntheticClass synthetic =
+                        (BypassSyntheticClass) type;
+                assertThat(synthetic.getRealType().getName().toString())
+                        .isEqualTo("LEntrypointParameters$Contract");
+            });
+            assertThat(session.getHierarchy()).anySatisfy(type -> {
+                assertThat(type).isInstanceOf(BypassSyntheticClass.class);
+                final BypassSyntheticClass synthetic =
+                        (BypassSyntheticClass) type;
+                assertThat(synthetic.getRealType().getName().toString())
+                        .isEqualTo("LEntrypointParameters$Base");
+            });
+            assertThat(session.getGraph()).noneMatch(node ->
+                    owner(node).startsWith(
+                            "EntrypointParameters$ContractImpl")
+                            || owner(node).startsWith(
+                            "EntrypointParameters$BaseImpl"));
+        }
+    }
+
+    @Test
+    void indexedEntrypointClassMustResolveFromCurrentHierarchy()
+            throws Exception {
+        final Path classes = compile("IndexedEntrypoint", """
+                public class IndexedEntrypoint {
+                    public void run() { }
+                }
+                """);
+        final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                moduleId(), ModulePresence.BOTH, classes, List.of(),
+                List.of(), List.of(),
+                new ModuleChangeSet(List.of(), List.of()));
+        final JavaRuntimeDescriptor runtime = new Jdk8RuntimeProvider()
+                .probe(Path.of(System.getenv("TEST_JDK8_HOME")));
+
+        try (IJarRepository repository = TestJarRepositories.empty()) {
+            final ModuleCallGraphEngine engine = new ModuleCallGraphEngine(
+                    diagnostics(), runtime,
+                    EntrypointSelection.allProjectClasses(), repository);
+
+            assertThatThrownBy(() -> engine.build(unit,
+                    new EntrypointClassIndex(
+                            List.of("MissingEntrypoint"), 1),
+                    GRAPH_TIMEOUT_SECONDS))
+                    .isInstanceOf(CallGraphException.class)
+                    .hasMessageContaining(
+                            "Unable to resolve indexed PROJECT entrypoint");
+        }
+    }
+
+    @Test
+    void abstractEntrypointClassUsesOneSharedFakeReceiver()
+            throws Exception {
+        final Path classes = compile("AbstractEntrypoint", """
+                public abstract class AbstractEntrypoint {
+                    public AbstractEntrypoint() { }
+                    public void concrete() { }
+                    public abstract void abstractMethod();
+                }
+                """);
+        final EntrypointSelection selection = EntrypointSelection.parse(
+                List.of("AbstractEntrypoint"), List.of());
+
+        try (IJarRepository repository = TestJarRepositories.empty()) {
+            final ModuleCallGraphSession session = build(
+                    classes, repository, List.of(),
+                    InvokeDynamicBootstrapModelRegistry.jdk8Defaults(),
+                    selection);
+
+            assertThat(session.getEntrypointCount()).isEqualTo(2);
+            assertThat(session.getParameterCandidateCount()).isEqualTo(2);
+            assertThat(session.getHierarchy()).filteredOn(type ->
+                            type instanceof BypassSyntheticClass)
+                    .map(type -> (BypassSyntheticClass) type)
+                    .filteredOn(type -> type.getRealType().getName()
+                            .toString().equals("LAbstractEntrypoint"))
+                    .hasSize(1);
+        }
+    }
 
     @Test
     void serviceLoaderProviderFlowsIntoInterfaceDispatch() throws Exception {
@@ -439,11 +575,33 @@ class WalaFixedPointModelsTest {
             final IJarRepository repository,
             final InvokeDynamicBootstrapModelRegistry registry)
             throws Exception {
+        return build(unit, repository, registry,
+                EntrypointSelection.allProjectClasses());
+    }
+
+    private ModuleCallGraphSession build(
+            final Path classes,
+            final IJarRepository repository,
+            final List<Path> reactorClasses,
+            final InvokeDynamicBootstrapModelRegistry registry,
+            final EntrypointSelection selection) throws Exception {
+        final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                moduleId(), ModulePresence.BOTH, classes, reactorClasses,
+                List.of(), List.of(),
+                new ModuleChangeSet(List.of(), List.of()));
+        return build(unit, repository, registry, selection);
+    }
+
+    private ModuleCallGraphSession build(
+            final ModuleAnalysisUnit unit,
+            final IJarRepository repository,
+            final InvokeDynamicBootstrapModelRegistry registry,
+            final EntrypointSelection selection)
+            throws Exception {
         final JavaRuntimeDescriptor runtime = new Jdk8RuntimeProvider()
                 .probe(Path.of(System.getenv("TEST_JDK8_HOME")));
         return new ModuleCallGraphEngine(diagnostics(), runtime,
-                EntrypointSelection.allProjectClasses(), repository,
-                registry)
+                selection, repository, registry)
                 .build(unit, GRAPH_TIMEOUT_SECONDS);
     }
 

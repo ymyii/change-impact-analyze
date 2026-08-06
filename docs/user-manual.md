@@ -137,8 +137,8 @@ dependency-analyzer impact \
   [-f, --format html] \
   [--analysis-target spring-backend] \
   [--analysis-parallelism <count>] \
-  [--entrypoint-include '<package-pattern>:<class-pattern>']... \
-  [--entrypoint-exclude '<package-pattern>:<class-pattern>']... \
+  [--entrypoint-include '<class-path-pattern>']... \
+  [--entrypoint-exclude '<class-path-pattern>']... \
   [-k, --include-change-kinds <csv>] \
   [--call-graph-timeout-seconds <seconds>]
 ```
@@ -150,8 +150,12 @@ dependency-analyzer impact \
 - `--format` 仅接受 `html`；`md` compatibility token 会 fail fast。
 - `--analysis-target` 默认且首版只接受 `spring-backend`。
 - `--analysis-parallelism` 默认 `2`，必须 `>=1`；统一控制 Module analysis、JAR diff 和代码反编译各自的 bounded pool。超过 CPU 数只输出 warning，不静默截断。
-- `--entrypoint-include`/`--entrypoint-exclude` 可重复。Package 支持精确值和尾部 `**` 递归匹配；class 匹配 simple binary class name，支持 `*`，nested class 使用 `$`。多个 include 取并集，exclude 优先。
-- 命中 class 的全部 non-abstract declared methods成为 entrypoints；不自动加入 inherited method 或 subclass。Relevant Module 没有匹配时标记 `SKIPPED_USER_ENTRYPOINT_SCOPE`；所有 relevant Module 都没有匹配时 exit `1`，不替换旧 Report。
+- `--entrypoint-include`/`--entrypoint-exclude` 接受 slash-separated JVM internal class path，例如 `com/icbc/payment/OrderService`；可选 WALA `L` 前缀会在匹配前移除。选项可重复，多个 include 取并集，exclude 优先。
+- 普通 segment 中 `*` 匹配零到多个字符，`?` 匹配一个字符，均不跨越 `/`。最后一个普通 segment 始终是 class segment，允许 `$` 匹配 nested class；前面的 package segment 不允许 `$`。例如 `com/*/A?`、`com/ic?c/*Controller`、`com/icbc/*$Handler`。
+- `**` 只能作为最后一个完整 segment。`com/icbc/**` 匹配该路径下直属及任意深度 package 中的全部 class，`**` 匹配全部 class；`com/**/A`、`com/icbc/A**`、leading/trailing slash、空 segment、`.`、`\\` 与 `:` 均非法。`com/icbc/**` 后不能追加 class pattern；需要限定 class 名时使用确定深度的普通 pattern，例如 `com/*/*Controller`。旧 colon/dot selector 不兼容，参数校验直接 exit `1`。
+- Entrypoint class 只来自当前 Module `target/classes` 的 immutable index，与 classpath precedence 无关。Interface/annotation class 即使包含 concrete default/static method也不进入 index；abstract class保留 non-abstract declared method。命中 class 的全部 non-abstract declared methods成为 entrypoints，不自动加入 inherited method 或 subtype。
+- 每个 JVM parameter slot仅提供一个 candidate：primitive、array 与 concrete reference使用 declared type；interface/abstract reference使用 Module 内按 declared type共享的 synthetic concrete placeholder。Abstract class的 instance method和 constructor使用 fake receiver；placeholder不连接真实 subtype或implementor，因此可能遗漏 implementation-only impact path。
+- Relevant Module 没有匹配时标记 `SKIPPED_USER_ENTRYPOINT_SCOPE`；所有 relevant Module 都没有匹配时 exit `1`，不替换旧 Report。
 - `--include-change-kinds` 控制 bytecode `ChangePointKind`。
 - `--java-home` 必填且必须是完整 JDK 8：Preflight 校验 `bin/java`、`bin/javac`、Java major、`rt.jar`，并读取 `sun.boot.class.path` 与 `java.ext.dirs`。
 - `--java-home` 同时决定 Maven subprocess `JAVA_HOME`、用户代码编译 JDK 和 WALA Primordial/Extension target runtime。
@@ -166,8 +170,8 @@ dependency-analyzer impact \
 | `-f` | `--format` | 仅 `html`；`md` 已移除。 |
 |  | `--analysis-target` | 仅 `spring-backend`。 |
 |  | `--analysis-parallelism` | Module analysis、JAR diff、代码反编译并发数，默认 `2`。 |
-|  | `--entrypoint-include` | 只选择匹配 PROJECT class 的 declared methods 作为 entrypoints；可重复。 |
-|  | `--entrypoint-exclude` | 从 include/default selection 中排除匹配 PROJECT class；可重复且优先。 |
+|  | `--entrypoint-include` | 只选择匹配 slash class path 的 target class declared methods；可重复。 |
+|  | `--entrypoint-exclude` | 从 include/default selection 中排除匹配 slash class path 的 target class；可重复且优先。 |
 | `-k` | `--include-change-kinds` | 纳入分析的 `ChangePointKind` CSV。 |
 |  | `--call-graph-timeout-seconds` | Per-Module WALA timeout；`0` 表示无限等待。 |
 
@@ -194,8 +198,8 @@ java -jar dependency-analyzer.jar \
   --target feature/dependency-upgrade \
   --output build/impact.html \
   --analysis-parallelism 4 \
-  --entrypoint-include 'com.acme.payment.**:*' \
-  --entrypoint-exclude 'com.acme.payment.generated.**:*'
+  --entrypoint-include 'com/acme/payment/**' \
+  --entrypoint-exclude 'com/acme/payment/generated/**'
 ```
 
 ### 5.3 Pipeline 与报告
@@ -238,7 +242,7 @@ JSON 为 UTF-8；`artifacts` 按完整 coordinates、absolutePath 排序，无 e
 
 Scope 只存在于 GraphML dependency graph。相同 coordinates/version 只有 scope 变化时不产生 impact change；version 与 scope 同时变化时只产生一个 `VERSION_CHANGED`。Baseline 与 target physical path 分别按各自 Module-local manifest 中的 coordinates 查找，不使用 `DependencyChange.scope`。
 
-Physical JAR pair 按 `--analysis-parallelism` 并行 bytecode diff。用户配置 entrypoint selector 时，轻量 target class index 会先识别没有匹配 PROJECT class 的 Module；该步骤只缩小 root methods，不裁剪 Module scope、CHA、Reflection、ServiceLoader 或 Reference 参数 subtype candidates。存在 removal/modification ChangePoint 且命中 entrypoint scope 的 Module 独立执行 scope validation、JDK 8 CHA、WALA Vanilla 0-1-CFA、`ReflectionOptions.FULL`、MethodHandle extension 和 direct WALA query。Module 内 build/query 单线程，Module 之间按 `--analysis-parallelism` 并行。没有 seed pre-scan、零 seed skip、CHA pre-graph 或 full predecessor copy。
+Physical JAR pair 按 `--analysis-parallelism` 并行 bytecode diff。每个 relevant target Module 的 `target/classes` 只扫描一次，生成的 immutable entrypoint class index 同时用于 selector 门禁和实际 Call Graph roots；该步骤只缩小 root methods，不裁剪 Module scope、CHA、Reflection、ServiceLoader 或其他 origin reachability。Entrypoint 参数按 declared type 建模，interface/abstract type使用 synthetic placeholder，不枚举真实 subtype。存在 removal/modification ChangePoint 且命中 entrypoint scope 的 Module 独立执行 scope validation、JDK 8 CHA、WALA Vanilla 0-1-CFA、`ReflectionOptions.FULL`、MethodHandle extension 和 direct WALA query。Module 内 build/query 单线程，Module 之间按 `--analysis-parallelism` 并行。没有 seed pre-scan、零 seed skip、CHA pre-graph 或 full predecessor copy。
 
 Module analysis 检查分类如下。这里的“阻塞”只终止当前 Module，其他 Module 继续；全部 Module 完成后再按既有规则形成 Overall status 与 exit code。
 

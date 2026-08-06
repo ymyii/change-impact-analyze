@@ -18,6 +18,7 @@ import com.ibm.wala.ipa.cha.ClassHierarchyFactory;
 import com.ibm.wala.ipa.cha.IClassHierarchy;
 import com.ibm.wala.ssa.SSAOptions;
 import com.ibm.wala.types.ClassLoaderReference;
+import com.ibm.wala.types.TypeReference;
 
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
@@ -124,6 +125,23 @@ public final class ModuleCallGraphEngine {
     public ModuleCallGraphSession build(
             final ModuleAnalysisUnit unit,
             final long timeoutSeconds) {
+        final EntrypointClassIndex index = new EntrypointClassScanner().scan(
+                unit.getProjectClasses(), entrypointSelection);
+        return build(unit, index, timeoutSeconds);
+    }
+
+    /**
+     * Builds an independent per-module graph from a prepared PROJECT index.
+     *
+     * @param unit module analysis input
+     * @param entrypointIndex selected target/classes index
+     * @param timeoutSeconds module build timeout, zero for unlimited
+     * @return live graph session
+     */
+    public ModuleCallGraphSession build(
+            final ModuleAnalysisUnit unit,
+            final EntrypointClassIndex entrypointIndex,
+            final long timeoutSeconds) {
         final DiagnosticContext context = DiagnosticContext.of(
                 "module-analysis", "call-graph").withModule(
                 unit.getModuleId().stableKey());
@@ -140,7 +158,7 @@ public final class ModuleCallGraphEngine {
             final AnalysisScope scope = scope(unit, ownership);
             final IClassHierarchy hierarchy = hierarchy(scope);
             final List<Entrypoint> entrypoints = entrypoints(
-                    hierarchy, ownership);
+                    hierarchy, entrypointIndex);
             if (entrypoints.isEmpty()) {
                 throw new CallGraphException(
                         "Module has zero PROJECT entrypoints: "
@@ -193,8 +211,8 @@ public final class ModuleCallGraphEngine {
                     Math.max(0L, usedMemory() - initialMemory));
             final int parameterCandidates = parameterCandidateCount(
                     entrypoints);
-            final int selectedClasses = selectedProjectClassCount(
-                    hierarchy, ownership);
+            final int selectedClasses =
+                    entrypointIndex.selectedClassNames().size();
             diagnostics.info(context, "algorithm=vanilla-0-1-cfa; nodes="
                     + stats.methodCount() + "; edges="
                     + stats.edgeCount() + "; entrypoints="
@@ -363,19 +381,28 @@ public final class ModuleCallGraphEngine {
         }
     }
 
+    // Wiki: wiki/features/call-graph-engine.md - entrypoint roots and types.
     private List<Entrypoint> entrypoints(
             final IClassHierarchy hierarchy,
-            final ClassOwnershipIndex ownership) {
+            final EntrypointClassIndex index) {
         final List<IMethod> methods = new ArrayList<>();
-        for (IClass type : hierarchy) {
-            final ClassOwnership value = ownership.ownershipOf(
-                    type.getName().toString());
-            if (value == null || value.getOrigin() != CodeOrigin.PROJECT) {
-                continue;
+        for (String name : index.selectedClassNames()) {
+            final TypeReference reference = TypeReference.findOrCreate(
+                    ClassLoaderReference.Application, "L" + name);
+            final IClass type = hierarchy.lookupClass(reference);
+            if (type == null) {
+                throw new CallGraphException(
+                        "Unable to resolve indexed PROJECT entrypoint class: "
+                                + name);
             }
-            if (!entrypointSelection.matchesInternalName(
-                    type.getName().toString())) {
-                continue;
+            final String resolved = type.getName().toString();
+            final String normalized = resolved.startsWith("L")
+                    ? resolved.substring(1) : resolved;
+            if (!name.equals(normalized) || type.isInterface()) {
+                throw new CallGraphException(
+                        "Indexed PROJECT entrypoint class resolved "
+                                + "inconsistently: expected=" + name
+                                + "; actual=" + resolved);
             }
             for (IMethod method : type.getDeclaredMethods()) {
                 if (!method.isAbstract()) {
@@ -385,27 +412,13 @@ public final class ModuleCallGraphEngine {
         }
         methods.sort(Comparator.comparing(
                 method -> method.getReference().toString()));
+        final EntrypointSyntheticTypeRegistry syntheticTypes =
+                new EntrypointSyntheticTypeRegistry(hierarchy);
         return methods.stream()
                 .map(method -> (Entrypoint)
-                        new DeterministicSubtypesEntrypoint(
-                                method, hierarchy))
+                        new DeclaredTypesEntrypoint(
+                                method, hierarchy, syntheticTypes))
                 .toList();
-    }
-
-    private int selectedProjectClassCount(
-            final IClassHierarchy hierarchy,
-            final ClassOwnershipIndex ownership) {
-        int result = 0;
-        for (IClass type : hierarchy) {
-            final ClassOwnership value = ownership.ownershipOf(
-                    type.getName().toString());
-            if (value != null && value.getOrigin() == CodeOrigin.PROJECT
-                    && entrypointSelection.matchesInternalName(
-                    type.getName().toString())) {
-                result++;
-            }
-        }
-        return result;
     }
 
     private int parameterCandidateCount(
