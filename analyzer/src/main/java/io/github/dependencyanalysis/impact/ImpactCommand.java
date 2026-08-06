@@ -223,19 +223,23 @@ public final class ImpactCommand
                             ImpactPreflightService
                                     .WORKSPACE,
                             WorkspaceResult.class));
+            final String reportPath = output.toPath().toAbsolutePath()
+                    .normalize().toString();
             final DiagnosticContext reportContext = DiagnosticContext.of(
-                    "report", "publish").withPath(
-                    output.toPath().toAbsolutePath().normalize().toString());
-            diagnostics.startStage(reportContext);
+                    "report", "publish");
+            diagnostics.startStage(reportContext,
+                    "Task started; path=" + reportPath);
             try {
                 new PerModuleHtmlReportGenerator().generate(
                         result, diagnostics.getEvents(), report,
                         mavenRuntime, pluginRuntime,
                         targetJava, output.toPath());
-                diagnostics.endStage(reportContext);
+                diagnostics.endStage(reportContext,
+                        "Task completed; path=" + reportPath);
             } catch (Exception exception) {
                 diagnostics.failStage(reportContext,
-                        "Report publish failed: " + exception.getMessage());
+                        "Report publish failed: " + exception.getMessage()
+                                + "; path=" + reportPath);
                 throw exception;
             }
             emitSummary(diagnostics, result);
@@ -257,17 +261,17 @@ public final class ImpactCommand
             final DiagnosticLog diagnostics,
             final AnalysisRunResult result) {
         final DiagnosticContext context = DiagnosticContext.of(
-                "summary", "result")
-                .with("status", result.getStatus())
-                .withPath(output.toPath().toAbsolutePath()
-                        .normalize().toString());
+                "summary", "result");
+        final String details = "; status=" + result.getStatus()
+                + "; path=" + output.toPath().toAbsolutePath()
+                .normalize();
         switch (result.getStatus()) {
             case SUCCESS -> diagnostics.info(context,
-                    "Impact analysis completed");
+                    "Impact analysis completed" + details);
             case INCONCLUSIVE, PARTIAL_SUCCESS -> diagnostics.warn(context,
-                    "Impact analysis completed with limitations");
+                    "Impact analysis completed with limitations" + details);
             case FAILED -> diagnostics.error(context,
-                    "Impact analysis failed");
+                    "Impact analysis failed" + details);
             default -> throw new IllegalArgumentException(
                     "Unsupported analysis status: " + result.getStatus());
         }

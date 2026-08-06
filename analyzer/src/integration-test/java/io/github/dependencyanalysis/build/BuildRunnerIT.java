@@ -232,8 +232,9 @@ class BuildRunnerIT {
                         "build".equals(
                                 e.getStage())
                         && e.getMessage()
-                                .equals(
-                                        "Task completed"));
+                                .startsWith(
+                                        "Task completed; elapsedMs=")
+                        && e.getElapsedMillis() >= 0L);
     }
 
     @Test

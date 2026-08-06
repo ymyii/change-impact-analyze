@@ -32,7 +32,7 @@ code_refs:
 ## Prerequisites
 
 - Java 17 JDK、Maven 3.x、Git。
-- `TEST_JDK8_HOME` 指向 absolute、完整且实际 version 为 Java 8 的 JDK root。
+- root `test.jdk8.home` 指向 absolute、完整且实际 version 为 Java 8 的 JDK root；其他环境通过 `-Dtest.jdk8.home=...` 覆盖。
 - Plugin 与 Analyzer release version 已依据 compatibility 选择。
 - 所有 command 从 repository root 执行。
 
@@ -61,7 +61,7 @@ Plugin source 变化后刷新同一个 Snapshot coordinate：
 
 ```sh
 mvn -f plugins/pom.xml clean install
-TEST_JDK8_HOME=/absolute/path/to/jdk8 mvn clean verify
+mvn clean verify
 ```
 
 无需为每次本地自测 bump 或 commit。Analyzer build 会重新 copy local repository 中的 Snapshot repository ZIP；runtime 为 Artifact Path Plugin Snapshot 添加 `-U`，并只刷新该小型 repository cache。
@@ -98,8 +98,7 @@ mvn versions:set-property \
 ### 3. 执行 release quality gate
 
 ```sh
-TEST_JDK8_HOME=/absolute/path/to/jdk8 \
-  mvn -Prelease clean verify
+mvn -Prelease clean verify
 
 java -jar target/dependency-analyzer.jar --version
 ```
@@ -143,7 +142,7 @@ Tag 是 release record。是否 push commit/tag 或创建远端 release 由后�
 - `release revision must be stable`：仍为 `-SNAPSHOT`；重新执行对应 `versions:set-property`。
 - `requireReleaseDeps` failure：Analyzer 仍引用 Snapshot Plugin repository；先安装 Plugin Stable version 并更新 root property。
 - Plugin attached ZIP 无法解析：确认 `mvn -f plugins/pom.xml -Prelease clean install` 成功，检查 Maven local repository classifier `repository`。
-- `TEST_JDK8_HOME` failure：修正 absolute JDK 8 root；不得通过跳过 tests 发布。
+- `test.jdk8.home` failure：修正 root 默认值或使用 `-Dtest.jdk8.home=...` 指向 absolute JDK 8 root；不得通过跳过 tests 发布。
 - `--version` 不一致：检查 root `revision` 和 filtered build metadata。
 - Tag 已存在：先检查它是否为既有 release record；禁止移动或覆盖已发布 tag。
 
@@ -152,4 +151,5 @@ Tag 是 release record。是否 push commit/tag 或创建远端 release 由后�
 - 默认 profile：接受 `X.Y.Z` 或 `X.Y.Z-SNAPSHOT`。
 - `release` profile：只接受 `X.Y.Z`，并执行 `requireReleaseDeps`。
 - Maven build 本身使用 Java 17；Plugin compilation 由 `maven.compiler.release=8` 控制。
+- Analyzer test JDK 8 默认来自 root `test.jdk8.home`；Surefire/Failsafe 自动注入 `TEST_JDK8_HOME`，无需预先导出环境变量。
 - Release 不要求额外 checksum、fingerprint、build manifest 或 distribution directory；正式 Analyzer artifact 是 `target/dependency-analyzer.jar`。

@@ -348,12 +348,12 @@ class PackagedJarCliIT {
         assertThat(result.output)
                 .contains("Stage 1/3: Preflight")
                 .contains("Stage 2/3: Analysis")
-                .contains("[analysis][summary][status=SKIPPED]"
-                        + " Stage 2/3: Analysis;"
-                        + " command preflight failed")
+                .contains("[analysis][summary][-]"
+                        + " Stage 2/3: Analysis; status=SKIPPED;"
+                        + " reason=command preflight failed")
                 .contains("[summary][result]"
-                        + "[status=FAILED;report=NOT_GENERATED]"
-                        + " Stage 3/3: Summary");
+                        + "[-] Stage 3/3: Summary; status=FAILED;"
+                        + " report=NOT_GENERATED");
         assertThat(output).doesNotExist();
     }
 
@@ -381,7 +381,8 @@ class PackagedJarCliIT {
         assertThat(result.output)
                 .contains("Stage 2/3: Analysis")
                 .contains("[analysis][summary]"
-                        + "[status=COMPLETED_WITH_ISSUES;issues=1]")
+                        + "[-] Analysis completed;"
+                        + " status=COMPLETED_WITH_ISSUES; issues=1")
                 .contains("status=COMPLETED_WITH_ISSUES")
                 .contains("report=" + output.toAbsolutePath()
                         .normalize());
@@ -415,13 +416,21 @@ class PackagedJarCliIT {
         assertThat(trace.exitCode).isEqualTo(1);
         assertThat(trace.stdout).isEmpty();
         assertThat(trace.stderr)
-                .contains("[TRACE][runtime-metrics][heap]")
-                .contains("sample=1")
+                .contains("[TRACE][runtime-metrics][heap][-]"
+                        + " Runtime metrics snapshot; sample=1")
                 .contains("heapUsedMiB=")
                 .doesNotContain("heartbeat", "HEARTBEAT");
         assertThat(trace.stderr.lines()).allMatch(line -> line.matches(
                 "^\\[[^]]+]\\[(TRACE|DEBUG|INFO|WARN|ERROR)]"
                         + "\\[[^]]+]\\[[^]]+]\\[[^]]+] .*$"));
+        assertThat(trace.stderr.lines()).allMatch(line -> !line.matches(
+                "^\\[[^]]+]\\[[^]]+]\\[[^]]+]\\[[^]]+]"
+                        + "\\[[^]]*(command|side|path|scope|scopeId|"
+                        + "progress|status|decision|elapsedMs|sample|"
+                        + "reactors|modules|issues|issue|report|core|max|"
+                        + "size|active|queued|completed|tasks|shutdown|"
+                        + "terminated|heapUsedMiB|heapCommittedMiB|"
+                        + "heapMaxMiB)=.*"));
     }
 
     @Test

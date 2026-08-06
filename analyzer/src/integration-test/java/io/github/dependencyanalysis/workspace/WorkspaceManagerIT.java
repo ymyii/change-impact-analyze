@@ -313,7 +313,9 @@ class WorkspaceManagerIT {
                         "workspace".equals(
                                 e.getStage())
                         && e.getMessage()
-                                .equals("Task completed"))
+                                .startsWith(
+                                        "Task completed; elapsedMs=")
+                        && e.getElapsedMillis() >= 0L)
                 .anyMatch(e ->
                         "workspace".equals(
                                 e.getStage())

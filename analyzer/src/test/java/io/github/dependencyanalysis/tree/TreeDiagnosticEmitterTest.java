@@ -51,18 +51,19 @@ class TreeDiagnosticEmitterTest {
                 .contains("[INFO][preflight][summary][-]"
                         + " Stage 1/3: Preflight")
                 .contains("[INFO][analysis][summary]"
-                        + "[status=RUNNING;reactors=1] Stage 2/3: Analysis")
+                        + "[-] Stage 2/3: Analysis; status=RUNNING; reactors=1")
                 .contains("[INFO][analysis][reactor]"
-                        + "[reactor=pom.xml;progress=1/1;status=RUNNING]"
-                        + " Maven collection started")
+                        + "[reactor=pom.xml] Maven collection started;"
+                        + " progress=1/1; status=RUNNING")
                 .contains("[WARN][analysis][reactor]"
-                        + "[reactor=pom.xml;progress=1/1;status=DEGRADED;"
-                        + "modules=0] Maven collection completed")
+                        + "[reactor=pom.xml] Maven collection completed;"
+                        + " progress=1/1; status=DEGRADED; modules=0")
                 .contains("[WARN][analysis][issue]"
-                        + "[reactor=pom.xml;status=DEGRADED;")
+                        + "[reactor=pom.xml] Analysis issue; issue=1;"
+                        + " status=DEGRADED;")
                 .contains("[WARN][summary][result]"
-                        + "[status=COMPLETED_WITH_ISSUES;report=/tmp/report]"
-                        + " Stage 3/3: Summary")
+                        + "[-] Stage 3/3: Summary;"
+                        + " status=COMPLETED_WITH_ISSUES; report=/tmp/report")
                 .doesNotContain("heartbeat", "HEARTBEAT");
         assertThat(text.lines()).allMatch(line -> line.matches(
                 "^\\[2026-08-05T14:30:01\\.123\\+08:00]"
@@ -81,11 +82,12 @@ class TreeDiagnosticEmitterTest {
                 TreeReportState.FAILED, "NOT_GENERATED"));
 
         assertThat(bytes.toString(StandardCharsets.UTF_8))
-                .contains("[ERROR][analysis][summary][status=SKIPPED]"
-                        + " Stage 2/3: Analysis; command preflight failed")
+                .contains("[ERROR][analysis][summary][-]"
+                        + " Stage 2/3: Analysis; status=SKIPPED;"
+                        + " reason=command preflight failed")
                 .contains("[ERROR][summary][result]"
-                        + "[status=FAILED;report=NOT_GENERATED]"
-                        + " Stage 3/3: Summary");
+                        + "[-] Stage 3/3: Summary; status=FAILED;"
+                        + " report=NOT_GENERATED");
     }
 
     @Test

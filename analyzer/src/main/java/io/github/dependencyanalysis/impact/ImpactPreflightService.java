@@ -347,8 +347,7 @@ final class ImpactPreflightService {
                                 Path.class),
                         List.of("--version"), diagnostics,
                         DiagnosticContext.of(
-                                "preflight", "maven-version")
-                                .with("command", "impact"),
+                                "preflight", "maven-version"),
                         MAVEN_TAIL_LINES);
         if (result.getExitCode() != 0) {
             return PreflightOutcome.fail(
@@ -452,8 +451,7 @@ final class ImpactPreflightService {
                                     .getBaseline().getPath(),
                             arguments, diagnostics,
                             DiagnosticContext.of(
-                                    "preflight", "maven-plugin-probe")
-                                    .with("command", "impact"),
+                                    "preflight", "maven-plugin-probe"),
                             MAVEN_TAIL_LINES);
             if (result.getExitCode() != 0
                     || Files.size(probe) == 0) {

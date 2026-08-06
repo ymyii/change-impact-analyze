@@ -299,7 +299,6 @@ public final class TreeDependencyCollector {
         return new MavenExecutor().execute(
                 runtime, snapshot.getRoot(), arguments, diagnostics,
                 DiagnosticContext.of("analysis", "reactor")
-                        .with("command", "tree")
                         .with("reactor", reactor.getId()),
                 TAIL_LINES);
     }

@@ -35,7 +35,7 @@ code_refs:
 
 - Maven JVM 使用 Java 17 JDK。
 - Maven 3.x。
-- `TEST_JDK8_HOME` 指向完整 JDK 8 root；必须存在 `bin/java`、`bin/javac`、`jre/lib/rt.jar`，且 probe 结果为 Java 8。
+- root POM 的 `test.jdk8.home` 默认指向 `/absolute/path/to/jdk8`；必须存在 `bin/java`、`bin/javac`、`jre/lib/rt.jar`，且 probe 结果为 Java 8。其他环境使用 `-Dtest.jdk8.home=/absolute/path/to/jdk8` 覆盖。
 - Integration tests 需要本地 `git` 和可运行 Maven executable。
 - 所有 command 从 repository root 执行。
 
@@ -64,20 +64,28 @@ Attached `repository` ZIP 同时安装到 Maven local repository。
 完整 quality gate：
 
 ```sh
-TEST_JDK8_HOME=/absolute/path/to/jdk8 mvn clean verify
+mvn clean verify
 ```
 
 只运行 unit tests：
 
 ```sh
-TEST_JDK8_HOME=/absolute/path/to/jdk8 mvn test
+mvn test
 ```
 
-只打包仍会编译 tests，因此同样必须提供 JDK 8：
+只打包仍会编译 tests，因此同样使用配置的 JDK 8：
 
 ```sh
-TEST_JDK8_HOME=/absolute/path/to/jdk8 mvn package
+mvn package
 ```
+
+覆盖默认 JDK 8：
+
+```sh
+mvn -Dtest.jdk8.home=/absolute/path/to/jdk8 clean verify
+```
+
+Surefire/Failsafe 自动将 `test.jdk8.home` 作为 `TEST_JDK8_HOME` 注入 test JVM；执行 Maven 前不需要设置同名环境变量。
 
 Analyzer reactor 不构建 `plugins/`。若 local repository 没有 `artifact-path-plugin.version` 对应的 `repository` ZIP，dependency resolution 必须失败；先执行 Plugin `clean install`。
 
@@ -104,7 +112,7 @@ java -jar target/dependency-analyzer.jar tree --help
 
 ## Failure Entrypoints
 
-- `TEST_JDK8_HOME` missing/file failure：确认变量是 absolute JDK 8 root，不是 JRE 或 Java 17 home。
+- `test.jdk8.home must point to a complete JDK 8`：确认默认路径存在，或通过 `-Dtest.jdk8.home=...` 指向 absolute JDK 8 root；不能使用 JRE 或 Java 17 home。
 - Artifact Path Plugin repository ZIP resolution failure：重新执行 `mvn -f plugins/pom.xml clean install`，确认 Analyzer property 与 installed version 一致。
 - Plugin test failure：`plugins/artifact-path-resolver/target/surefire-reports/`。
 - Analyzer unit/integration failure：`target/surefire-reports/`、`target/failsafe-reports/`。
@@ -116,5 +124,6 @@ java -jar target/dependency-analyzer.jar tree --help
 
 - Analyzer development version：root `revision`。
 - Artifact Path Plugin development version：`plugins/pom.xml` 的 `revision`。
+- Analyzer test JDK 8：root `test.jdk8.home`；command-line `-Dtest.jdk8.home=...` 优先。
 - Analyzer 使用的 Plugin version：root `artifact-path-plugin.version`。
 - 详细 release 切换见 [Version and Distribution](version-and-distribution.md)。

@@ -21,15 +21,20 @@ public final class DiagnosticEvent {
     /** Single-line message text. */
     private final String message;
 
+    /** Stage elapsed milliseconds, kept outside prefix identity. */
+    private final long elapsedMillis;
+
     DiagnosticEvent(
             final OffsetDateTime eventTimestamp,
             final DiagnosticContext eventContext,
             final DiagnosticLevel eventLevel,
-            final String eventMessage) {
+            final String eventMessage,
+            final long eventElapsedMillis) {
         timestamp = Objects.requireNonNull(eventTimestamp, "timestamp");
         context = Objects.requireNonNull(eventContext, "context");
         level = Objects.requireNonNull(eventLevel, "level");
         message = Objects.requireNonNullElse(eventMessage, "");
+        elapsedMillis = Math.max(0L, eventElapsedMillis);
     }
 
     /** @return event timestamp */
@@ -89,15 +94,7 @@ public final class DiagnosticEvent {
 
     /** @return elapsed milliseconds or zero */
     public long getElapsedMillis() {
-        final String value = context.attribute("elapsedMs");
-        if (value.isBlank()) {
-            return 0L;
-        }
-        try {
-            return Long.parseLong(value);
-        } catch (NumberFormatException ignored) {
-            return 0L;
-        }
+        return elapsedMillis;
     }
 
     @Override
@@ -107,6 +104,7 @@ public final class DiagnosticEvent {
                 + ", context=" + context
                 + ", level=" + level
                 + ", message='" + message + '\''
+                + ", elapsedMillis=" + elapsedMillis
                 + '}';
     }
 
@@ -130,6 +128,9 @@ public final class DiagnosticEvent {
 
         /** Message. */
         private String message = "";
+
+        /** Stage elapsed milliseconds. */
+        private long elapsedMillis;
 
         /**
          * Sets the timestamp.
@@ -241,20 +242,21 @@ public final class DiagnosticEvent {
         }
 
         /**
-         * Adds the elapsed time attribute.
+         * Sets elapsed time outside prefix identity.
          *
          * @param value elapsed milliseconds
          * @return this builder
          */
         public Builder elapsedMillis(final long value) {
-            return attribute("elapsedMs", value);
+            elapsedMillis = value;
+            return this;
         }
 
         /** @return immutable event */
         public DiagnosticEvent build() {
             return new DiagnosticEvent(timestamp,
                     new DiagnosticContext(stage, substage, attributes),
-                    level, message);
+                    level, message, elapsedMillis);
         }
     }
 }

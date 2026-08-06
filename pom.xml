@@ -20,6 +20,7 @@
         <revision>2.0.0</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.build.outputTimestamp>2026-08-04T14:50:44Z</project.build.outputTimestamp>
+        <test.jdk8.home>/absolute/path/to/jdk8</test.jdk8.home>
 
         <artifact-path-plugin.version>2.1.0</artifact-path-plugin.version>
         <jackson.version>2.21.2</jackson.version>
@@ -149,16 +150,13 @@
                                     <regex>[0-9]+\.[0-9]+\.[0-9]+(-SNAPSHOT)?</regex>
                                     <regexMessage>artifact-path-plugin.version must be SemVer X.Y.Z or X.Y.Z-SNAPSHOT</regexMessage>
                                 </requireProperty>
-                                <requireEnvironmentVariable>
-                                    <variableName>TEST_JDK8_HOME</variableName>
-                                </requireEnvironmentVariable>
                                 <requireFilesExist>
                                     <files>
-                                        <file>${env.TEST_JDK8_HOME}/bin/java</file>
-                                        <file>${env.TEST_JDK8_HOME}/bin/javac</file>
-                                        <file>${env.TEST_JDK8_HOME}/jre/lib/rt.jar</file>
+                                        <file>${test.jdk8.home}/bin/java</file>
+                                        <file>${test.jdk8.home}/bin/javac</file>
+                                        <file>${test.jdk8.home}/jre/lib/rt.jar</file>
                                     </files>
-                                    <message>TEST_JDK8_HOME must point to a complete JDK 8</message>
+                                    <message>test.jdk8.home must point to a complete JDK 8</message>
                                 </requireFilesExist>
                             </rules>
                         </configuration>

@@ -50,8 +50,10 @@ Analyzer 与 Artifact Path Plugin 使用独立 SemVer。Git annotated tag 是 re
 
 ```sh
 mvn -f plugins/pom.xml -Prelease clean install
-TEST_JDK8_HOME=/absolute/path/to/jdk8 mvn -Prelease clean verify
+mvn -Prelease clean verify
 ```
+
+Analyzer release gate 默认使用 root `test.jdk8.home`；其他环境通过 `-Dtest.jdk8.home=/absolute/path/to/jdk8` 覆盖，Surefire/Failsafe 自动向 test JVM 注入 `TEST_JDK8_HOME`。
 
 Version 修改使用 Versions Maven Plugin；禁止引入新的 project-owned version ledger 或发布脚本。
 

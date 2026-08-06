@@ -9,20 +9,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** Tests the stable five-segment Diagnostic format. */
 class DiagnosticLogFormatterTest {
 
-    /** Expected elapsed milliseconds. */
-    private static final int EXPECTED_ELAPSED_MILLIS = 120;
-
     @Test
-    void formatsCanonicalAttributesAndEscapesDelimiters() {
+    void formatsCanonicalIdentityAndEscapesDelimiters() {
         final DiagnosticEvent event = new DiagnosticEvent.Builder()
                 .timestamp(OffsetDateTime.parse(
                         "2026-08-05T14:30:01.123+08:00"))
                 .stage("module[analysis]")
                 .substage("call-graph")
-                .attribute("elapsedMs", EXPECTED_ELAPSED_MILLIS)
                 .attribute("module", "g:a=1;path\\value")
-                .attribute("side", "target")
-                .attribute("zeta", "last")
+                .attribute("check", "jdk8")
+                .attribute("artifact", "g:a:1")
                 .level(DiagnosticLevel.TRACE)
                 .message("snapshot")
                 .build();
@@ -30,8 +26,8 @@ class DiagnosticLogFormatterTest {
         assertThat(new DiagnosticLogFormatter().format(event)).isEqualTo(
                 "[2026-08-05T14:30:01.123+08:00]"
                         + "[TRACE][module\\[analysis\\]][call-graph]"
-                        + "[side=target;module=g:a\\=1\\;path\\\\value;"
-                        + "elapsedMs=120;zeta=last] snapshot");
+                        + "[check=jdk8;module=g:a\\=1\\;path\\\\value;"
+                        + "artifact=g:a:1] snapshot");
     }
 
     @Test

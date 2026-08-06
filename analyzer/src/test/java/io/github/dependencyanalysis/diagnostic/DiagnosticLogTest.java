@@ -35,7 +35,7 @@ class DiagnosticLogTest {
         final AtomicLong ticker = new AtomicLong();
         final DiagnosticLog log = log(bytes, LogVerbosity.INFO, ticker);
         final DiagnosticContext context = DiagnosticContext.of(
-                "front", "target-build").withSide("target");
+                "module-analysis", "module").withModule("sample");
 
         log.startStage(context);
         ticker.set(TWELVE_MILLIS_NANOS);
@@ -43,12 +43,37 @@ class DiagnosticLogTest {
 
         assertThat(bytes.toString(StandardCharsets.UTF_8))
                 .contains("[2026-08-05T14:30:01.123+08:00]"
-                        + "[INFO][front][target-build][side=target]"
+                        + "[INFO][module-analysis][module][module=sample]"
                         + " Task started")
-                .contains("[side=target;elapsedMs=12] Task completed");
+                .contains("[module=sample] Task completed; elapsedMs=12")
+                .doesNotContain("[module=sample;elapsedMs=");
         assertThat(log.getEvents()).hasSize(2);
         assertThat(log.getEvents().get(1).getElapsedMillis())
                 .isEqualTo(EXPECTED_ELAPSED_MILLIS);
+        assertThat(log.getEvents().get(1).getAttributes())
+                .doesNotContainKey("elapsedMs");
+    }
+
+    @Test
+    void appendsElapsedTimeToFailureMessageWithoutPrefixAttribute() {
+        final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        final AtomicLong ticker = new AtomicLong();
+        final DiagnosticLog log = log(bytes, LogVerbosity.INFO, ticker);
+        final DiagnosticContext context = DiagnosticContext.of(
+                "module-analysis", "module").withModule("sample");
+
+        log.startStage(context);
+        ticker.set(TWELVE_MILLIS_NANOS);
+        log.failStage(context, "Task failed: unavailable");
+
+        assertThat(bytes.toString(StandardCharsets.UTF_8))
+                .contains("[module=sample] Task failed: unavailable;"
+                        + " elapsedMs=12")
+                .doesNotContain("[module=sample;elapsedMs=");
+        assertThat(log.getEvents().get(1).getElapsedMillis())
+                .isEqualTo(EXPECTED_ELAPSED_MILLIS);
+        assertThat(log.getEvents().get(1).getAttributes())
+                .doesNotContainKey("elapsedMs");
     }
 
     @Test
@@ -100,12 +125,12 @@ class DiagnosticLogTest {
     void contextPreservesAttributeInsertionOrder() {
         final DiagnosticContext context = DiagnosticContext.of(
                 "analysis", "module")
-                .with("zeta", "last")
-                .with("side", "target")
+                .with("pool", "module-analysis")
+                .with("check", "jdk8")
                 .with("module", "sample");
 
         assertThat(context.attributes().keySet())
-                .containsExactlyElementsOf(List.of("zeta", "side", "module"));
+                .containsExactlyElementsOf(List.of("pool", "check", "module"));
     }
 
     private DiagnosticLog log(

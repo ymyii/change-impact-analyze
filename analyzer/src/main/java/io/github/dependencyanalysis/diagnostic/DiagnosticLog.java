@@ -110,8 +110,20 @@ public final class DiagnosticLog {
      * @param context context
      */
     public synchronized void startStage(final DiagnosticContext context) {
+        startStage(context, "Task started");
+    }
+
+    /**
+     * Starts one complete-context timer with a caller-supplied message.
+     *
+     * @param context context
+     * @param message message
+     */
+    public synchronized void startStage(
+            final DiagnosticContext context,
+            final String message) {
         stageStarts.put(context.stableKey(), nanoTime.getAsLong());
-        emitRetained(context, DiagnosticLevel.INFO, "Task started");
+        emitRetained(context, DiagnosticLevel.INFO, message);
     }
 
     /**
@@ -129,8 +141,21 @@ public final class DiagnosticLog {
      * @param context context
      */
     public synchronized void endStage(final DiagnosticContext context) {
-        emitRetained(withElapsed(context), DiagnosticLevel.INFO,
-                "Task completed");
+        endStage(context, "Task completed");
+    }
+
+    /**
+     * Ends one complete-context timer with a caller-supplied message.
+     *
+     * @param context context
+     * @param message message before elapsed details
+     */
+    public synchronized void endStage(
+            final DiagnosticContext context,
+            final String message) {
+        final long elapsed = elapsedMillis(context);
+        emitRetained(context, DiagnosticLevel.INFO,
+                withElapsed(message, elapsed), elapsed);
     }
 
     /**
@@ -154,7 +179,9 @@ public final class DiagnosticLog {
     public synchronized void failStage(
             final DiagnosticContext context,
             final String reason) {
-        emitRetained(withElapsed(context), DiagnosticLevel.ERROR, reason);
+        final long elapsed = elapsedMillis(context);
+        emitRetained(context, DiagnosticLevel.ERROR,
+                withElapsed(reason, elapsed), elapsed);
     }
 
     /**
@@ -308,22 +335,36 @@ public final class DiagnosticLog {
         return List.copyOf(events);
     }
 
-    private DiagnosticContext withElapsed(final DiagnosticContext context) {
+    private long elapsedMillis(final DiagnosticContext context) {
         final Long started = stageStarts.remove(context.stableKey());
-        final long elapsed = started == null ? 0L
+        return started == null ? 0L
                 : Math.max(0L, (nanoTime.getAsLong() - started)
                         / NANOS_PER_MILLISECOND);
-        return context.with("elapsedMs", elapsed);
+    }
+
+    private String withElapsed(final String message, final long elapsed) {
+        final String normalized = Objects.requireNonNullElse(message, "");
+        return normalized.isBlank()
+                ? "elapsedMs=" + elapsed
+                : normalized + "; elapsedMs=" + elapsed;
     }
 
     private void emitRetained(
             final DiagnosticContext context,
             final DiagnosticLevel level,
             final String message) {
+        emitRetained(context, level, message, 0L);
+    }
+
+    private void emitRetained(
+            final DiagnosticContext context,
+            final DiagnosticLevel level,
+            final String message,
+            final long elapsedMillis) {
         if (!verbosity.includes(minimumVerbosity(level))) {
             return;
         }
-        emitLines(context, level, message, true);
+        emitLines(context, level, message, true, elapsedMillis);
     }
 
     private void emitLines(
@@ -331,6 +372,15 @@ public final class DiagnosticLog {
             final DiagnosticLevel level,
             final String message,
             final boolean retain) {
+        emitLines(context, level, message, retain, 0L);
+    }
+
+    private void emitLines(
+            final DiagnosticContext context,
+            final DiagnosticLevel level,
+            final String message,
+            final boolean retain,
+            final long elapsedMillis) {
         final String normalized = Objects.requireNonNullElse(message, "")
                 .replace("\r\n", "\n").replace('\r', '\n');
         final String[] lines = normalized.split("\n", -1);
@@ -338,7 +388,8 @@ public final class DiagnosticLog {
                 ? lines.length - 1 : lines.length;
         for (int index = 0; index < limit; index++) {
             final DiagnosticEvent event = new DiagnosticEvent(
-                    OffsetDateTime.now(clock), context, level, lines[index]);
+                    OffsetDateTime.now(clock), context, level, lines[index],
+                    elapsedMillis);
             if (retain) {
                 events.add(event);
             }

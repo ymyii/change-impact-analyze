@@ -41,17 +41,18 @@ class PreflightConsoleRendererTest {
         final String output = bytes.toString(StandardCharsets.UTF_8);
         assertThat(output)
                 .contains("[INFO][preflight][check]"
-                        + "[command=test;check=pass;")
-                .contains("status=PASS;decision=CONTINUE")
+                        + "[check=pass] passed; command=test;")
+                .contains("status=PASS; decision=CONTINUE; elapsedMs=")
                 .contains("[WARN][preflight][check]"
-                        + "[command=test;check=warn;")
-                .contains("status=WARN;decision=DEGRADE")
+                        + "[check=warn] degraded; command=test;")
+                .contains("status=WARN; decision=DEGRADE; elapsedMs=")
                 .contains("[ERROR][preflight][check]"
-                        + "[command=test;check=fail;")
-                .contains("status=FAIL;decision=BLOCK_COMMAND")
+                        + "[check=fail] failed; command=test;")
+                .contains("status=FAIL; decision=BLOCK_COMMAND; elapsedMs=")
                 .contains("[WARN][preflight][check]"
-                        + "[command=test;check=skipped;")
-                .contains("status=SKIPPED;decision=BLOCK_COMMAND")
+                        + "[check=skipped] Skipped because prerequisite"
+                        + " failed; command=test;")
+                .contains("status=SKIPPED; decision=BLOCK_COMMAND; elapsedMs=")
                 .contains("[WARN][preflight][fallback]", "fallback used");
         assertThat(output.lines()).allMatch(line -> line.matches(
                 "^\\[[^]]+]\\[(INFO|WARN|ERROR)]\\[preflight]"

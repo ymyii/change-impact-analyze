@@ -35,25 +35,24 @@ final class TreeDiagnosticEmitter {
     }
 
     void analysisStarted(final int totalReactors) {
-        log.info(DiagnosticContext.of("analysis", "summary")
-                        .with("status", "RUNNING")
-                        .with("reactors", totalReactors),
-                "Stage 2/3: Analysis");
+        log.info(DiagnosticContext.of("analysis", "summary"),
+                "Stage 2/3: Analysis; status=RUNNING; reactors="
+                        + totalReactors);
     }
 
     void analysisSkipped(final String reason) {
-        log.error(DiagnosticContext.of("analysis", "summary")
-                        .with("status", "SKIPPED"),
-                "Stage 2/3: Analysis; " + oneLine(reason));
+        log.error(DiagnosticContext.of("analysis", "summary"),
+                "Stage 2/3: Analysis; status=SKIPPED; reason="
+                        + oneLine(reason));
     }
 
     void reactorStarted(
             final int index,
             final int total,
             final String reactorId) {
-        log.info(reactorContext(index, total, reactorId)
-                        .with("status", "RUNNING"),
-                "Maven collection started");
+        log.info(reactorContext(reactorId),
+                "Maven collection started; progress=" + index + "/" + total
+                        + "; status=RUNNING");
     }
 
     void reactorCompleted(
@@ -61,46 +60,41 @@ final class TreeDiagnosticEmitter {
             final int total,
             final ReactorTreeResult result) {
         final DiagnosticContext context = reactorContext(
-                index, total, result.getReactor().getId())
-                .with("status", result.getStatus())
-                .with("modules", result.getModules().size());
-        emit(level(result.getStatus()), context, "Maven collection completed");
+                result.getReactor().getId());
+        emit(level(result.getStatus()), context,
+                "Maven collection completed; progress=" + index + "/" + total
+                        + "; status=" + result.getStatus()
+                        + "; modules=" + result.getModules().size());
     }
 
     void analysisCompleted(final List<TreeAnalysisIssue> issues) {
         final DiagnosticLevel summaryLevel = issues.isEmpty()
                 ? DiagnosticLevel.INFO : DiagnosticLevel.WARN;
-        emit(summaryLevel, DiagnosticContext.of("analysis", "summary")
-                        .with("status", issues.isEmpty()
-                                ? "SUCCESS" : "COMPLETED_WITH_ISSUES")
-                        .with("issues", issues.size()),
-                "Analysis completed");
+        emit(summaryLevel, DiagnosticContext.of("analysis", "summary"),
+                "Analysis completed; status=" + (issues.isEmpty()
+                        ? "SUCCESS" : "COMPLETED_WITH_ISSUES")
+                        + "; issues=" + issues.size());
         for (int index = 0; index < issues.size(); index++) {
             final TreeAnalysisIssue issue = issues.get(index);
             emit(level(issue.getStatus()),
                     DiagnosticContext.of("analysis", "issue")
-                            .with("reactor", issue.getReactorId())
-                            .with("status", issue.getStatus())
-                            .with("issue", index + 1),
-                    oneLine(issue.getReason()));
+                            .with("reactor", issue.getReactorId()),
+                    "Analysis issue; issue=" + (index + 1)
+                            + "; status=" + issue.getStatus()
+                            + "; reason=" + oneLine(issue.getReason()));
         }
     }
 
     void summary(final TreeRunSummary summary) {
         emit(level(summary.getStatus()),
-                DiagnosticContext.of("summary", "result")
-                        .with("status", summary.getStatus())
-                        .with("report", summary.getReport()),
-                "Stage 3/3: Summary");
+                DiagnosticContext.of("summary", "result"),
+                "Stage 3/3: Summary; status=" + summary.getStatus()
+                        + "; report=" + summary.getReport());
     }
 
-    private DiagnosticContext reactorContext(
-            final int index,
-            final int total,
-            final String reactorId) {
+    private DiagnosticContext reactorContext(final String reactorId) {
         return DiagnosticContext.of("analysis", "reactor")
-                .with("reactor", reactorId)
-                .with("progress", index + "/" + total);
+                .with("reactor", reactorId);
     }
 
     private DiagnosticLevel level(final ReactorStatus status) {

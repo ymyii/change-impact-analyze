@@ -13,14 +13,9 @@ public final class DiagnosticLogFormatter {
     private static final DateTimeFormatter TIMESTAMP =
             DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mm:ss.SSSXXX");
 
-    /** Canonical attribute order. */
+    /** Canonical prefix identity order. */
     private static final List<String> ATTRIBUTE_ORDER = List.of(
-            "command", "side", "reactor", "module", "artifact", "path",
-            "check", "scope", "scopeId", "progress", "status", "decision",
-            "elapsedMs", "sample", "pool", "core", "max", "size",
-            "active", "queued", "completed", "tasks", "shutdown",
-            "terminated", "heapUsedMiB", "heapCommittedMiB",
-            "heapMaxMiB");
+            "check", "reactor", "module", "artifact", "pool");
 
     /** Attribute ranks. */
     private static final Map<String, Integer> ATTRIBUTE_RANKS = ranks();

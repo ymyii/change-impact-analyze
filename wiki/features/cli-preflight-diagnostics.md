@@ -35,6 +35,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 
 - handled uncertainty 与 hard failure 分离：能够继续完成 Call Graph 的 coverage limitation 使用 `INCONCLUSIVE` 和 exit code `0`；无法建立可信 Module 结果的错误使用 `FAILED`/`PARTIAL_SUCCESS` 和 exit code `2`。
 - 外部 dependency 的 excluded JDK reference 使用 artifact-level `WARN`，而不是因为 JAR 内可能不可达的 class 阻断整个 Module；当前项目和 Reactor code 仍保持严格边界。
+- 五段 prefix 的第五段只承载当前 `stage/substage` 无法唯一表达的阶段实例或日志分类 identity；结果、观测值和其他实际日志信息使用 message 中的 `key=value`。
 
 ## Global Verbosity
 
@@ -74,11 +75,11 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 
 ## Diagnostics
 
-- `DiagnosticContext` 是 immutable identity，包含 `stage`、`substage` 和 ordered attributes。`side/module/artifact/path` 都是 attributes；不使用 thread name。
+- `DiagnosticContext` 是 immutable prefix identity，包含 `stage`、`substage` 和 ordered attributes；不使用 thread name。当前生产日志只使用 `check`、`reactor`、`module`、`artifact`、`pool` identity。
 - 每个物理行固定为 `[时间][日志级别][阶段][子阶段][额外信息] message`。时间使用带 offset、毫秒精度的 ISO 8601；level 始终显式为 `TRACE/DEBUG/INFO/WARN/ERROR`；缺失段使用 `[-]`。
-- 第五段使用 `key=value` 与 `;` 分隔。公共字段依次为 `command, side, reactor, module, artifact, path, check, scope, scopeId, progress, status, decision, elapsedMs`；Runtime Metrics 字段随后为 `sample, pool, core, max, size, active, queued, completed, tasks, shutdown, terminated, heapUsedMiB, heapCommittedMiB, heapMaxMiB`；扩展字段按 key 字典序追加。
+- 第五段只在 identity 必要时使用 `key=value` 与 `;` 分隔，canonical 顺序为 `check, reactor, module, artifact, pool`。`command`、`side`、path、scope、progress、status、decision、elapsed、计数、result 与 metrics value 禁止进入第五段；这些实际日志信息追加到 message。
 - `\\`、`;`、`=`、`[`、`]` 在 prefix 中统一转义。多行 message 和 stack trace 拆成独立物理行，每行重新添加完整 prefix。
-- `stageStarts` 以完整 context stable key 计时，同一 stage 的并发任务不会覆盖 elapsed。
+- `stageStarts` 以完整 identity stable key 计时，同一 stage 的并发任务不会覆盖 elapsed；完成或失败 event 独立保存 elapsed，并以 `elapsedMs=...` 输出到 message。
 - `INFO` 输出 front branch、Module task start/end；`DEBUG` 输出每个 logical coordinate JAR pair start/end；`TRACE` 输出筛选后的 command/path evidence，不输出 credential、settings 内容或完整 user arguments。
 - 外部 dependency scope warning 使用 `[scope-validation][module][module=…][artifact=…]` context；每个 artifact 一条，warning text 同时进入 Module `Coverage limitations`。
 - Analyzer Diagnostic event 默认 retained，可进入 `impact` HTML Diagnostics。Preflight evidence/fallback、Maven output、exception stack trace 与 Runtime Metrics 是 transient，只进入 Console。
@@ -87,7 +88,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 示例：
 
 ```text
-[2026-08-05T14:30:01.123+08:00][INFO][analysis][reactor][reactor=root;progress=1/2;status=SUCCESS] Maven collection completed
+[2026-08-05T14:30:01.123+08:00][INFO][analysis][reactor][reactor=root] Maven collection completed; progress=1/2; status=SUCCESS; modules=8
 ```
 
 ## Runtime Metrics
@@ -95,6 +96,6 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - 生命周期从 Picocli 成功 dispatch 到 `impact`/`tree` 的 `call()` 开始，到 command 返回结束。Help、usage 和参数解析失败不启动采样。
 - `INFO`/`DEBUG` 使用 no-op session；不创建 scheduler、不读取 heap、不输出 metrics。
 - `TRACE` 使用 command-scoped daemon scheduler：启动时立即采样，之后每 10 秒 fixed-delay 采样；所有 normal return、early return 和 exception path 都通过 `close()` 停止。
-- Heap 行使用 `stage=runtime-metrics, substage=heap`，通过 `MemoryMXBean.getHeapMemoryUsage()` 输出 `used/committed/max` MiB，保留 1 位小数。
-- 当前注册的每个 Analyzer-owned pool 单独使用 `stage=runtime-metrics, substage=thread-pool` 输出。Registry 只包含 `front-preparation`、`jar-diff`、`module-analysis`、`code-comparison`；scheduler、process-output pump、JVM common pool、WALA internal thread 和 Maven external process 不注册。
-- 单次采样异常只输出 TRACE transient sampler event；不会改变 command status、Report 或 exit code。
+- Heap 行使用 `stage=runtime-metrics, substage=heap` 和空第五段；`sample/elapsedMs/heapUsedMiB/heapCommittedMiB/heapMaxMiB` 位于 message，MiB 保留 1 位小数。
+- 当前注册的每个 Analyzer-owned pool 单独使用 `stage=runtime-metrics, substage=thread-pool`，第五段只保留 `pool` identity；sample、elapsed、pool size、task count 和 lifecycle value 位于 message。Registry 只包含 `front-preparation`、`jar-diff`、`module-analysis`、`code-comparison`；scheduler、process-output pump、JVM common pool、WALA internal thread 和 Maven external process 不注册。
+- 单次采样异常使用 `stage=runtime-metrics, substage=sampler` 和空第五段；sample、elapsed 与 error 位于 TRACE transient message，不会改变 command status、Report 或 exit code。

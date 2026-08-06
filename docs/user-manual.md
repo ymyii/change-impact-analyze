@@ -47,12 +47,12 @@ Global options 可放在 subcommand 前或后：
 | `-a` | `--maven-arg=<token>` | 重复传入一个 Maven option/property token，例如 `--maven-arg=-Pprod`。 |
 | `-v` | `--verbose` | 提升日志级别；默认 `INFO`，`-v` 为 `DEBUG`，`-vv` 为 `TRACE`。可放在 subcommand 前或后。 |
 
-`--verbose --verbose` 与 `-vv` 等价。Analyzer 运行日志统一写入 stderr，每个物理行固定为 `[时间][日志级别][阶段][子阶段][额外信息] message`；缺失段使用 `[-]`。`INFO` 输出稳定的 stage、progress、warning 和 error，Maven subprocess 只透传 warning/error；`DEBUG` 额外输出 analysis option/decision、完整 Maven subprocess output，并在异常时逐行输出带完整 prefix 的 stack trace；`TRACE` 再输出 normalized path、ref、scope，以及启动后立即采样、随后每 10 秒采样的 Runtime Metrics。Picocli help/usage、参数解析错误和第三方库直接写入 stderr 的内容不保证五段 prefix。
+`--verbose --verbose` 与 `-vv` 等价。Analyzer 运行日志统一写入 stderr，每个物理行固定为 `[时间][日志级别][阶段][子阶段][额外信息] message`；缺失段使用 `[-]`。第五段只包含当前四段无法唯一表达的阶段实例或日志分类 identity，当前为 `check/reactor/module/artifact/pool`；status、progress、elapsed、path、计数和 metrics value 等实际日志信息使用 message 中的 `key=value`。`INFO` 输出稳定的 stage、progress、warning 和 error，Maven subprocess 只透传 warning/error；`DEBUG` 额外输出 analysis option/decision、完整 Maven subprocess output，并在异常时逐行输出带完整 prefix 的 stack trace；`TRACE` 再输出 normalized path、ref、scope，以及启动后立即采样、随后每 10 秒采样的 Runtime Metrics。Picocli help/usage、参数解析错误和第三方库直接写入 stderr 的内容不保证五段 prefix。
 
-`-vv` Runtime Metrics 包含 heap `used/committed/max` MiB，以及当前 Analyzer-owned `front-preparation`、`jar-diff`、`module-analysis`、`code-comparison` thread pool 的 core/max/size/active/queued/completed/tasks 和 lifecycle 状态。`-v` 不创建 metrics scheduler，也不输出 metrics。Runtime Metrics、Maven output、Preflight evidence/fallback 和 stack trace 只进入 Console，不进入 HTML Diagnostics；HTML Diagnostics 与 Console 对 retained event 使用相同 timestamp 和 prefix。
+`-vv` Runtime Metrics 包含 heap `used/committed/max` MiB，以及当前 Analyzer-owned `front-preparation`、`jar-diff`、`module-analysis`、`code-comparison` thread pool 的 core/max/size/active/queued/completed/tasks 和 lifecycle 状态。Heap 第五段为空；thread-pool 第五段只包含 `pool` identity；sample、elapsed 和全部指标值位于 message。`-v` 不创建 metrics scheduler，也不输出 metrics。Runtime Metrics、Maven output、Preflight evidence/fallback 和 stack trace 只进入 Console，不进入 HTML Diagnostics；HTML Diagnostics 与 Console 对 retained event 使用相同 timestamp 和 prefix。
 
 ```text
-[2026-08-05T14:30:01.123+08:00][INFO][analysis][reactor][reactor=root;progress=1/2;status=SUCCESS] Maven collection completed
+[2026-08-05T14:30:01.123+08:00][INFO][analysis][reactor][reactor=root] Maven collection completed; progress=1/2; status=SUCCESS; modules=8
 ```
 
 ## 3. Maven Runtime
@@ -434,7 +434,7 @@ JAR 内置 `maven-dependency-plugin:3.6.1` 及其完整传递依赖 repository�
 
 ### 7.1 Console 进度
 
-`tree` Console 固定为 `Preflight → Analysis → Summary`，全部使用五段 Diagnostic prefix。Analysis 中每个 reactor 的 start/result 使用 `stage=analysis, substage=reactor`；`SUCCESS` 为 `INFO`，degraded/issue 为 `WARN`，failed 为 `ERROR`。Maven collection 默认只转发 warning/error，`-v/-vv` 转发全部非空行；failure evidence 保留最后 100 行。Summary 通过第五段输出 `status` 与 `report`。
+`tree` Console 固定为 `Preflight → Analysis → Summary`，全部使用五段 Diagnostic prefix。Analysis 中每个 reactor 的 start/result 使用 `stage=analysis, substage=reactor`，第五段只保留 `reactor` identity；`SUCCESS` 为 `INFO`，degraded/issue 为 `WARN`，failed 为 `ERROR`。Maven collection 默认只转发 warning/error，`-v/-vv` 转发全部非空行；failure evidence 保留最后 100 行。Summary 第五段为空，`status` 与 `report` 位于 message。
 
 ## 8. Preflight Status、Decision 与 Exit Code
 
@@ -505,8 +505,10 @@ Analyzer 与 Artifact Path Plugin 使用独立 SemVer。日常开发在下一次
 
 ```sh
 mvn -f plugins/pom.xml clean install
-TEST_JDK8_HOME=/absolute/path/to/jdk8 mvn clean verify
+mvn clean verify
 ```
+
+Root POM 的 `test.jdk8.home` 默认指向 `/absolute/path/to/jdk8`。其他环境使用 `-Dtest.jdk8.home=/absolute/path/to/jdk8` 覆盖；Surefire/Failsafe 自动向 test JVM 注入 `TEST_JDK8_HOME`，执行 Maven 前无需设置该环境变量。
 
 Version 修改完全使用 Versions Maven Plugin。例如切换 Plugin stable version：
 
@@ -521,8 +523,7 @@ mvn -f plugins/pom.xml versions:set-property \
 
 ```sh
 mvn -f plugins/pom.xml -Prelease clean install
-TEST_JDK8_HOME=/absolute/path/to/jdk8 \
-  mvn -Prelease clean verify
+mvn -Prelease clean verify
 java -jar target/dependency-analyzer.jar --version
 ```
 
@@ -539,7 +540,7 @@ Repository 内置 Git 管理的中型 `impact` benchmark。它从 source 生成 
 
 ```sh
 mvn -f plugins/pom.xml clean install
-TEST_JDK8_HOME=/absolute/path/to/jdk8 mvn package
+mvn package
 JAVA8_HOME=/absolute/path/to/jdk8 \
   benchmarks/impact-medium/run-benchmark.sh candidate-01
 ```

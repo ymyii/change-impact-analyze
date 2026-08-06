@@ -93,6 +93,9 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
+                    <environmentVariables>
+                        <TEST_JDK8_HOME>${test.jdk8.home}</TEST_JDK8_HOME>
+                    </environmentVariables>
                     <systemPropertyVariables>
                         <cia.analyzerVersion>${revision}</cia.analyzerVersion>
                         <cia.artifactPathPluginVersion>${artifact-path-plugin.version}</cia.artifactPathPluginVersion>
@@ -148,6 +151,9 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
                 <configuration>
+                    <environmentVariables>
+                        <TEST_JDK8_HOME>${test.jdk8.home}</TEST_JDK8_HOME>
+                    </environmentVariables>
                     <systemPropertyVariables>
                         <cia.packagedJar>${maven.multiModuleProjectDirectory}/target/dependency-analyzer.jar</cia.packagedJar>
                         <cia.analyzerVersion>${revision}</cia.analyzerVersion>

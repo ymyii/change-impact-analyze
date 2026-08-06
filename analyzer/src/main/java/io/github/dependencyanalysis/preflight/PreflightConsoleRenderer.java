@@ -17,26 +17,26 @@ public final class PreflightConsoleRenderer {
     public void render(
             final PreflightReport report,
             final DiagnosticLog log) {
-        log.transientLog(DiagnosticContext.of("preflight", "summary")
-                        .with("status", report.blocksCommand()
-                                ? "BLOCKED" : "READY"),
+        log.transientLog(DiagnosticContext.of("preflight", "summary"),
                 report.blocksCommand()
                         ? DiagnosticLevel.ERROR : DiagnosticLevel.INFO,
                 LogVerbosity.INFO,
-                "Preflight checks=" + report.getResults().size());
+                "Preflight checks=" + report.getResults().size()
+                        + "; status=" + (report.blocksCommand()
+                        ? "BLOCKED" : "READY"));
         for (PreflightResult result : report.getResults()) {
             final DiagnosticContext context = DiagnosticContext.of(
                     "preflight", "check")
-                    .with("command", result.getCommand())
-                    .with("check", result.getCheckId())
-                    .with("scope", result.getScope())
-                    .with("scopeId", result.getScopeId())
-                    .with("status", result.getStatus())
-                    .with("decision", result.getDecision())
-                    .with("elapsedMs", result.getElapsedMillis());
+                    .with("check", result.getCheckId());
             final DiagnosticLevel level = level(result.getStatus());
             log.transientLog(context, level, LogVerbosity.INFO,
-                    result.getSummary());
+                    result.getSummary()
+                            + "; command=" + result.getCommand()
+                            + "; scope=" + result.getScope()
+                            + "; scopeId=" + result.getScopeId()
+                            + "; status=" + result.getStatus()
+                            + "; decision=" + result.getDecision()
+                            + "; elapsedMs=" + result.getElapsedMillis());
             if (!result.getEvidence().isBlank()) {
                 log.transientLog(context.withSubstage("evidence"), level,
                         LogVerbosity.INFO, result.getEvidence());

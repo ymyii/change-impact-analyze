@@ -6,7 +6,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Immutable stage, substage, and attribute identity for diagnostics.
+ * Immutable stage, substage, and prefix identity for diagnostics.
  *
  * @param stage diagnostic stage
  * @param substage diagnostic substage
@@ -66,7 +66,16 @@ public record DiagnosticContext(
         return new DiagnosticContext(stage, value, attributes);
     }
 
-    /** @return copy with one attribute */
+    /**
+     * Adds one prefix identity attribute.
+     *
+     * <p>Actual results, measurements, paths, and counts belong in the log
+     * message rather than the prefix identity.</p>
+     *
+     * @param key identity key
+     * @param value identity value
+     * @return copy with one identity attribute
+     */
     public DiagnosticContext with(
             final String key,
             final Object value) {

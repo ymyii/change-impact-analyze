@@ -524,12 +524,8 @@ final class PerModuleImpactPipeline {
                 .withDiagnosticContext("baseline".equals(side)
                         ? DiagnosticContext.of(
                         "front", "baseline-dependency")
-                        .withSide(side)
-                        .withPath(scope.getReactorRoot().toString())
                         : DiagnosticContext.of(
-                        "dependency", "target-dependency")
-                        .withSide(side)
-                        .withPath(scope.getReactorRoot().toString()));
+                        "dependency", "target-dependency"));
     }
 
     private BuildResult build(final ReactorAnalysisScope scope)
@@ -541,9 +537,7 @@ final class PerModuleImpactPipeline {
                 mavenArguments)
                 .withProjectArguments(scope.getProjectArguments())
                 .withDiagnosticContext(DiagnosticContext.of(
-                        "front", "target-build")
-                        .withSide("target")
-                        .withPath(scope.getReactorRoot().toString()))
+                        "front", "target-build"))
                 .build();
     }
 

@@ -70,8 +70,9 @@ class RuntimeMetricsSessionTest {
                 .filter(line -> line.contains("Sampling failed")))
                 .hasSize(2);
         assertThat(bytes.toString(StandardCharsets.UTF_8))
-                .contains("[TRACE][runtime-metrics][sampler]")
-                .contains("IllegalStateException: unavailable");
+                .contains("[TRACE][runtime-metrics][sampler][-]"
+                        + " Sampling failed; sample=1; elapsedMs=")
+                .contains("error=IllegalStateException: unavailable");
         assertThat(log.getEvents()).isEmpty();
     }
 
@@ -92,7 +93,8 @@ class RuntimeMetricsSessionTest {
         session.close();
 
         assertThat(bytes.toString(StandardCharsets.UTF_8))
-                .contains("[TRACE][runtime-metrics][heap]")
+                .contains("[TRACE][runtime-metrics][heap][-]"
+                        + " Runtime metrics snapshot; sample=")
                 .contains("heapUsedMiB=")
                 .contains("heapCommittedMiB=")
                 .contains("heapMaxMiB=");
@@ -125,10 +127,10 @@ class RuntimeMetricsSessionTest {
         session.sample();
         final String sampled = bytes.toString(StandardCharsets.UTF_8);
         assertThat(sampled)
-                .contains("[TRACE][runtime-metrics][thread-pool]")
-                .contains("pool=module-analysis")
-                .contains("core=1;max=1;size=1;active=1;queued=1")
-                .contains("shutdown=false;terminated=false");
+                .contains("[TRACE][runtime-metrics][thread-pool]"
+                        + "[pool=module-analysis] Runtime metrics snapshot;")
+                .contains("core=1; max=1; size=1; active=1; queued=1")
+                .contains("shutdown=false; terminated=false");
 
         session.close();
         final int closedLength = bytes.size();

@@ -130,12 +130,13 @@ public final class RuntimeMetricsSession implements AutoCloseable {
             }
         } catch (RuntimeException failure) {
             final DiagnosticContext context = DiagnosticContext.of(
-                    "runtime-metrics", "sampler")
-                    .with("sample", sample)
-                    .with("elapsedMs", elapsedMillis);
+                    "runtime-metrics", "sampler");
             log.transientLog(context, DiagnosticLevel.TRACE,
                     LogVerbosity.TRACE,
-                    "Sampling failed: " + failure.getClass().getSimpleName()
+                    "Sampling failed; sample=" + sample
+                            + "; elapsedMs=" + elapsedMillis
+                            + "; error="
+                            + failure.getClass().getSimpleName()
                             + ": " + failure.getMessage());
         }
     }
@@ -145,14 +146,15 @@ public final class RuntimeMetricsSession implements AutoCloseable {
             final long elapsedMillis,
             final MemoryUsage heap) {
         final DiagnosticContext context = DiagnosticContext.of(
-                "runtime-metrics", "heap")
-                .with("elapsedMs", elapsedMillis)
-                .with("sample", sample)
-                .with("heapUsedMiB", mebibytes(heap.getUsed()))
-                .with("heapCommittedMiB", mebibytes(heap.getCommitted()))
-                .with("heapMaxMiB", mebibytes(heap.getMax()));
+                "runtime-metrics", "heap");
         log.transientLog(context, DiagnosticLevel.TRACE,
-                LogVerbosity.TRACE, "Runtime metrics snapshot");
+                LogVerbosity.TRACE,
+                "Runtime metrics snapshot; sample=" + sample
+                        + "; elapsedMs=" + elapsedMillis
+                        + "; heapUsedMiB=" + mebibytes(heap.getUsed())
+                        + "; heapCommittedMiB="
+                        + mebibytes(heap.getCommitted())
+                        + "; heapMaxMiB=" + mebibytes(heap.getMax()));
     }
 
     private void emitPool(
@@ -161,20 +163,20 @@ public final class RuntimeMetricsSession implements AutoCloseable {
             final ManagedExecutorRegistry.ExecutorMetrics pool) {
         final DiagnosticContext context = DiagnosticContext.of(
                 "runtime-metrics", "thread-pool")
-                .with("elapsedMs", elapsedMillis)
-                .with("sample", sample)
-                .with("pool", pool.name())
-                .with("core", pool.corePoolSize())
-                .with("max", pool.maximumPoolSize())
-                .with("size", pool.poolSize())
-                .with("active", pool.activeCount())
-                .with("queued", pool.queuedTaskCount())
-                .with("completed", pool.completedTaskCount())
-                .with("tasks", pool.taskCount())
-                .with("shutdown", pool.shutdown())
-                .with("terminated", pool.terminated());
+                .with("pool", pool.name());
         log.transientLog(context, DiagnosticLevel.TRACE,
-                LogVerbosity.TRACE, "Runtime metrics snapshot");
+                LogVerbosity.TRACE,
+                "Runtime metrics snapshot; sample=" + sample
+                        + "; elapsedMs=" + elapsedMillis
+                        + "; core=" + pool.corePoolSize()
+                        + "; max=" + pool.maximumPoolSize()
+                        + "; size=" + pool.poolSize()
+                        + "; active=" + pool.activeCount()
+                        + "; queued=" + pool.queuedTaskCount()
+                        + "; completed=" + pool.completedTaskCount()
+                        + "; tasks=" + pool.taskCount()
+                        + "; shutdown=" + pool.shutdown()
+                        + "; terminated=" + pool.terminated());
     }
 
     private String mebibytes(final long bytes) {

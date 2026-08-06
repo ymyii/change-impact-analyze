@@ -316,8 +316,7 @@ final class TreePreflightService {
                                 .getRoot(),
                         List.of("--version"), diagnostics,
                         DiagnosticContext.of(
-                                "preflight", "maven-version")
-                                .with("command", "tree"),
+                                "preflight", "maven-version"),
                         MAVEN_TAIL_LINES);
         if (result.getExitCode() != 0) {
             return PreflightOutcome.fail(
