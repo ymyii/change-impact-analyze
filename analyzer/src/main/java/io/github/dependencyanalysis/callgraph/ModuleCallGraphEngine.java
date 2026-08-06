@@ -14,7 +14,6 @@ import com.ibm.wala.ipa.callgraph.IAnalysisCacheView;
 import com.ibm.wala.ipa.callgraph.impl.Util;
 import com.ibm.wala.ipa.callgraph.propagation.SSAPropagationCallGraphBuilder;
 import com.ibm.wala.ipa.callgraph.propagation.cfa.ZeroXCFABuilder;
-import com.ibm.wala.ipa.callgraph.propagation.cfa.ZeroXInstanceKeys;
 import com.ibm.wala.ipa.cha.ClassHierarchyException;
 import com.ibm.wala.ipa.cha.ClassHierarchyFactory;
 import com.ibm.wala.ipa.cha.IClassHierarchy;
@@ -41,20 +40,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.jar.JarFile;
 
-/** Builds one independent optimized 0-1-CFA graph per analysis module. */
+/** Builds one selected WALA Call Graph per analysis module. */
 public final class ModuleCallGraphEngine {
-
-    /** Stable algorithm identifier exposed in diagnostics. */
-    private static final String ALGORITHM = "optimized-0-1-cfa";
-
-    /** Allocation precision retained around WALA's safe smushing policies. */
-    private static final int OPTIMIZED_INSTANCE_POLICY =
-            ZeroXInstanceKeys.ALLOCATIONS
-                    | ZeroXInstanceKeys.CONSTANT_SPECIFIC
-                    | ZeroXInstanceKeys.SMUSH_MANY
-                    | ZeroXInstanceKeys.SMUSH_PRIMITIVE_HOLDERS
-                    | ZeroXInstanceKeys.SMUSH_STRINGS
-                    | ZeroXInstanceKeys.SMUSH_THROWABLES;
 
     /** Duplicate winner examples retained in one warning. */
     private static final int MAX_DUPLICATE_EXAMPLES = 3;
@@ -67,6 +54,9 @@ public final class ModuleCallGraphEngine {
 
     /** User-selected PROJECT root boundary. */
     private final EntrypointSelection entrypointSelection;
+
+    /** Command-wide Call Graph algorithm. */
+    private final CallGraphAlgorithm algorithm;
 
     /** Command-scoped dependency repository. */
     private final IJarRepository jarRepository;
@@ -86,7 +76,25 @@ public final class ModuleCallGraphEngine {
             final JavaRuntimeDescriptor runtime,
             final IJarRepository repository) {
         this(collector, runtime, EntrypointSelection.allProjectClasses(),
-                repository,
+                CallGraphAlgorithm.defaultAlgorithm(), repository,
+                InvokeDynamicBootstrapModelRegistry.jdk8Defaults());
+    }
+
+    /**
+     * Creates an engine with an explicit Call Graph algorithm.
+     *
+     * @param collector diagnostics
+     * @param runtime target JDK runtime
+     * @param selectedAlgorithm Call Graph algorithm
+     * @param repository dependency repository
+     */
+    public ModuleCallGraphEngine(
+            final DiagnosticLog collector,
+            final JavaRuntimeDescriptor runtime,
+            final CallGraphAlgorithm selectedAlgorithm,
+            final IJarRepository repository) {
+        this(collector, runtime, EntrypointSelection.allProjectClasses(),
+                selectedAlgorithm, repository,
                 InvokeDynamicBootstrapModelRegistry.jdk8Defaults());
     }
 
@@ -108,6 +116,25 @@ public final class ModuleCallGraphEngine {
     }
 
     /**
+     * Creates an engine with explicit roots and Call Graph algorithm.
+     *
+     * @param collector diagnostics
+     * @param runtime target JDK runtime
+     * @param selection entrypoint class selection
+     * @param selectedAlgorithm Call Graph algorithm
+     * @param repository dependency repository
+     */
+    public ModuleCallGraphEngine(
+            final DiagnosticLog collector,
+            final JavaRuntimeDescriptor runtime,
+            final EntrypointSelection selection,
+            final CallGraphAlgorithm selectedAlgorithm,
+            final IJarRepository repository) {
+        this(collector, runtime, selection, selectedAlgorithm, repository,
+                InvokeDynamicBootstrapModelRegistry.jdk8Defaults());
+    }
+
+    /**
      * Creates an engine with an explicit invokedynamic model registry.
      *
      * @param collector diagnostics
@@ -122,9 +149,32 @@ public final class ModuleCallGraphEngine {
             final EntrypointSelection selection,
             final IJarRepository repository,
             final InvokeDynamicBootstrapModelRegistry models) {
+        this(collector, runtime, selection,
+                CallGraphAlgorithm.defaultAlgorithm(), repository, models);
+    }
+
+    /**
+     * Creates an engine with an explicit algorithm and dynamic registry.
+     *
+     * @param collector diagnostics
+     * @param runtime target JDK runtime
+     * @param selection entrypoint class selection
+     * @param selectedAlgorithm Call Graph algorithm
+     * @param repository dependency repository
+     * @param models exact invokedynamic models
+     */
+    public ModuleCallGraphEngine(
+            final DiagnosticLog collector,
+            final JavaRuntimeDescriptor runtime,
+            final EntrypointSelection selection,
+            final CallGraphAlgorithm selectedAlgorithm,
+            final IJarRepository repository,
+            final InvokeDynamicBootstrapModelRegistry models) {
         diagnostics = Objects.requireNonNull(collector, "collector");
         javaRuntime = Objects.requireNonNull(runtime, "runtime");
         entrypointSelection = Objects.requireNonNull(selection, "selection");
+        algorithm = Objects.requireNonNull(
+                selectedAlgorithm, "selectedAlgorithm");
         jarRepository = Objects.requireNonNull(repository, "repository");
         dynamicModels = Objects.requireNonNull(models, "models");
     }
@@ -184,14 +234,14 @@ public final class ModuleCallGraphEngine {
                     AnalysisOptions.ReflectionOptions.FULL);
             final IAnalysisCacheView cache = new AnalysisCacheImpl(
                     SSAOptions.defaultOptions());
-            // Wiki: wiki/features/call-graph-engine.md - optimized builder.
+            // Wiki: wiki/features/call-graph-engine.md - selected builder.
             Util.addDefaultSelectors(options, hierarchy);
             Util.addDefaultBypassLogic(options,
                     Util.class.getClassLoader(), hierarchy);
             final SSAPropagationCallGraphBuilder builder =
                     ZeroXCFABuilder.make(
                             Language.JAVA, hierarchy, options, cache,
-                            null, null, OPTIMIZED_INSTANCE_POLICY);
+                            null, null, algorithm.instancePolicy());
             MethodHandles.analyzeMethodHandles(options, builder);
             final InvokeDynamicModelState dynamicState =
                     new InvokeDynamicModelState();
@@ -199,7 +249,8 @@ public final class ModuleCallGraphEngine {
                     options.getMethodTargetSelector(), dynamicModels,
                     dynamicState));
             final ServiceLoaderFixedPointModel serviceLoader =
-                    ServiceLoaderFixedPointModel.create(scope, hierarchy);
+                    ServiceLoaderFixedPointModel.create(
+                            scope, hierarchy, algorithm);
             serviceLoader.install(builder);
             final com.ibm.wala.ipa.callgraph.CallGraph graph;
             final Duration remaining = remainingTimeout(
@@ -231,7 +282,8 @@ public final class ModuleCallGraphEngine {
                     entrypoints);
             final int selectedClasses =
                     entrypointIndex.selectedClassNames().size();
-            diagnostics.info(context, "algorithm=" + ALGORITHM + "; nodes="
+            diagnostics.info(context, "algorithm="
+                    + algorithm.identifier() + "; nodes="
                     + stats.methodCount() + "; edges="
                     + stats.edgeCount() + "; entrypoints="
                     + entrypoints.size());

@@ -1,5 +1,6 @@
 package io.github.dependencyanalysis.cli;
 
+import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
 import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 
 import org.junit.jupiter.api.Test;
@@ -117,6 +118,8 @@ class DependencyAnalyzerCliTest {
                 .contains("-f, --format")
                 .contains("-k, --include-change-kinds")
                 .contains("--analysis-parallelism")
+                .contains("--call-graph-algorithm")
+                .contains("zero-cfa or optimized-0-1-cfa")
                 .contains("--entrypoint-include")
                 .contains("--entrypoint-exclude")
                 .contains("--analysis-target");
@@ -206,6 +209,44 @@ class DependencyAnalyzerCliTest {
     }
 
     @Test
+    void callGraphAlgorithmDefaultsAndParsesCaseInsensitively() {
+        final CommandLine defaultCommand = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli());
+        final CommandLine explicitCommand = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli());
+
+        final CommandLine.ParseResult defaultResult =
+                defaultCommand.parseArgs("impact", "--baseline", "HEAD",
+                        "--output", "report.html");
+        final CommandLine.ParseResult explicitResult =
+                explicitCommand.parseArgs("impact", "--baseline", "HEAD",
+                        "--output", "report.html",
+                        "--call-graph-algorithm", "OPTIMIZED-0-1-CFA");
+
+        assertThat(algorithm(defaultResult))
+                .isEqualTo(CallGraphAlgorithm.ZERO_CFA);
+        assertThat(algorithm(explicitResult))
+                .isEqualTo(CallGraphAlgorithm.OPTIMIZED_ZERO_ONE_CFA);
+    }
+
+    @Test
+    void unknownCallGraphAlgorithmIsRejectedBeforePreflight() {
+        final CommandLine command = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli());
+        final StringWriter errors = new StringWriter();
+        command.setErr(new PrintWriter(errors));
+
+        final int code = command.execute("impact", "--baseline", "HEAD",
+                "--output", "report.html", "--call-graph-algorithm",
+                "zerocfa");
+
+        assertThat(code).isEqualTo(1);
+        assertThat(errors.toString())
+                .contains("zero-cfa, optimized-0-1-cfa")
+                .doesNotContain("[preflight]");
+    }
+
+    @Test
     void repeatedVerboseFlagSelectsLogLevel() {
         final DependencyAnalyzerCli defaultRoot =
                 new DependencyAnalyzerCli();
@@ -227,5 +268,11 @@ class DependencyAnalyzerCliTest {
                 .isEqualTo(LogVerbosity.DEBUG);
         assertThat(traceRoot.getLogVerbosity())
                 .isEqualTo(LogVerbosity.TRACE);
+    }
+
+    private CallGraphAlgorithm algorithm(
+            final CommandLine.ParseResult result) {
+        return result.subcommand().commandSpec()
+                .findOption("--call-graph-algorithm").getValue();
     }
 }

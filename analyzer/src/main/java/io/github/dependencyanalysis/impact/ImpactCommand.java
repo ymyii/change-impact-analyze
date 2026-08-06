@@ -3,6 +3,8 @@ package io.github.dependencyanalysis.impact;
 import io.github.dependencyanalysis.bytecode
         .ChangePointKind;
 import io.github.dependencyanalysis.callgraph
+        .CallGraphAlgorithm;
+import io.github.dependencyanalysis.callgraph
         .EntrypointSelection;
 import io.github.dependencyanalysis.cli
         .DependencyAnalyzerCli;
@@ -97,6 +99,14 @@ public final class ImpactCommand
             description = "Maximum concurrent Module, JAR diff, and "
                     + "decompilation tasks.")
     private int analysisParallelism;
+
+    /** Command-wide Call Graph algorithm. */
+    @Option(names = "--call-graph-algorithm",
+            defaultValue = "zero-cfa",
+            converter = CallGraphAlgorithmConverter.class,
+            description = "Call Graph algorithm: zero-cfa or "
+                    + "optimized-0-1-cfa; default: zero-cfa.")
+    private CallGraphAlgorithm callGraphAlgorithm;
 
     /** Included PROJECT entrypoint classes. */
     @Option(names = "--entrypoint-include",
@@ -218,6 +228,7 @@ public final class ImpactCommand
                                     CommandRunDirectory.class)
                                     .getTemporaryDirectory(),
                             entrypointSelection,
+                            callGraphAlgorithm,
                             metrics.executors())).run(
                     context.get(
                             ImpactPreflightService

@@ -166,7 +166,7 @@ class WalaFixedPointModelsTest {
     }
 
     @Test
-    void reportsOptimizedZeroOneCfaAlgorithm() throws Exception {
+    void reportsSelectedCallGraphAlgorithm() throws Exception {
         final Path classes = compile("AlgorithmDiagnostic", """
                 public class AlgorithmDiagnostic {
                     public void run() { }
@@ -178,19 +178,18 @@ class WalaFixedPointModelsTest {
                 new ModuleChangeSet(List.of(), List.of()));
         final JavaRuntimeDescriptor runtime = new Jdk8RuntimeProvider()
                 .probe(Path.of(System.getenv("TEST_JDK8_HOME")));
-        final DiagnosticLog collector = diagnostics();
-
-        try (IJarRepository repository = TestJarRepositories.empty()) {
-            new ModuleCallGraphEngine(collector, runtime,
-                    EntrypointSelection.allProjectClasses(), repository)
-                    .build(unit, GRAPH_TIMEOUT_SECONDS);
+        for (CallGraphAlgorithm algorithm : CallGraphAlgorithm.values()) {
+            final DiagnosticLog collector = diagnostics();
+            try (IJarRepository repository = TestJarRepositories.empty()) {
+                new ModuleCallGraphEngine(collector, runtime,
+                        EntrypointSelection.allProjectClasses(), algorithm,
+                        repository).build(unit, GRAPH_TIMEOUT_SECONDS);
+            }
+            assertThat(collector.getEvents())
+                    .anySatisfy(event -> assertThat(event.getMessage())
+                            .startsWith("algorithm="
+                                    + algorithm.identifier() + ";"));
         }
-
-        assertThat(collector.getEvents())
-                .anySatisfy(event -> assertThat(event.getMessage())
-                        .startsWith("algorithm=optimized-0-1-cfa;"))
-                .allSatisfy(event -> assertThat(event.getMessage())
-                        .doesNotContain("vanilla-0-1-cfa"));
     }
 
     @Test
@@ -351,6 +350,103 @@ class WalaFixedPointModelsTest {
                     "MultipleServices$SecondProvider", "run")).isTrue();
             assertThat(hasEdge(session, "MultipleServices", "second",
                     "MultipleServices$FirstProvider", "run")).isFalse();
+        }
+    }
+
+    @Test
+    void zeroCfaConstantKeysPreserveServiceLoaderProviderPaths()
+            throws Exception {
+        final Path classes = compile("ZeroCfaServices", """
+                import java.util.ServiceLoader;
+                public class ZeroCfaServices {
+                    public interface First { void run(); }
+                    public interface Second { void run(); }
+                    public static class FirstProvider implements First {
+                        public FirstProvider() { }
+                        public void run() { }
+                    }
+                    public static class SecondProvider implements Second {
+                        public SecondProvider() { }
+                        public void run() { }
+                    }
+                    public void first() {
+                        ServiceLoader.load(First.class)
+                                .iterator().next().run();
+                    }
+                    public void second() {
+                        ServiceLoader.load(Second.class)
+                                .iterator().next().run();
+                    }
+                }
+                """);
+        writeServiceResource(classes, "ZeroCfaServices$First",
+                "ZeroCfaServices$FirstProvider\n");
+        writeServiceResource(classes, "ZeroCfaServices$Second",
+                "ZeroCfaServices$SecondProvider\n");
+
+        try (IJarRepository repository = TestJarRepositories.empty()) {
+            final ModuleCallGraphSession session = build(
+                    classes, repository, CallGraphAlgorithm.ZERO_CFA);
+            assertThat(hasEdge(session, "ZeroCfaServices", "first",
+                    "ZeroCfaServices$FirstProvider", "run")).isTrue();
+            assertThat(hasEdge(session, "ZeroCfaServices", "second",
+                    "ZeroCfaServices$SecondProvider", "run"))
+                    .as("relevant edges: %s", serviceEdges(session))
+                    .isTrue();
+            assertThat(hasEdge(session, "ZeroCfaServices", "first",
+                    "ZeroCfaServices$SecondProvider", "run")).isFalse();
+            assertThat(hasEdge(session, "ZeroCfaServices", "second",
+                    "ZeroCfaServices$FirstProvider", "run")).isFalse();
+            assertThat(session.getModelLimitations()).isEmpty();
+        }
+    }
+
+    @Test
+    void zeroCfaClassBasedServiceLoaderReceiverUsesProviderUnion()
+            throws Exception {
+        final Path classes = compile("ZeroCfaAggregateServices", """
+                import java.util.ServiceLoader;
+                public class ZeroCfaAggregateServices {
+                    public interface Action { void run(); }
+                    public interface First extends Action { }
+                    public interface Second extends Action { }
+                    public static class FirstProvider implements First {
+                        public FirstProvider() { }
+                        public void run() { }
+                    }
+                    public static class SecondProvider implements Second {
+                        public SecondProvider() { }
+                        public void run() { }
+                    }
+                    public void consume(
+                            ServiceLoader<? extends Action> services) {
+                        services.iterator().next().run();
+                    }
+                }
+                """);
+        writeServiceResource(classes, "ZeroCfaAggregateServices$First",
+                "ZeroCfaAggregateServices$FirstProvider\n");
+        writeServiceResource(classes, "ZeroCfaAggregateServices$Second",
+                "ZeroCfaAggregateServices$SecondProvider\n");
+
+        try (IJarRepository repository = TestJarRepositories.empty()) {
+            final ModuleCallGraphSession session = build(
+                    classes, repository, CallGraphAlgorithm.ZERO_CFA);
+            assertThat(serviceEdges(session))
+                    .contains(
+                            "ZeroCfaAggregateServices.consume -> "
+                                    + "wala/serviceloader/Iterator$Lwala$"
+                                    + "serviceloader$AllConfiguredServices."
+                                    + "next",
+                            "wala/serviceloader/Iterator$Lwala$serviceloader$"
+                                    + "AllConfiguredServices.next -> "
+                                    + "ZeroCfaAggregateServices$FirstProvider."
+                                    + "<init>",
+                            "wala/serviceloader/Iterator$Lwala$serviceloader$"
+                                    + "AllConfiguredServices.next -> "
+                                    + "ZeroCfaAggregateServices$SecondProvider."
+                                    + "<init>");
+            assertThat(session.getModelLimitations()).isEmpty();
         }
     }
 
@@ -580,6 +676,19 @@ class WalaFixedPointModelsTest {
     private ModuleCallGraphSession build(
             final Path classes,
             final IJarRepository repository,
+            final CallGraphAlgorithm algorithm) throws Exception {
+        final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                moduleId(), ModulePresence.BOTH, classes, List.of(),
+                List.of(), List.of(),
+                new ModuleChangeSet(List.of(), List.of()));
+        return build(unit, repository,
+                InvokeDynamicBootstrapModelRegistry.jdk8Defaults(),
+                EntrypointSelection.allProjectClasses(), algorithm);
+    }
+
+    private ModuleCallGraphSession build(
+            final Path classes,
+            final IJarRepository repository,
             final List<Path> reactorClasses) throws Exception {
         return build(classes, repository, reactorClasses,
                 InvokeDynamicBootstrapModelRegistry.jdk8Defaults());
@@ -604,7 +713,8 @@ class WalaFixedPointModelsTest {
             final InvokeDynamicBootstrapModelRegistry registry)
             throws Exception {
         return build(unit, repository, registry,
-                EntrypointSelection.allProjectClasses());
+                EntrypointSelection.allProjectClasses(),
+                CallGraphAlgorithm.OPTIMIZED_ZERO_ONE_CFA);
     }
 
     private ModuleCallGraphSession build(
@@ -626,10 +736,21 @@ class WalaFixedPointModelsTest {
             final InvokeDynamicBootstrapModelRegistry registry,
             final EntrypointSelection selection)
             throws Exception {
+        return build(unit, repository, registry, selection,
+                CallGraphAlgorithm.OPTIMIZED_ZERO_ONE_CFA);
+    }
+
+    private ModuleCallGraphSession build(
+            final ModuleAnalysisUnit unit,
+            final IJarRepository repository,
+            final InvokeDynamicBootstrapModelRegistry registry,
+            final EntrypointSelection selection,
+            final CallGraphAlgorithm algorithm)
+            throws Exception {
         final JavaRuntimeDescriptor runtime = new Jdk8RuntimeProvider()
                 .probe(Path.of(System.getenv("TEST_JDK8_HOME")));
         return new ModuleCallGraphEngine(diagnostics(), runtime,
-                selection, repository, registry)
+                selection, algorithm, repository, registry)
                 .build(unit, GRAPH_TIMEOUT_SECONDS);
     }
 
@@ -740,6 +861,25 @@ class WalaFixedPointModelsTest {
             }
         }
         return false;
+    }
+
+    private List<String> serviceEdges(
+            final ModuleCallGraphSession session) {
+        final List<String> result = new ArrayList<>();
+        for (CGNode caller : session.getGraph()) {
+            final String callerOwner = owner(caller);
+            if (!callerOwner.contains("ZeroCfa")
+                    && !callerOwner.contains("AllConfiguredServices")) {
+                continue;
+            }
+            for (CGNode callee : successors(session, caller)) {
+                result.add(callerOwner + "."
+                        + caller.getMethod().getName() + " -> "
+                        + owner(callee) + "."
+                        + callee.getMethod().getName());
+            }
+        }
+        return result.stream().sorted().toList();
     }
 
     private List<CGNode> successors(

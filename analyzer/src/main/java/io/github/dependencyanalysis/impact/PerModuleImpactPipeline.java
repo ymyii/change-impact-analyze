@@ -8,6 +8,7 @@ import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.bytecode.MemberDescriptors;
 import io.github.dependencyanalysis.callgraph.CallGraphException;
+import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.EntrypointClassIndex;
 import io.github.dependencyanalysis.callgraph.EntrypointClassScanner;
 import io.github.dependencyanalysis.callgraph.EntrypointSelection;
@@ -58,7 +59,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-/** Executes the Spring backend per-module optimized 0-1-CFA pipeline. */
+/** Executes the Spring backend per-module Call Graph pipeline. */
 final class PerModuleImpactPipeline {
 
     /** Maximum wait for canceled preparation tasks to release processes. */
@@ -93,6 +94,9 @@ final class PerModuleImpactPipeline {
 
     /** User-selected PROJECT entrypoint boundary. */
     private final EntrypointSelection entrypointSelection;
+
+    /** Command-wide Call Graph algorithm. */
+    private final CallGraphAlgorithm callGraphAlgorithm;
 
     /** Command temporary directory. */
     private final Path temporaryDirectory;
@@ -132,6 +136,8 @@ final class PerModuleImpactPipeline {
         temporaryDirectory = options.temporaryDirectory();
         entrypointSelection = Objects.requireNonNull(
                 options.entrypointSelection(), "entrypointSelection");
+        callGraphAlgorithm = Objects.requireNonNull(
+                options.callGraphAlgorithm(), "callGraphAlgorithm");
     }
 
     /**
@@ -249,8 +255,9 @@ final class PerModuleImpactPipeline {
                 codeEvidence.modules(), new AnalysisConcurrency(
                         analysisParallelism, actualParallelism,
                         bindings.actualWorkers(),
-                        codeEvidence.actualWorkers()), elapsed,
-                entrypointSelection);
+                codeEvidence.actualWorkers()), elapsed,
+                new AnalysisRunConfiguration(
+                        entrypointSelection, callGraphAlgorithm));
         } finally {
             jarRepository = null;
         }
@@ -949,7 +956,8 @@ final class PerModuleImpactPipeline {
             stageStart = System.currentTimeMillis();
             final ModuleCallGraphSession session =
                     new ModuleCallGraphEngine(diagnostics, javaRuntime,
-                            entrypointSelection, repository())
+                            entrypointSelection, callGraphAlgorithm,
+                            repository())
                             .build(unit, entrypointIndex,
                                     callGraphTimeoutSeconds);
             stageElapsed.put("call-graph",

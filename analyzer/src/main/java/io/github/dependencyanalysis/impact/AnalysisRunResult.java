@@ -1,6 +1,7 @@
 package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.dependency.DependencyChange;
+import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.EntrypointSelection;
 
 import java.util.ArrayList;
@@ -33,6 +34,9 @@ public final class AnalysisRunResult {
     /** User-selected PROJECT entrypoint boundary. */
     private final EntrypointSelection entrypointSelection;
 
+    /** Command-wide Call Graph algorithm. */
+    private final CallGraphAlgorithm callGraphAlgorithm;
+
     /**
      * Creates a completed run result.
      *
@@ -52,6 +56,30 @@ public final class AnalysisRunResult {
             final AnalysisConcurrency workers,
             final Map<String, Long> stageMetrics,
             final EntrypointSelection selection) {
+        this(analysisMode, analysisStatus, changes, modules, workers,
+                stageMetrics, new AnalysisRunConfiguration(
+                        selection, CallGraphAlgorithm.defaultAlgorithm()));
+    }
+
+    /**
+     * Creates a completed run result with an explicit Call Graph algorithm.
+     *
+     * @param analysisMode selected mode
+     * @param analysisStatus overall status
+     * @param changes dependency changes
+     * @param modules per-module results
+     * @param workers worker configuration
+     * @param stageMetrics elapsed metrics
+     * @param configuration command-wide analysis configuration
+     */
+    public AnalysisRunResult(
+            final AnalysisMode analysisMode,
+            final AnalysisStatus analysisStatus,
+            final List<DependencyChange> changes,
+            final List<ModuleAnalysisResult> modules,
+            final AnalysisConcurrency workers,
+            final Map<String, Long> stageMetrics,
+            final AnalysisRunConfiguration configuration) {
         mode = analysisMode;
         status = analysisStatus;
         dependencyChanges = Collections.unmodifiableList(
@@ -62,8 +90,13 @@ public final class AnalysisRunResult {
                 workers, "concurrency");
         stageElapsedMillis = Collections.unmodifiableMap(
                 new LinkedHashMap<>(stageMetrics));
+        final AnalysisRunConfiguration settings =
+                java.util.Objects.requireNonNull(
+                        configuration, "configuration");
         entrypointSelection = java.util.Objects.requireNonNull(
-                selection, "entrypointSelection");
+                settings.entrypointSelection(), "entrypointSelection");
+        callGraphAlgorithm = java.util.Objects.requireNonNull(
+                settings.callGraphAlgorithm(), "callGraphAlgorithm");
     }
 
     /** @return analysis mode */
@@ -119,6 +152,11 @@ public final class AnalysisRunResult {
     /** @return configured PROJECT entrypoint boundary */
     public EntrypointSelection getEntrypointSelection() {
         return entrypointSelection;
+    }
+
+    /** @return command-wide Call Graph algorithm */
+    public CallGraphAlgorithm getCallGraphAlgorithm() {
+        return callGraphAlgorithm;
     }
 
     /** @return stage elapsed metrics */

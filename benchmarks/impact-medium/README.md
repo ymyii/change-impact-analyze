@@ -77,6 +77,7 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 脚本仅在下列条件全部满足时返回 `0`：
 
 - Analyzer exit code 为 `0`，Overall status 为 `Completed`。
+- Overall technical details 中 Algorithm 为默认 `zero-cfa`。
 - application POM 包含 42 个 direct dependencies。
 - Overall technical details 中 raw changed members 为 `9`；Changes 页面仅展示有 candidate/final/Structural Reference Path 的变更，并隐藏三类 added change。
 - Candidate / final call chains 为 `6 / 5`，`METHOD_BODY_CHANGED` 作为 SSA equivalent candidate 保留在折叠区。

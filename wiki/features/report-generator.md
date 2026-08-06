@@ -12,7 +12,7 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/report/PerModuleHtmlReportGenerator.java"
     desc: "impact HTML Index 与 Module pages"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/AnalysisRunResult.java"
-    desc: "run status 与 metrics"
+    desc: "run status、selected algorithm 与 metrics"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleAnalysisResult.java"
     desc: "Module detail result"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeReportRenderer.java"
@@ -27,7 +27,7 @@ code_refs:
 
 ## Index
 
-顶部提供 `How to read this report`、`Analysis scope and limitations` 与 `Terminology`。主视图面向中级 Java 程序员，用 plain-language 说明可能的调用关系、coverage limitation、direct/transitive impact；WALA、Call Graph、0-1-CFA、conservative/false-positive、Context、SSA equivalence、Reflection、ServiceLoader 在 Terminology 中解释。
+顶部提供 `How to read this report`、`Analysis scope and limitations` 与 `Terminology`。主视图面向中级 Java 程序员，用 plain-language 说明可能的调用关系、coverage limitation、direct/transitive impact；WALA、Call Graph、selected ZeroCFA/optimized 0-1-CFA、conservative/false-positive、Context、SSA equivalence、Reflection、ServiceLoader 在 Terminology 中解释。
 
 Index 记录：
 
@@ -37,6 +37,7 @@ Index 记录：
 - Dependency changes、raw ChangePoints、candidate/equivalent-filtered/final paths、duplicate conflict/shadowed ChangePoint 与 SSA status counts。
 - 每 Module status/reason/link、candidate/filtered/final、direct/transitive、affected methods/classes、Structural Reference Paths、entrypoint selector/matching、scope、CG nodes/edges/contexts、SSA/limitation counts。
 - Preflight 与 Diagnostics 整体默认折叠。
+- Algorithm 读取 command-wide `AnalysisRunResult`：默认显示 `zero-cfa` 与 class-based/constant-specific说明；显式 optimized模式显示 `optimized-0-1-cfa` 与 allocation/smushing说明。
 
 ## Module Pages
 

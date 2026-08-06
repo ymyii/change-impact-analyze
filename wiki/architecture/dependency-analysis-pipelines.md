@@ -3,7 +3,7 @@ title: "Dependency Analysis Pipelines"
 type: architecture
 relations:
   - path: "wiki/features/call-graph-engine.md"
-    desc: "impact 的 per-Module optimized 0-1-CFA 阶段"
+    desc: "impact 的 command-wide algorithm 与 per-Module Call Graph 阶段"
   - path: "wiki/features/impact-tracing.md"
     desc: "ChangePoint、Impact Path、Structural Reference Path、SSA 与代码 evidence"
   - path: "wiki/features/dependency-tree-extraction.md"
@@ -40,7 +40,7 @@ flowchart TD
   Bind --> EntrySelection["immutable target/classes entrypoint class index"]
   EntrySelection --> ModulePool["bounded Module pool; analysis parallelism"]
   ModulePool --> ScopeValidation["scope validation"]
-  ScopeValidation --> CFA["per-Module optimized 0-1-CFA"]
+  ScopeValidation --> CFA["per-Module selected WALA Call Graph"]
   CFA --> Query["single-thread direct WALA query"]
   Query --> SSA["global serial candidate-only SSA equivalence"]
   SSA --> Decompile["parallel path-related code comparison"]
@@ -50,20 +50,20 @@ flowchart TD
 ## Key Terms
 
 - `front preparation`：并行执行 baseline dependency collection与target compile的command前半段。
-- `Module analysis`：每个 relevant target Module独立拥有scope、CHA、optimized 0-1-CFA graph与query session的阶段。
+- `Module analysis`：每个 relevant target Module独立拥有scope、CHA、selected WALA graph与query session的阶段。
 - `command-scoped repository`：按`ArtifactCoord`提供validated JAR lease且不向业务domain暴露physical path的immutable repository。
 
 ## Architecture Decision Records
 
-- target每个Module只构建一张 optimized 0-1-CFA Call Graph；baseline不compile也不构图，以控制CPU、heap和workspace成本。
-- optimized policy保留 allocation-site/constant identity并smush高成本对象；不提供多算法CLI，保证同一次command和不同Module使用一致analysis model。
+- target每个Module只构建一张 selected Call Graph；baseline不compile也不构图，以控制CPU、heap和workspace成本。
+- `--call-graph-algorithm` command-wide选择 `zero-cfa` 或 `optimized-0-1-cfa`，默认前者；同一次command的全部Module使用一致analysis model，不自动fallback。
 - Call Graph完成后所有Impact query只读，不允许overlay、第二张graph或whole-scope补扫，确保结果来源单一且可解释。
 
 ## Runtime Flow
 
 - Root CLI完成preflight与scope planning后，front preparation并行收集baseline dependency并编译target。
 - Target dependency、dependency diff和JAR diff完成后，ChangePoint按Module绑定并进入bounded Module pool。
-- 每个Module依次执行scope validation、optimized 0-1-CFA build和read-only query；全局随后串行执行SSA equivalence，再并行生成code evidence。
+- 每个Module依次执行scope validation、selected Call Graph build和read-only query；全局随后串行执行SSA equivalence，再并行生成code evidence。
 - Overall与Module pages全部写入staging成功后，原子替换command-owned Report。
 
 ## Module Contract
@@ -97,7 +97,7 @@ flowchart TD
 
 ## Analysis Model Boundaries
 
-- Call Graph 是 optimized 0-1-CFA over-approximation；保留 allocation-site/constant identity，并对 String、Throwable、primitive holder和单 node内过量同类allocation执行smushing。
+- Call Graph 是 selected WALA over-approximation：ZeroCFA按class合并普通allocation并保留constant identity；optimized 0-1-CFA保留allocation-site/constant identity并smush高成本对象。
 - Entrypoint fake receiver/parameter只表达 declared interface/abstract type，不探索真实 implementation；因此 implementation-only path可能不可达。
 - Reflection/MethodHandle 使用 WALA `FULL`/MethodHandle extension，属于 best-effort。
 - ServiceLoader 与注册的 `invokedynamic` 协议在 `makeCallGraph(...)` 前安装 WALA model，参与 points-to/call graph fixed point；构图后不允许 overlay 补图或 whole-scope JAR/classfile 重扫。

@@ -190,7 +190,7 @@ public final class ModuleCallGraphSession {
         }
         return new SyntheticEdgeMetadata(EdgeKind.SERVICE_LOADER,
                 "SERVICE_LOADER|FIXED_POINT|service="
-                        + serviceLoaderModel.serviceType(caller));
+                        + serviceLoaderModel.serviceLabel(caller));
     }
 
     /**

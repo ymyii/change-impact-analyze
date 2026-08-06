@@ -35,6 +35,8 @@ grep -q '<th>Status</th><td>Completed</td>' "$report" \
   || fail "Overall status is not Completed"
 grep -q '<th>Raw changed members</th><td>9</td>' "$report" \
   || fail "raw changed member count is not 9"
+grep -q '<th>Algorithm</th><td>zero-cfa</td>' "$report" \
+  || fail "Call Graph algorithm is not zero-cfa"
 grep -q '<th>Candidate / final call chains</th><td>6 / 5</td>' "$report" \
   || fail "candidate/final call chains are not 6 / 5"
 grep -q 'Structural reference chains' "$impact_page" \

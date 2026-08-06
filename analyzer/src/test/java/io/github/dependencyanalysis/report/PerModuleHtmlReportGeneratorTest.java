@@ -11,7 +11,9 @@ import io.github.dependencyanalysis.diagnostic.DiagnosticLevel;
 import io.github.dependencyanalysis.impact.AnalysisMode;
 import io.github.dependencyanalysis.impact.AnalysisConcurrency;
 import io.github.dependencyanalysis.impact.AnalysisRunResult;
+import io.github.dependencyanalysis.impact.AnalysisRunConfiguration;
 import io.github.dependencyanalysis.impact.AnalysisStatus;
+import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.EntrypointSelection;
 import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
@@ -138,7 +140,9 @@ class PerModuleHtmlReportGeneratorTest {
                 List.of(dependencyChange), List.of(module, skipped),
                 new AnalysisConcurrency(2, 1, 4, 1),
                 Map.of("module-analysis", 10L),
-                EntrypointSelection.allProjectClasses());
+                new AnalysisRunConfiguration(
+                        EntrypointSelection.allProjectClasses(),
+                        CallGraphAlgorithm.OPTIMIZED_ZERO_ONE_CFA));
 
         final MavenDependencyPluginRuntime plugin =
                 new MavenDependencyPluginRuntimeManager().prepare(
@@ -468,6 +472,30 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("example:library:jar:2")
                 .doesNotContain(shadowed.toString())
                 .contains("SHADOWED_BY_DUPLICATE");
+    }
+
+    @Test
+    void rendersDefaultZeroCfaAlgorithmAndTerminology() {
+        final Path output = temporary.resolve("zero-cfa.html");
+        final AnalysisRunResult run = new AnalysisRunResult(
+                AnalysisMode.REACTOR, AnalysisStatus.SUCCESS, List.of(),
+                List.of(), new AnalysisConcurrency(1, 0, 0, 0),
+                Map.of(), EntrypointSelection.allProjectClasses());
+        final MavenDependencyPluginRuntime plugin =
+                new MavenDependencyPluginRuntimeManager().prepare(
+                        temporary.resolve("config-zero-cfa"),
+                        List.of(), null);
+
+        new PerModuleHtmlReportGenerator().generate(run, List.of(),
+                new PreflightReport(List.of()), maven(), plugin,
+                java(), output);
+
+        assertThat(output).content()
+                .contains("<th>Algorithm</th><td>zero-cfa</td>")
+                .contains("ZeroCFA")
+                .contains("concrete class")
+                .contains("constant-specific identity")
+                .doesNotContain("Optimized 0-1-CFA");
     }
 
     /**

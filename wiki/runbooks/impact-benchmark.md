@@ -69,11 +69,12 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 - `scenario-api:1.0.0 -> 2.0.0` 固定产生 `CLASS_ADDED`、`CLASS_REMOVED`、`METHOD_ADDED`、`METHOD_REMOVED`、`METHOD_DESCRIPTOR_CHANGED`、`METHOD_BODY_CHANGED`、`FIELD_ADDED`、`FIELD_REMOVED`、`FIELD_DESCRIPTOR_CHANGED`。
 - `legacy-impact-bridge` 以 API v1 编译，target application 通过 bridge 保留 removed/old binary references；bridge field descriptor 提供 removed class Structural Reference Path。
 - `METHOD_BODY_CHANGED` fixture 在 bytecode 层不同、normalized SSA 层等价，用于验证 filtered candidate 仍保留调用链和反编译代码 evidence。
-- Analyzer 以 `analysis-parallelism=2`、120 秒 per-Module Call Graph timeout、offline Maven 和全部 9 类 `include-change-kinds` 执行。
+- Analyzer 以默认 `zero-cfa`、`analysis-parallelism=2`、120 秒 per-Module Call Graph timeout、offline Maven 和全部 9 类 `include-change-kinds` 执行。
 
 ## Success Criteria
 
 - Analyzer exit code 为 `0`；Overall status 为 `Completed`。
+- Overall technical details 的 Algorithm 为 `zero-cfa`。
 - POM direct dependency count 为 `42`；raw changed member count 为 `9`。
 - Dependency Changes 页面只展示有 candidate/final/Structural path 的 6 类 raw change；`CLASS_ADDED`、`METHOD_ADDED`、`FIELD_ADDED` 不逐项展示。
 - Candidate / final call chains 为 `6 / 5`；Affected Call Chains 页面同时存在 filtered candidate 与 Structural Reference Path。

@@ -9,6 +9,7 @@ import com.ibm.wala.classLoader.IMethod;
 import com.ibm.wala.classLoader.Module;
 import com.ibm.wala.classLoader.ModuleEntry;
 import com.ibm.wala.classLoader.NewSiteReference;
+import com.ibm.wala.classLoader.ProgramCounter;
 import com.ibm.wala.classLoader.SyntheticClass;
 import com.ibm.wala.core.util.strings.Atom;
 import com.ibm.wala.ipa.callgraph.CGNode;
@@ -20,7 +21,9 @@ import com.ibm.wala.ipa.callgraph.AnalysisScope;
 import com.ibm.wala.ipa.callgraph.impl.Everywhere;
 import com.ibm.wala.ipa.callgraph.propagation.AllocationSiteInNode;
 import com.ibm.wala.ipa.callgraph.propagation.ConstantKey;
+import com.ibm.wala.ipa.callgraph.propagation.ConcreteTypeKey;
 import com.ibm.wala.ipa.callgraph.propagation.InstanceKey;
+import com.ibm.wala.ipa.callgraph.propagation.InstanceKeyFactory;
 import com.ibm.wala.ipa.callgraph.propagation.SSAContextInterpreter;
 import com.ibm.wala.ipa.callgraph.propagation.SSAPropagationCallGraphBuilder;
 import com.ibm.wala.ipa.callgraph.propagation.cfa
@@ -80,6 +83,12 @@ final class ServiceLoaderFixedPointModel {
                     ClassLoaderReference.Application,
                     "Lwala/serviceloader/UnknownService");
 
+    /** Aggregate ZeroCFA service identity. */
+    private static final TypeReference ALL_CONFIGURED_SERVICES =
+            TypeReference.findOrCreate(
+                    ClassLoaderReference.Application,
+                    "Lwala/serviceloader/AllConfiguredServices");
+
     /** Service type context key. */
     private static final ContextKey SERVICE_TYPE_KEY = new ContextKey() {
         @Override
@@ -106,13 +115,19 @@ final class ServiceLoaderFixedPointModel {
     /** Synthetic iterator classes by service type. */
     private final Map<TypeReference, ProviderIteratorClass> iterators;
 
+    /** Active Call Graph algorithm. */
+    private final CallGraphAlgorithm algorithm;
+
     /** Stable coverage limitations accumulated while the graph is built. */
     private final Set<String> limitations = new LinkedHashSet<>();
 
     private ServiceLoaderFixedPointModel(
             final Map<TypeReference, List<ProviderDefinition>> values,
-            final IClassHierarchy hierarchy) {
+            final IClassHierarchy hierarchy,
+            final CallGraphAlgorithm selectedAlgorithm) {
         providers = Collections.unmodifiableMap(new LinkedHashMap<>(values));
+        algorithm = Objects.requireNonNull(
+                selectedAlgorithm, "selectedAlgorithm");
         final Map<TypeReference, ProviderIteratorClass> classes =
                 new LinkedHashMap<>();
         for (Map.Entry<TypeReference, List<ProviderDefinition>> entry
@@ -122,6 +137,14 @@ final class ServiceLoaderFixedPointModel {
                             entry.getKey(), entry.getValue(), hierarchy);
             hierarchy.addClass(iterator);
             classes.put(entry.getKey(), iterator);
+        }
+        if (algorithm == CallGraphAlgorithm.ZERO_CFA) {
+            final ProviderIteratorClass aggregate =
+                    new ProviderIteratorClass(
+                            ALL_CONFIGURED_SERVICES,
+                            aggregateProviders(values), hierarchy);
+            hierarchy.addClass(aggregate);
+            classes.put(ALL_CONFIGURED_SERVICES, aggregate);
         }
         final ProviderIteratorClass unknownIterator =
                 new ProviderIteratorClass(
@@ -136,11 +159,13 @@ final class ServiceLoaderFixedPointModel {
      *
      * @param scope target analysis scope
      * @param hierarchy target class hierarchy
+     * @param algorithm Call Graph algorithm
      * @return fixed-point model
      */
     static ServiceLoaderFixedPointModel create(
             final AnalysisScope scope,
-            final IClassHierarchy hierarchy) {
+            final IClassHierarchy hierarchy,
+            final CallGraphAlgorithm algorithm) {
         final Map<String, Set<String>> resources = resources(scope);
         final Map<TypeReference, List<ProviderDefinition>> definitions =
                 new LinkedHashMap<>();
@@ -174,9 +199,24 @@ final class ServiceLoaderFixedPointModel {
             definitions.put(service.getReference(), List.copyOf(valid));
         }
         final ServiceLoaderFixedPointModel result =
-                new ServiceLoaderFixedPointModel(definitions, hierarchy);
+                new ServiceLoaderFixedPointModel(
+                        definitions, hierarchy, algorithm);
         result.limitations.addAll(initialLimitations);
         return result;
+    }
+
+    private static List<ProviderDefinition> aggregateProviders(
+            final Map<TypeReference, List<ProviderDefinition>> values) {
+        final Map<String, ProviderDefinition> unique = new LinkedHashMap<>();
+        values.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey(
+                        Comparator.comparing(TypeReference::toString)))
+                .flatMap(entry -> entry.getValue().stream())
+                .sorted(Comparator.comparing(provider ->
+                        provider.type().getReference().toString()))
+                .forEach(provider -> unique.putIfAbsent(
+                        provider.type().getReference().toString(), provider));
+        return List.copyOf(unique.values());
     }
 
     /**
@@ -191,6 +231,11 @@ final class ServiceLoaderFixedPointModel {
                 new DelegatingSSAContextInterpreter(
                         new ServiceLoaderContextInterpreter(this),
                         builder.getCFAContextInterpreter()));
+        if (algorithm == CallGraphAlgorithm.ZERO_CFA) {
+            builder.setInstanceKeys(
+                    new ZeroCfaServiceLoaderInstanceKeys(
+                            builder.getInstanceKeys()));
+        }
     }
 
     /** @return immutable stable limitations */
@@ -222,6 +267,18 @@ final class ServiceLoaderFixedPointModel {
             return iterator.serviceType;
         }
         return null;
+    }
+
+    /**
+     * Returns a stable service label for synthetic edge evidence.
+     *
+     * @param node synthetic ServiceLoader model node
+     * @return exact service type or ZeroCFA aggregate label
+     */
+    String serviceLabel(final CGNode node) {
+        final TypeReference type = serviceType(node);
+        return ALL_CONFIGURED_SERVICES.equals(type)
+                ? "ALL_CONFIGURED_SERVICES" : String.valueOf(type);
     }
 
     private void unresolvedLoad(
@@ -512,14 +569,115 @@ final class ServiceLoaderFixedPointModel {
 
         private ServiceTypeContext allocationContext(
                 final InstanceKey[] parameters) {
-            if (parameters == null || parameters.length == 0
-                    || !(parameters[0]
-                    instanceof AllocationSiteInNode allocation)) {
+            if (parameters == null || parameters.length == 0) {
                 return null;
             }
-            final Context context = allocation.getNode().getContext();
-            return context instanceof ServiceTypeContext serviceContext
-                    ? serviceContext : null;
+            if (parameters[0]
+                    instanceof AllocationSiteInNode allocation) {
+                final Context context = allocation.getNode().getContext();
+                return context instanceof ServiceTypeContext serviceContext
+                        ? serviceContext : null;
+            }
+            if (parameters[0] instanceof ConstantKey<?> constant
+                    && constant.getValue()
+                    instanceof ServiceLoaderInstanceIdentity identity) {
+                return new ServiceTypeContext(
+                        Everywhere.EVERYWHERE,
+                        identity.serviceType(),
+                        identity.loaderIdentity());
+            }
+            if (model.algorithm == CallGraphAlgorithm.ZERO_CFA
+                    && parameters[0] instanceof ConcreteTypeKey concrete
+                    && SERVICE_LOADER.equals(owner(
+                    concrete.type().getReference()))) {
+                return new ServiceTypeContext(
+                        Everywhere.EVERYWHERE,
+                        ALL_CONFIGURED_SERVICES,
+                        AggregateServiceIdentity.INSTANCE);
+            }
+            return null;
+        }
+    }
+
+    /** Stable receiver identity after ZeroCFA class-based merging. */
+    private enum AggregateServiceIdentity implements ContextItem {
+
+        /** Single aggregate receiver identity. */
+        INSTANCE
+    }
+
+    /**
+     * Constant identity retained for modeled ServiceLoader allocations.
+     *
+     * @param serviceType requested service
+     * @param loaderIdentity explicit loader or stable load site
+     */
+    private record ServiceLoaderInstanceIdentity(
+            TypeReference serviceType,
+            ContextItem loaderIdentity) {
+    }
+
+    /**
+     * Keeps model-created ServiceLoader receivers constant-specific while
+     * delegating every ordinary ZeroCFA allocation to class-based keys.
+     *
+     * @param delegate selected ZeroCFA instance-key policy
+     */
+    private record ZeroCfaServiceLoaderInstanceKeys(
+            InstanceKeyFactory delegate) implements InstanceKeyFactory {
+
+        ZeroCfaServiceLoaderInstanceKeys {
+            Objects.requireNonNull(delegate, "delegate");
+        }
+
+        @Override
+        public InstanceKey getInstanceKeyForAllocation(
+                final CGNode node,
+                final NewSiteReference allocation) {
+            final InstanceKey base = delegate.getInstanceKeyForAllocation(
+                    node, allocation);
+            if (!(node.getContext()
+                    instanceof ServiceTypeContext context)
+                    || !SERVICE_LOADER.equals(owner(
+                    allocation.getDeclaredType()))
+                    || base == null) {
+                return base;
+            }
+            return new ConstantKey<>(
+                    new ServiceLoaderInstanceIdentity(
+                            context.serviceType, context.loaderIdentity),
+                    base.concreteType());
+        }
+
+        @Override
+        public InstanceKey getInstanceKeyForMultiNewArray(
+                final CGNode node,
+                final NewSiteReference allocation,
+                final int dimension) {
+            return delegate.getInstanceKeyForMultiNewArray(
+                    node, allocation, dimension);
+        }
+
+        @Override
+        public <T> InstanceKey getInstanceKeyForConstant(
+                final TypeReference type,
+                final T value) {
+            return delegate.getInstanceKeyForConstant(type, value);
+        }
+
+        @Override
+        public InstanceKey getInstanceKeyForPEI(
+                final CGNode node,
+                final ProgramCounter instruction,
+                final TypeReference type) {
+            return delegate.getInstanceKeyForPEI(node, instruction, type);
+        }
+
+        @Override
+        public InstanceKey getInstanceKeyForMetadataObject(
+                final Object object,
+                final TypeReference type) {
+            return delegate.getInstanceKeyForMetadataObject(object, type);
         }
     }
 

@@ -137,6 +137,7 @@ dependency-analyzer impact \
   [-f, --format html] \
   [--analysis-target spring-backend] \
   [--analysis-parallelism <count>] \
+  [--call-graph-algorithm <zero-cfa|optimized-0-1-cfa>] \
   [--entrypoint-include '<class-path-pattern>']... \
   [--entrypoint-exclude '<class-path-pattern>']... \
   [-k, --include-change-kinds <csv>] \
@@ -150,6 +151,7 @@ dependency-analyzer impact \
 - `--format` 仅接受 `html`；`md` compatibility token 会 fail fast。
 - `--analysis-target` 默认且首版只接受 `spring-backend`。
 - `--analysis-parallelism` 默认 `2`，必须 `>=1`；统一控制 Module analysis、JAR diff 和代码反编译各自的 bounded pool。超过 CPU 数只输出 warning，不静默截断。
+- `--call-graph-algorithm` command-wide选择全部 Module 使用的 WALA算法；默认 `zero-cfa`，可显式选择 `optimized-0-1-cfa`。值大小写不敏感，但不接受 `zero`、`zerocfa` 等 alias，也不执行 timeout fallback。
 - `--entrypoint-include`/`--entrypoint-exclude` 接受 slash-separated JVM internal class path，例如 `com/icbc/payment/OrderService`；可选 WALA `L` 前缀会在匹配前移除。选项可重复，多个 include 取并集，exclude 优先。
 - 普通 segment 中 `*` 匹配零到多个字符，`?` 匹配一个字符，均不跨越 `/`。最后一个普通 segment 始终是 class segment，允许 `$` 匹配 nested class；前面的 package segment 不允许 `$`。例如 `com/*/A?`、`com/ic?c/*Controller`、`com/icbc/*$Handler`。
 - `**` 只能作为最后一个完整 segment。`com/icbc/**` 匹配该路径下直属及任意深度 package 中的全部 class，`**` 匹配全部 class；`com/**/A`、`com/icbc/A**`、leading/trailing slash、空 segment、`.`、`\\` 与 `:` 均非法。`com/icbc/**` 后不能追加 class pattern；需要限定 class 名时使用确定深度的普通 pattern，例如 `com/*/*Controller`。旧 colon/dot selector 不兼容，参数校验直接 exit `1`。
@@ -170,6 +172,7 @@ dependency-analyzer impact \
 | `-f` | `--format` | 仅 `html`；`md` 已移除。 |
 |  | `--analysis-target` | 仅 `spring-backend`。 |
 |  | `--analysis-parallelism` | Module analysis、JAR diff、代码反编译并发数，默认 `2`。 |
+|  | `--call-graph-algorithm` | `zero-cfa`（默认）或 `optimized-0-1-cfa`；全部 Module 使用同一算法。 |
 |  | `--entrypoint-include` | 只选择匹配 slash class path 的 target class declared methods；可重复。 |
 |  | `--entrypoint-exclude` | 从 include/default selection 中排除匹配 slash class path 的 target class；可重复且优先。 |
 | `-k` | `--include-change-kinds` | 纳入分析的 `ChangePointKind` CSV。 |
@@ -242,7 +245,7 @@ JSON 为 UTF-8；`artifacts` 按完整 coordinates、absolutePath 排序，无 e
 
 Scope 只存在于 GraphML dependency graph。相同 coordinates/version 只有 scope 变化时不产生 impact change；version 与 scope 同时变化时只产生一个 `VERSION_CHANGED`。Baseline 与 target physical path 分别按各自 Module-local manifest 中的 coordinates 查找，不使用 `DependencyChange.scope`。
 
-Physical JAR pair 按 `--analysis-parallelism` 并行 bytecode diff。每个 relevant target Module 的 `target/classes` 只扫描一次，生成的 immutable entrypoint class index 同时用于 selector 门禁和实际 Call Graph roots；该步骤只缩小 root methods，不裁剪 Module scope、CHA、Reflection、ServiceLoader 或其他 origin reachability。Entrypoint 参数按 declared type 建模，interface/abstract type使用 synthetic placeholder，不枚举真实 subtype。存在 removal/modification ChangePoint 且命中 entrypoint scope 的 Module 独立执行 scope validation、JDK 8 CHA、WALA optimized 0-1-CFA、`ReflectionOptions.FULL`、MethodHandle extension 和 direct WALA query。Optimized policy保留 allocation-site/constant identity，并smush String、Throwable、primitive holder和单 node内过量同类allocation。Module 内 build/query 单线程，Module 之间按 `--analysis-parallelism` 并行。没有 seed pre-scan、零 seed skip、CHA pre-graph 或 full predecessor copy。
+Physical JAR pair 按 `--analysis-parallelism` 并行 bytecode diff。每个 relevant target Module 的 `target/classes` 只扫描一次，生成的 immutable entrypoint class index 同时用于 selector 门禁和实际 Call Graph roots；该步骤只缩小 root methods，不裁剪 Module scope、CHA、Reflection、ServiceLoader 或其他 origin reachability。Entrypoint 参数按 declared type 建模，interface/abstract type使用 synthetic placeholder，不枚举真实 subtype。存在 removal/modification ChangePoint 且命中 entrypoint scope 的 Module 独立执行 scope validation、JDK 8 CHA、selected WALA Call Graph、`ReflectionOptions.FULL`、MethodHandle extension 和 direct WALA query。默认 ZeroCFA按 concrete class合并普通allocation并保留constant-specific keys；modeled ServiceLoader receiver额外保留service/loader constant identity，class-based fallback保守合并全部有效provider。显式 optimized 0-1-CFA保留allocation-site/constant identity，并smush String、Throwable、primitive holder和单 node内过量同类allocation。Module 内 build/query 单线程，Module 之间按 `--analysis-parallelism` 并行。没有 seed pre-scan、零 seed skip、CHA pre-graph 或 full predecessor copy。
 
 Module analysis 检查分类如下。这里的“阻塞”只终止当前 Module，其他 Module 继续；全部 Module 完成后再按既有规则形成 Overall status 与 exit code。
 
@@ -473,7 +476,7 @@ Exit code：
 
 ### Call Graph 长时间运行
 
-Optimized 0-1-CFA 对大型 Module 仍可能运行较久。WALA monitor 只提供 cooperative timeout/cancel，不创建后台 scheduler，也不输出 progress event。默认无 timeout；设置正数 `--call-graph-timeout-seconds` 后，仅超时 Module fail，其他 Module 继续并发布 partial Report。需要观察资源时使用 `-vv`：command-scoped Runtime Metrics 每 10 秒输出 heap 和 Analyzer-owned thread pool 状态；它不代表 WALA internal progress。
+ZeroCFA通常比 optimized 0-1-CFA合并更多allocation，但两种算法对大型 Module 都可能运行较久。WALA monitor 只提供 cooperative timeout/cancel，不创建后台 scheduler，也不输出 progress event。默认无 timeout；设置正数 `--call-graph-timeout-seconds` 后，仅超时 Module fail，其他 Module 继续并发布 partial Report，不自动切换算法。需要观察资源时使用 `-vv`：command-scoped Runtime Metrics 每 10 秒输出 heap 和 Analyzer-owned thread pool 状态；它不代表 WALA internal progress。
 
 ### Duplicate class warning
 
@@ -536,7 +539,7 @@ Version policy、failure entrypoints 与完整发布步骤见
 
 ## 11. 持续 Impact Benchmark
 
-Repository 内置 Git 管理的中型 `impact` benchmark。它从 source 生成 42 个 compile-scope external dependencies、带 `impact-baseline`/`impact-target` refs 的临时 Git project，并校验 9 类 raw `ChangePointKind`、`6 / 5` candidate/final call chains、Structural Reference Path、过滤候选与反编译代码 evidence，以及四页 HTML report。
+Repository 内置 Git 管理的中型 `impact` benchmark。它从 source 生成 42 个 compile-scope external dependencies、带 `impact-baseline`/`impact-target` refs 的临时 Git project，并以默认 `zero-cfa` 校验 Algorithm evidence、9 类 raw `ChangePointKind`、`6 / 5` candidate/final call chains、Structural Reference Path、过滤候选与反编译代码 evidence，以及四页 HTML report。
 
 ```sh
 mvn -f plugins/pom.xml clean install

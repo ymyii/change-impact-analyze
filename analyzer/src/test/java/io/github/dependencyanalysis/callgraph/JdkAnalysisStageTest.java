@@ -66,7 +66,7 @@ class JdkAnalysisStageTest {
     }
 
     @Test
-    void java17AnalyzerLoadsRealJdk8AndBuildsVanillaZeroOneCfa()
+    void java17AnalyzerLoadsRealJdk8AndBuildsDefaultCallGraph()
             throws Exception {
         final String configured = System.getenv("TEST_JDK8_HOME");
         assertThat(configured)
