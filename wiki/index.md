@@ -49,6 +49,9 @@ code_refs: []
 ### [Call Graph Engine](features/call-graph-engine.md)
 - Summary: 每Module由独立strategy构建selected WALA Call Graph；默认Basic RTA与bounded ReflectionOptions，两种ZeroX算法保持可选。
 
+### [JDK Method Models](features/jdk-method-models.md)
+- Summary: 独立`models/jdk`以exact catalog生成conservative WALA Synthetic IR；支持跨JDK layout能力检测，尚未接入`impact`。
+
 ### [Impact Tracing](features/impact-tracing.md)
 - Summary: 构图后read-only解析call/structural/access reference，使用typed JVM access decision与deterministic reverse BFS生成representative path/disposition。
 
@@ -67,6 +70,9 @@ code_refs: []
 
 ### [Build, Test, Package](runbooks/build-test-package.md)
 - Summary: 双 reactor bootstrap、完整 JDK 8 gate、unit/integration tests、两个 repository ZIP、uber JAR 和 CLI smoke。
+
+### [JDK Models Build and Test](runbooks/jdk-models-build-test.md)
+- Summary: 独立JDK model module的JDK 8/JDK 17 prerequisites、Maven gate、fixed-point验收、metrics与failure entrypoint。
 
 ### [Version and Distribution](runbooks/version-and-distribution.md)
 - Summary: Maven Versions/Enforcer 驱动的 Snapshot iteration、Stable release、commit 与双 Git tag。
