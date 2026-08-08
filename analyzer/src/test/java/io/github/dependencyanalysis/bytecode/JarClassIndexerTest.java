@@ -127,6 +127,39 @@ class JarClassIndexerTest {
     }
 
     @Test
+    void extractsNormalizedClassAndMemberAccess()
+            throws Exception {
+        final ClassWriter cw = new ClassWriter(0);
+        cw.visit(
+                Opcodes.V1_8,
+                Opcodes.ACC_FINAL,
+                "com/Foo", null,
+                "java/lang/Object", null);
+        cw.visitField(
+                Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC,
+                "x", "I", null, null)
+                .visitEnd();
+        final MethodVisitor mv = cw.visitMethod(
+                Opcodes.ACC_PROTECTED,
+                "bar", "()V", null, null);
+        mv.visitCode();
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitMaxs(0, 1);
+        mv.visitEnd();
+        cw.visitEnd();
+
+        final ClassInfo info = index(createJar(
+                "access.jar", cw.toByteArray())).get("com/Foo");
+
+        assertThat(info.getAccess())
+                .isEqualTo(JvmAccess.PACKAGE_PRIVATE);
+        assertThat(info.getMethods().get(0).getAccess())
+                .isEqualTo(JvmAccess.PROTECTED);
+        assertThat(info.getFields().get(0).getAccess())
+                .isEqualTo(JvmAccess.PRIVATE);
+    }
+
+    @Test
     void abstractMethodHasNullHash()
             throws Exception {
         final ClassWriter cw =

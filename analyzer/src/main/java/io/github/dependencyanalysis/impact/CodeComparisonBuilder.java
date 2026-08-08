@@ -127,14 +127,16 @@ final class CodeComparisonBuilder {
         }
         if (kind == ChangePointKind.METHOD_BODY_CHANGED
                 || kind == ChangePointKind.METHOD_REMOVED
-                || kind == ChangePointKind.METHOD_DESCRIPTOR_CHANGED) {
+                || kind == ChangePointKind.METHOD_DESCRIPTOR_CHANGED
+                || kind == ChangePointKind.METHOD_ACCESS_NARROWED) {
             final String descriptor = old ? point.getOldDescriptor()
                     : point.getNewDescriptor();
             return fromDecompiled(decompiler.decompileMethod(jar, point,
                     descriptor, old ? "old" : "new", artifact));
         }
         if (kind == ChangePointKind.FIELD_REMOVED
-                || kind == ChangePointKind.FIELD_DESCRIPTOR_CHANGED) {
+                || kind == ChangePointKind.FIELD_DESCRIPTOR_CHANGED
+                || kind == ChangePointKind.FIELD_ACCESS_NARROWED) {
             final String descriptor = old ? point.getOldDescriptor()
                     : point.getNewDescriptor();
             try {
@@ -144,7 +146,8 @@ final class CodeComparisonBuilder {
                 return SideText.unavailable(summarize(exception));
             }
         }
-        if (kind == ChangePointKind.CLASS_REMOVED) {
+        if (kind == ChangePointKind.CLASS_REMOVED
+                || kind == ChangePointKind.CLASS_ACCESS_NARROWED) {
             return fromDecompiled(decompiler.decompileClass(jar, point,
                     old ? "old" : "new", artifact));
         }

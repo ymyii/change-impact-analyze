@@ -6,6 +6,8 @@ import io.github.dependencyanalysis.callgraph
         .CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph
         .EntrypointSelection;
+import io.github.dependencyanalysis.callgraph
+        .WalaReflectionOptions;
 import io.github.dependencyanalysis.cli
         .DependencyAnalyzerCli;
 import io.github.dependencyanalysis.cli.OutputFormat;
@@ -102,11 +104,19 @@ public final class ImpactCommand
 
     /** Command-wide Call Graph algorithm. */
     @Option(names = "--call-graph-algorithm",
-            defaultValue = "zero-cfa",
+            defaultValue = "rta",
             converter = CallGraphAlgorithmConverter.class,
-            description = "Call Graph algorithm: zero-cfa or "
-                    + "optimized-0-1-cfa; default: zero-cfa.")
+            description = "Call Graph algorithm: rta, zero-cfa, or "
+                    + "optimized-0-1-cfa; default: rta.")
     private CallGraphAlgorithm callGraphAlgorithm;
+
+    /** Command-wide WALA ReflectionOptions. */
+    @Option(names = {"--wala-reflection-options", "--reflection-options"},
+            defaultValue = "ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD",
+            converter = WalaReflectionOptionsConverter.class,
+            description = "WALA ReflectionOptions enum name; default: "
+                    + "ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD.")
+    private WalaReflectionOptions reflectionOptions;
 
     /** Included PROJECT entrypoint classes. */
     @Option(names = "--entrypoint-include",
@@ -229,6 +239,7 @@ public final class ImpactCommand
                                     .getTemporaryDirectory(),
                             entrypointSelection,
                             callGraphAlgorithm,
+                            reflectionOptions,
                             metrics.executors())).run(
                     context.get(
                             ImpactPreflightService

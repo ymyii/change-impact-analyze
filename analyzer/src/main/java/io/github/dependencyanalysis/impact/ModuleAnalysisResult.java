@@ -41,6 +41,9 @@ public final class ModuleAnalysisResult {
     /** ChangePoint dispositions. */
     private final Map<BoundChangePoint, ChangePointDisposition> dispositions;
 
+    /** Typed access/reference observations. */
+    private final Map<BoundChangePoint, List<ImpactEvidence>> observations;
+
     /** SSA comparison results. */
     private final Map<BoundChangePoint,
             MethodEquivalenceResult> equivalenceResults;
@@ -71,6 +74,11 @@ public final class ModuleAnalysisResult {
         finalPaths = immutable(builder.finalPaths);
         structuralPaths = immutable(builder.structuralPaths);
         dispositions = immutableMap(builder.dispositions);
+        final Map<BoundChangePoint, List<ImpactEvidence>> evidence =
+                new LinkedHashMap<>();
+        builder.observations.forEach((point, values) ->
+                evidence.put(point, immutable(values)));
+        observations = immutableMap(evidence);
         equivalenceResults = immutableMap(builder.equivalenceResults);
         codeComparisons = immutableMap(builder.codeComparisons);
         duplicateClassResolutions = immutable(
@@ -140,6 +148,11 @@ public final class ModuleAnalysisResult {
         return dispositions;
     }
 
+    /** @return typed access/reference observations */
+    public Map<BoundChangePoint, List<ImpactEvidence>> getObservations() {
+        return observations;
+    }
+
     /** @return SSA comparison results */
     public Map<BoundChangePoint, MethodEquivalenceResult>
             getEquivalenceResults() {
@@ -186,6 +199,7 @@ public final class ModuleAnalysisResult {
                 .finalPaths(finalPaths)
                 .structuralPaths(structuralPaths)
                 .dispositions(dispositions)
+                .observations(observations)
                 .equivalenceResults(equivalenceResults)
                 .codeComparisons(codeComparisons)
                 .duplicateClassResolutions(duplicateClassResolutions)
@@ -223,6 +237,10 @@ public final class ModuleAnalysisResult {
 
         /** Dispositions. */
         private Map<BoundChangePoint, ChangePointDisposition> dispositions =
+                Map.of();
+
+        /** Typed observations. */
+        private Map<BoundChangePoint, List<ImpactEvidence>> observations =
                 Map.of();
 
         /** Equivalence results. */
@@ -314,6 +332,21 @@ public final class ModuleAnalysisResult {
                 final Map<BoundChangePoint,
                         ChangePointDisposition> values) {
             dispositions = Map.copyOf(values);
+            return this;
+        }
+
+        /**
+         * @param values typed reference observations
+         * @return this builder
+         */
+        public Builder observations(
+                final Map<BoundChangePoint,
+                        List<ImpactEvidence>> values) {
+            final Map<BoundChangePoint, List<ImpactEvidence>> copy =
+                    new LinkedHashMap<>();
+            values.forEach((point, evidence) ->
+                    copy.put(point, List.copyOf(evidence)));
+            observations = Map.copyOf(copy);
             return this;
         }
 

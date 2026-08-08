@@ -2,6 +2,8 @@ package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
+import io.github.dependencyanalysis.bytecode.AccessTransition;
+import io.github.dependencyanalysis.bytecode.JvmAccess;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.DependencyScope;
 import io.github.dependencyanalysis.dependency.ResolvedArtifact;
@@ -83,6 +85,51 @@ class CodeComparisonBuilderTest {
     }
 
     @Test
+    void rendersAccessOnlyModifierChanges() throws Exception {
+        final AccessTransition memberTransition = new AccessTransition(
+                JvmAccess.PUBLIC, JvmAccess.PROTECTED);
+        assertAccessDiff(
+                ChangePoint.accessNarrowed(TARGET,
+                        ChangePointKind.METHOD_ACCESS_NARROWED,
+                        OWNER, "value", "()I", memberTransition),
+                accessBytes(Opcodes.ACC_PUBLIC, Opcodes.ACC_PUBLIC,
+                        Opcodes.ACC_PUBLIC, Opcodes.ACC_PUBLIC),
+                accessBytes(Opcodes.ACC_PUBLIC, Opcodes.ACC_PROTECTED,
+                        Opcodes.ACC_PUBLIC, Opcodes.ACC_PUBLIC),
+                "-   public static int value()",
+                "+   protected static int value()");
+        assertAccessDiff(
+                ChangePoint.accessNarrowed(TARGET,
+                        ChangePointKind.METHOD_ACCESS_NARROWED,
+                        OWNER, "<init>", "()V", memberTransition),
+                accessBytes(Opcodes.ACC_PUBLIC, Opcodes.ACC_PUBLIC,
+                        Opcodes.ACC_PUBLIC, Opcodes.ACC_PUBLIC),
+                accessBytes(Opcodes.ACC_PUBLIC, Opcodes.ACC_PUBLIC,
+                        Opcodes.ACC_PROTECTED, Opcodes.ACC_PUBLIC),
+                "-   public Changed()",
+                "+   protected Changed()");
+        assertAccessDiff(
+                ChangePoint.accessNarrowed(TARGET,
+                        ChangePointKind.FIELD_ACCESS_NARROWED,
+                        OWNER, "count", "I", memberTransition),
+                accessBytes(Opcodes.ACC_PUBLIC, Opcodes.ACC_PUBLIC,
+                        Opcodes.ACC_PUBLIC, Opcodes.ACC_PUBLIC),
+                accessBytes(Opcodes.ACC_PUBLIC, Opcodes.ACC_PUBLIC,
+                        Opcodes.ACC_PUBLIC, Opcodes.ACC_PROTECTED),
+                "-public int count;", "+protected int count;");
+        assertAccessDiff(
+                ChangePoint.accessNarrowed(TARGET,
+                        ChangePointKind.CLASS_ACCESS_NARROWED,
+                        OWNER, null, null, new AccessTransition(
+                        JvmAccess.PUBLIC, JvmAccess.PACKAGE_PRIVATE)),
+                accessBytes(Opcodes.ACC_PUBLIC, Opcodes.ACC_PUBLIC,
+                        Opcodes.ACC_PUBLIC, Opcodes.ACC_PUBLIC),
+                accessBytes(0, Opcodes.ACC_PUBLIC,
+                        Opcodes.ACC_PUBLIC, Opcodes.ACC_PUBLIC),
+                "-public class Changed", "+class Changed");
+    }
+
+    @Test
     void keepsThreeContextLinesInSeparatedHunks() {
         final String oldText = numbered("old", 20);
         final String newText = oldText.replace("old-2\n", "new-2\n")
@@ -106,6 +153,23 @@ class CodeComparisonBuilderTest {
             result.append(prefix).append('-').append(index).append('\n');
         }
         return result.toString();
+    }
+
+    private void assertAccessDiff(
+            final ChangePoint point,
+            final byte[] oldBytes,
+            final byte[] newBytes,
+            final String removed,
+            final String added) throws Exception {
+        final Path oldJar = jar(point.getKind() + "-old.jar", oldBytes);
+        final Path newJar = jar(point.getKind() + "-new.jar", newBytes);
+        final CodeComparisonEvidence evidence = builder(oldJar, newJar)
+                .build(bound(point));
+
+        assertThat(evidence.getStatus()).as(point.getKind().name())
+                .isEqualTo(CodeComparisonStatus.AVAILABLE);
+        assertThat(evidence.getUnifiedDiff()).as(point.getKind().name())
+                .contains(removed, added);
     }
 
     private CodeComparisonBuilder builder(
@@ -152,6 +216,36 @@ class CodeComparisonBuilderTest {
                 "value", "()I", null, null);
         method.visitCode();
         method.visitLdcInsn(value);
+        method.visitInsn(Opcodes.IRETURN);
+        method.visitMaxs(1, 0);
+        method.visitEnd();
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
+    private byte[] accessBytes(
+            final int classAccess,
+            final int methodAccess,
+            final int constructorAccess,
+            final int fieldAccess) {
+        final ClassWriter writer = new ClassWriter(0);
+        writer.visit(Opcodes.V1_8, classAccess, OWNER, null,
+                "java/lang/Object", null);
+        writer.visitField(fieldAccess, "count", "I", null, null).visitEnd();
+        final MethodVisitor constructor = writer.visitMethod(
+                constructorAccess, "<init>", "()V", null, null);
+        constructor.visitCode();
+        constructor.visitVarInsn(Opcodes.ALOAD, 0);
+        constructor.visitMethodInsn(Opcodes.INVOKESPECIAL,
+                "java/lang/Object", "<init>", "()V", false);
+        constructor.visitInsn(Opcodes.RETURN);
+        constructor.visitMaxs(1, 1);
+        constructor.visitEnd();
+        final MethodVisitor method = writer.visitMethod(
+                methodAccess | Opcodes.ACC_STATIC,
+                "value", "()I", null, null);
+        method.visitCode();
+        method.visitInsn(Opcodes.ICONST_1);
         method.visitInsn(Opcodes.IRETURN);
         method.visitMaxs(1, 0);
         method.visitEnd();

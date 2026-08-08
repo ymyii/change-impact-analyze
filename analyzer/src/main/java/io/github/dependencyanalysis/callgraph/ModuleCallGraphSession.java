@@ -8,11 +8,11 @@ import com.ibm.wala.ipa.callgraph.IAnalysisCacheView;
 import com.ibm.wala.ipa.cha.IClassHierarchy;
 import com.ibm.wala.types.ClassLoaderReference;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-import io.github.dependencyanalysis.impact.StructuralScanResult;
+import io.github.dependencyanalysis.impact.StructuralReferenceIndex;
+import io.github.dependencyanalysis.impact.ModuleAnalysisReason;
 
 /** Live per-module WALA graph and its ownership/metric context. */
 public final class ModuleCallGraphSession {
@@ -42,19 +42,13 @@ public final class ModuleCallGraphSession {
     private final DynamicCallEvidenceIndex dynamicEvidence;
 
     /** Stable fixed-point model limitations. */
-    private final List<String> modelLimitations;
+    private final List<ModelLimitation> modelLimitations;
 
-    /** Stable invokedynamic limitations. */
-    private final List<String> dynamicLimitations;
-
-    /** Stable ServiceLoader limitations. */
-    private final List<String> serviceLoaderLimitations;
-
-    /** ServiceLoader fixed-point metadata. */
-    private final ServiceLoaderFixedPointModel serviceLoaderModel;
+    /** Immutable ServiceLoader fixed-point metadata. */
+    private final ServiceLoaderModelMetadata serviceLoaderMetadata;
 
     /** Structural metadata indexed before Call Graph construction. */
-    private final StructuralScanResult structuralScan;
+    private final StructuralReferenceIndex structuralReferences;
 
     /**
      * Creates a live module Call Graph session.
@@ -82,15 +76,11 @@ public final class ModuleCallGraphSession {
                 metadata, "metadata");
         stats = values.stats();
         entrypointMetrics = values.entrypoints();
-        dynamicEvidence = values.dynamicEvidence();
-        serviceLoaderModel = values.serviceLoader();
-        structuralScan = values.structuralScan();
-        dynamicLimitations = values.dynamicLimitations();
-        serviceLoaderLimitations = serviceLoaderModel.limitations();
-        final List<String> limitations = new ArrayList<>(
-                dynamicLimitations);
-        limitations.addAll(serviceLoaderLimitations);
-        modelLimitations = limitations.stream().distinct().sorted().toList();
+        final StrategyModelMetadata strategy = values.strategyModels();
+        dynamicEvidence = strategy.dynamicEvidence();
+        serviceLoaderMetadata = strategy.serviceLoader();
+        structuralReferences = values.structuralReferences();
+        modelLimitations = strategy.limitations();
     }
 
     /** @return live WALA Call Graph */
@@ -155,6 +145,12 @@ public final class ModuleCallGraphSession {
 
     /** @return stable fixed-point model limitations */
     public List<String> getModelLimitations() {
+        return modelLimitations.stream()
+                .map(ModelLimitation::summary).toList();
+    }
+
+    /** @return typed immutable fixed-point coverage limitations */
+    public List<ModelLimitation> getCoverageLimitations() {
         return modelLimitations;
     }
 
@@ -165,17 +161,29 @@ public final class ModuleCallGraphSession {
 
     /** @return true when invokedynamic modeling was incomplete */
     public boolean hasDynamicModelLimitations() {
-        return !dynamicLimitations.isEmpty();
+        return hasReason(
+                ModuleAnalysisReason.INCONCLUSIVE_INVOKEDYNAMIC_MODEL);
+    }
+
+    /** @return true when MethodHandle local modeling was incomplete */
+    public boolean hasMethodHandleLimitations() {
+        return hasReason(
+                ModuleAnalysisReason.INCONCLUSIVE_METHOD_HANDLE_MODEL);
     }
 
     /** @return true when ServiceLoader modeling was incomplete */
     public boolean hasServiceLoaderLimitations() {
-        return !serviceLoaderLimitations.isEmpty();
+        return hasReason(ModuleAnalysisReason.INCONCLUSIVE_SERVICE_LOADER);
+    }
+
+    private boolean hasReason(final ModuleAnalysisReason reason) {
+        return modelLimitations.stream()
+                .anyMatch(value -> value.reason() == reason);
     }
 
     /** @return pre-graph immutable structural evidence */
-    public StructuralScanResult getStructuralScan() {
-        return structuralScan;
+    public StructuralReferenceIndex getStructuralReferences() {
+        return structuralReferences;
     }
 
     /**
@@ -185,12 +193,12 @@ public final class ModuleCallGraphSession {
      * @return synthetic edge metadata, or null
      */
     public SyntheticEdgeMetadata syntheticEdge(final CGNode caller) {
-        if (!serviceLoaderModel.models(caller)) {
+        if (!serviceLoaderMetadata.models(caller)) {
             return null;
         }
         return new SyntheticEdgeMetadata(EdgeKind.SERVICE_LOADER,
                 "SERVICE_LOADER|FIXED_POINT|service="
-                        + serviceLoaderModel.serviceLabel(caller));
+                        + serviceLoaderMetadata.serviceLabel(caller));
     }
 
     /**

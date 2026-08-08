@@ -13,6 +13,33 @@ case "$label" in
 esac
 
 : "${JAVA8_HOME:?JAVA8_HOME must point to a complete JDK 8}"
+: "${BENCHMARK_CALL_GRAPH_ALGORITHM:?BENCHMARK_CALL_GRAPH_ALGORITHM must be explicitly set}"
+
+case "$BENCHMARK_CALL_GRAPH_ALGORITHM" in
+  rta|zero-cfa|optimized-0-1-cfa) ;;
+  *)
+    echo "BENCHMARK_CALL_GRAPH_ALGORITHM must be rta, zero-cfa, or optimized-0-1-cfa" >&2
+    exit 2
+    ;;
+esac
+
+BENCHMARK_WALA_REFLECTION_OPTIONS=${BENCHMARK_WALA_REFLECTION_OPTIONS:-ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD}
+case "$BENCHMARK_WALA_REFLECTION_OPTIONS" in
+  FULL|APPLICATION_GET_METHOD|NO_FLOW_TO_CASTS|NO_FLOW_TO_CASTS_APPLICATION_GET_METHOD|NO_METHOD_INVOKE|NO_FLOW_TO_CASTS_NO_METHOD_INVOKE|ONE_FLOW_TO_CASTS_NO_METHOD_INVOKE|ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD|MULTI_FLOW_TO_CASTS_APPLICATION_GET_METHOD|NO_STRING_CONSTANTS|STRING_ONLY|NONE) ;;
+  *)
+    echo "unsupported BENCHMARK_WALA_REFLECTION_OPTIONS: $BENCHMARK_WALA_REFLECTION_OPTIONS" >&2
+    exit 2
+    ;;
+esac
+
+BENCHMARK_CALIBRATION=${BENCHMARK_CALIBRATION:-0}
+case "$BENCHMARK_CALIBRATION" in
+  0|1) ;;
+  *)
+    echo "BENCHMARK_CALIBRATION must be 0 or 1" >&2
+    exit 2
+    ;;
+esac
 
 ANALYZER_JAR=${ANALYZER_JAR:-$repository_root/target/dependency-analyzer.jar}
 ANALYZER_JAVA=${ANALYZER_JAVA:-$(command -v java 2>/dev/null)}
@@ -49,6 +76,8 @@ mkdir -p "$logs_root" "$reports_root" "$BENCHMARK_CONFIG_DIR"
 
 export ANALYZER_JAR ANALYZER_JAVA MAVEN_BIN JAVA8_HOME
 export BENCHMARK_MAVEN_REPO BENCHMARK_PROJECT BENCHMARK_CONFIG_DIR BENCHMARK_REPORT
+export BENCHMARK_CALL_GRAPH_ALGORITHM BENCHMARK_WALA_REFLECTION_OPTIONS
+export BENCHMARK_CALIBRATION
 
 # Wiki: wiki/runbooks/impact-benchmark.md - Stable benchmark preparation, measurement, and verification entrypoint.
 "$script_dir/scripts/prepare-fixture.sh" "$fixture_root"
@@ -63,7 +92,13 @@ fi
 
 cat >"$logs_root/run-metadata.txt" <<EOF
 label=$label
+algorithm=$BENCHMARK_CALL_GRAPH_ALGORITHM
+wala_reflection_options=$BENCHMARK_WALA_REFLECTION_OPTIONS
+calibration=$BENCHMARK_CALIBRATION
+fixture_scenario=impact-medium-v1
+analysis_parallelism=2
 os=$(uname -a)
+cpu_logical=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo unavailable)
 analyzer_jar=$ANALYZER_JAR
 analyzer_sha256=$analyzer_sha256
 analyzer_java=$ANALYZER_JAVA
@@ -144,6 +179,8 @@ verification_result=0
   "$BENCHMARK_REPORT" \
   "$logs_root/exit-code.txt" \
   "$BENCHMARK_PROJECT" \
+  "$BENCHMARK_CALL_GRAPH_ALGORITHM" \
+  "$BENCHMARK_WALA_REFLECTION_OPTIONS" \
   >"$logs_root/verification.txt" \
   2>&1 || verification_result=$?
 
@@ -160,5 +197,46 @@ if [ "$verification_result" -ne 0 ]; then
   echo "logs: $logs_root" >&2
   exit "$verification_result"
 fi
+
+module_dir=${BENCHMARK_REPORT%.html}-modules
+set -- "$module_dir"/*.html
+module_page=
+for page in "$@"; do
+  case "$page" in
+    *-changes.html|*-impact.html) ;;
+    *) module_page=$page; break ;;
+  esac
+done
+
+if [ -z "$module_page" ] || [ ! -f "$module_page" ]; then
+  echo "unable to locate Module Index for metrics" >&2
+  exit 1
+fi
+
+nodes=$(sed -n 's/.*<th>Call Graph nodes<\/th><td>\([0-9][0-9]*\)<\/td>.*/\1/p' "$module_page" | head -n 1)
+edges=$(sed -n 's/.*<th>Call Graph edges<\/th><td>\([0-9][0-9]*\)<\/td>.*/\1/p' "$module_page" | head -n 1)
+wall_seconds=$(awk '
+  /^real[[:space:]]+[0-9.]+$/ { print $2; exit }
+  /^Elapsed \(wall clock\) time/ {
+    value = $NF
+    split(value, part, ":")
+    if (length(part) == 3) print part[1] * 3600 + part[2] * 60 + part[3]
+    else if (length(part) == 2) print part[1] * 60 + part[2]
+    else print value
+    exit
+  }
+' "$logs_root/time.txt")
+peak_rss_kib=$(awk -F ',' 'NR > 1 && $3 ~ /^[0-9]+$/ && $3 > peak { peak = $3 } END { print peak + 0 }' "$logs_root/process-tree.csv")
+
+if [ -z "$nodes" ] || [ -z "$edges" ] || [ -z "$wall_seconds" ]; then
+  echo "unable to extract benchmark metrics" >&2
+  exit 1
+fi
+
+printf 'label\talgorithm\twala_reflection_options\tnodes\tedges\twall_seconds\tprocess_tree_peak_rss_kib\n' >"$logs_root/metrics.tsv"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  "$label" "$BENCHMARK_CALL_GRAPH_ALGORITHM" \
+  "$BENCHMARK_WALA_REFLECTION_OPTIONS" "$nodes" "$edges" \
+  "$wall_seconds" "$peak_rss_kib" >>"$logs_root/metrics.tsv"
 
 echo "benchmark completed: $run_root"

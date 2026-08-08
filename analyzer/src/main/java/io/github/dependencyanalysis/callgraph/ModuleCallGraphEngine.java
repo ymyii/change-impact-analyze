@@ -1,19 +1,13 @@
 package io.github.dependencyanalysis.callgraph;
 
-import com.ibm.wala.analysis.reflection.java7.MethodHandles;
 import com.ibm.wala.classLoader.BinaryDirectoryTreeModule;
 import com.ibm.wala.classLoader.IClass;
 import com.ibm.wala.classLoader.IMethod;
 import com.ibm.wala.classLoader.JarFileModule;
-import com.ibm.wala.classLoader.Language;
 import com.ibm.wala.ipa.callgraph.AnalysisCacheImpl;
-import com.ibm.wala.ipa.callgraph.AnalysisOptions;
 import com.ibm.wala.ipa.callgraph.AnalysisScope;
 import com.ibm.wala.ipa.callgraph.Entrypoint;
 import com.ibm.wala.ipa.callgraph.IAnalysisCacheView;
-import com.ibm.wala.ipa.callgraph.impl.Util;
-import com.ibm.wala.ipa.callgraph.propagation.SSAPropagationCallGraphBuilder;
-import com.ibm.wala.ipa.callgraph.propagation.cfa.ZeroXCFABuilder;
 import com.ibm.wala.ipa.cha.ClassHierarchyException;
 import com.ibm.wala.ipa.cha.ClassHierarchyFactory;
 import com.ibm.wala.ipa.cha.IClassHierarchy;
@@ -26,7 +20,7 @@ import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 import io.github.dependencyanalysis.impact.ModuleAnalysisUnit;
 import io.github.dependencyanalysis.impact.StructuralImpactScanner;
-import io.github.dependencyanalysis.impact.StructuralScanResult;
+import io.github.dependencyanalysis.impact.StructuralReferenceIndex;
 import io.github.dependencyanalysis.jar.IJarRepository;
 import io.github.dependencyanalysis.jar.JarLease;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
@@ -57,6 +51,9 @@ public final class ModuleCallGraphEngine {
 
     /** Command-wide Call Graph algorithm. */
     private final CallGraphAlgorithm algorithm;
+
+    /** Command-wide WALA ReflectionOptions. */
+    private final WalaReflectionOptions reflectionOptions;
 
     /** Command-scoped dependency repository. */
     private final IJarRepository jarRepository;
@@ -135,6 +132,28 @@ public final class ModuleCallGraphEngine {
     }
 
     /**
+     * Creates an engine with explicit roots, algorithm and ReflectionOptions.
+     *
+     * @param collector diagnostics
+     * @param runtime target JDK runtime
+     * @param selection entrypoint class selection
+     * @param selectedAlgorithm Call Graph algorithm
+     * @param selectedReflectionOptions WALA ReflectionOptions
+     * @param repository dependency repository
+     */
+    public ModuleCallGraphEngine(
+            final DiagnosticLog collector,
+            final JavaRuntimeDescriptor runtime,
+            final EntrypointSelection selection,
+            final CallGraphAlgorithm selectedAlgorithm,
+            final WalaReflectionOptions selectedReflectionOptions,
+            final IJarRepository repository) {
+        this(collector, runtime, selection, selectedAlgorithm,
+                selectedReflectionOptions, repository,
+                InvokeDynamicBootstrapModelRegistry.jdk8Defaults());
+    }
+
+    /**
      * Creates an engine with an explicit invokedynamic model registry.
      *
      * @param collector diagnostics
@@ -170,11 +189,36 @@ public final class ModuleCallGraphEngine {
             final CallGraphAlgorithm selectedAlgorithm,
             final IJarRepository repository,
             final InvokeDynamicBootstrapModelRegistry models) {
+        this(collector, runtime, selection, selectedAlgorithm,
+                WalaReflectionOptions.defaultOptions(), repository, models);
+    }
+
+    /**
+     * Creates an engine with all command-wide graph policies.
+     *
+     * @param collector diagnostics
+     * @param runtime target JDK runtime
+     * @param selection entrypoint class selection
+     * @param selectedAlgorithm Call Graph algorithm
+     * @param selectedReflectionOptions WALA ReflectionOptions
+     * @param repository dependency repository
+     * @param models exact invokedynamic models
+     */
+    public ModuleCallGraphEngine(
+            final DiagnosticLog collector,
+            final JavaRuntimeDescriptor runtime,
+            final EntrypointSelection selection,
+            final CallGraphAlgorithm selectedAlgorithm,
+            final WalaReflectionOptions selectedReflectionOptions,
+            final IJarRepository repository,
+            final InvokeDynamicBootstrapModelRegistry models) {
         diagnostics = Objects.requireNonNull(collector, "collector");
         javaRuntime = Objects.requireNonNull(runtime, "runtime");
         entrypointSelection = Objects.requireNonNull(selection, "selection");
         algorithm = Objects.requireNonNull(
                 selectedAlgorithm, "selectedAlgorithm");
+        reflectionOptions = Objects.requireNonNull(
+                selectedReflectionOptions, "selectedReflectionOptions");
         jarRepository = Objects.requireNonNull(repository, "repository");
         dynamicModels = Objects.requireNonNull(models, "models");
     }
@@ -215,7 +259,7 @@ public final class ModuleCallGraphEngine {
         final long initialMemory = usedMemory();
         try {
             final ClassOwnershipIndex ownership = ownership(unit);
-            final StructuralScanResult structuralScan =
+            final StructuralReferenceIndex structuralReferences =
                     new StructuralImpactScanner(jarRepository).scan(
                             unit, ownership);
             reportDuplicateResolutions(context, ownership);
@@ -228,52 +272,39 @@ public final class ModuleCallGraphEngine {
                         "Module has zero PROJECT entrypoints: "
                                 + unit.getModuleId());
             }
-            final AnalysisOptions options = new AnalysisOptions(
-                    scope, entrypoints);
-            options.setReflectionOptions(
-                    AnalysisOptions.ReflectionOptions.FULL);
             final IAnalysisCacheView cache = new AnalysisCacheImpl(
                     SSAOptions.defaultOptions());
-            // Wiki: wiki/features/call-graph-engine.md - selected builder.
-            Util.addDefaultSelectors(options, hierarchy);
-            Util.addDefaultBypassLogic(options,
-                    Util.class.getClassLoader(), hierarchy);
-            final SSAPropagationCallGraphBuilder builder =
-                    ZeroXCFABuilder.make(
-                            Language.JAVA, hierarchy, options, cache,
-                            null, null, algorithm.instancePolicy());
-            MethodHandles.analyzeMethodHandles(options, builder);
-            final InvokeDynamicModelState dynamicState =
-                    new InvokeDynamicModelState();
-            options.setSelector(new InvokeDynamicModelTargetSelector(
-                    options.getMethodTargetSelector(), dynamicModels,
-                    dynamicState));
-            final ServiceLoaderFixedPointModel serviceLoader =
-                    ServiceLoaderFixedPointModel.create(
-                            scope, hierarchy, algorithm);
-            serviceLoader.install(builder);
-            final com.ibm.wala.ipa.callgraph.CallGraph graph;
             final Duration remaining = remainingTimeout(
                     timeoutSeconds, startedNanos);
             if (remaining.isNegative() || remaining.isZero()
                     && timeoutSeconds > 0L) {
-                throw new CallGraphException(
+                throw CallGraphException.timeout(
                         "Module Call Graph timed out after "
                                 + timeoutSeconds + " seconds");
             }
             final CallGraphTimeoutMonitor monitor =
                     new CallGraphTimeoutMonitor(remaining);
+            final ServiceLoaderProtocolIndex serviceLoaderIndex =
+                    ServiceLoaderProtocolIndex.create(scope, hierarchy);
+            final CallGraphStrategyResult strategyResult;
             try {
-                graph = builder.makeCallGraph(options, monitor);
+                strategyResult = new CallGraphStrategyFactory()
+                        .create(algorithm)
+                        .build(new CallGraphBuildRequest(
+                                scope, hierarchy, entrypoints, cache,
+                                serviceLoaderIndex, dynamicModels,
+                                reflectionOptions, monitor));
             } catch (Exception exception) {
                 if (monitor.isTimedOut()) {
-                    throw new CallGraphException(
+                    throw CallGraphException.timeout(
                             "Module Call Graph timed out after "
                                     + timeoutSeconds + " seconds",
                             exception);
                 }
                 throw exception;
             }
+            final com.ibm.wala.ipa.callgraph.CallGraph graph =
+                    strategyResult.graph();
             final CallGraphStats stats = new CallGraphStats(
                     graph.getNumberOfNodes(), edgeCount(graph),
                     System.currentTimeMillis() - start,
@@ -283,7 +314,8 @@ public final class ModuleCallGraphEngine {
             final int selectedClasses =
                     entrypointIndex.selectedClassNames().size();
             diagnostics.info(context, "algorithm="
-                    + algorithm.identifier() + "; nodes="
+                    + algorithm.identifier() + "; reflectionOptions="
+                    + reflectionOptions.identifier() + "; nodes="
                     + stats.methodCount() + "; edges="
                     + stats.edgeCount() + "; entrypoints="
                     + entrypoints.size());
@@ -293,9 +325,8 @@ public final class ModuleCallGraphEngine {
                             stats, new EntrypointSelectionMetrics(
                             selectedClasses, entrypoints.size(),
                             parameterCandidates),
-                            dynamicState.evidenceIndex(),
-                            dynamicState.limitations(), serviceLoader,
-                            structuralScan));
+                            strategyResult.metadata(),
+                            structuralReferences));
         } catch (CallGraphException exception) {
             diagnostics.failStage(context, exception.getMessage());
             throw exception;

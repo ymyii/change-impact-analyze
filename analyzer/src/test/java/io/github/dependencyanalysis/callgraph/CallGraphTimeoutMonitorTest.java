@@ -46,4 +46,17 @@ class CallGraphTimeoutMonitorTest {
         assertThat(monitor.isTimedOut()).isFalse();
         assertThat(monitor.getCancelMessage()).contains("canceled");
     }
+
+    @Test
+    void timeoutExceptionCarriesMachineReadableKind() {
+        final CallGraphException timeout = CallGraphException.timeout(
+                "localized diagnostic text");
+        final CallGraphException general = new CallGraphException(
+                "timed out appears only in presentation text");
+
+        assertThat(timeout.getKind()).isEqualTo(
+                CallGraphFailureKind.TIMEOUT);
+        assertThat(general.getKind()).isEqualTo(
+                CallGraphFailureKind.GENERAL);
+    }
 }

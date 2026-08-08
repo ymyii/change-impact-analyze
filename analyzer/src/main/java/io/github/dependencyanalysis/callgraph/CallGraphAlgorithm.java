@@ -1,7 +1,5 @@
 package io.github.dependencyanalysis.callgraph;
 
-import com.ibm.wala.ipa.callgraph.propagation.cfa.ZeroXInstanceKeys;
-
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -10,35 +8,25 @@ import java.util.stream.Collectors;
 /** Supported command-wide WALA Call Graph algorithms. */
 public enum CallGraphAlgorithm {
 
+    /** Class-based Rapid Type Analysis. */
+    RTA("rta"),
+
     /** Class-based allocation identity with constant-specific keys. */
-    ZERO_CFA("zero-cfa", ZeroXInstanceKeys.CONSTANT_SPECIFIC),
+    ZERO_CFA("zero-cfa"),
 
     /** Allocation-sensitive 0-1-CFA with bounded smushing. */
-    OPTIMIZED_ZERO_ONE_CFA(
-            "optimized-0-1-cfa",
-            ZeroXInstanceKeys.ALLOCATIONS
-                    | ZeroXInstanceKeys.CONSTANT_SPECIFIC
-                    | ZeroXInstanceKeys.SMUSH_MANY
-                    | ZeroXInstanceKeys.SMUSH_PRIMITIVE_HOLDERS
-                    | ZeroXInstanceKeys.SMUSH_STRINGS
-                    | ZeroXInstanceKeys.SMUSH_THROWABLES);
+    OPTIMIZED_ZERO_ONE_CFA("optimized-0-1-cfa");
 
     /** Stable CLI and evidence identifier. */
     private final String identifier;
 
-    /** WALA ZeroX instance-key policy. */
-    private final int instancePolicy;
-
-    CallGraphAlgorithm(
-            final String stableIdentifier,
-            final int policy) {
+    CallGraphAlgorithm(final String stableIdentifier) {
         identifier = stableIdentifier;
-        instancePolicy = policy;
     }
 
     /** @return command default algorithm */
     public static CallGraphAlgorithm defaultAlgorithm() {
-        return ZERO_CFA;
+        return RTA;
     }
 
     /**
@@ -68,11 +56,6 @@ public enum CallGraphAlgorithm {
     /** @return stable CLI and evidence identifier */
     public String identifier() {
         return identifier;
-    }
-
-    /** @return WALA ZeroX instance-key policy */
-    int instancePolicy() {
-        return instancePolicy;
     }
 
     @Override

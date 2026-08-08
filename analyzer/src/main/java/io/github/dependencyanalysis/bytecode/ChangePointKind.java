@@ -18,6 +18,9 @@ public enum ChangePointKind {
     /** A class was removed. */
     CLASS_REMOVED,
 
+    /** A class became package-private. */
+    CLASS_ACCESS_NARROWED,
+
     /** A method was added. */
     METHOD_ADDED,
 
@@ -30,6 +33,9 @@ public enum ChangePointKind {
     /** A method body changed. */
     METHOD_BODY_CHANGED,
 
+    /** A method or constructor access narrowed. */
+    METHOD_ACCESS_NARROWED,
+
     /** A field was added. */
     FIELD_ADDED,
 
@@ -37,7 +43,10 @@ public enum ChangePointKind {
     FIELD_REMOVED,
 
     /** A field descriptor changed. */
-    FIELD_DESCRIPTOR_CHANGED;
+    FIELD_DESCRIPTOR_CHANGED,
+
+    /** A field access narrowed. */
+    FIELD_ACCESS_NARROWED;
 
     /**
      * Default set of included change
@@ -53,10 +62,20 @@ public enum ChangePointKind {
                 Collections.unmodifiableSet(
                         EnumSet.of(
                                 CLASS_REMOVED,
+                                CLASS_ACCESS_NARROWED,
                                 METHOD_REMOVED,
                                 METHOD_DESCRIPTOR_CHANGED,
                                 METHOD_BODY_CHANGED,
+                                METHOD_ACCESS_NARROWED,
                                 FIELD_REMOVED,
-                                FIELD_DESCRIPTOR_CHANGED));
+                                FIELD_DESCRIPTOR_CHANGED,
+                                FIELD_ACCESS_NARROWED));
+    }
+
+    /** @return true for strict JVM access narrowing kinds */
+    public boolean isAccessNarrowing() {
+        return this == CLASS_ACCESS_NARROWED
+                || this == METHOD_ACCESS_NARROWED
+                || this == FIELD_ACCESS_NARROWED;
     }
 }

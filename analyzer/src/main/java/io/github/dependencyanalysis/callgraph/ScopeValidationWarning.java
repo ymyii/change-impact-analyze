@@ -1,6 +1,8 @@
 package io.github.dependencyanalysis.callgraph;
 
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
+import io.github.dependencyanalysis.impact.CoverageLimitation;
+import io.github.dependencyanalysis.impact.ModuleAnalysisReason;
 
 import java.util.List;
 import java.util.Objects;
@@ -17,7 +19,7 @@ public record ScopeValidationWarning(
         ArtifactCoord artifact,
         int findingCount,
         int excludedTypeCount,
-        List<String> examples) {
+        List<String> examples) implements CoverageLimitation {
 
     /** Validates and snapshots warning evidence. */
     public ScopeValidationWarning {
@@ -58,5 +60,10 @@ public record ScopeValidationWarning(
     /** @return stable deterministic ordering key */
     public String stableKey() {
         return artifact.toString();
+    }
+
+    @Override
+    public ModuleAnalysisReason reason() {
+        return ModuleAnalysisReason.INCONCLUSIVE_SCOPE_VALIDATION;
     }
 }

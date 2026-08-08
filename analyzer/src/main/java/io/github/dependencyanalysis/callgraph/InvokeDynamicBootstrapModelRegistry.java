@@ -32,6 +32,11 @@ public final class InvokeDynamicBootstrapModelRegistry {
         return new Builder();
     }
 
+    /** @return builder initialized with every registered model */
+    public Builder toBuilder() {
+        return new Builder(models);
+    }
+
     /**
      * Finds an exact bootstrap model.
      *
@@ -50,6 +55,14 @@ public final class InvokeDynamicBootstrapModelRegistry {
         private final Map<InvokeDynamicBootstrapKey,
                 InvokeDynamicBootstrapModel> values =
                 new LinkedHashMap<>();
+
+        private Builder() {
+        }
+
+        private Builder(final Map<InvokeDynamicBootstrapKey,
+                InvokeDynamicBootstrapModel> initialValues) {
+            values.putAll(initialValues);
+        }
 
         /**
          * Registers one exact bootstrap protocol.

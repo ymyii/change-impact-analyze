@@ -3,6 +3,10 @@ package io.github.dependencyanalysis.callgraph;
 import com.ibm.wala.classLoader.IMethod;
 import com.ibm.wala.ipa.callgraph.CGNode;
 import com.ibm.wala.ipa.summaries.BypassSyntheticClass;
+import com.ibm.wala.ssa.IR;
+import com.ibm.wala.ssa.SSAInstruction;
+import com.ibm.wala.ssa.SSAPhiInstruction;
+import com.ibm.wala.ssa.SSAReturnInstruction;
 import com.ibm.wala.types.ClassLoaderReference;
 import com.ibm.wala.types.MethodReference;
 
@@ -37,9 +41,13 @@ import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Queue;
+import java.util.Set;
 import javax.tools.ToolProvider;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -56,6 +64,9 @@ class WalaFixedPointModelsTest {
 
     /** Concrete types that must not expand declared entrypoint parameters. */
     private static final int UNUSED_IMPLEMENTATION_COUNT = 32;
+
+    /** Unsupported MethodHandle receiver sources in the negative fixture. */
+    private static final int UNRESOLVED_HANDLE_SOURCE_COUNT = 3;
 
     /** Custom Java 8 bootstrap descriptor. */
     private static final String BOOTSTRAP_DESCRIPTOR =
@@ -254,23 +265,40 @@ class WalaFixedPointModelsTest {
         Files.writeString(resource, "ServiceApp$Provider\n");
 
         try (IJarRepository repository = TestJarRepositories.empty()) {
-            final ModuleCallGraphSession session = build(classes, repository);
-            assertThat(session.getModelLimitations()).isEmpty();
-            assertThat(hasEdge(session,
-                    "ServiceApp", "execute",
-                    "ServiceApp$Provider", "run")).isTrue();
-            assertThat(hasEdge(session,
-                    "ServiceApp", "executeFromField",
-                    "ServiceApp$Provider", "run")).isTrue();
-            assertThat(session.getGraph()).anySatisfy(node -> {
-                assertThat(owner(node)).startsWith(
-                        "wala/serviceloader/Iterator$");
-                assertThat(successors(session, node)).anySatisfy(target -> {
-                    assertThat(owner(target))
-                            .isEqualTo("ServiceApp$Provider");
-                    assertThat(target.getMethod().isInit()).isTrue();
+            for (CallGraphAlgorithm algorithm
+                    : CallGraphAlgorithm.values()) {
+                final ModuleCallGraphSession session = build(
+                        classes, repository, algorithm,
+                        WalaReflectionOptions.parse("NONE"));
+                if (algorithm == CallGraphAlgorithm.RTA) {
+                    assertThat(session.hasServiceLoaderLimitations())
+                            .isTrue();
+                } else {
+                    assertThat(session.getModelLimitations())
+                            .as(algorithm.identifier()).isEmpty();
+                }
+                assertThat(hasEdge(session,
+                        "ServiceApp", "execute",
+                        "ServiceApp$Provider", "run"))
+                        .as(algorithm.identifier()).isTrue();
+                if (algorithm != CallGraphAlgorithm.RTA) {
+                    assertThat(hasEdge(session,
+                            "ServiceApp", "executeFromField",
+                            "ServiceApp$Provider", "run"))
+                            .as(algorithm.identifier()).isTrue();
+                }
+                assertThat(session.getGraph()).anySatisfy(node -> {
+                    assertThat(owner(node)).startsWith(
+                            "wala/serviceloader/Iterator$");
+                    assertThat(successors(session, node))
+                            .anySatisfy(target -> {
+                                assertThat(owner(target))
+                                        .isEqualTo("ServiceApp$Provider");
+                                assertThat(target.getMethod().isInit())
+                                        .isTrue();
+                            });
                 });
-            });
+            }
         }
     }
 
@@ -472,6 +500,239 @@ class WalaFixedPointModelsTest {
     }
 
     @Test
+    void rtaServiceLoaderProviderFlowsIntoInterfaceDispatch()
+            throws Exception {
+        final Path classes = compile("RtaServiceApp", """
+                import java.util.ServiceLoader;
+                public class RtaServiceApp {
+                    interface Service { void run(); }
+                    public static class Provider implements Service {
+                        public Provider() { }
+                        public void run() { helper(); }
+                        static void helper() { }
+                    }
+                    public void execute() {
+                        for (Service service
+                                : ServiceLoader.load(Service.class)) {
+                            service.run();
+                        }
+                    }
+                }
+                """);
+        writeServiceResource(classes, "RtaServiceApp$Service",
+                "RtaServiceApp$Provider\n");
+
+        try (IJarRepository repository = TestJarRepositories.empty()) {
+            final ModuleCallGraphSession session = build(
+                    classes, repository, CallGraphAlgorithm.RTA);
+            assertThat(session.getModelLimitations()).isEmpty();
+            assertThat(hasEdge(session, "RtaServiceApp", "execute",
+                    "RtaServiceApp$Provider", "run")).isTrue();
+            assertRtaServiceLoaderHasNoReturnCarriers(session);
+        }
+    }
+
+    @Test
+    void rtaServiceLoaderRecoversContractFromProviderCheckcast()
+            throws Exception {
+        final Path classes = compile("RtaCheckcastServiceApp", """
+                import java.util.ServiceLoader;
+                public class RtaCheckcastServiceApp {
+                    interface Service { void run(); }
+                    public static class Provider implements Service {
+                        public Provider() { }
+                        public void run() { helper(); }
+                        static void helper() { }
+                    }
+                    public void execute(Class<Service> serviceType) {
+                        for (Service service
+                                : ServiceLoader.load(serviceType)) {
+                            service.run();
+                        }
+                    }
+                }
+                """);
+        writeServiceResource(classes, "RtaCheckcastServiceApp$Service",
+                "RtaCheckcastServiceApp$Provider\n");
+
+        try (IJarRepository repository = TestJarRepositories.empty()) {
+            final ModuleCallGraphSession session = build(
+                    classes, repository, CallGraphAlgorithm.RTA);
+            assertThat(hasEdge(session, "RtaCheckcastServiceApp", "execute",
+                    "RtaCheckcastServiceApp$Provider", "run")).isTrue();
+            assertThat(session.hasServiceLoaderLimitations()).isFalse();
+        }
+    }
+
+    @Test
+    void methodHandleTargetIsReachableAcrossAlgorithms()
+            throws Exception {
+        final Path classes = compile("RtaMethodHandleApp", """
+                import java.lang.invoke.MethodHandle;
+                import java.lang.invoke.MethodHandles;
+                import java.lang.invoke.MethodType;
+                public class RtaMethodHandleApp {
+                    static void target() { }
+                    public void execute() throws Throwable {
+                        MethodHandle handle = MethodHandles.lookup()
+                                .findStatic(RtaMethodHandleApp.class, "target",
+                                        MethodType.methodType(void.class));
+                        handle.invokeExact();
+                    }
+                }
+                """);
+
+        try (IJarRepository repository = TestJarRepositories.empty()) {
+            for (CallGraphAlgorithm algorithm
+                    : CallGraphAlgorithm.values()) {
+                final ModuleCallGraphSession session = build(
+                        classes, repository, algorithm,
+                        WalaReflectionOptions.parse("NONE"));
+                assertThat(hasPath(session,
+                        "RtaMethodHandleApp", "execute",
+                        "RtaMethodHandleApp", "target"))
+                        .as(algorithm.identifier()).isTrue();
+                if (algorithm == CallGraphAlgorithm.RTA) {
+                    assertThat(hasMethodHandleBridgePath(session,
+                            "RtaMethodHandleApp", "execute",
+                            "RtaMethodHandleApp", "target")).isTrue();
+                    assertThat(session.getDynamicEvidence().find(
+                            "RtaMethodHandleApp", "target", "()V"))
+                            .anySatisfy(evidence -> {
+                                assertThat(evidence.kind()).isEqualTo(
+                                        EdgeKind.METHOD_HANDLE_TARGET);
+                                assertThat(evidence.detail()).contains(
+                                        "operation=INVOKE_EXACT");
+                            });
+                }
+                assertThat(session.hasMethodHandleLimitations()).isFalse();
+            }
+        }
+    }
+
+    @Test
+    void rtaReportsUnresolvedMethodHandleReceiver()
+            throws Exception {
+        final Path classes = compile("RtaUnknownMethodHandleApp", """
+                import java.lang.invoke.MethodHandle;
+                public class RtaUnknownMethodHandleApp {
+                    public void execute(MethodHandle handle) throws Throwable {
+                        handle.invokeExact();
+                    }
+                }
+                """);
+
+        try (IJarRepository repository = TestJarRepositories.empty()) {
+            final ModuleCallGraphSession session = build(
+                    classes, repository, CallGraphAlgorithm.RTA);
+            assertThat(session.hasMethodHandleLimitations()).isTrue();
+            assertThat(session.getModelLimitations()).anySatisfy(value ->
+                    assertThat(value).contains(
+                            "RTA_METHOD_HANDLE_LOCAL_TARGET_UNRESOLVED"));
+        }
+    }
+
+    @Test
+    void rtaDoesNotGuessFieldCrossMethodOrDivergentPhiHandles()
+            throws Exception {
+        final Path classes = compile("RtaUnresolvedHandleSources", """
+                import java.lang.invoke.MethodHandle;
+                import java.lang.invoke.MethodHandles;
+                import java.lang.invoke.MethodType;
+                public class RtaUnresolvedHandleSources {
+                    static MethodHandle saved;
+                    static void first() { }
+                    static void second() { }
+                    static MethodHandle create() throws Exception {
+                        return MethodHandles.lookup().findStatic(
+                                RtaUnresolvedHandleSources.class, "first",
+                                MethodType.methodType(void.class));
+                    }
+                    public void fromField() throws Throwable {
+                        saved.invokeExact();
+                    }
+                    public void fromOtherMethod() throws Throwable {
+                        create().invokeExact();
+                    }
+                    public void fromDivergentPhi(boolean choose)
+                            throws Throwable {
+                        MethodHandle handle;
+                        if (choose) {
+                            handle = MethodHandles.lookup().findStatic(
+                                    RtaUnresolvedHandleSources.class,
+                                    "first",
+                                    MethodType.methodType(void.class));
+                        } else {
+                            handle = MethodHandles.lookup().findStatic(
+                                    RtaUnresolvedHandleSources.class,
+                                    "second",
+                                    MethodType.methodType(void.class));
+                        }
+                        handle.invokeExact();
+                    }
+                }
+                """);
+
+        try (IJarRepository repository = TestJarRepositories.empty()) {
+            final ModuleCallGraphSession session = build(
+                    classes, repository, CallGraphAlgorithm.RTA,
+                    WalaReflectionOptions.parse("NONE"));
+            assertThat(session.getModelLimitations().stream()
+                    .filter(value -> value.contains(
+                            "RTA_METHOD_HANDLE_LOCAL_TARGET_UNRESOLVED")))
+                    .hasSizeGreaterThanOrEqualTo(
+                            UNRESOLVED_HANDLE_SOURCE_COUNT);
+            for (String method : List.of(
+                    "fromField", "fromOtherMethod", "fromDivergentPhi")) {
+                assertThat(hasPath(session,
+                        "RtaUnresolvedHandleSources", method,
+                        "RtaUnresolvedHandleSources", "first"))
+                        .as(method).isFalse();
+                assertThat(hasPath(session,
+                        "RtaUnresolvedHandleSources", method,
+                        "RtaUnresolvedHandleSources", "second"))
+                        .as(method).isFalse();
+            }
+        }
+    }
+
+    @Test
+    void rtaMethodHandleTypeKeepsApiReachabilityWithoutFakeValue()
+            throws Exception {
+        final Path classes = compile("RtaMethodHandleType", """
+                import java.lang.invoke.MethodHandle;
+                import java.lang.invoke.MethodHandles;
+                import java.lang.invoke.MethodType;
+                public class RtaMethodHandleType {
+                    static void target() { }
+                    public MethodType inspect() throws Throwable {
+                        MethodHandle handle = MethodHandles.lookup()
+                                .findStatic(RtaMethodHandleType.class,
+                                        "target",
+                                        MethodType.methodType(void.class));
+                        return handle.type();
+                    }
+                }
+                """);
+
+        try (IJarRepository repository = TestJarRepositories.empty()) {
+            final ModuleCallGraphSession session = build(
+                    classes, repository, CallGraphAlgorithm.RTA,
+                    WalaReflectionOptions.parse("NONE"));
+            assertThat(session.getGraph()).anySatisfy(node -> {
+                assertThat(owner(node)).isEqualTo(
+                        "java/lang/invoke/MethodHandle");
+                assertThat(node.getMethod().getName().toString())
+                        .isEqualTo("type");
+            });
+            assertThat(session.hasMethodHandleLimitations()).isFalse();
+            assertThat(session.getDynamicEvidence().find(
+                    "RtaMethodHandleType", "target", "()V"))
+                    .isEmpty();
+        }
+    }
+
+    @Test
     void capturingMarkerBridgeAltMetafactoryCallsImplementation()
             throws Exception {
         final Path reactor = compile("AltFactory", """
@@ -495,30 +756,41 @@ class WalaFixedPointModelsTest {
                 """, List.of(reactor));
 
         try (IJarRepository repository = TestJarRepositories.empty()) {
-            final ModuleCallGraphSession session = build(
-                    classes, repository, List.of(reactor));
-            assertThat(session.hasDynamicModelLimitations()).isFalse();
-            assertThat(session.getHierarchy()).anySatisfy(type -> {
-                assertThat(owner(type.getName().toString()))
-                        .startsWith("wala/lambda/Alt$");
-                assertThat(type.getDirectInterfaces().stream()
-                        .map(iface -> owner(iface.getName().toString())))
-                        .contains("java/io/Serializable",
-                                "AltFactory$Marker",
-                                "AltFactory$Narrow");
-                assertThat(type.getDeclaredMethods().stream()
-                        .map(method -> method.getDescriptor().toString()))
-                        .contains("()Ljava/lang/Object;",
-                                "()Ljava/lang/String;");
-            });
-            assertThat(session.getGraph()).anySatisfy(node -> {
-                assertThat(owner(node)).startsWith("wala/lambda/Alt$");
-                assertThat(successors(session, node)).anySatisfy(target -> {
-                    assertThat(owner(target)).isEqualTo("AltFactory");
-                    assertThat(target.getMethod().getName().toString())
-                            .startsWith("lambda$task$");
+            for (CallGraphAlgorithm algorithm
+                    : CallGraphAlgorithm.values()) {
+                final ModuleCallGraphSession session = build(
+                        classes, repository, List.of(reactor), algorithm,
+                        WalaReflectionOptions.parse("NONE"));
+                assertThat(session.hasDynamicModelLimitations())
+                        .as(algorithm.identifier() + " "
+                                + session.getModelLimitations()).isFalse();
+                assertThat(session.getHierarchy()).anySatisfy(type -> {
+                    assertThat(owner(type.getName().toString()))
+                            .startsWith("wala/lambda/Alt$");
+                    assertThat(type.getDirectInterfaces().stream()
+                            .map(iface -> owner(
+                                    iface.getName().toString())))
+                            .contains("java/io/Serializable",
+                                    "AltFactory$Marker",
+                                    "AltFactory$Narrow");
+                    assertThat(type.getDeclaredMethods().stream()
+                            .map(method -> method.getDescriptor().toString()))
+                            .contains("()Ljava/lang/Object;",
+                                    "()Ljava/lang/String;");
                 });
-            });
+                assertThat(session.getGraph()).anySatisfy(node -> {
+                    assertThat(owner(node)).startsWith(
+                            "wala/lambda/Alt$");
+                    assertThat(successors(session, node))
+                            .anySatisfy(target -> {
+                                assertThat(owner(target))
+                                        .isEqualTo("AltFactory");
+                                assertThat(target.getMethod().getName()
+                                        .toString())
+                                        .startsWith("lambda$task$");
+                            });
+                });
+            }
         }
     }
 
@@ -565,21 +837,28 @@ class WalaFixedPointModelsTest {
                 new ModuleChangeSet(List.of(point), List.of()));
 
         try (IJarRepository repository = TestJarRepositories.empty()) {
-            final ModuleCallGraphSession session = build(unit, repository,
-                    InvokeDynamicBootstrapModelRegistry.jdk8Defaults());
-            assertThat(session.getDynamicEvidence().find(
-                    "LambdaLibrary", "implementation", "()V"))
-                    .isNotEmpty();
-            final ModuleImpactQueryResult query =
-                    new ModuleImpactTracer(diagnostics())
-                            .trace(unit, session);
-            assertThat(query.getPaths()).anySatisfy(path -> {
-                assertThat(path.getAffectedMethod().owner())
-                        .isEqualTo("RemovedLambdaApp");
-                assertThat(path.getTerminal().getEdgeKind())
-                        .isEqualTo(
-                                EdgeKind.INVOKEDYNAMIC_HANDLE_REFERENCE);
-            });
+            for (CallGraphAlgorithm algorithm
+                    : CallGraphAlgorithm.values()) {
+                final ModuleCallGraphSession session = build(
+                        unit, repository,
+                        InvokeDynamicBootstrapModelRegistry.jdk8Defaults(),
+                        EntrypointSelection.allProjectClasses(), algorithm,
+                        WalaReflectionOptions.parse("NONE"));
+                assertThat(session.getDynamicEvidence().find(
+                        "LambdaLibrary", "implementation", "()V"))
+                        .as(algorithm.identifier()).isNotEmpty();
+                final ModuleImpactQueryResult query =
+                        new ModuleImpactTracer(diagnostics())
+                                .trace(unit, session);
+                assertThat(query.getPaths())
+                        .as(algorithm.identifier()).anySatisfy(path -> {
+                            assertThat(path.getAffectedMethod().owner())
+                                    .isEqualTo("RemovedLambdaApp");
+                            assertThat(path.getTerminal().getEdgeKind())
+                                    .isEqualTo(EdgeKind
+                                            .INVOKEDYNAMIC_HANDLE_REFERENCE);
+                        });
+            }
         }
     }
 
@@ -588,15 +867,21 @@ class WalaFixedPointModelsTest {
         final Path classes = dynamicClass(
                 "UnknownDynamicApp", false);
         try (IJarRepository repository = TestJarRepositories.empty()) {
-            final ModuleCallGraphSession session = build(classes, repository);
-            assertThat(session.hasDynamicModelLimitations()).isTrue();
-            assertThat(session.getDynamicEvidence().all()).anySatisfy(
-                    evidence -> {
-                        assertThat(evidence.targetOwner())
-                                .isEqualTo("custom/Bootstrap");
-                        assertThat(evidence.kind()).isEqualTo(
-                                EdgeKind.INVOKEDYNAMIC_BOOTSTRAP);
-                    });
+            for (CallGraphAlgorithm algorithm
+                    : CallGraphAlgorithm.values()) {
+                final ModuleCallGraphSession session = build(
+                        classes, repository, algorithm,
+                        WalaReflectionOptions.parse("NONE"));
+                assertThat(session.hasDynamicModelLimitations())
+                        .as(algorithm.identifier()).isTrue();
+                assertThat(session.getDynamicEvidence().all())
+                        .as(algorithm.identifier()).anySatisfy(evidence -> {
+                            assertThat(evidence.targetOwner())
+                                    .isEqualTo("custom/Bootstrap");
+                            assertThat(evidence.kind()).isEqualTo(
+                                    EdgeKind.INVOKEDYNAMIC_BOOTSTRAP);
+                        });
+            }
         }
     }
 
@@ -611,10 +896,19 @@ class WalaFixedPointModelsTest {
                 }
                 """);
         try (IJarRepository repository = TestJarRepositories.empty()) {
-            final ModuleCallGraphSession session = build(
-                    classes, repository, List.of(reactor));
-            assertThat(session.hasDynamicModelLimitations()).isFalse();
-            assertThat(session.getDynamicEvidence().all()).isEmpty();
+            for (CallGraphAlgorithm algorithm
+                    : CallGraphAlgorithm.values()) {
+                final ModuleCallGraphSession session = build(
+                        classes, repository, List.of(reactor), algorithm,
+                        WalaReflectionOptions.parse("NONE"));
+                assertThat(session.hasDynamicModelLimitations())
+                        .as(algorithm.identifier()).isFalse();
+                assertThat(session.getDynamicEvidence().all())
+                        .as(algorithm.identifier()).noneMatch(evidence ->
+                        owner(evidence.caller()).equals("UnreachableDynamic")
+                                || evidence.targetOwner().equals(
+                                "custom/Bootstrap"));
+            }
         }
     }
 
@@ -627,7 +921,8 @@ class WalaFixedPointModelsTest {
                         "custom/Bootstrap", "bootstrap",
                         BOOTSTRAP_DESCRIPTOR);
         final InvokeDynamicBootstrapModelRegistry registry =
-                InvokeDynamicBootstrapModelRegistry.builder()
+                InvokeDynamicBootstrapModelRegistry.jdk8Defaults()
+                        .toBuilder()
                         .register(key, (caller, site, instruction,
                                 hierarchy, syntheticClasses) -> {
                             final IMethod helper = hierarchy.resolveMethod(
@@ -641,11 +936,24 @@ class WalaFixedPointModelsTest {
                                     : InvokeDynamicModelResult.modeled(helper);
                         }).build();
         try (IJarRepository repository = TestJarRepositories.empty()) {
-            final ModuleCallGraphSession session = build(
-                    classes, repository, List.of(), registry);
-            assertThat(session.hasDynamicModelLimitations()).isFalse();
-            assertThat(hasEdge(session, "CustomDynamicApp", "execute",
-                    "CustomDynamicApp", "helper")).isTrue();
+            final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                    moduleId(), ModulePresence.BOTH, classes, List.of(),
+                    List.of(), List.of(),
+                    new ModuleChangeSet(List.of(), List.of()));
+            for (CallGraphAlgorithm algorithm
+                    : CallGraphAlgorithm.values()) {
+                final ModuleCallGraphSession session = build(
+                        unit, repository, registry,
+                        EntrypointSelection.allProjectClasses(), algorithm,
+                        WalaReflectionOptions.parse("NONE"));
+                assertThat(session.hasDynamicModelLimitations())
+                        .as(algorithm.identifier() + " "
+                                + session.getModelLimitations()).isFalse();
+                assertThat(hasEdge(session,
+                        "CustomDynamicApp", "execute",
+                        "CustomDynamicApp", "helper"))
+                        .as(algorithm.identifier()).isTrue();
+            }
         }
     }
 
@@ -689,6 +997,23 @@ class WalaFixedPointModelsTest {
     private ModuleCallGraphSession build(
             final Path classes,
             final IJarRepository repository,
+            final CallGraphAlgorithm algorithm,
+            final WalaReflectionOptions reflectionOptions) throws Exception {
+        final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                moduleId(), ModulePresence.BOTH, classes, List.of(),
+                List.of(), List.of(),
+                new ModuleChangeSet(List.of(), List.of()));
+        final JavaRuntimeDescriptor runtime = new Jdk8RuntimeProvider()
+                .probe(Path.of(System.getenv("TEST_JDK8_HOME")));
+        return new ModuleCallGraphEngine(diagnostics(), runtime,
+                EntrypointSelection.allProjectClasses(), algorithm,
+                reflectionOptions, repository).build(
+                unit, GRAPH_TIMEOUT_SECONDS);
+    }
+
+    private ModuleCallGraphSession build(
+            final Path classes,
+            final IJarRepository repository,
             final List<Path> reactorClasses) throws Exception {
         return build(classes, repository, reactorClasses,
                 InvokeDynamicBootstrapModelRegistry.jdk8Defaults());
@@ -705,6 +1030,24 @@ class WalaFixedPointModelsTest {
                 ModulePresence.BOTH, classes, reactorClasses, List.of(),
                 List.of(), new ModuleChangeSet(List.of(), List.of()));
         return build(unit, repository, registry);
+    }
+
+    private ModuleCallGraphSession build(
+            final Path classes,
+            final IJarRepository repository,
+            final List<Path> reactorClasses,
+            final CallGraphAlgorithm algorithm,
+            final WalaReflectionOptions reflectionOptions) throws Exception {
+        final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                moduleId(), ModulePresence.BOTH, classes, reactorClasses,
+                List.of(), List.of(),
+                new ModuleChangeSet(List.of(), List.of()));
+        final JavaRuntimeDescriptor runtime = new Jdk8RuntimeProvider()
+                .probe(Path.of(System.getenv("TEST_JDK8_HOME")));
+        return new ModuleCallGraphEngine(diagnostics(), runtime,
+                EntrypointSelection.allProjectClasses(), algorithm,
+                reflectionOptions, repository).build(
+                unit, GRAPH_TIMEOUT_SECONDS);
     }
 
     private ModuleCallGraphSession build(
@@ -747,10 +1090,22 @@ class WalaFixedPointModelsTest {
             final EntrypointSelection selection,
             final CallGraphAlgorithm algorithm)
             throws Exception {
+        return build(unit, repository, registry, selection, algorithm,
+                WalaReflectionOptions.defaultOptions());
+    }
+
+    private ModuleCallGraphSession build(
+            final ModuleAnalysisUnit unit,
+            final IJarRepository repository,
+            final InvokeDynamicBootstrapModelRegistry registry,
+            final EntrypointSelection selection,
+            final CallGraphAlgorithm algorithm,
+            final WalaReflectionOptions reflectionOptions)
+            throws Exception {
         final JavaRuntimeDescriptor runtime = new Jdk8RuntimeProvider()
                 .probe(Path.of(System.getenv("TEST_JDK8_HOME")));
         return new ModuleCallGraphEngine(diagnostics(), runtime,
-                selection, algorithm, repository, registry)
+                selection, algorithm, reflectionOptions, repository, registry)
                 .build(unit, GRAPH_TIMEOUT_SECONDS);
     }
 
@@ -809,7 +1164,21 @@ class WalaFixedPointModelsTest {
         writer.visitEnd();
         Files.write(classes.resolve(name + ".class"),
                 writer.toByteArray());
+        writeCustomBootstrap(classes);
         return classes;
+    }
+
+    private void writeCustomBootstrap(final Path classes) throws Exception {
+        final ClassWriter writer = new ClassWriter(0);
+        writer.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC,
+                "custom/Bootstrap", null, "java/lang/Object", null);
+        writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC
+                        | Opcodes.ACC_NATIVE,
+                "bootstrap", BOOTSTRAP_DESCRIPTOR, null, null).visitEnd();
+        writer.visitEnd();
+        final Path output = classes.resolve("custom/Bootstrap.class");
+        Files.createDirectories(output.getParent());
+        Files.write(output, writer.toByteArray());
     }
 
     private Path compile(final String name, final String source)
@@ -863,6 +1232,68 @@ class WalaFixedPointModelsTest {
         return false;
     }
 
+    private boolean hasMethodHandleBridgePath(
+            final ModuleCallGraphSession session,
+            final String callerOwner,
+            final String callerName,
+            final String targetOwner,
+            final String targetName) {
+        for (CGNode caller : session.getGraph()) {
+            if (!callerOwner.equals(owner(caller))
+                    || !callerName.equals(
+                    caller.getMethod().getName().toString())) {
+                continue;
+            }
+            for (CGNode bridge : successors(session, caller)) {
+                if (!"wala/methodhandle/RtaBridge".equals(owner(bridge))
+                        || !bridge.getMethod().getName().toString()
+                        .startsWith("wala$rta$methodHandle$")) {
+                    continue;
+                }
+                for (CGNode target : successors(session, bridge)) {
+                    if (targetOwner.equals(owner(target))
+                            && targetName.equals(target.getMethod()
+                            .getName().toString())) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean hasPath(
+            final ModuleCallGraphSession session,
+            final String callerOwner,
+            final String callerName,
+            final String targetOwner,
+            final String targetName) {
+        final Queue<CGNode> pending = new ArrayDeque<>();
+        final Set<CGNode> visited = new HashSet<>();
+        for (CGNode node : session.getGraph()) {
+            if (callerOwner.equals(owner(node))
+                    && callerName.equals(
+                    node.getMethod().getName().toString())) {
+                pending.add(node);
+                visited.add(node);
+            }
+        }
+        while (!pending.isEmpty()) {
+            final CGNode node = pending.remove();
+            if (targetOwner.equals(owner(node))
+                    && targetName.equals(
+                    node.getMethod().getName().toString())) {
+                return true;
+            }
+            for (CGNode successor : successors(session, node)) {
+                if (visited.add(successor)) {
+                    pending.add(successor);
+                }
+            }
+        }
+        return false;
+    }
+
     private List<String> serviceEdges(
             final ModuleCallGraphSession session) {
         final List<String> result = new ArrayList<>();
@@ -890,6 +1321,43 @@ class WalaFixedPointModelsTest {
                 .getSuccNodes(node);
         iterator.forEachRemaining(result::add);
         return result;
+    }
+
+    private void assertRtaServiceLoaderHasNoReturnCarriers(
+            final ModuleCallGraphSession session) {
+        int modeled = 0;
+        for (CGNode node : session.getGraph()) {
+            final String type = owner(node);
+            final String method = node.getMethod().getName().toString();
+            final boolean summary = "java/util/ServiceLoader".equals(type)
+                    && node.getContext().get(
+                    RtaServiceLoaderModel.SERVICE_TYPE_KEY) != null
+                    && ("load".equals(method)
+                    || "loadInstalled".equals(method)
+                    || "iterator".equals(method))
+                    || type.startsWith("wala/serviceloader/Iterator$")
+                    && "next".equals(method);
+            if (!summary) {
+                continue;
+            }
+            modeled++;
+            final IR ir = node.getIR();
+            assertThat(ir).as(type + "." + method).isNotNull();
+            assertThat(ir.getInstructions())
+                    .as(type + "." + method + " has no provider phi")
+                    .noneMatch(SSAPhiInstruction.class::isInstance);
+            for (SSAInstruction instruction : ir.getInstructions()) {
+                if (instruction instanceof SSAReturnInstruction value
+                        && !value.returnsVoid()
+                        && !value.returnsPrimitiveType()) {
+                    assertThat(ir.getSymbolTable().isNullConstant(
+                            value.getResult()))
+                            .as(type + "." + method + " return")
+                            .isTrue();
+                }
+            }
+        }
+        assertThat(modeled).isPositive();
     }
 
     private String owner(final CGNode node) {

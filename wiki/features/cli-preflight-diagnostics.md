@@ -52,6 +52,8 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - `--path <path>`：reactor root 或 leaf Module。
 - `--analysis-target spring-backend`：默认且唯一 target。
 - `--analysis-parallelism <N>`：默认 `2`，必须 `>=1`；统一控制 Module analysis、JAR diff、反编译 pool，不按 CPU 数静默截断，超过 CPU 输出 warning。
+- `--call-graph-algorithm <rta|zero-cfa|optimized-0-1-cfa>`：默认`rta`，command-wide应用到全部Module。
+- `--wala-reflection-options <enum-name>`：默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`，接受WALA `ReflectionOptions` enum name；`--reflection-options`为alias。
 - `--entrypoint-include '<class-path-pattern>'` 与 `--entrypoint-exclude ...`：可重复；直接匹配 slash-separated JVM internal class path，include 取并集，exclude 优先。普通 segment支持 `*`、`?`；`**` 只能作为最后一个完整 segment。Colon/dot旧语法、leading/trailing slash、空 segment与嵌入式 `**` 在 CLI validation阶段 exit `1`。
 - `--call-graph-timeout-seconds <N>`：默认 `0`；按 Module、从实际 WALA build 开始计时。
 - `--format html`：唯一有效格式；`md` fail fast。
@@ -63,7 +65,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - `PARTIAL_SUCCESS`、`FAILED`：`2`。
 - Argument validation、Preflight、global preparation failure：`1`。
 
-`INCONCLUSIVE` 表示 analysis 在公开 model 内完成，但存在 JAR diff、ServiceLoader、SSA 或外部 dependency excluded JDK reference uncertainty；它不是 hard failure。仅由后者触发时，Module reason 为 `INCONCLUSIVE_SCOPE_VALIDATION`。
+`INCONCLUSIVE`表示analysis在公开model内完成，但存在JAR diff、`invokedynamic`、MethodHandle、ServiceLoader、SSA或外部dependency excluded JDK reference uncertainty；它不是hard failure。仅由最后一类scope gap触发时，Module reason为`INCONCLUSIVE_SCOPE_VALIDATION`。
 
 ## Preflight Boundary
 

@@ -27,6 +27,9 @@ public enum ModuleAnalysisReason {
     /** Reachable invokedynamic bootstrap could not be modeled. */
     INCONCLUSIVE_INVOKEDYNAMIC_MODEL,
 
+    /** Reachable MethodHandle target could not be resolved locally. */
+    INCONCLUSIVE_METHOD_HANDLE_MODEL,
+
     /** At least one candidate method returned SSA UNKNOWN. */
     INCONCLUSIVE_SSA_UNKNOWN,
 

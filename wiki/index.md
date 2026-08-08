@@ -44,16 +44,16 @@ code_refs: []
 - Summary: `ArtifactCoord` 是 dependency JAR logical identity；repository deterministic 选择 Resolver binding，并以 tracked `JarLease` 隔离 physical handle。
 
 ### [Bytecode Diff Engine](features/bytecode-diff-engine.md)
-- Summary: logical coordinate pair 经 repository lease 并行去重 diff；MethodNode canonical hash覆盖 CFG/exception/bootstrap topology，SSA filtering 延迟到 candidate path 后。
+- Summary: logical coordinate pair 经 repository lease 并行去重 diff；除stable method hash外，默认检测class/method/constructor/field Java 8 JVM access narrowing。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
-- Summary: 每 Module 使用 command-wide selected WALA算法；默认 ZeroCFA按class合并allocation并保留constant identity，optimized 0-1-CFA保持可选。
+- Summary: 每Module由独立strategy构建selected WALA Call Graph；默认Basic RTA与bounded ReflectionOptions，两种ZeroX算法保持可选。
 
 ### [Impact Tracing](features/impact-tracing.md)
-- Summary: 构图后 read-only deterministic reverse BFS；同一 ChangePoint/affected PROJECT method 跨 seed/Context 保留一条 shortest representative path。
+- Summary: 构图后read-only解析call/structural/access reference，使用typed JVM access decision与deterministic reverse BFS生成representative path/disposition。
 
 ### [Report Generator](features/report-generator.md)
-- Summary: `impact` 原子生成英文 Overall Index + 每个非-skip Module 三页；展示 path-related 与 duplicate-shadow changes、winner evidence、折叠 Unified diff、technical evidence 与 responsive navigation。
+- Summary: `impact`原子生成英文Overall与Module三页；展示实际algorithm/ReflectionOptions、typed coverage/access evidence、path/disposition与Unified diff。
 
 ## Rules
 
@@ -72,6 +72,6 @@ code_refs: []
 - Summary: Maven Versions/Enforcer 驱动的 Snapshot iteration、Stable release、commit 与双 Git tag。
 
 ### [Impact Benchmark](runbooks/impact-benchmark.md)
-- Summary: 从 Git 管理的 source fixture 生成 42 个 dependencies 与 9 类 ChangePoint，执行 impact、采集资源并校验四页 HTML report。
+- Summary: 显式选择algorithm/ReflectionOptions运行42-dependency fixture，校验versioned path count与四页Report，并汇总三次以上同环境Wall/RSS中位数。
 
 ## Glossary

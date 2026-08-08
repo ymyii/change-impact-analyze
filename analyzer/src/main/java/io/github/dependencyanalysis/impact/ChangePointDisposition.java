@@ -21,6 +21,9 @@ public enum ChangePointDisposition {
     /** No reachable old symbolic reference was found. */
     DECLARED_REFERENCE_NOT_FOUND,
 
+    /** References exist but remain legal under the new access. */
+    ACCESS_REMAINS_VALID,
+
     /** A seed exists but no current PROJECT method reaches it. */
     NO_PROJECT_PATH,
 

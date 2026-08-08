@@ -16,6 +16,9 @@ final class MethodInfo {
     /** Method descriptor. */
     private final String descriptor;
 
+    /** Normalized JVM member access. */
+    private final JvmAccess access;
+
     /** Body hash (null if abstract/native). */
     private final String bodyHash;
 
@@ -24,11 +27,13 @@ final class MethodInfo {
      *
      * @param nam  method name
      * @param desc method descriptor
+     * @param methodAccess normalized member access
      * @param hash body hash or null
      */
     MethodInfo(
             final String nam,
             final String desc,
+            final JvmAccess methodAccess,
             final String hash) {
         this.name =
                 Objects.requireNonNull(
@@ -36,6 +41,7 @@ final class MethodInfo {
         this.descriptor =
                 Objects.requireNonNull(
                         desc, "descriptor");
+        this.access = Objects.requireNonNull(methodAccess, "access");
         this.bodyHash = hash;
     }
 
@@ -67,6 +73,11 @@ final class MethodInfo {
         return bodyHash;
     }
 
+    /** @return normalized JVM member access */
+    JvmAccess getAccess() {
+        return access;
+    }
+
     /**
      * Returns a unique key for
      * matching methods by name and
@@ -91,6 +102,7 @@ final class MethodInfo {
         return name.equals(that.name)
                 && descriptor.equals(
                         that.descriptor)
+                && access == that.access
                 && Objects.equals(
                         bodyHash,
                         that.bodyHash);
@@ -99,7 +111,7 @@ final class MethodInfo {
     @Override
     public int hashCode() {
         return Objects.hash(
-                name, descriptor,
+                name, descriptor, access,
                 bodyHash);
     }
 
@@ -109,6 +121,7 @@ final class MethodInfo {
                 + "name=" + name
                 + ", descriptor="
                 + descriptor
+                + ", access=" + access
                 + ", bodyHash="
                 + bodyHash
                 + '}';

@@ -33,6 +33,7 @@ mvn package
 
 ```sh
 JAVA8_HOME=/absolute/path/to/jdk8 \
+  BENCHMARK_CALL_GRAPH_ALGORITHM=zero-cfa \
   benchmarks/impact-medium/run-benchmark.sh
 ```
 
@@ -40,6 +41,7 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 
 ```sh
 JAVA8_HOME=/absolute/path/to/jdk8 \
+  BENCHMARK_CALL_GRAPH_ALGORITHM=rta \
   benchmarks/impact-medium/run-benchmark.sh candidate-01
 ```
 
@@ -51,6 +53,9 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 | `ANALYZER_JAVA` | PATH 中的 `java` | 启动 Analyzer 的 Java 17 executable |
 | `MAVEN_BIN` | PATH 中的 `mvn` | 传给 CLI 的 Maven executable |
 | `JAVA8_HOME` | 无 | 必填，target JDK 8 home |
+| `BENCHMARK_CALL_GRAPH_ALGORITHM` | 无 | 必填；仅接受 `rta`、`zero-cfa`、`optimized-0-1-cfa` |
+| `BENCHMARK_WALA_REFLECTION_OPTIONS` | `ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD` | 传给 `--wala-reflection-options`；接受 WALA `ReflectionOptions` enum name |
+| `BENCHMARK_CALIBRATION` | `0` | 仅 `1` 可临时跳过未来尚未锁定 algorithm 的 candidate/final count；其余报告断言仍执行 |
 | `BENCHMARK_MAVEN_REPO` | `$HOME/.m2/repository` | fixture artifacts 安装位置和 Maven local repository |
 | `BENCHMARK_RUNTIME_ROOT` | `tmp-files/impact-medium-benchmark` | report、log、config 和临时 Git project 根目录 |
 
@@ -77,10 +82,11 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 脚本仅在下列条件全部满足时返回 `0`：
 
 - Analyzer exit code 为 `0`，Overall status 为 `Completed`。
-- Overall technical details 中 Algorithm 为默认 `zero-cfa`。
+- Overall technical details 中 Algorithm 必须与显式 `BENCHMARK_CALL_GRAPH_ALGORITHM` 一致。
+- Overall technical details 中 WALA ReflectionOptions 必须与 `BENCHMARK_WALA_REFLECTION_OPTIONS` 一致。
 - application POM 包含 42 个 direct dependencies。
 - Overall technical details 中 raw changed members 为 `9`；Changes 页面仅展示有 candidate/final/Structural Reference Path 的变更，并隐藏三类 added change。
-- Candidate / final call chains 为 `6 / 5`，`METHOD_BODY_CHANGED` 作为 SSA equivalent candidate 保留在折叠区。
+- Candidate / final call chains 必须匹配 versioned `expected-results.tsv` 中该 algorithm 的已锁定值。`rta`、`zero-cfa`、`optimized-0-1-cfa` 经关键路径审查后均锁定为 `6 / 5`；新增 algorithm 首轮只允许用 `BENCHMARK_CALIBRATION=1` 运行并人工审查。
 - Affected Call Chains 页面包含 Structural Reference Path；Changes 页面包含 final、filtered、structural badge 与反编译 Unified diff。
 - Overall、Module Index、Affected Call Chains、Dependency Changes 四个 HTML 页面均存在。
 
@@ -93,6 +99,7 @@ tmp-files/impact-medium-benchmark/<label>/
 ├── logs/
 │   ├── exit-code.txt
 │   ├── process-tree.csv
+│   ├── metrics.tsv
 │   ├── run-metadata.txt
 │   ├── stderr.log
 │   ├── stdout.log
@@ -103,9 +110,23 @@ tmp-files/impact-medium-benchmark/<label>/
     └── impact-report-modules/
 ```
 
-`time.txt` 的 `real/user/sys` 是总耗时与 CPU time。`process-tree.csv` 每 250 ms 采样 Analyzer 及 Maven/Javac 子进程的 aggregate RSS/CPU。macOS `time` 的 maximum resident set size 单位为 byte，GNU `time` 为 KiB。
+`time.txt` 的 `real/user/sys` 是总耗时与 CPU time。`process-tree.csv` 每 250 ms 采样 Analyzer 及 Maven/Javac 子进程的 aggregate RSS/CPU。`metrics.tsv` 以 machine-readable TSV 固定记录 algorithm、WALA ReflectionOptions、Call Graph nodes/edges、Wall time 与 process-tree peak RSS KiB。macOS `time` 的 maximum resident set size 单位为 byte，GNU `time` 为 KiB。
 
-建议相同 JAR 至少执行三次并对比中位数；保留 JVM、JDK 8、Maven、CPU 核数与 `analysis-parallelism` 一致。`front-parallel` 包含并发的 `baseline-dependency` 与 `target-build`，阶段时间不能全部相加推导 Wall time。
+每个 algorithm 以同一环境至少成功运行三次；使用 `scripts/summarize-runs.sh` 读取三个或更多 run directory，并输出 Wall time 与 process-tree peak RSS 的中位数。脚本拒绝混合 algorithm、calibration run 或不同 JAR SHA-256、JVM、JDK 8、Maven repository、fixture、CPU、`analysis-parallelism` 的结果。不同 algorithm 的性能比较只读取该 summary 输出。`front-parallel` 包含并发的 `baseline-dependency` 与 `target-build`，阶段时间不能全部相加推导 Wall time。
+
+```sh
+benchmarks/impact-medium/scripts/summarize-runs.sh \
+  tmp-files/impact-medium-benchmark/rta-01 \
+  tmp-files/impact-medium-benchmark/rta-02 \
+  tmp-files/impact-medium-benchmark/rta-03 \
+  > tmp-files/impact-medium-benchmark/rta-summary.tsv
+
+benchmarks/impact-medium/scripts/compare-summaries.sh \
+  tmp-files/impact-medium-benchmark/rta-summary.tsv \
+  tmp-files/impact-medium-benchmark/zero-cfa-summary.tsv
+```
+
+`performance-thresholds.tsv` 锁定 RTA 相对 `zero-cfa` 的中位数门槛：Wall time 不超过 `3.50x`，process-tree peak RSS 不超过 `1.75x`。`compare-summaries.sh` 只接收两个 summary，要求相同 WALA ReflectionOptions，并同时执行两项门禁。
 
 ## Failure Entrypoints
 

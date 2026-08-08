@@ -91,6 +91,7 @@ class ChangePointTest {
                 .isEqualTo("aaa");
         assertThat(cp.getNewHash())
                 .isEqualTo("bbb");
+        assertThat(cp.getAccessTransition()).isEmpty();
     }
 
     @Test
@@ -155,6 +156,90 @@ class ChangePointTest {
                         null, null);
         assertThat(cp1)
                 .isNotEqualTo(cp2);
+    }
+
+    @Test
+    void accessFactoryExposesTransitionAndExactIdentity() {
+        final AccessTransition transition = new AccessTransition(
+                JvmAccess.PUBLIC, JvmAccess.PROTECTED);
+        final ChangePoint cp = ChangePoint.accessNarrowed(
+                ART,
+                ChangePointKind.METHOD_ACCESS_NARROWED,
+                "com/Foo", "bar", "(I)V", transition);
+
+        assertThat(cp.getKind()).isEqualTo(
+                ChangePointKind.METHOD_ACCESS_NARROWED);
+        assertThat(cp.getOwner()).isEqualTo("com/Foo");
+        assertThat(cp.getName()).isEqualTo("bar");
+        assertThat(cp.getOldDescriptor()).isEqualTo("(I)V");
+        assertThat(cp.getNewDescriptor()).isEqualTo("(I)V");
+        assertThat(cp.getOldHash()).isNull();
+        assertThat(cp.getNewHash()).isNull();
+        assertThat(cp.getAccessTransition()).contains(transition);
+    }
+
+    @Test
+    void accessKindRequiresTransition() {
+        assertThatThrownBy(() -> new ChangePoint(
+                ART,
+                ChangePointKind.FIELD_ACCESS_NARROWED,
+                "com/Foo", "value", "I", null, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must agree");
+    }
+
+    @Test
+    void accessFactoryRejectsNonAccessKindAndNullTransition() {
+        final AccessTransition transition = new AccessTransition(
+                JvmAccess.PUBLIC, JvmAccess.PRIVATE);
+        assertThatThrownBy(() -> ChangePoint.accessNarrowed(
+                ART, ChangePointKind.METHOD_BODY_CHANGED,
+                "com/Foo", "bar", "()V", transition))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("access narrowing");
+        assertThatThrownBy(() -> ChangePoint.accessNarrowed(
+                ART, ChangePointKind.CLASS_ACCESS_NARROWED,
+                "com/Foo", null, null, null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("transition");
+    }
+
+    @Test
+    void equalityAndHashCodeIncludeAccessTransition() {
+        final ChangePoint first = ChangePoint.accessNarrowed(
+                ART, ChangePointKind.METHOD_ACCESS_NARROWED,
+                "com/Foo", "bar", "()V",
+                new AccessTransition(
+                        JvmAccess.PUBLIC, JvmAccess.PROTECTED));
+        final ChangePoint copy = ChangePoint.accessNarrowed(
+                ART, ChangePointKind.METHOD_ACCESS_NARROWED,
+                "com/Foo", "bar", "()V",
+                new AccessTransition(
+                        JvmAccess.PUBLIC, JvmAccess.PROTECTED));
+        final ChangePoint different = ChangePoint.accessNarrowed(
+                ART, ChangePointKind.METHOD_ACCESS_NARROWED,
+                "com/Foo", "bar", "()V",
+                new AccessTransition(
+                        JvmAccess.PUBLIC, JvmAccess.PRIVATE));
+
+        assertThat(first).isEqualTo(copy);
+        assertThat(first.hashCode()).isEqualTo(copy.hashCode());
+        assertThat(first).isNotEqualTo(different);
+    }
+
+    @Test
+    void toStringContainsAccessTransition() {
+        final ChangePoint cp = ChangePoint.accessNarrowed(
+                ART, ChangePointKind.CLASS_ACCESS_NARROWED,
+                "com/Foo", null, null,
+                new AccessTransition(
+                        JvmAccess.PUBLIC,
+                        JvmAccess.PACKAGE_PRIVATE));
+
+        assertThat(cp.toString())
+                .contains("CLASS_ACCESS_NARROWED")
+                .contains("PUBLIC")
+                .contains("PACKAGE_PRIVATE");
     }
 
     @Test

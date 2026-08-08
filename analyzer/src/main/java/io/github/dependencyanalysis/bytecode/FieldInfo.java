@@ -15,21 +15,27 @@ final class FieldInfo {
     /** Field descriptor. */
     private final String descriptor;
 
+    /** Normalized JVM member access. */
+    private final JvmAccess access;
+
     /**
      * Creates a new field info.
      *
      * @param nam  field name
      * @param desc field descriptor
+     * @param fieldAccess normalized member access
      */
     FieldInfo(
             final String nam,
-            final String desc) {
+            final String desc,
+            final JvmAccess fieldAccess) {
         this.name =
                 Objects.requireNonNull(
                         nam, "name");
         this.descriptor =
                 Objects.requireNonNull(
                         desc, "descriptor");
+        this.access = Objects.requireNonNull(fieldAccess, "access");
     }
 
     /**
@@ -50,6 +56,11 @@ final class FieldInfo {
         return descriptor;
     }
 
+    /** @return normalized JVM member access */
+    JvmAccess getAccess() {
+        return access;
+    }
+
     @Override
     public boolean equals(final Object o) {
         if (this == o) {
@@ -62,13 +73,14 @@ final class FieldInfo {
                 (FieldInfo) o;
         return name.equals(that.name)
                 && descriptor.equals(
-                        that.descriptor);
+                        that.descriptor)
+                && access == that.access;
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(
-                name, descriptor);
+                name, descriptor, access);
     }
 
     @Override
@@ -77,6 +89,7 @@ final class FieldInfo {
                 + "name=" + name
                 + ", descriptor="
                 + descriptor
+                + ", access=" + access
                 + '}';
     }
 }

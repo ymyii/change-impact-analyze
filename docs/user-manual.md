@@ -137,7 +137,8 @@ dependency-analyzer impact \
   [-f, --format html] \
   [--analysis-target spring-backend] \
   [--analysis-parallelism <count>] \
-  [--call-graph-algorithm <zero-cfa|optimized-0-1-cfa>] \
+  [--call-graph-algorithm <rta|zero-cfa|optimized-0-1-cfa>] \
+  [--wala-reflection-options <WALA-enum-name>] \
   [--entrypoint-include '<class-path-pattern>']... \
   [--entrypoint-exclude '<class-path-pattern>']... \
   [-k, --include-change-kinds <csv>] \
@@ -151,7 +152,8 @@ dependency-analyzer impact \
 - `--format` 仅接受 `html`；`md` compatibility token 会 fail fast。
 - `--analysis-target` 默认且首版只接受 `spring-backend`。
 - `--analysis-parallelism` 默认 `2`，必须 `>=1`；统一控制 Module analysis、JAR diff 和代码反编译各自的 bounded pool。超过 CPU 数只输出 warning，不静默截断。
-- `--call-graph-algorithm` command-wide选择全部 Module 使用的 WALA算法；默认 `zero-cfa`，可显式选择 `optimized-0-1-cfa`。值大小写不敏感，但不接受 `zero`、`zerocfa` 等 alias，也不执行 timeout fallback。
+- `--call-graph-algorithm` command-wide选择全部 Module 使用的 WALA算法；默认`rta`，可显式选择`zero-cfa`或`optimized-0-1-cfa`。值大小写不敏感，但不接受`rapid`、`zero`、`zerocfa`等alias，也不执行timeout fallback。RTA直接使用WALA `BasicRTABuilder`，按全局已实例化compatible class求virtual/interface reachability；两种ZeroX算法分别保留class-based和allocation-site precision。
+- `--wala-reflection-options`（alias `--reflection-options`）command-wide选择WALA `AnalysisOptions.ReflectionOptions`，接受原生enum name且大小写不敏感。默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`；可显式使用`FULL`、`NO_FLOW_TO_CASTS`、`STRING_ONLY`、`NONE`等WALA 1.8.0 value。该选项不随algorithm自动改变，也不执行fallback。
 - `--entrypoint-include`/`--entrypoint-exclude` 接受 slash-separated JVM internal class path，例如 `com/icbc/payment/OrderService`；可选 WALA `L` 前缀会在匹配前移除。选项可重复，多个 include 取并集，exclude 优先。
 - 普通 segment 中 `*` 匹配零到多个字符，`?` 匹配一个字符，均不跨越 `/`。最后一个普通 segment 始终是 class segment，允许 `$` 匹配 nested class；前面的 package segment 不允许 `$`。例如 `com/*/A?`、`com/ic?c/*Controller`、`com/icbc/*$Handler`。
 - `**` 只能作为最后一个完整 segment。`com/icbc/**` 匹配该路径下直属及任意深度 package 中的全部 class，`**` 匹配全部 class；`com/**/A`、`com/icbc/A**`、leading/trailing slash、空 segment、`.`、`\\` 与 `:` 均非法。`com/icbc/**` 后不能追加 class pattern；需要限定 class 名时使用确定深度的普通 pattern，例如 `com/*/*Controller`。旧 colon/dot selector 不兼容，参数校验直接 exit `1`。
@@ -172,7 +174,8 @@ dependency-analyzer impact \
 | `-f` | `--format` | 仅 `html`；`md` 已移除。 |
 |  | `--analysis-target` | 仅 `spring-backend`。 |
 |  | `--analysis-parallelism` | Module analysis、JAR diff、代码反编译并发数，默认 `2`。 |
-|  | `--call-graph-algorithm` | `zero-cfa`（默认）或 `optimized-0-1-cfa`；全部 Module 使用同一算法。 |
+|  | `--call-graph-algorithm` | `rta`（默认）、`zero-cfa`或`optimized-0-1-cfa`；全部 Module 使用同一算法。 |
+|  | `--wala-reflection-options` | WALA `ReflectionOptions` enum name；默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。 |
 |  | `--entrypoint-include` | 只选择匹配 slash class path 的 target class declared methods；可重复。 |
 |  | `--entrypoint-exclude` | 从 include/default selection 中排除匹配 slash class path 的 target class；可重复且优先。 |
 | `-k` | `--include-change-kinds` | 纳入分析的 `ChangePointKind` CSV。 |
@@ -203,6 +206,17 @@ java -jar dependency-analyzer.jar \
   --analysis-parallelism 4 \
   --entrypoint-include 'com/acme/payment/**' \
   --entrypoint-exclude 'com/acme/payment/generated/**'
+```
+
+显式使用legacy ZeroCFA与WALA `FULL` reflection：
+
+```sh
+java -jar dependency-analyzer.jar impact \
+  --java-home /opt/jdk8 \
+  --baseline release-1.2 \
+  --output build/impact-zero.html \
+  --call-graph-algorithm zero-cfa \
+  --wala-reflection-options FULL
 ```
 
 ### 5.3 Pipeline 与报告
@@ -245,7 +259,9 @@ JSON 为 UTF-8；`artifacts` 按完整 coordinates、absolutePath 排序，无 e
 
 Scope 只存在于 GraphML dependency graph。相同 coordinates/version 只有 scope 变化时不产生 impact change；version 与 scope 同时变化时只产生一个 `VERSION_CHANGED`。Baseline 与 target physical path 分别按各自 Module-local manifest 中的 coordinates 查找，不使用 `DependencyChange.scope`。
 
-Physical JAR pair 按 `--analysis-parallelism` 并行 bytecode diff。每个 relevant target Module 的 `target/classes` 只扫描一次，生成的 immutable entrypoint class index 同时用于 selector 门禁和实际 Call Graph roots；该步骤只缩小 root methods，不裁剪 Module scope、CHA、Reflection、ServiceLoader 或其他 origin reachability。Entrypoint 参数按 declared type 建模，interface/abstract type使用 synthetic placeholder，不枚举真实 subtype。存在 removal/modification ChangePoint 且命中 entrypoint scope 的 Module 独立执行 scope validation、JDK 8 CHA、selected WALA Call Graph、`ReflectionOptions.FULL`、MethodHandle extension 和 direct WALA query。默认 ZeroCFA按 concrete class合并普通allocation并保留constant-specific keys；modeled ServiceLoader receiver额外保留service/loader constant identity，class-based fallback保守合并全部有效provider。显式 optimized 0-1-CFA保留allocation-site/constant identity，并smush String、Throwable、primitive holder和单 node内过量同类allocation。Module 内 build/query 单线程，Module 之间按 `--analysis-parallelism` 并行。没有 seed pre-scan、零 seed skip、CHA pre-graph 或 full predecessor copy。
+Physical JAR pair 按 `--analysis-parallelism` 并行 bytecode diff。每个 relevant target Module 的 `target/classes` 只扫描一次，生成的 immutable entrypoint class index 同时用于 selector 门禁和实际 Call Graph roots；该步骤只缩小 root methods，不裁剪 Module scope、CHA、Reflection、ServiceLoader 或其他 origin reachability。Entrypoint 参数按 declared type 建模，interface/abstract type使用 synthetic placeholder，不枚举真实 subtype。存在默认纳入的removal/modification/access-narrowing ChangePoint且命中entrypoint scope的Module独立执行scope validation、JDK 8 CHA、selected WALA strategy、selected ReflectionOptions、MethodHandle/ServiceLoader/`invokedynamic` fixed-point model和read-only query。默认RTA使用`BasicRTABuilder`且不模拟points-to dataflow；`zero-cfa`按concrete class合并普通allocation并保留constant-specific keys；optimized 0-1-CFA保留allocation-site/constant identity并smush高成本对象。Module内build/query单线程，Module之间按`--analysis-parallelism`并行。没有post-build overlay、零seed skip、baseline Call Graph或full predecessor copy。
+
+Bytecode diff额外产生`CLASS_ACCESS_NARROWED`、`METHOD_ACCESS_NARROWED`（含constructor）和`FIELD_ACCESS_NARROWED`。Query使用target CHA解析actual declaration，并按Java 8 runtime package、subclass、symbolic owner与caller-local verifier receiver type判断new access。`ACCESSIBLE`不建path；`INACCESSIBLE`与`POTENTIALLY_INACCESSIBLE`保守保留path；全部reference仍合法时在Dependency Changes显示`ACCESS_REMAINS_VALID`，不生成Affected Call Chain。该能力分析pre-existing bytecode的JVM binary compatibility，不分析source compatibility、Reflection/JNI/custom ClassLoader或Java 9 module exports。
 
 Module analysis 检查分类如下。这里的“阻塞”只终止当前 Module，其他 Module 继续；全部 Module 完成后再按既有规则形成 Overall status 与 exit code。
 
@@ -255,6 +271,8 @@ Module analysis 检查分类如下。这里的“阻塞”只终止当前 Module
 | 零 `PROJECT` entrypoint、CHA/Call Graph construction failure | 阻塞 | 当前 Module `FAILED_ANALYSIS`。 |
 | Call Graph timeout | 阻塞 | 当前 Module `FAILED_CALL_GRAPH_TIMEOUT`。 |
 | external dependency 引用 excluded JDK class | Coverage warning | 保留分析结果，Module 为 `INCONCLUSIVE_SCOPE_VALIDATION`。 |
+| reachable unsupported `invokedynamic` | Coverage warning | 保留分析结果，Module为`INCONCLUSIVE_INVOKEDYNAMIC_MODEL`。 |
+| RTA MethodHandle local target unresolved | Coverage warning | 保留分析结果，Module为`INCONCLUSIVE_METHOD_HANDLE_MODEL`。 |
 | ServiceLoader unresolved evidence | Coverage warning | 保留分析结果，Module 为 `INCONCLUSIVE_SERVICE_LOADER`。 |
 | SSA equivalence `UNKNOWN` | Coverage warning | 不删除 Impact Path，原 `SUCCESS` Module 转为 `INCONCLUSIVE`。 |
 | 内容不同的 duplicate class | Non-blocking warning | 按 classpath precedence 选择 winner；不改 status/reason、Coverage limitations 或 exit code。 |
@@ -270,7 +288,7 @@ Module analysis 检查分类如下。这里的“阻塞”只终止当前 Module
 <module-base>-changes.html  Dependency Changes
 ```
 
-Overall Index 提供 `How to read this report`、`Analysis scope and limitations`、`Terminology` 与 Module 汇总，并统计 duplicate conflict 与 shadowed ChangePoint。Module Index 展示易懂的 status、scope、metrics、coverage limitations、Module Diagnostics，以及 `Duplicate class resolution` winner/loser 表；完整 physical path 位于 `Technical details`。Affected Call Chains 分别展示最终 call chains、默认折叠的 SSA-equivalent candidate chains，以及带 PROJECT boundary 的 Structural Reference Chains。Dependency Changes 列出至少关联 candidate/final Impact Path、Structural Reference Path，或 disposition 为 `SHADOWED_BY_DUPLICATE` 的 member；shadowed member 不生成 Impact Path，并说明 actual winner 与 precedence。其他 raw changes 仅计数，不逐项展示。
+Overall Index 提供 `How to read this report`、`Analysis scope and limitations`、`Terminology` 与 Module 汇总，并统计 duplicate conflict 与 shadowed ChangePoint。Technical details展示实际Algorithm与WALA ReflectionOptions。Module Index展示易懂的status、scope、metrics、typed coverage limitations、Module Diagnostics，以及`Duplicate class resolution` winner/loser表；完整physical path位于`Technical details`。Affected Call Chains分别展示最终call chains、默认折叠的SSA-equivalent candidate chains，以及带PROJECT boundary的Structural Reference Chains。Dependency Changes列出至少关联candidate/final Impact Path、Structural Reference Path，或disposition为`SHADOWED_BY_DUPLICATE`/`ACCESS_REMAINS_VALID`的member；access change展示old/new access、typed decision/reason与代表性reference evidence。Shadowed/access-remains-valid member不生成Impact Path。其他raw changes仅计数，不逐项展示。
 
 相关 method、field 与 class 提供默认折叠的 old/new Unified diff。内容来自 local dependency bytecode 的 Vineflower decompiled Java representation，不保证与原始 source 相同；反编译失败或文本相同时保留 ASM instruction fallback。Filesystem path、WALA/SSA、descriptor/hash、raw enum、Maven executable、JDK/config/output path 等 evidence 只放在 `Technical details`。所有页面为英文，并提供 top breadcrumbs、Module sibling navigation 和 responsive sticky TOC；不使用 JavaScript 或外部 asset。
 
@@ -476,7 +494,7 @@ Exit code：
 
 ### Call Graph 长时间运行
 
-ZeroCFA通常比 optimized 0-1-CFA合并更多allocation，但两种算法对大型 Module 都可能运行较久。WALA monitor 只提供 cooperative timeout/cancel，不创建后台 scheduler，也不输出 progress event。默认无 timeout；设置正数 `--call-graph-timeout-seconds` 后，仅超时 Module fail，其他 Module 继续并发布 partial Report，不自动切换算法。需要观察资源时使用 `-vv`：command-scoped Runtime Metrics 每 10 秒输出 heap 和 Analyzer-owned thread pool 状态；它不代表 WALA internal progress。
+RTA、ZeroCFA与optimized 0-1-CFA的graph规模取决于application/JDK reachability与selected ReflectionOptions。默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`是RTA的bounded policy；显式`FULL`可能显著增加WALA 1.8.0 fixed-point时间与heap。ReflectionOptions只选择WALA原生Reflection实现，不承诺三种builder产生相同target set：WALA 1.8.0 Basic RTA不提供Reflection metadata-object `InstanceKey`，`Class.newInstance`/`Method.invoke`业务target可能无法闭合；本项目不会通过fake value或构图后补边绕过该边界。WALA monitor只提供cooperative timeout/cancel，不创建后台scheduler，也不输出progress event。默认无timeout；设置正数`--call-graph-timeout-seconds`后，仅超时Module fail，其他Module继续并发布partial Report，不自动切换algorithm或ReflectionOptions。需要观察资源时使用`-vv`：command-scoped Runtime Metrics每10秒输出heap和Analyzer-owned thread pool状态；它不代表WALA internal progress。
 
 ### Duplicate class warning
 
@@ -539,12 +557,13 @@ Version policy、failure entrypoints 与完整发布步骤见
 
 ## 11. 持续 Impact Benchmark
 
-Repository 内置 Git 管理的中型 `impact` benchmark。它从 source 生成 42 个 compile-scope external dependencies、带 `impact-baseline`/`impact-target` refs 的临时 Git project，并以默认 `zero-cfa` 校验 Algorithm evidence、9 类 raw `ChangePointKind`、`6 / 5` candidate/final call chains、Structural Reference Path、过滤候选与反编译代码 evidence，以及四页 HTML report。
+Repository 内置 Git 管理的中型 `impact` benchmark。它从source生成42个compile-scope external dependencies、带`impact-baseline`/`impact-target` refs的临时Git project。运行必须显式设置`BENCHMARK_CALL_GRAPH_ALGORITHM=rta|zero-cfa|optimized-0-1-cfa`；`BENCHMARK_WALA_REFLECTION_OPTIONS`默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。Verifier校验实际Algorithm/ReflectionOptions、9类legacy raw ChangePoint、versioned candidate/final count、Structural Reference Path、过滤候选、反编译代码evidence及四页HTML Report；三种algorithm经关键路径审查后均锁定`6 / 5`。三次同环境normal run由`summarize-runs.sh`计算中位数，`compare-summaries.sh`按versioned门槛校验RTA相对`zero-cfa`的Wall time不超过`3.50x`、process-tree peak RSS不超过`1.75x`。
 
 ```sh
 mvn -f plugins/pom.xml clean install
 mvn package
 JAVA8_HOME=/absolute/path/to/jdk8 \
+  BENCHMARK_CALL_GRAPH_ALGORITHM=rta \
   benchmarks/impact-medium/run-benchmark.sh candidate-01
 ```
 

@@ -8,6 +8,7 @@ import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.bytecode.MemberDescriptors;
 import io.github.dependencyanalysis.callgraph.CallGraphException;
+import io.github.dependencyanalysis.callgraph.CallGraphFailureKind;
 import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.EntrypointClassIndex;
 import io.github.dependencyanalysis.callgraph.EntrypointClassScanner;
@@ -17,6 +18,7 @@ import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
 import io.github.dependencyanalysis.callgraph.ModuleScopeValidator;
 import io.github.dependencyanalysis.callgraph.ScopeValidationResult;
 import io.github.dependencyanalysis.callgraph.ScopeValidationWarning;
+import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
 import io.github.dependencyanalysis.callgraph.ScopeValidationException;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.ChangeType;
@@ -98,6 +100,9 @@ final class PerModuleImpactPipeline {
     /** Command-wide Call Graph algorithm. */
     private final CallGraphAlgorithm callGraphAlgorithm;
 
+    /** Command-wide WALA ReflectionOptions. */
+    private final WalaReflectionOptions reflectionOptions;
+
     /** Command temporary directory. */
     private final Path temporaryDirectory;
 
@@ -138,6 +143,8 @@ final class PerModuleImpactPipeline {
                 options.entrypointSelection(), "entrypointSelection");
         callGraphAlgorithm = Objects.requireNonNull(
                 options.callGraphAlgorithm(), "callGraphAlgorithm");
+        reflectionOptions = Objects.requireNonNull(
+                options.reflectionOptions(), "reflectionOptions");
     }
 
     /**
@@ -257,7 +264,8 @@ final class PerModuleImpactPipeline {
                         bindings.actualWorkers(),
                 codeEvidence.actualWorkers()), elapsed,
                 new AnalysisRunConfiguration(
-                        entrypointSelection, callGraphAlgorithm));
+                        entrypointSelection, callGraphAlgorithm,
+                        reflectionOptions));
         } finally {
             jarRepository = null;
         }
@@ -274,6 +282,13 @@ final class PerModuleImpactPipeline {
                     path.getTerminal().getChangePoint()));
             module.getStructuralPaths().forEach(path -> relevant.add(
                     path.getChangePoint()));
+            module.getDispositions().forEach((point, disposition) -> {
+                if (point.getChangePoint().getKind().isAccessNarrowing()
+                        && disposition
+                        == ChangePointDisposition.ACCESS_REMAINS_VALID) {
+                    relevant.add(point);
+                }
+            });
             relevant.stream().sorted(Comparator.comparing(
                     BoundChangePoint::stableKey)).forEach(point -> requests
                     .computeIfAbsent(codeEvidenceKey(point), ignored ->
@@ -318,6 +333,13 @@ final class PerModuleImpactPipeline {
                     path.getTerminal().getChangePoint()));
             module.getStructuralPaths().forEach(path -> relevant.add(
                     path.getChangePoint()));
+            module.getDispositions().forEach((point, disposition) -> {
+                if (point.getChangePoint().getKind().isAccessNarrowing()
+                        && disposition
+                        == ChangePointDisposition.ACCESS_REMAINS_VALID) {
+                    relevant.add(point);
+                }
+            });
             relevant.stream().sorted(Comparator.comparing(
                     BoundChangePoint::stableKey)).forEach(point -> bound.put(
                     point, evidence.get(codeEvidenceKey(point))));
@@ -366,7 +388,8 @@ final class PerModuleImpactPipeline {
                 + point.getKind() + "|" + point.getOwner() + "|"
                 + point.getName() + "|" + point.getOldDescriptor() + "|"
                 + point.getNewDescriptor() + "|" + point.getOldHash() + "|"
-                + point.getNewHash();
+                + point.getNewHash() + "|" + point.getAccessTransition()
+                .map(value -> value.stableKey()).orElse("NO_ACCESS");
     }
 
     private EntrypointPreparation prepareEntrypoints(
@@ -957,7 +980,7 @@ final class PerModuleImpactPipeline {
             final ModuleCallGraphSession session =
                     new ModuleCallGraphEngine(diagnostics, javaRuntime,
                             entrypointSelection, callGraphAlgorithm,
-                            repository())
+                            reflectionOptions, repository())
                             .build(unit, entrypointIndex,
                                     callGraphTimeoutSeconds);
             stageElapsed.put("call-graph",
@@ -970,14 +993,17 @@ final class PerModuleImpactPipeline {
             final List<String> limitations = new ArrayList<>(
                     scopeValidation.limitations());
             limitations.addAll(session.getModelLimitations());
+            limitations.addAll(query.getLimitations().stream()
+                    .map(QueryLimitation::summary).toList());
             if (diffFailed) {
                 limitations.addAll(unit.getJarDiffFailureSummaries());
             }
-            final ModuleAnalysisReason reason = coverageReason(
-                    diffFailed,
-                    session.hasDynamicModelLimitations(),
-                    session.hasServiceLoaderLimitations(),
-                    scopeValidation.hasWarnings());
+            final List<CoverageLimitation> coverage = new ArrayList<>(
+                    scopeValidation.warnings());
+            coverage.addAll(session.getCoverageLimitations());
+            coverage.addAll(query.getLimitations());
+            final ModuleAnalysisReason reason =
+                    ModuleCoverageReducer.reduce(diffFailed, coverage);
             final boolean inconclusive = reason
                     != ModuleAnalysisReason.NONE;
             return new ModuleAnalysisResult.Builder(unit)
@@ -997,6 +1023,7 @@ final class PerModuleImpactPipeline {
                     .finalPaths(query.getPaths())
                     .structuralPaths(query.getStructuralPaths())
                     .dispositions(query.getDispositions())
+                    .observations(query.getObservations())
                     .limitations(limitations)
                     .elapsedMillis(System.currentTimeMillis() - start)
                     .stageElapsedMillis(stageElapsed)
@@ -1006,8 +1033,8 @@ final class PerModuleImpactPipeline {
                     ModuleAnalysisReason.FAILED_SCOPE_VALIDATION,
                     exception, start, stageElapsed);
         } catch (CallGraphException exception) {
-            final ModuleAnalysisReason reason = exception.getMessage() != null
-                    && exception.getMessage().contains("timed out")
+            final ModuleAnalysisReason reason = exception.getKind()
+                    == CallGraphFailureKind.TIMEOUT
                     ? ModuleAnalysisReason.FAILED_CALL_GRAPH_TIMEOUT
                     : ModuleAnalysisReason.FAILED_ANALYSIS;
             return failed(unit, reason, exception, start, stageElapsed);
@@ -1015,34 +1042,6 @@ final class PerModuleImpactPipeline {
             return failed(unit, ModuleAnalysisReason.FAILED_ANALYSIS,
                     exception, start, stageElapsed);
         }
-    }
-
-    static ModuleAnalysisReason coverageReason(
-            final boolean diffFailed,
-            final boolean serviceLoaderInconclusive,
-            final boolean scopeValidationInconclusive) {
-        return coverageReason(diffFailed, false,
-                serviceLoaderInconclusive, scopeValidationInconclusive);
-    }
-
-    static ModuleAnalysisReason coverageReason(
-            final boolean diffFailed,
-            final boolean dynamicModelInconclusive,
-            final boolean serviceLoaderInconclusive,
-            final boolean scopeValidationInconclusive) {
-        if (diffFailed) {
-            return ModuleAnalysisReason.INCONCLUSIVE_BYTECODE_DIFF;
-        }
-        if (dynamicModelInconclusive) {
-            return ModuleAnalysisReason.INCONCLUSIVE_INVOKEDYNAMIC_MODEL;
-        }
-        if (serviceLoaderInconclusive) {
-            return ModuleAnalysisReason.INCONCLUSIVE_SERVICE_LOADER;
-        }
-        if (scopeValidationInconclusive) {
-            return ModuleAnalysisReason.INCONCLUSIVE_SCOPE_VALIDATION;
-        }
-        return ModuleAnalysisReason.NONE;
     }
 
     private void reportScopeWarnings(

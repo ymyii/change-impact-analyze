@@ -99,6 +99,8 @@ final class JarClassIndexer {
                 new ArrayList<>();
         final String[] className =
                 new String[1];
+        final JvmAccess[] classAccess =
+                new JvmAccess[1];
         final ClassVisitor cv =
                 new ClassVisitor(
                         Opcodes.ASM9) {
@@ -112,6 +114,7 @@ final class JarClassIndexer {
                             final String sup,
                             final String[] ifaces) {
                         className[0] = n;
+                        classAccess[0] = JvmAccess.fromClassFlags(acc);
                     }
 
                     @Override
@@ -139,7 +142,8 @@ final class JarClassIndexer {
                             final Object val) {
                         fields.add(
                                 new FieldInfo(
-                                        n, desc));
+                                        n, desc,
+                                        JvmAccess.fromMemberFlags(acc)));
                         return null;
                     }
                 };
@@ -173,10 +177,11 @@ final class JarClassIndexer {
                     new MethodInfo(
                             raw.getName(),
                             raw.getDesc(),
+                            JvmAccess.fromMemberFlags(raw.getAccess()),
                             hash));
         }
         return new ClassInfo(
-                cn, methods, fields);
+                cn, classAccess[0], methods, fields);
     }
 
     /**

@@ -153,6 +153,15 @@ public final class BytecodeDiffEngine {
                 }
                 continue;
             }
+            if (includedKinds.contains(
+                    ChangePointKind.CLASS_ACCESS_NARROWED)
+                    && oldC.getAccess().narrowsTo(newC.getAccess())) {
+                result.add(ChangePoint.accessNarrowed(
+                        art, ChangePointKind.CLASS_ACCESS_NARROWED,
+                        name, null, null,
+                        new AccessTransition(oldC.getAccess(),
+                                newC.getAccess())));
+            }
             diffMethods(
                     oldC, newC, art,
                     name, result);
@@ -258,6 +267,16 @@ public final class BytecodeDiffEngine {
                                 newM.getDescriptor()),
                         oldM.getBodyHash(),
                         newM.getBodyHash()));
+            }
+            if (includedKinds.contains(
+                    ChangePointKind.METHOD_ACCESS_NARROWED)
+                    && !"<clinit>".equals(oldM.getName())
+                    && oldM.getAccess().narrowsTo(newM.getAccess())) {
+                result.add(ChangePoint.accessNarrowed(
+                        art, ChangePointKind.METHOD_ACCESS_NARROWED,
+                        owner, oldM.getName(), oldM.getDescriptor(),
+                        new AccessTransition(oldM.getAccess(),
+                                newM.getAccess())));
             }
         }
         if (includedKinds.contains(
@@ -440,6 +459,16 @@ public final class BytecodeDiffEngine {
                                 oldF.getDescriptor(),
                                 newF.getDescriptor()),
                         null, null));
+            }
+            if (oldF.getDescriptor().equals(newF.getDescriptor())
+                    && includedKinds.contains(
+                    ChangePointKind.FIELD_ACCESS_NARROWED)
+                    && oldF.getAccess().narrowsTo(newF.getAccess())) {
+                result.add(ChangePoint.accessNarrowed(
+                        art, ChangePointKind.FIELD_ACCESS_NARROWED,
+                        owner, oldF.getName(), oldF.getDescriptor(),
+                        new AccessTransition(oldF.getAccess(),
+                                newF.getAccess())));
             }
         }
     }

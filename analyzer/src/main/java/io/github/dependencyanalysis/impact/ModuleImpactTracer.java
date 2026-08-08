@@ -4,16 +4,6 @@ import com.ibm.wala.classLoader.CallSiteReference;
 import com.ibm.wala.classLoader.IMethod;
 import com.ibm.wala.ipa.callgraph.CGNode;
 import com.ibm.wala.shrike.shrikeBT.IInvokeInstruction;
-import com.ibm.wala.ssa.IR;
-import com.ibm.wala.ssa.SSAAbstractInvokeInstruction;
-import com.ibm.wala.ssa.SSAArrayReferenceInstruction;
-import com.ibm.wala.ssa.SSACheckCastInstruction;
-import com.ibm.wala.ssa.SSAFieldAccessInstruction;
-import com.ibm.wala.ssa.SSAInstanceofInstruction;
-import com.ibm.wala.ssa.SSAInstruction;
-import com.ibm.wala.ssa.SSALoadMetadataInstruction;
-import com.ibm.wala.ssa.SSANewInstruction;
-import com.ibm.wala.types.FieldReference;
 import com.ibm.wala.types.MethodReference;
 import com.ibm.wala.types.TypeReference;
 
@@ -23,7 +13,6 @@ import io.github.dependencyanalysis.callgraph.ClassOwnership;
 import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.DuplicateClassResolution;
-import io.github.dependencyanalysis.callgraph.DynamicCallEvidence;
 import io.github.dependencyanalysis.callgraph.DynamicCallEvidenceIndex;
 import io.github.dependencyanalysis.callgraph.EdgeKind;
 import io.github.dependencyanalysis.callgraph.MethodId;
@@ -78,13 +67,29 @@ public final class ModuleImpactTracer {
         final List<ImpactPath> paths = new ArrayList<>();
         final Map<BoundChangePoint, ChangePointDisposition> dispositions =
                 new LinkedHashMap<>();
+        final Map<BoundChangePoint, List<ImpactEvidence>> observations =
+                new LinkedHashMap<>();
+        final Set<QueryLimitation> limitations = new LinkedHashSet<>();
         final Map<QueryNode, ReverseTrace> traceCache = new HashMap<>();
-        final StructuralScanResult structuralScan =
-                session.getStructuralScan();
+        final ReachableReferenceCollector reachableReferences =
+                new ReachableReferenceCollector(session);
+        final ChangePointSeedResolverRegistry seedResolvers =
+                new ChangePointSeedResolverRegistry();
+        final List<StructuralReferenceMatch> structuralReferences =
+                new StructuralReferenceResolver().resolve(
+                        unit.getChangePoints(),
+                        session.getStructuralReferences());
+        final StructuralReferencePreparation.Result preparedStructures =
+                new StructuralReferencePreparation().prepare(
+                        structuralReferences, session);
         final StructuralPathResult structures = materializeStructuralPaths(
-                unit.getModuleId(), structuralScan, session, traceCache);
+                unit.getModuleId(), preparedStructures,
+                session, traceCache);
         final DynamicCallEvidenceIndex bootstrapEvidence =
                 session.getDynamicEvidence();
+        structures.observations().forEach((point, values) ->
+                observations.put(point, values));
+        limitations.addAll(structures.limitations());
         for (BoundChangePoint point : unit.getChangePoints().stream()
                 .sorted(Comparator.comparing(BoundChangePoint::stableKey))
                 .toList()) {
@@ -100,38 +105,51 @@ public final class ModuleImpactTracer {
                 dispositions.put(point, duplicateDisposition);
                 continue;
             }
-            final List<Seed> seeds = resolveSeeds(
-                    unit.getModuleId(), change, session,
-                    bootstrapEvidence);
-            if (seeds.isEmpty()) {
-                dispositions.put(point, structuralDisposition(
-                        point, change, structures));
-                continue;
+            final ChangePointSeedResolution resolution =
+                    seedResolvers.resolve(new ChangePointSeedRequest(
+                            unit.getModuleId(), change, session,
+                            bootstrapEvidence, reachableReferences));
+            final List<ImpactSeed> seeds = resolution.seeds();
+            limitations.addAll(resolution.limitations());
+            if (!resolution.evidence().isEmpty()) {
+                final List<ImpactEvidence> merged = new ArrayList<>(
+                        observations.getOrDefault(point, List.of()));
+                merged.addAll(resolution.evidence());
+                observations.put(point, merged.stream()
+                        .distinct()
+                        .sorted(Comparator.comparing(
+                                ImpactEvidence::stableKey))
+                        .toList());
             }
             final int before = paths.size();
-            final Map<String, ImpactPath> representative =
-                    new LinkedHashMap<>();
-            for (Seed seed : seeds) {
-                final ReverseTrace reverse = traceCache.computeIfAbsent(
-                        seed.node(), node -> reverse(
-                                unit.getModuleId(), node, session));
-                for (ImpactPath path : materialize(
-                        unit.getModuleId(), point,
-                        seed, reverse, session)) {
-                    final String affected = methodIdentity(
-                            path.getAffectedMethod());
-                    final ImpactPath previous = representative.get(affected);
-                    if (previous == null || representativePathComparator()
-                            .compare(path, previous) < 0) {
-                        representative.put(affected, path);
+            if (!seeds.isEmpty()) {
+                final Map<String, ImpactPath> representative =
+                        new LinkedHashMap<>();
+                for (ImpactSeed seed : seeds) {
+                    final ReverseTrace reverse = traceCache.computeIfAbsent(
+                            seed.node(), node -> reverse(
+                                    unit.getModuleId(), node, session));
+                    for (ImpactPath path : materialize(
+                            unit.getModuleId(), point,
+                            seed, reverse, session)) {
+                        final String affected = methodIdentity(
+                                path.getAffectedMethod());
+                        final ImpactPath previous = representative.get(
+                                affected);
+                        if (previous == null || representativePathComparator()
+                                .compare(path, previous) < 0) {
+                            representative.put(affected, path);
+                        }
                     }
                 }
+                paths.addAll(representative.values());
             }
-            paths.addAll(representative.values());
-            dispositions.put(point, paths.size() > before
-                    || structures.hasPath(point)
-                    ? ChangePointDisposition.IMPACT_REPORTED
-                    : ChangePointDisposition.NO_PROJECT_PATH);
+            dispositions.put(point, new ChangePointDispositionReducer()
+                    .reduce(change.getKind(), resolution.observation(),
+                            !seeds.isEmpty(), paths.size() > before,
+                            structures.hasPath(point),
+                            structures.unreachable().contains(point),
+                            structures.observations().containsKey(point)));
         }
         paths.sort(pathComparator());
         diagnostics.info(context, "candidatePaths=" + paths.size()
@@ -139,7 +157,8 @@ public final class ModuleImpactTracer {
                 + "; reverseBfs=" + traceCache.size());
         diagnostics.endStage(context);
         return new ModuleImpactQueryResult(
-                paths, structures.paths(), dispositions);
+                paths, structures.paths(), dispositions, observations,
+                limitations.stream().sorted().toList());
     }
 
     static ChangePointDisposition duplicateDisposition(
@@ -161,13 +180,13 @@ public final class ModuleImpactTracer {
 
     private StructuralPathResult materializeStructuralPaths(
             final ModuleId moduleId,
-            final StructuralScanResult scan,
+            final StructuralReferencePreparation.Result prepared,
             final ModuleCallGraphSession session,
             final Map<QueryNode, ReverseTrace> traceCache) {
         final Map<String, StructuralReferencePath> selected =
                 new LinkedHashMap<>();
         final Set<BoundChangePoint> unreachable = new LinkedHashSet<>();
-        for (StructuralReferenceMatch match : scan.references()) {
+        for (StructuralReferenceMatch match : prepared.references()) {
             final StructuralReference reference = match.reference();
             if (reference.getOrigin() == CodeOrigin.PROJECT) {
                 final StructuralReferencePath path =
@@ -202,7 +221,9 @@ public final class ModuleImpactTracer {
         final List<StructuralReferencePath> paths =
                 new ArrayList<>(selected.values());
         paths.sort(structuralReportComparator());
-        return new StructuralPathResult(paths, unreachable);
+        return new StructuralPathResult(
+                paths, unreachable, prepared.observations(),
+                prepared.limitations());
     }
 
     private List<QueryNode> structuralSeeds(
@@ -294,96 +315,6 @@ public final class ModuleImpactTracer {
                 + match.reference().stableKey();
     }
 
-    private List<Seed> resolveSeeds(
-            final ModuleId moduleId,
-            final ChangePoint point,
-            final ModuleCallGraphSession session,
-            final DynamicCallEvidenceIndex bootstrapEvidence) {
-        final Set<Seed> result = new LinkedHashSet<>();
-        if (point.getKind() == ChangePointKind.METHOD_BODY_CHANGED) {
-            for (CGNode node : session.getGraph()) {
-                if (matchesMethod(node.getMethod().getReference(),
-                        point.getOwner(), point.getName(),
-                        point.getNewDescriptor())) {
-                    result.add(new Seed(queryNode(moduleId, node, session),
-                            EdgeKind.METHOD_CHANGE,
-                            "target=" + methodIdentity(
-                                    node.getMethod().getReference())));
-                }
-            }
-        }
-        if (point.getKind() == ChangePointKind.METHOD_REMOVED
-                || point.getKind()
-                == ChangePointKind.METHOD_DESCRIPTOR_CHANGED) {
-            scanReachableIr(session, (node, instruction) -> {
-                if (instruction instanceof SSAAbstractInvokeInstruction) {
-                    final MethodReference target =
-                            ((SSAAbstractInvokeInstruction) instruction)
-                                    .getDeclaredTarget();
-                    if (matchesMethod(target, point.getOwner(),
-                            point.getName(), point.getOldDescriptor())) {
-                        result.add(new Seed(
-                                queryNode(moduleId, node, session),
-                                EdgeKind.DECLARED_INVOKE_REFERENCE,
-                                "declaredTarget=" + methodIdentity(target)));
-                    }
-                }
-            });
-            for (DynamicCallEvidence evidence : bootstrapEvidence.find(
-                    point.getOwner(), point.getName(),
-                    point.getOldDescriptor())) {
-                result.add(new Seed(queryNode(
-                        moduleId, evidence.caller(), session),
-                        evidence.kind(), evidence.detail()));
-            }
-        } else if (point.getKind() == ChangePointKind.FIELD_REMOVED
-                || point.getKind()
-                == ChangePointKind.FIELD_DESCRIPTOR_CHANGED) {
-            scanReachableIr(session, (node, instruction) -> {
-                if (instruction instanceof SSAFieldAccessInstruction) {
-                    final FieldReference field =
-                            ((SSAFieldAccessInstruction) instruction)
-                                    .getDeclaredField();
-                    if (matchesField(field, point)) {
-                        result.add(new Seed(
-                                queryNode(moduleId, node, session),
-                                EdgeKind.FIELD_REFERENCE,
-                                "declaredField=" + field));
-                    }
-                }
-            });
-        } else if (point.getKind() == ChangePointKind.CLASS_REMOVED) {
-            scanReachableIr(session, (node, instruction) -> {
-                if (referencesType(instruction, point.getOwner())) {
-                    result.add(new Seed(
-                            queryNode(moduleId, node, session),
-                            EdgeKind.TYPE_REFERENCE,
-                            "referencedType=" + point.getOwner()));
-                }
-            });
-        }
-        return result.stream().sorted(seedComparator()).toList();
-    }
-
-    private void scanReachableIr(
-            final ModuleCallGraphSession session,
-            final InstructionConsumer consumer) {
-        for (CGNode node : session.getGraph()) {
-            if (isSyntheticRoot(node, session)) {
-                continue;
-            }
-            final IR ir = node.getIR();
-            if (ir == null) {
-                continue;
-            }
-            for (SSAInstruction instruction : ir.getInstructions()) {
-                if (instruction != null) {
-                    consumer.accept(node, instruction);
-                }
-            }
-        }
-    }
-
     private ReverseTrace reverse(
             final ModuleId moduleId,
             final QueryNode seed,
@@ -411,7 +342,7 @@ public final class ModuleImpactTracer {
     private List<ImpactPath> materialize(
             final ModuleId moduleId,
             final BoundChangePoint point,
-            final Seed seed,
+            final ImpactSeed seed,
             final ReverseTrace reverse,
             final ModuleCallGraphSession session) {
         final Map<String, ImpactPath> byAffectedMethod =
@@ -511,118 +442,6 @@ public final class ModuleImpactTracer {
                 codeOrigin);
     }
 
-    private boolean referencesType(
-            final SSAInstruction instruction,
-            final String expectedOwner) {
-        if (instruction.getExceptionTypes().stream()
-                .anyMatch(type -> matchesType(type, expectedOwner))) {
-            return true;
-        }
-        if (instruction instanceof SSANewInstruction) {
-            return matchesType(((SSANewInstruction) instruction)
-                    .getConcreteType(), expectedOwner);
-        }
-        if (instruction instanceof SSACheckCastInstruction) {
-            for (TypeReference type
-                    :
-                    ((SSACheckCastInstruction) instruction)
-                            .getDeclaredResultTypes()) {
-                if (matchesType(type, expectedOwner)) {
-                    return true;
-                }
-            }
-        }
-        if (instruction instanceof SSAInstanceofInstruction) {
-            return matchesType(((SSAInstanceofInstruction) instruction)
-                    .getCheckedType(), expectedOwner);
-        }
-        if (instruction instanceof SSAArrayReferenceInstruction) {
-            return matchesType(((SSAArrayReferenceInstruction) instruction)
-                    .getElementType(), expectedOwner);
-        }
-        if (instruction instanceof SSALoadMetadataInstruction) {
-            final SSALoadMetadataInstruction metadata =
-                    (SSALoadMetadataInstruction) instruction;
-            return matchesType(metadata.getType(), expectedOwner)
-                    || metadata.getToken() instanceof TypeReference
-                    && matchesType((TypeReference) metadata.getToken(),
-                    expectedOwner);
-        }
-        if (instruction instanceof SSAAbstractInvokeInstruction) {
-            return methodReferencesType(
-                    ((SSAAbstractInvokeInstruction) instruction)
-                            .getDeclaredTarget(), expectedOwner);
-        }
-        if (instruction instanceof SSAFieldAccessInstruction) {
-            final FieldReference field =
-                    ((SSAFieldAccessInstruction) instruction)
-                            .getDeclaredField();
-            return matchesType(field.getDeclaringClass(), expectedOwner)
-                    || matchesType(field.getFieldType(), expectedOwner);
-        }
-        return false;
-    }
-
-    private boolean methodReferencesType(
-            final MethodReference method,
-            final String expectedOwner) {
-        if (matchesType(method.getDeclaringClass(), expectedOwner)
-                || matchesType(method.getReturnType(), expectedOwner)) {
-            return true;
-        }
-        for (int index = 0;
-                index < method.getNumberOfParameters(); index++) {
-            if (matchesType(method.getParameterType(index), expectedOwner)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean matchesType(
-            final TypeReference type, final String expectedOwner) {
-        if (type == null || type.isPrimitiveType()) {
-            return false;
-        }
-        final TypeReference value = type.isArrayType()
-                ? type.getInnermostElementType() : type;
-        return expectedOwner.equals(owner(value));
-    }
-
-    private boolean matchesMethod(
-            final MethodReference method,
-            final String expectedOwner,
-            final String expectedName,
-            final String expectedDescriptor) {
-        return method != null
-                && expectedOwner.equals(owner(method))
-                && Objects.equals(expectedName,
-                        method.getName().toString())
-                && Objects.equals(expectedDescriptor,
-                        method.getDescriptor().toString());
-    }
-
-    private boolean matchesField(
-            final FieldReference field, final ChangePoint point) {
-        if (!point.getOwner().equals(owner(field.getDeclaringClass()))
-                || !Objects.equals(point.getName(),
-                        field.getName().toString())) {
-            return false;
-        }
-        final String fieldDescriptor = descriptor(field.getFieldType());
-        return Objects.equals(point.getOldDescriptor(), fieldDescriptor)
-                || point.getKind()
-                == ChangePointKind.FIELD_DESCRIPTOR_CHANGED
-                && Objects.equals(point.getNewDescriptor(), fieldDescriptor);
-    }
-
-    private String descriptor(final TypeReference type) {
-        final String value = type.getName().toString();
-        if (value.startsWith("L") || value.startsWith("[L")) {
-            return value.endsWith(";") ? value : value + ";";
-        }
-        return value;
-    }
 
     private CodeOrigin origin(
             final CGNode node,
@@ -642,33 +461,6 @@ public final class ModuleImpactTracer {
         return kind == ChangePointKind.CLASS_ADDED
                 || kind == ChangePointKind.METHOD_ADDED
                 || kind == ChangePointKind.FIELD_ADDED;
-    }
-
-    private ChangePointDisposition missingDisposition(
-            final ChangePoint point) {
-        return point.getKind() == ChangePointKind.METHOD_BODY_CHANGED
-                ? ChangePointDisposition.TARGET_NOT_FOUND
-                : ChangePointDisposition.DECLARED_REFERENCE_NOT_FOUND;
-    }
-
-    private ChangePointDisposition structuralDisposition(
-            final BoundChangePoint point,
-            final ChangePoint change,
-            final StructuralPathResult structures) {
-        if (structures.hasPath(point)) {
-            return ChangePointDisposition.IMPACT_REPORTED;
-        }
-        if (structures.unreachable().contains(point)) {
-            return ChangePointDisposition.UNREACHABLE_STRUCTURAL_REFERENCE;
-        }
-        return missingDisposition(change);
-    }
-
-    private Comparator<Seed> seedComparator() {
-        return Comparator.comparing((Seed seed) ->
-                        methodIdentity(seed.node().methodId()))
-                .thenComparingInt(seed -> queryNodeNumber(seed.node()))
-                .thenComparing(seed -> seed.kind().name());
     }
 
     private Comparator<QueryNode> queryNodeComparator() {
@@ -808,15 +600,6 @@ public final class ModuleImpactTracer {
         return result;
     }
 
-    /**
-     * Seed retains exact Context and terminal evidence.
-     *
-     * @param node exact WALA node
-     * @param kind terminal edge kind
-     * @param evidence stable terminal evidence
-     */
-    private record Seed(QueryNode node, EdgeKind kind, String evidence) {
-    }
 
     /**
      * Per-seed backward slice, never a whole-graph predecessor copy.
@@ -836,10 +619,14 @@ public final class ModuleImpactTracer {
      *
      * @param paths reportable structural paths
      * @param unreachable references without a PROJECT boundary
+     * @param observations typed access observations
+     * @param limitations structural access resolution failures
      */
     private record StructuralPathResult(
             List<StructuralReferencePath> paths,
-            Set<BoundChangePoint> unreachable) {
+            Set<BoundChangePoint> unreachable,
+            Map<BoundChangePoint, List<ImpactEvidence>> observations,
+            List<QueryLimitation> limitations) {
 
         boolean hasPath(final BoundChangePoint point) {
             return paths.stream().anyMatch(path ->
@@ -847,16 +634,4 @@ public final class ModuleImpactTracer {
         }
     }
 
-    /** Instruction callback. */
-    @FunctionalInterface
-    private interface InstructionConsumer {
-
-        /**
-         * Consumes one reachable instruction.
-         *
-         * @param node owning node
-         * @param instruction instruction
-         */
-        void accept(CGNode node, SSAInstruction instruction);
-    }
 }

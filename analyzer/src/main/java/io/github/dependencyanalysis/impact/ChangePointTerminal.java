@@ -14,7 +14,7 @@ public final class ChangePointTerminal {
     private final EdgeKind edgeKind;
 
     /** Stable evidence. */
-    private final String evidence;
+    private final ImpactEvidence evidence;
 
     /**
      * Creates a terminal.
@@ -27,6 +27,20 @@ public final class ChangePointTerminal {
             final BoundChangePoint point,
             final EdgeKind kind,
             final String detail) {
+        this(point, kind, new TextImpactEvidence(detail));
+    }
+
+    /**
+     * Creates a terminal with typed evidence.
+     *
+     * @param point bound change
+     * @param kind terminal edge kind
+     * @param detail typed evidence
+     */
+    public ChangePointTerminal(
+            final BoundChangePoint point,
+            final EdgeKind kind,
+            final ImpactEvidence detail) {
         changePoint = Objects.requireNonNull(point, "changePoint");
         edgeKind = Objects.requireNonNull(kind, "edgeKind");
         evidence = Objects.requireNonNull(detail, "evidence");
@@ -44,6 +58,11 @@ public final class ChangePointTerminal {
 
     /** @return stable evidence */
     public String getEvidence() {
+        return evidence.render();
+    }
+
+    /** @return typed evidence */
+    public ImpactEvidence getImpactEvidence() {
         return evidence;
     }
 

@@ -1,14 +1,34 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -ne 3 ]; then
-  echo "usage: $0 <overall-report.html> <exit-code.txt> <fixture-project>" >&2
+if [ "$#" -ne 5 ]; then
+  echo "usage: $0 <overall-report.html> <exit-code.txt> <fixture-project> <call-graph-algorithm> <wala-reflection-options>" >&2
   exit 2
 fi
 
 report=$1
 exit_code_file=$2
 project_root=$3
+algorithm=$4
+reflection_options=$5
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+expected_results="$script_dir/../expected-results.tsv"
+
+case "$algorithm" in
+  rta|zero-cfa|optimized-0-1-cfa) ;;
+  *)
+    echo "unsupported call graph algorithm: $algorithm" >&2
+    exit 2
+    ;;
+esac
+
+case "${BENCHMARK_CALIBRATION:-0}" in
+  0|1) ;;
+  *)
+    echo "BENCHMARK_CALIBRATION must be 0 or 1" >&2
+    exit 2
+    ;;
+esac
 
 fail() {
   echo "verification failed: $*" >&2
@@ -35,10 +55,10 @@ grep -q '<th>Status</th><td>Completed</td>' "$report" \
   || fail "Overall status is not Completed"
 grep -q '<th>Raw changed members</th><td>9</td>' "$report" \
   || fail "raw changed member count is not 9"
-grep -q '<th>Algorithm</th><td>zero-cfa</td>' "$report" \
-  || fail "Call Graph algorithm is not zero-cfa"
-grep -q '<th>Candidate / final call chains</th><td>6 / 5</td>' "$report" \
-  || fail "candidate/final call chains are not 6 / 5"
+grep -F -q "<th>Algorithm</th><td>$algorithm</td>" "$report" \
+  || fail "Call Graph algorithm does not match requested $algorithm"
+grep -F -q "<th>WALA ReflectionOptions</th><td>$reflection_options</td>" "$report" \
+  || fail "WALA ReflectionOptions does not match requested $reflection_options"
 grep -q 'Structural reference chains' "$impact_page" \
   || fail "structural reference chain is missing"
 grep -q 'View candidate chains filtered as equivalent' "$impact_page" \
@@ -82,11 +102,30 @@ grep -q 'Method removed' "$changes_page" \
 grep -q 'Structural impact' "$changes_page" \
   || fail "structural impact badge is missing"
 
+[ -f "$expected_results" ] || fail "missing expected results: $expected_results"
+expected=$(awk -F '\t' -v requested="$algorithm" '
+  $0 !~ /^#/ && NF == 3 && $1 == requested { print $2 "\t" $3; found++ }
+  END { if (found > 1) exit 2 }
+' "$expected_results") || fail "duplicate expected result for $algorithm"
+
+if [ -n "$expected" ]; then
+  expected_candidate=$(printf '%s\n' "$expected" | awk -F '\t' '{print $1}')
+  expected_final=$(printf '%s\n' "$expected" | awk -F '\t' '{print $2}')
+  grep -F -q "<th>Candidate / final call chains</th><td>$expected_candidate / $expected_final</td>" "$report" \
+    || fail "candidate/final call chains do not match $algorithm baseline $expected_candidate / $expected_final"
+elif [ "${BENCHMARK_CALIBRATION:-0}" != 1 ]; then
+  fail "no locked expected count for $algorithm; rerun only for review with BENCHMARK_CALIBRATION=1"
+else
+  echo "expected_count=UNLOCKED_CALIBRATION"
+fi
+
 echo "status=SUCCESS"
 echo "direct_dependencies=$dependency_count"
 echo "raw_change_kinds=9"
 echo "visible_change_kinds=$visible_change_kind_count"
-echo "candidate_final_call_chains=6/5"
+if [ -n "$expected" ]; then
+  echo "candidate_final_call_chains=$expected_candidate/$expected_final"
+fi
 echo "structural_impact=present"
 echo "overall_report=$report"
 echo "module_report=$module_page"

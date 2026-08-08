@@ -1,6 +1,7 @@
 package io.github.dependencyanalysis.cli;
 
 import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
+import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
 import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 
 import org.junit.jupiter.api.Test;
@@ -119,10 +120,13 @@ class DependencyAnalyzerCliTest {
                 .contains("-k, --include-change-kinds")
                 .contains("--analysis-parallelism")
                 .contains("--call-graph-algorithm")
-                .contains("zero-cfa or optimized-0-1-cfa")
+                .contains("--wala-reflection-options")
                 .contains("--entrypoint-include")
                 .contains("--entrypoint-exclude")
                 .contains("--analysis-target");
+        assertThat(impactText.toString().replaceAll("\\s+", " "))
+                .contains("Call Graph algorithm: rta, zero-cfa, or "
+                        + "optimized-0-1-cfa; default: rta.");
         assertThat(treeText.toString())
                 .contains("-p, --path")
                 .contains("-r, --ref")
@@ -212,21 +216,75 @@ class DependencyAnalyzerCliTest {
     void callGraphAlgorithmDefaultsAndParsesCaseInsensitively() {
         final CommandLine defaultCommand = DependencyAnalyzerCli
                 .newCommandLine(new DependencyAnalyzerCli());
-        final CommandLine explicitCommand = DependencyAnalyzerCli
+        final CommandLine zeroCfaCommand = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli());
+        final CommandLine optimizedCommand = DependencyAnalyzerCli
                 .newCommandLine(new DependencyAnalyzerCli());
 
         final CommandLine.ParseResult defaultResult =
                 defaultCommand.parseArgs("impact", "--baseline", "HEAD",
                         "--output", "report.html");
-        final CommandLine.ParseResult explicitResult =
-                explicitCommand.parseArgs("impact", "--baseline", "HEAD",
+        final CommandLine.ParseResult zeroCfaResult =
+                zeroCfaCommand.parseArgs("impact", "--baseline", "HEAD",
+                        "--output", "report.html",
+                        "--call-graph-algorithm", "ZERO-CFA");
+        final CommandLine.ParseResult optimizedResult =
+                optimizedCommand.parseArgs("impact", "--baseline", "HEAD",
                         "--output", "report.html",
                         "--call-graph-algorithm", "OPTIMIZED-0-1-CFA");
 
         assertThat(algorithm(defaultResult))
+                .isEqualTo(CallGraphAlgorithm.RTA);
+        assertThat(algorithm(zeroCfaResult))
                 .isEqualTo(CallGraphAlgorithm.ZERO_CFA);
-        assertThat(algorithm(explicitResult))
+        assertThat(algorithm(optimizedResult))
                 .isEqualTo(CallGraphAlgorithm.OPTIMIZED_ZERO_ONE_CFA);
+    }
+
+    @Test
+    void walaReflectionOptionsDefaultsAndParsesCaseInsensitively() {
+        final CommandLine defaultCommand = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli());
+        final CommandLine fullCommand = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli());
+        final CommandLine aliasCommand = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli());
+
+        final CommandLine.ParseResult defaultResult =
+                defaultCommand.parseArgs("impact", "--baseline", "HEAD",
+                        "--output", "report.html");
+        final CommandLine.ParseResult fullResult =
+                fullCommand.parseArgs("impact", "--baseline", "HEAD",
+                        "--output", "report.html",
+                        "--wala-reflection-options", "full");
+        final CommandLine.ParseResult aliasResult =
+                aliasCommand.parseArgs("impact", "--baseline", "HEAD",
+                        "--output", "report.html",
+                        "--reflection-options", "none");
+
+        assertThat(reflectionOptions(defaultResult).identifier())
+                .isEqualTo("ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD");
+        assertThat(reflectionOptions(fullResult).identifier())
+                .isEqualTo("FULL");
+        assertThat(reflectionOptions(aliasResult).identifier())
+                .isEqualTo("NONE");
+    }
+
+    @Test
+    void unknownWalaReflectionOptionsIsRejectedBeforePreflight() {
+        final CommandLine command = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli());
+        final StringWriter errors = new StringWriter();
+        command.setErr(new PrintWriter(errors));
+
+        final int code = command.execute("impact", "--baseline", "HEAD",
+                "--output", "report.html", "--wala-reflection-options",
+                "one-flow");
+
+        assertThat(code).isEqualTo(1);
+        assertThat(errors.toString())
+                .contains("ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD")
+                .doesNotContain("[preflight]");
     }
 
     @Test
@@ -242,7 +300,7 @@ class DependencyAnalyzerCliTest {
 
         assertThat(code).isEqualTo(1);
         assertThat(errors.toString())
-                .contains("zero-cfa, optimized-0-1-cfa")
+                .contains("rta, zero-cfa, optimized-0-1-cfa")
                 .doesNotContain("[preflight]");
     }
 
@@ -274,5 +332,11 @@ class DependencyAnalyzerCliTest {
             final CommandLine.ParseResult result) {
         return result.subcommand().commandSpec()
                 .findOption("--call-graph-algorithm").getValue();
+    }
+
+    private WalaReflectionOptions reflectionOptions(
+            final CommandLine.ParseResult result) {
+        return result.subcommand().commandSpec().findOption(
+                "--wala-reflection-options").getValue();
     }
 }

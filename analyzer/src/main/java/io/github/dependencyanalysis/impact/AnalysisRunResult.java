@@ -3,6 +3,7 @@ package io.github.dependencyanalysis.impact;
 import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.EntrypointSelection;
+import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -36,6 +37,9 @@ public final class AnalysisRunResult {
 
     /** Command-wide Call Graph algorithm. */
     private final CallGraphAlgorithm callGraphAlgorithm;
+
+    /** Command-wide WALA ReflectionOptions. */
+    private final WalaReflectionOptions reflectionOptions;
 
     /**
      * Creates a completed run result.
@@ -97,6 +101,8 @@ public final class AnalysisRunResult {
                 settings.entrypointSelection(), "entrypointSelection");
         callGraphAlgorithm = java.util.Objects.requireNonNull(
                 settings.callGraphAlgorithm(), "callGraphAlgorithm");
+        reflectionOptions = java.util.Objects.requireNonNull(
+                settings.reflectionOptions(), "reflectionOptions");
     }
 
     /** @return analysis mode */
@@ -157,6 +163,11 @@ public final class AnalysisRunResult {
     /** @return command-wide Call Graph algorithm */
     public CallGraphAlgorithm getCallGraphAlgorithm() {
         return callGraphAlgorithm;
+    }
+
+    /** @return command-wide WALA ReflectionOptions */
+    public WalaReflectionOptions getReflectionOptions() {
+        return reflectionOptions;
     }
 
     /** @return stage elapsed metrics */

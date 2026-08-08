@@ -1,13 +1,13 @@
 package io.github.dependencyanalysis.callgraph;
 
-import com.ibm.wala.ipa.callgraph.CGNode;
-
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import io.github.dependencyanalysis.impact.ModuleAnalysisReason;
 
 /** Mutable build-time registry state snapshotted after fixed point. */
 final class InvokeDynamicModelState {
@@ -17,19 +17,23 @@ final class InvokeDynamicModelState {
             new LinkedHashMap<>();
 
     /** Stable limitations. */
-    private final Set<String> limitations = new LinkedHashSet<>();
+    private final Set<ModelLimitation> limitations = new LinkedHashSet<>();
 
     void addEvidence(final DynamicCallEvidence value) {
-        final CGNode caller = value.caller();
-        final String key = caller.getGraphNodeId() + "|"
-                + value.bytecodePc() + "|" + value.kind() + "|"
-                + value.targetOwner() + "|" + value.targetName() + "|"
-                + value.targetDescriptor();
-        evidence.putIfAbsent(key, value);
+        evidence.putIfAbsent(value.stableKey(), value);
     }
 
-    void addLimitation(final String value) {
-        limitations.add(value);
+    void addLimitation(
+            final String code,
+            final String location,
+            final String detail) {
+        addLimitation(new ModelLimitation(ModelKind.INVOKEDYNAMIC,
+                code, ModuleAnalysisReason.INCONCLUSIVE_INVOKEDYNAMIC_MODEL,
+                location, detail));
+    }
+
+    void addLimitation(final ModelLimitation limitation) {
+        limitations.add(limitation);
     }
 
     DynamicCallEvidenceIndex evidenceIndex() {
@@ -37,7 +41,7 @@ final class InvokeDynamicModelState {
                 new ArrayList<>(evidence.values()));
     }
 
-    List<String> limitations() {
+    List<ModelLimitation> limitations() {
         return limitations.stream().sorted().toList();
     }
 }

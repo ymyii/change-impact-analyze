@@ -6,6 +6,8 @@ import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.dependency.DependencyScope;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
+import io.github.dependencyanalysis.bytecode.AccessTransition;
+import io.github.dependencyanalysis.bytecode.JvmAccess;
 import io.github.dependencyanalysis.diagnostic.DiagnosticEvent;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLevel;
 import io.github.dependencyanalysis.impact.AnalysisMode;
@@ -21,6 +23,9 @@ import io.github.dependencyanalysis.callgraph.EdgeKind;
 import io.github.dependencyanalysis.callgraph.MethodId;
 import io.github.dependencyanalysis.callgraph.ScopeValidationWarning;
 import io.github.dependencyanalysis.impact.ChangePointTerminal;
+import io.github.dependencyanalysis.impact.AccessDecision;
+import io.github.dependencyanalysis.impact.AccessDecisionReason;
+import io.github.dependencyanalysis.impact.AccessReferenceEvidence;
 import io.github.dependencyanalysis.impact.CodeComparisonEvidence;
 import io.github.dependencyanalysis.impact.CodeComparisonStatus;
 import io.github.dependencyanalysis.impact.ImpactClassification;
@@ -475,12 +480,42 @@ class PerModuleHtmlReportGeneratorTest {
     }
 
     @Test
-    void rendersDefaultZeroCfaAlgorithmAndTerminology() {
-        final Path output = temporary.resolve("zero-cfa.html");
+    void rendersDefaultRtaAlgorithmAndTerminology() {
+        final Path output = temporary.resolve("rta.html");
         final AnalysisRunResult run = new AnalysisRunResult(
                 AnalysisMode.REACTOR, AnalysisStatus.SUCCESS, List.of(),
                 List.of(), new AnalysisConcurrency(1, 0, 0, 0),
                 Map.of(), EntrypointSelection.allProjectClasses());
+        final MavenDependencyPluginRuntime plugin =
+                new MavenDependencyPluginRuntimeManager().prepare(
+                        temporary.resolve("config-rta"),
+                        List.of(), null);
+
+        new PerModuleHtmlReportGenerator().generate(run, List.of(),
+                new PreflightReport(List.of()), maven(), plugin,
+                java(), output);
+
+        assertThat(output).content()
+                .contains("<th>Algorithm</th><td>rta</td>")
+                .contains("<th>WALA ReflectionOptions</th><td>"
+                        + "ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD</td>")
+                .contains("RTA")
+                .contains("global set of instantiated compatible classes")
+                .contains("does not track allocation-site or value "
+                        + "points-to dataflow")
+                .doesNotContain("ZeroCFA")
+                .doesNotContain("Optimized 0-1-CFA");
+    }
+
+    @Test
+    void rendersExplicitZeroCfaAlgorithmAndTerminology() {
+        final Path output = temporary.resolve("zero-cfa.html");
+        final AnalysisRunResult run = new AnalysisRunResult(
+                AnalysisMode.REACTOR, AnalysisStatus.SUCCESS, List.of(),
+                List.of(), new AnalysisConcurrency(1, 0, 0, 0),
+                Map.of(), new AnalysisRunConfiguration(
+                        EntrypointSelection.allProjectClasses(),
+                        CallGraphAlgorithm.ZERO_CFA));
         final MavenDependencyPluginRuntime plugin =
                 new MavenDependencyPluginRuntimeManager().prepare(
                         temporary.resolve("config-zero-cfa"),
@@ -495,7 +530,172 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("ZeroCFA")
                 .contains("concrete class")
                 .contains("constant-specific identity")
+                .doesNotContain("RTA")
                 .doesNotContain("Optimized 0-1-CFA");
+    }
+
+    @Test
+    void rendersAccessRemainsValidWithoutAffectedCallChain()
+            throws Exception {
+        final Path output = temporary.resolve("access-valid.html");
+        final ModuleId moduleId = new ModuleId(new ArtifactCoord(
+                "example", "app", "jar", "1"), Path.of("app"));
+        final ArtifactCoord oldArtifact = new ArtifactCoord(
+                "example", "library", "jar", "1");
+        final ArtifactCoord newArtifact = new ArtifactCoord(
+                "example", "library", "jar", "2");
+        final DependencyUpgradeKey upgrade = new DependencyUpgradeKey(
+                moduleId, DependencyScope.COMPILE,
+                oldArtifact, newArtifact);
+        final AccessTransition transition = new AccessTransition(
+                JvmAccess.PUBLIC, JvmAccess.PROTECTED);
+        final BoundChangePoint access = new BoundChangePoint(upgrade,
+                ChangePoint.accessNarrowed(newArtifact,
+                        ChangePointKind.METHOD_ACCESS_NARROWED,
+                        "example/library/Api", "call", "()V",
+                        transition));
+        final AccessReferenceEvidence observation =
+                new AccessReferenceEvidence(
+                        transition, AccessDecision.ACCESSIBLE,
+                        AccessDecisionReason.SAME_RUNTIME_PACKAGE,
+                        "example/library/Peer#run()V",
+                        "example/library/Api", "example/library/Api",
+                        "NOT_APPLICABLE", "example/library/Api#call()V");
+        final CodeComparisonEvidence comparison =
+                new CodeComparisonEvidence(
+                        CodeComparisonStatus.AVAILABLE,
+                        List.of(new UnifiedDiffHunk(1, 1, 1, 1,
+                                List.of("-public void call()",
+                                        "+protected void call()"))),
+                        "", "");
+        final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                moduleId, ModulePresence.BOTH,
+                temporary.resolve("access-classes"), List.of(),
+                List.of(), List.of(),
+                new ModuleChangeSet(List.of(access), List.of()));
+        final ModuleAnalysisResult module = new ModuleAnalysisResult
+                .Builder(unit)
+                .status(ModuleAnalysisStatus.SUCCESS,
+                        ModuleAnalysisReason.NONE, "complete")
+                .dispositions(Map.of(access,
+                        ChangePointDisposition.ACCESS_REMAINS_VALID))
+                .observations(Map.of(access, List.of(observation)))
+                .codeComparisons(Map.of(access, comparison))
+                .build();
+        final AnalysisRunResult run = new AnalysisRunResult(
+                AnalysisMode.REACTOR, AnalysisStatus.SUCCESS, List.of(),
+                List.of(module), new AnalysisConcurrency(1, 1, 0, 0),
+                Map.of(), EntrypointSelection.allProjectClasses());
+        final MavenDependencyPluginRuntime plugin =
+                new MavenDependencyPluginRuntimeManager().prepare(
+                        temporary.resolve("config-access"), List.of(), null);
+
+        new PerModuleHtmlReportGenerator().generate(run, List.of(),
+                new PreflightReport(List.of()), maven(), plugin,
+                java(), output);
+
+        final Path owned = temporary.resolve("access-valid-modules");
+        final String impact;
+        final String changes;
+        try (Stream<Path> pages = Files.list(owned)) {
+            final List<Path> values = pages.toList();
+            impact = Files.readString(values.stream().filter(path ->
+                    path.getFileName().toString().contains("-impact"))
+                    .findFirst().orElseThrow());
+            changes = Files.readString(values.stream().filter(path ->
+                    path.getFileName().toString().contains("-changes"))
+                    .findFirst().orElseThrow());
+        }
+        assertThat(impact)
+                .contains("No affected call chain was found")
+                .doesNotContain("example.library.Api#call");
+        assertThat(changes)
+                .contains("Method access narrowed")
+                .contains("Access remains valid")
+                .contains("Old access</th><td>PUBLIC")
+                .contains("New access</th><td>PROTECTED")
+                .contains("decision=ACCESSIBLE")
+                .contains("View code changes")
+                .contains("-public void call()")
+                .contains("+protected void call()");
+    }
+
+    @Test
+    void rendersPotentialAccessAsPotentialInAffectedCallChain()
+            throws Exception {
+        final Path output = temporary.resolve("access-potential.html");
+        final ModuleId moduleId = new ModuleId(new ArtifactCoord(
+                "example", "app", "jar", "1"), Path.of("app"));
+        final ArtifactCoord oldArtifact = new ArtifactCoord(
+                "example", "library", "jar", "1");
+        final ArtifactCoord newArtifact = new ArtifactCoord(
+                "example", "library", "jar", "2");
+        final DependencyUpgradeKey upgrade = new DependencyUpgradeKey(
+                moduleId, DependencyScope.COMPILE,
+                oldArtifact, newArtifact);
+        final AccessTransition transition = new AccessTransition(
+                JvmAccess.PUBLIC, JvmAccess.PROTECTED);
+        final BoundChangePoint access = new BoundChangePoint(upgrade,
+                ChangePoint.accessNarrowed(newArtifact,
+                        ChangePointKind.METHOD_ACCESS_NARROWED,
+                        "example/library/Api", "call", "()V",
+                        transition));
+        final AccessReferenceEvidence evidence =
+                new AccessReferenceEvidence(
+                        transition,
+                        AccessDecision.POTENTIALLY_INACCESSIBLE,
+                        AccessDecisionReason.PROTECTED_RECEIVER_UNKNOWN,
+                        "example/app/Controller#handle()V",
+                        "example/library/Api", "example/library/Api",
+                        "UNKNOWN", "example/library/Api#call()V");
+        final QueryNode root = new ReportQueryNode(new MethodId(
+                "example/app/Controller", "handle", "()V", "app",
+                "app/classes"), CodeOrigin.PROJECT);
+        final ImpactPath path = new ImpactPath(List.of(root), List.of(),
+                new ChangePointTerminal(access,
+                        EdgeKind.DECLARED_INVOKE_REFERENCE, evidence),
+                ImpactClassification.TRANSITIVE);
+        final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                moduleId, ModulePresence.BOTH,
+                temporary.resolve("potential-classes"), List.of(),
+                List.of(), List.of(),
+                new ModuleChangeSet(List.of(access), List.of()));
+        final ModuleAnalysisResult module = new ModuleAnalysisResult
+                .Builder(unit)
+                .status(ModuleAnalysisStatus.SUCCESS,
+                        ModuleAnalysisReason.NONE, "complete")
+                .candidatePaths(List.of(path))
+                .finalPaths(List.of(path))
+                .dispositions(Map.of(access,
+                        ChangePointDisposition.IMPACT_REPORTED))
+                .observations(Map.of(access, List.of(evidence)))
+                .build();
+        final AnalysisRunResult run = new AnalysisRunResult(
+                AnalysisMode.REACTOR, AnalysisStatus.SUCCESS, List.of(),
+                List.of(module), new AnalysisConcurrency(1, 1, 0, 0),
+                Map.of(), EntrypointSelection.allProjectClasses());
+        final MavenDependencyPluginRuntime plugin =
+                new MavenDependencyPluginRuntimeManager().prepare(
+                        temporary.resolve("config-potential"),
+                        List.of(), null);
+
+        new PerModuleHtmlReportGenerator().generate(run, List.of(),
+                new PreflightReport(List.of()), maven(), plugin,
+                java(), output);
+
+        final Path owned = temporary.resolve("access-potential-modules");
+        final String impact;
+        try (Stream<Path> pages = Files.list(owned)) {
+            impact = Files.readString(pages.filter(pathValue ->
+                    pathValue.getFileName().toString()
+                            .contains("-impact"))
+                    .findFirst().orElseThrow());
+        }
+        assertThat(impact)
+                .contains("Potential access incompatibility")
+                .contains("decision=POTENTIALLY_INACCESSIBLE")
+                .contains("reason=PROTECTED_RECEIVER_UNKNOWN")
+                .doesNotContain("IllegalAccessError");
     }
 
     /**

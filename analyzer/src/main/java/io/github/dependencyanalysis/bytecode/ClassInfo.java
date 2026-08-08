@@ -15,6 +15,9 @@ final class ClassInfo {
     /** Internal class name. */
     private final String internalName;
 
+    /** Normalized JVM class access. */
+    private final JvmAccess access;
+
     /** Methods in this class. */
     private final List<MethodInfo> methods;
 
@@ -25,16 +28,19 @@ final class ClassInfo {
      * Creates a new class info.
      *
      * @param name   internal name
+     * @param classAccess normalized class access
      * @param mtds   method list
      * @param flds   field list
      */
     ClassInfo(
             final String name,
+            final JvmAccess classAccess,
             final List<MethodInfo> mtds,
             final List<FieldInfo> flds) {
         this.internalName =
                 Objects.requireNonNull(
                         name, "internalName");
+        this.access = Objects.requireNonNull(classAccess, "access");
         this.methods =
                 Collections.unmodifiableList(
                         new ArrayList<>(mtds));
@@ -50,6 +56,11 @@ final class ClassInfo {
      */
     String getInternalName() {
         return internalName;
+    }
+
+    /** @return normalized JVM class access */
+    JvmAccess getAccess() {
+        return access;
     }
 
     /**
@@ -84,6 +95,7 @@ final class ClassInfo {
                         that.internalName)
                 && methods.equals(
                         that.methods)
+                && access == that.access
                 && fields.equals(
                         that.fields);
     }
@@ -91,7 +103,7 @@ final class ClassInfo {
     @Override
     public int hashCode() {
         return Objects.hash(
-                internalName, methods,
+                internalName, access, methods,
                 fields);
     }
 
@@ -100,6 +112,7 @@ final class ClassInfo {
         return "ClassInfo{"
                 + "internalName="
                 + internalName
+                + ", access=" + access
                 + ", methods=" + methods
                 + ", fields=" + fields
                 + '}';

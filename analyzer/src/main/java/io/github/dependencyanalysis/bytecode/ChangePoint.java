@@ -3,6 +3,7 @@ package io.github.dependencyanalysis.bytecode;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 
 import java.util.Objects;
+import java.util.Optional;
 
 // Wiki: wiki/features/bytecode-diff-engine.md - Single bytecode change point
 /**
@@ -37,6 +38,9 @@ public final class ChangePoint {
     /** New body hash (nullable). */
     private final String newHash;
 
+    /** Strict access narrowing, present only for access kinds. */
+    private final AccessTransition accessTransition;
+
     /**
      * Creates a new change point.
      *
@@ -57,8 +61,8 @@ public final class ChangePoint {
             final String oh,
             final String nh) {
         this(art, kd, own, nam,
-                new MemberDescriptors(desc, desc),
-                oh, nh);
+                new ChangeDetails(new MemberDescriptors(desc, desc),
+                        oh, nh, null));
     }
 
     /**
@@ -69,18 +73,14 @@ public final class ChangePoint {
      * @param kd change point kind
      * @param own internal class name
      * @param nam member name or null
-     * @param descriptors old/new descriptors
-     * @param oh old body hash or null
-     * @param nh new body hash or null
+     * @param details descriptors, body hashes and access transition
      */
     private ChangePoint(
             final ArtifactCoord art,
             final ChangePointKind kd,
             final String own,
             final String nam,
-            final MemberDescriptors descriptors,
-            final String oh,
-            final String nh) {
+            final ChangeDetails details) {
         this.artifact =
                 Objects.requireNonNull(
                         art, "artifact");
@@ -93,14 +93,19 @@ public final class ChangePoint {
         this.name = nam;
         final MemberDescriptors pair =
                 Objects.requireNonNull(
-                        descriptors,
+                        details.descriptors(),
                         "descriptors");
         this.oldDescriptor =
                 pair.getOldDescriptor();
         this.newDescriptor =
                 pair.getNewDescriptor();
-        this.oldHash = oh;
-        this.newHash = nh;
+        this.oldHash = details.oldHash();
+        this.newHash = details.newHash();
+        this.accessTransition = details.accessTransition();
+        if (kind.isAccessNarrowing() != (accessTransition != null)) {
+            throw new IllegalArgumentException(
+                    "Access narrowing kind and transition must agree");
+        }
     }
 
     /**
@@ -124,7 +129,36 @@ public final class ChangePoint {
             final String oh,
             final String nh) {
         return new ChangePoint(art, kd, own, nam,
-                descriptors, oh, nh);
+                new ChangeDetails(descriptors, oh, nh, null));
+    }
+
+    /**
+     * Creates a validated strict JVM access narrowing ChangePoint.
+     *
+     * @param art artifact coordinate
+     * @param kd access narrowing kind
+     * @param own internal class name
+     * @param nam member name, or null for class access
+     * @param descriptor exact member descriptor, or null for class access
+     * @param transition strict old/new access
+     * @return access narrowing ChangePoint
+     */
+    public static ChangePoint accessNarrowed(
+            final ArtifactCoord art,
+            final ChangePointKind kd,
+            final String own,
+            final String nam,
+            final String descriptor,
+            final AccessTransition transition) {
+        if (!Objects.requireNonNull(kd, "kd").isAccessNarrowing()) {
+            throw new IllegalArgumentException(
+                    "Expected access narrowing ChangePoint kind");
+        }
+        return new ChangePoint(art, kd, own, nam,
+                new ChangeDetails(
+                        new MemberDescriptors(descriptor, descriptor),
+                        null, null, Objects.requireNonNull(
+                                transition, "transition")));
     }
 
     /**
@@ -217,6 +251,30 @@ public final class ChangePoint {
         return newHash;
     }
 
+    /** @return strict access transition for access narrowing kinds */
+    public Optional<AccessTransition> getAccessTransition() {
+        return Optional.ofNullable(accessTransition);
+    }
+
+    /**
+     * Canonical optional ChangePoint details.
+     *
+     * @param descriptors old/new member descriptors
+     * @param oldHash old method body hash
+     * @param newHash new method body hash
+     * @param accessTransition strict access narrowing
+     */
+    private record ChangeDetails(
+            MemberDescriptors descriptors,
+            String oldHash,
+            String newHash,
+            AccessTransition accessTransition) {
+
+        ChangeDetails {
+            Objects.requireNonNull(descriptors, "descriptors");
+        }
+    }
+
     @Override
     public boolean equals(final Object o) {
         if (this == o) {
@@ -242,7 +300,9 @@ public final class ChangePoint {
                 && Objects.equals(
                         oldHash, that.oldHash)
                 && Objects.equals(
-                        newHash, that.newHash);
+                        newHash, that.newHash)
+                && Objects.equals(accessTransition,
+                        that.accessTransition);
     }
 
     @Override
@@ -251,7 +311,7 @@ public final class ChangePoint {
                 artifact, kind, owner,
                 name, oldDescriptor,
                 newDescriptor,
-                oldHash, newHash);
+                oldHash, newHash, accessTransition);
     }
 
     @Override
@@ -275,6 +335,8 @@ public final class ChangePoint {
                 .append(oldHash)
                 .append(", newHash=")
                 .append(newHash)
+                .append(", accessTransition=")
+                .append(accessTransition)
                 .append('}');
         return sb.toString();
     }

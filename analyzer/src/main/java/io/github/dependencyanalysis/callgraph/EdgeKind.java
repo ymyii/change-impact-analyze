@@ -50,4 +50,7 @@ public enum EdgeKind {
 
     /** Terminal reference to a direct bootstrap method-handle argument. */
     INVOKEDYNAMIC_HANDLE_REFERENCE,
+
+    /** Direct target resolved by the RTA local MethodHandle model. */
+    METHOD_HANDLE_TARGET,
 }

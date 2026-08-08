@@ -27,6 +27,7 @@ import static org.assertj.core.api.Assertions
         .assertThat;
 import static org.assertj.core.api.Assertions
         .assertThatThrownBy;
+import static org.assertj.core.groups.Tuple.tuple;
 
 /**
  * Tests for
@@ -228,6 +229,193 @@ class BytecodeDiffEngineTest {
     }
 
     @Test
+    void defaultEngineDetectsClassNarrowingButNotExpansion()
+            throws Exception {
+        final BytecodeDiffEngine defaultEngine =
+                new BytecodeDiffEngine();
+        final List<ChangePoint> narrowed = diffWith(
+                defaultEngine,
+                createJar("old-narrow.jar", classBytes(
+                        "com/Foo", Opcodes.ACC_PUBLIC)),
+                createJar("new-narrow.jar", classBytes(
+                        "com/Foo", 0)));
+
+        assertThat(narrowed)
+                .extracting(ChangePoint::getKind)
+                .containsExactly(
+                        ChangePointKind.CLASS_ACCESS_NARROWED);
+        assertThat(narrowed.get(0).getAccessTransition())
+                .contains(new AccessTransition(
+                        JvmAccess.PUBLIC,
+                        JvmAccess.PACKAGE_PRIVATE));
+
+        final List<ChangePoint> expanded = diffWith(
+                defaultEngine,
+                createJar("old-expand.jar", classBytes(
+                        "com/Foo", 0)),
+                createJar("new-expand.jar", classBytes(
+                        "com/Foo", Opcodes.ACC_PUBLIC)));
+        assertThat(expanded).isEmpty();
+    }
+
+    @Test
+    void detectsEveryMethodStrictNarrowingCombination()
+            throws Exception {
+        for (JvmAccess[] transition : strictMemberNarrowings()) {
+            final List<ChangePoint> points = diff(
+                    createJar("old-method.jar", classWithMethodAccess(
+                            "com/Foo", "run", "()V",
+                            accessFlag(transition[0]))),
+                    createJar("new-method.jar", classWithMethodAccess(
+                            "com/Foo", "run", "()V",
+                            accessFlag(transition[1]))));
+
+            assertThat(points)
+                    .as("%s -> %s", transition[0], transition[1])
+                    .extracting(ChangePoint::getKind)
+                    .containsExactly(
+                            ChangePointKind.METHOD_ACCESS_NARROWED);
+            assertThat(points.get(0).getAccessTransition())
+                    .contains(new AccessTransition(
+                            transition[0], transition[1]));
+        }
+    }
+
+    @Test
+    void detectsConstructorNarrowingByBytecodeIdentity()
+            throws Exception {
+        final List<ChangePoint> points = diff(
+                createJar("old.jar", classWithMethodAccess(
+                        "com/Foo", "<init>", "()V",
+                        Opcodes.ACC_PUBLIC)),
+                createJar("new.jar", classWithMethodAccess(
+                        "com/Foo", "<init>", "()V",
+                        Opcodes.ACC_PRIVATE)));
+
+        assertThat(points)
+                .extracting(
+                        ChangePoint::getKind,
+                        ChangePoint::getName,
+                        ChangePoint::getDescriptor)
+                .containsExactly(tuple(
+                        ChangePointKind.METHOD_ACCESS_NARROWED,
+                        "<init>", "()V"));
+    }
+
+    @Test
+    void methodExpansionAndUnchangedAccessProduceNoChange()
+            throws Exception {
+        final List<ChangePoint> expanded = diff(
+                createJar("old-expand.jar", classWithMethodAccess(
+                        "com/Foo", "run", "()V",
+                        Opcodes.ACC_PRIVATE)),
+                createJar("new-expand.jar", classWithMethodAccess(
+                        "com/Foo", "run", "()V",
+                        Opcodes.ACC_PUBLIC)));
+        final List<ChangePoint> unchanged = diff(
+                createJar("old-same.jar", classWithMethodAccess(
+                        "com/Foo", "run", "()V",
+                        Opcodes.ACC_PROTECTED)),
+                createJar("new-same.jar", classWithMethodAccess(
+                        "com/Foo", "run", "()V",
+                        Opcodes.ACC_PROTECTED)));
+
+        assertThat(expanded).isEmpty();
+        assertThat(unchanged).isEmpty();
+    }
+
+    @Test
+    void methodBodyAndAccessChangesRemainSeparate()
+            throws Exception {
+        final List<ChangePoint> points = diff(
+                createJar("old.jar", classWithMethodAccessAndBody(
+                        "com/Foo", "value", "()I",
+                        Opcodes.ACC_PUBLIC, Opcodes.ICONST_0)),
+                createJar("new.jar", classWithMethodAccessAndBody(
+                        "com/Foo", "value", "()I",
+                        Opcodes.ACC_PRIVATE, Opcodes.ICONST_1)));
+
+        assertThat(points)
+                .extracting(ChangePoint::getKind)
+                .containsExactly(
+                        ChangePointKind.METHOD_BODY_CHANGED,
+                        ChangePointKind.METHOD_ACCESS_NARROWED);
+    }
+
+    @Test
+    void descriptorChangeDoesNotGuessMethodAccessNarrowing()
+            throws Exception {
+        final List<ChangePoint> points = diff(
+                createJar("old.jar", classWithMethodAccess(
+                        "com/Foo", "run", "()V",
+                        Opcodes.ACC_PUBLIC)),
+                createJar("new.jar", classWithMethodAccess(
+                        "com/Foo", "run", "(I)V",
+                        Opcodes.ACC_PRIVATE)));
+
+        assertThat(points)
+                .extracting(ChangePoint::getKind)
+                .containsExactly(
+                        ChangePointKind.METHOD_DESCRIPTOR_CHANGED);
+    }
+
+    @Test
+    void defaultEngineKeepsClassAndMemberNarrowingSeparate()
+            throws Exception {
+        final List<ChangePoint> points = diffWith(
+                new BytecodeDiffEngine(),
+                createJar("old.jar", classWithAccesses(
+                        "com/Foo", Opcodes.ACC_PUBLIC,
+                        Opcodes.ACC_PUBLIC, Opcodes.ACC_PUBLIC)),
+                createJar("new.jar", classWithAccesses(
+                        "com/Foo", 0,
+                        Opcodes.ACC_PRIVATE, Opcodes.ACC_PRIVATE)));
+
+        assertThat(points)
+                .extracting(ChangePoint::getKind)
+                .containsExactly(
+                        ChangePointKind.CLASS_ACCESS_NARROWED,
+                        ChangePointKind.METHOD_ACCESS_NARROWED,
+                        ChangePointKind.FIELD_ACCESS_NARROWED);
+    }
+
+    @Test
+    void classInitializerDoesNotProduceAccessChange()
+            throws Exception {
+        final List<ChangePoint> points = diff(
+                createJar("old.jar", classWithMethodAccess(
+                        "com/Foo", "<clinit>", "()V",
+                        Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC)),
+                createJar("new.jar", classWithMethodAccess(
+                        "com/Foo", "<clinit>", "()V",
+                        Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC)));
+
+        assertThat(points)
+                .extracting(ChangePoint::getKind)
+                .doesNotContain(
+                        ChangePointKind.METHOD_ACCESS_NARROWED);
+    }
+
+    @Test
+    void syntheticBridgeMethodUsesRealBytecodeIdentity()
+            throws Exception {
+        final int oldAccess = Opcodes.ACC_PUBLIC
+                | Opcodes.ACC_SYNTHETIC | Opcodes.ACC_BRIDGE;
+        final int newAccess = Opcodes.ACC_PRIVATE
+                | Opcodes.ACC_SYNTHETIC | Opcodes.ACC_BRIDGE;
+        final List<ChangePoint> points = diff(
+                createJar("old.jar", classWithMethodAccess(
+                        "com/Foo", "bridge", "()V", oldAccess)),
+                createJar("new.jar", classWithMethodAccess(
+                        "com/Foo", "bridge", "()V", newAccess)));
+
+        assertThat(points)
+                .extracting(ChangePoint::getKind)
+                .containsExactly(
+                        ChangePointKind.METHOD_ACCESS_NARROWED);
+    }
+
+    @Test
     void overloadedMethodNoFalseDescriptorChange()
             throws Exception {
         final Path oldJar = createJar(
@@ -329,6 +517,60 @@ class BytecodeDiffEngineTest {
                 .findFirst().orElseThrow();
         assertThat(change.getOldDescriptor()).isEqualTo("I");
         assertThat(change.getNewDescriptor()).isEqualTo("J");
+    }
+
+    @Test
+    void detectsEveryFieldStrictNarrowingCombination()
+            throws Exception {
+        for (JvmAccess[] transition : strictMemberNarrowings()) {
+            final List<ChangePoint> points = diff(
+                    createJar("old-field.jar", classWithFieldAccess(
+                            "com/Foo", "value", "I",
+                            accessFlag(transition[0]))),
+                    createJar("new-field.jar", classWithFieldAccess(
+                            "com/Foo", "value", "I",
+                            accessFlag(transition[1]))));
+
+            assertThat(points)
+                    .as("%s -> %s", transition[0], transition[1])
+                    .extracting(ChangePoint::getKind)
+                    .containsExactly(
+                            ChangePointKind.FIELD_ACCESS_NARROWED);
+            assertThat(points.get(0).getAccessTransition())
+                    .contains(new AccessTransition(
+                            transition[0], transition[1]));
+        }
+    }
+
+    @Test
+    void fieldExpansionProducesNoAccessChange()
+            throws Exception {
+        final List<ChangePoint> points = diff(
+                createJar("old.jar", classWithFieldAccess(
+                        "com/Foo", "value", "I",
+                        Opcodes.ACC_PRIVATE)),
+                createJar("new.jar", classWithFieldAccess(
+                        "com/Foo", "value", "I",
+                        Opcodes.ACC_PROTECTED)));
+
+        assertThat(points).isEmpty();
+    }
+
+    @Test
+    void descriptorChangeDoesNotGuessFieldAccessNarrowing()
+            throws Exception {
+        final List<ChangePoint> points = diff(
+                createJar("old.jar", classWithFieldAccess(
+                        "com/Foo", "value", "I",
+                        Opcodes.ACC_PUBLIC)),
+                createJar("new.jar", classWithFieldAccess(
+                        "com/Foo", "value", "J",
+                        Opcodes.ACC_PRIVATE)));
+
+        assertThat(points)
+                .extracting(ChangePoint::getKind)
+                .containsExactly(
+                        ChangePointKind.FIELD_DESCRIPTOR_CHANGED);
     }
 
     @Test
@@ -698,17 +940,179 @@ class BytecodeDiffEngineTest {
      */
     private byte[] classBytes(
             final String internalName) {
+        return classBytes(
+                internalName,
+                Opcodes.ACC_PUBLIC);
+    }
+
+    /**
+     * Generates minimal class bytes with explicit access.
+     *
+     * @param internalName internal name
+     * @param access class access flags
+     * @return class bytes
+     */
+    private byte[] classBytes(
+            final String internalName,
+            final int access) {
         final ClassWriter cw =
                 new ClassWriter(0);
         cw.visit(
                 Opcodes.V1_8,
-                Opcodes.ACC_PUBLIC,
+                access,
                 internalName,
                 null,
                 "java/lang/Object",
                 null);
         cw.visitEnd();
         return cw.toByteArray();
+    }
+
+    /**
+     * Generates a class with one explicitly accessible method.
+     *
+     * @param cls class internal name
+     * @param name method name
+     * @param desc method descriptor
+     * @param access method access flags
+     * @return class bytes
+     */
+    private byte[] classWithMethodAccess(
+            final String cls,
+            final String name,
+            final String desc,
+            final int access) {
+        final ClassWriter cw = new ClassWriter(0);
+        cw.visit(
+                Opcodes.V1_8,
+                Opcodes.ACC_PUBLIC,
+                cls, null,
+                "java/lang/Object", null);
+        final MethodVisitor mv = cw.visitMethod(
+                access, name, desc, null, null);
+        mv.visitCode();
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitMaxs(0, 1);
+        mv.visitEnd();
+        cw.visitEnd();
+        return cw.toByteArray();
+    }
+
+    /**
+     * Generates a class with explicit method access and integer body.
+     *
+     * @param cls class internal name
+     * @param name method name
+     * @param desc method descriptor
+     * @param access method access flags
+     * @param opcode integer-producing body opcode
+     * @return class bytes
+     */
+    private byte[] classWithMethodAccessAndBody(
+            final String cls,
+            final String name,
+            final String desc,
+            final int access,
+            final int opcode) {
+        final ClassWriter cw = new ClassWriter(0);
+        cw.visit(
+                Opcodes.V1_8,
+                Opcodes.ACC_PUBLIC,
+                cls, null,
+                "java/lang/Object", null);
+        final MethodVisitor mv = cw.visitMethod(
+                access, name, desc, null, null);
+        mv.visitCode();
+        mv.visitInsn(opcode);
+        mv.visitInsn(Opcodes.IRETURN);
+        mv.visitMaxs(1, 1);
+        mv.visitEnd();
+        cw.visitEnd();
+        return cw.toByteArray();
+    }
+
+    /**
+     * Generates a class with one explicitly accessible field.
+     *
+     * @param cls class internal name
+     * @param name field name
+     * @param desc field descriptor
+     * @param access field access flags
+     * @return class bytes
+     */
+    private byte[] classWithFieldAccess(
+            final String cls,
+            final String name,
+            final String desc,
+            final int access) {
+        final ClassWriter cw = new ClassWriter(0);
+        cw.visit(
+                Opcodes.V1_8,
+                Opcodes.ACC_PUBLIC,
+                cls, null,
+                "java/lang/Object", null);
+        cw.visitField(access, name, desc, null, null).visitEnd();
+        cw.visitEnd();
+        return cw.toByteArray();
+    }
+
+    /**
+     * Generates one class with explicit class and member access.
+     *
+     * @param cls class internal name
+     * @param classAccess class access flags
+     * @param methodAccess method access flags
+     * @param fieldAccess field access flags
+     * @return class bytes
+     */
+    private byte[] classWithAccesses(
+            final String cls,
+            final int classAccess,
+            final int methodAccess,
+            final int fieldAccess) {
+        final ClassWriter cw = new ClassWriter(0);
+        cw.visit(
+                Opcodes.V1_8,
+                classAccess,
+                cls, null,
+                "java/lang/Object", null);
+        final MethodVisitor mv = cw.visitMethod(
+                methodAccess, "run", "()V", null, null);
+        mv.visitCode();
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitMaxs(0, 1);
+        mv.visitEnd();
+        cw.visitField(
+                fieldAccess, "value", "I", null, null).visitEnd();
+        cw.visitEnd();
+        return cw.toByteArray();
+    }
+
+    /** @return all confirmed member access narrowing combinations */
+    private JvmAccess[][] strictMemberNarrowings() {
+        return new JvmAccess[][]{
+                {JvmAccess.PUBLIC, JvmAccess.PROTECTED},
+                {JvmAccess.PUBLIC, JvmAccess.PACKAGE_PRIVATE},
+                {JvmAccess.PUBLIC, JvmAccess.PRIVATE},
+                {JvmAccess.PROTECTED, JvmAccess.PACKAGE_PRIVATE},
+                {JvmAccess.PROTECTED, JvmAccess.PRIVATE},
+                {JvmAccess.PACKAGE_PRIVATE, JvmAccess.PRIVATE}
+        };
+    }
+
+    /**
+     * Converts normalized member access to ASM flags.
+     *
+     * @param access normalized access
+     * @return ASM access flags
+     */
+    private int accessFlag(final JvmAccess access) {
+        return switch (access) {
+            case PUBLIC -> Opcodes.ACC_PUBLIC;
+            case PROTECTED -> Opcodes.ACC_PROTECTED;
+            case PACKAGE_PRIVATE -> 0;
+            case PRIVATE -> Opcodes.ACC_PRIVATE;
+        };
     }
 
     /**

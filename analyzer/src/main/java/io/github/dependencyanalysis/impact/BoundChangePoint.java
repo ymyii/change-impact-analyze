@@ -43,7 +43,10 @@ public final class BoundChangePoint {
                 + changePoint.getOwner() + ":"
                 + String.valueOf(changePoint.getName()) + ":"
                 + String.valueOf(changePoint.getOldDescriptor()) + "->"
-                + String.valueOf(changePoint.getNewDescriptor());
+                + String.valueOf(changePoint.getNewDescriptor()) + ":"
+                + changePoint.getAccessTransition()
+                        .map(value -> value.stableKey())
+                        .orElse("NO_ACCESS_TRANSITION");
     }
 
     @Override

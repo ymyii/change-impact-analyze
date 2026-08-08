@@ -23,6 +23,14 @@ code_refs:
     desc: "固定 benchmark CLI 参数"
   - path: "benchmarks/impact-medium/scripts/verify-report.sh"
     desc: "dependency、ChangePoint、Call Chain 与 HTML pages 验收"
+  - path: "benchmarks/impact-medium/scripts/summarize-runs.sh"
+    desc: "同algorithm/ReflectionOptions/环境运行的中位数汇总"
+  - path: "benchmarks/impact-medium/scripts/compare-summaries.sh"
+    desc: "RTA相对zero-cfa的versioned性能门禁"
+  - path: "benchmarks/impact-medium/expected-results.tsv"
+    desc: "versioned per-algorithm candidate/final count基线"
+  - path: "benchmarks/impact-medium/performance-thresholds.tsv"
+    desc: "versioned Wall time与process-tree peak RSS相对阈值"
   - path: "benchmarks/impact-medium/fixtures/application/baseline/pom.xml"
     desc: "42 个 compile-scope direct dependencies"
   - path: "benchmarks/impact-medium/fixtures/artifacts/legacy-impact-bridge/com/acme/impact/bridge/LegacyImpactBridge.java"
@@ -57,10 +65,22 @@ mvn package
 
 ```sh
 JAVA8_HOME=/absolute/path/to/jdk8 \
+  BENCHMARK_CALL_GRAPH_ALGORITHM=rta \
   benchmarks/impact-medium/run-benchmark.sh candidate-01
 ```
 
-默认结果目录为 `tmp-files/impact-medium-benchmark/candidate-01/`。同名目录存在时拒绝覆盖；不传 label 时使用时间戳。`ANALYZER_JAR`、`ANALYZER_JAVA`、`MAVEN_BIN`、`BENCHMARK_MAVEN_REPO` 和 `BENCHMARK_RUNTIME_ROOT` 可覆盖默认 runtime。
+`BENCHMARK_CALL_GRAPH_ALGORITHM`必填，只接受`rta`、`zero-cfa`、`optimized-0-1-cfa`。`BENCHMARK_WALA_REFLECTION_OPTIONS`默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`，并显式传给CLI。默认结果目录为 `tmp-files/impact-medium-benchmark/candidate-01/`。同名目录存在时拒绝覆盖；不传 label 时使用时间戳。`ANALYZER_JAR`、`ANALYZER_JAVA`、`MAVEN_BIN`、`BENCHMARK_MAVEN_REPO` 和 `BENCHMARK_RUNTIME_ROOT` 可覆盖默认 runtime。
+
+首次校准尚未锁定count的algorithm：
+
+```sh
+JAVA8_HOME=/absolute/path/to/jdk8 \
+  BENCHMARK_CALL_GRAPH_ALGORITHM=rta \
+  BENCHMARK_CALIBRATION=1 \
+  benchmarks/impact-medium/run-benchmark.sh rta-calibration-01
+```
+
+`BENCHMARK_CALIBRATION=1`只豁免缺失的candidate/final count；Completed、raw changes、Structural Reference、Report结构与实际algorithm/ReflectionOptions仍强制校验。人工审查后只手工维护`expected-results.tsv`，正常运行不自动接受漂移。
 
 ## Fixture Contract
 
@@ -69,15 +89,15 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 - `scenario-api:1.0.0 -> 2.0.0` 固定产生 `CLASS_ADDED`、`CLASS_REMOVED`、`METHOD_ADDED`、`METHOD_REMOVED`、`METHOD_DESCRIPTOR_CHANGED`、`METHOD_BODY_CHANGED`、`FIELD_ADDED`、`FIELD_REMOVED`、`FIELD_DESCRIPTOR_CHANGED`。
 - `legacy-impact-bridge` 以 API v1 编译，target application 通过 bridge 保留 removed/old binary references；bridge field descriptor 提供 removed class Structural Reference Path。
 - `METHOD_BODY_CHANGED` fixture 在 bytecode 层不同、normalized SSA 层等价，用于验证 filtered candidate 仍保留调用链和反编译代码 evidence。
-- Analyzer 以默认 `zero-cfa`、`analysis-parallelism=2`、120 秒 per-Module Call Graph timeout、offline Maven 和全部 9 类 `include-change-kinds` 执行。
+- Analyzer 以显式algorithm、显式WALA ReflectionOptions、`analysis-parallelism=2`、120 秒 per-Module Call Graph timeout、offline Maven 和固定9类legacy `include-change-kinds`执行；access narrowing使用独立test fixture，不改写medium baseline。
 
 ## Success Criteria
 
 - Analyzer exit code 为 `0`；Overall status 为 `Completed`。
-- Overall technical details 的 Algorithm 为 `zero-cfa`。
+- Overall technical details 的 Algorithm与WALA ReflectionOptions等于本次请求。
 - POM direct dependency count 为 `42`；raw changed member count 为 `9`。
 - Dependency Changes 页面只展示有 candidate/final/Structural path 的 6 类 raw change；`CLASS_ADDED`、`METHOD_ADDED`、`FIELD_ADDED` 不逐项展示。
-- Candidate / final call chains 为 `6 / 5`；Affected Call Chains 页面同时存在 filtered candidate 与 Structural Reference Path。
+- Candidate / final call chains匹配`expected-results.tsv`中当前algorithm的锁定值；`rta`、`zero-cfa`、`optimized-0-1-cfa`经关键路径审查后均固定为`6 / 5`。Affected Call Chains页面同时存在filtered candidate与Structural Reference Path。
 - Dependency Changes 页面包含 `Affected`、`Equivalent (filtered)`、`Structural impact` badge，以及默认折叠的 `Decompiled Java representation` Unified diff。
 - Overall、Module Index、Affected Call Chains、Dependency Changes 四个 HTML 页面全部存在。
 - `logs/verification.txt` 第一行为 `status=SUCCESS`，总入口返回 `0`。
@@ -86,9 +106,12 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 
 - `logs/time.txt` 保存 Wall/User/System time 与当前 OS 的 process resource summary。
 - `logs/process-tree.csv` 每 250 ms 采样 Analyzer 及 Maven/Javac descendants 的 aggregate RSS KiB 和 CPU percent。
+- `logs/metrics.tsv` machine-readable记录algorithm、WALA ReflectionOptions、nodes、edges、Wall time和process-tree peak RSS KiB。
 - macOS `/usr/bin/time` maximum resident set size 单位是 byte；GNU time 单位是 KiB，跨 OS 对比前必须换算。
 - `front-parallel` 包含并发的 `baseline-dependency` 与 `target-build`，阶段值不可全部相加推导 Wall time。
 - 性能回归结论至少使用三次相同环境 warm run 的中位数；固定 Analyzer JAR SHA-256、JDK 8、Maven、local repository cache、CPU 核数和并发参数。
+- 使用`scripts/summarize-runs.sh <run1> <run2> <run3> [...]`；脚本拒绝少于3次、calibration run、不同algorithm/ReflectionOptions或不同环境。
+- `performance-thresholds.tsv`锁定RTA相对`zero-cfa`的中位数门槛：Wall time不超过`3.50x`，process-tree peak RSS不超过`1.75x`。使用`scripts/compare-summaries.sh <rta-summary.tsv> <zero-cfa-summary.tsv>`校验；比较只读取summary，且两者WALA ReflectionOptions必须一致。
 
 ## Failure Entrypoints
 

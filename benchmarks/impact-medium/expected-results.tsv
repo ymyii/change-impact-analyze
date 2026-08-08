@@ -1,0 +1,5 @@
+# algorithm	candidate_call_chains	final_call_chains
+# Lock a new algorithm only after manual review. This file is never modified by run scripts.
+rta	6	5
+zero-cfa	6	5
+optimized-0-1-cfa	6	5

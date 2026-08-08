@@ -12,6 +12,9 @@ public class CallGraphException
     private static final long
             SERIAL_VERSION = 1L;
 
+    /** Typed failure category. */
+    private final CallGraphFailureKind kind;
+
     /**
      * Creates a new call graph
      * exception.
@@ -20,7 +23,7 @@ public class CallGraphException
      */
     public CallGraphException(
             final String msg) {
-        super(msg);
+        this(CallGraphFailureKind.GENERAL, msg, null);
     }
 
     /**
@@ -33,6 +36,44 @@ public class CallGraphException
     public CallGraphException(
             final String msg,
             final Throwable cause) {
+        this(CallGraphFailureKind.GENERAL, msg, cause);
+    }
+
+    private CallGraphException(
+            final CallGraphFailureKind failureKind,
+            final String msg,
+            final Throwable cause) {
         super(msg, cause);
+        kind = java.util.Objects.requireNonNull(failureKind, "failureKind");
+    }
+
+    /**
+     * Creates a typed timeout failure.
+     *
+     * @param msg detail message
+     * @return timeout failure
+     */
+    public static CallGraphException timeout(final String msg) {
+        return new CallGraphException(CallGraphFailureKind.TIMEOUT,
+                msg, null);
+    }
+
+    /**
+     * Creates a typed timeout failure with cause.
+     *
+     * @param msg detail message
+     * @param cause root cause
+     * @return timeout failure
+     */
+    public static CallGraphException timeout(
+            final String msg,
+            final Throwable cause) {
+        return new CallGraphException(CallGraphFailureKind.TIMEOUT,
+                msg, cause);
+    }
+
+    /** @return machine-readable failure category */
+    public CallGraphFailureKind getKind() {
+        return kind;
     }
 }

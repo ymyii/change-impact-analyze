@@ -12,10 +12,10 @@ import static org.assertj.core.api.Assertions
 class ChangePointKindTest {
 
     /** Expected constant count. */
-    private static final int COUNT = 9;
+    private static final int COUNT = 12;
 
     @Test
-    void nineConstants() {
+    void twelveConstants() {
         assertThat(
                 ChangePointKind.values())
                 .hasSize(COUNT);
@@ -33,6 +33,16 @@ class ChangePointKindTest {
         assertThat(ChangePointKind
                 .CLASS_REMOVED)
                 .isNotNull();
+    }
+
+    @Test
+    void accessNarrowingKindsExistAndAreDefault() {
+        assertThat(ChangePointKind.DEFAULT_INCLUDED_KINDS)
+                .contains(ChangePointKind.CLASS_ACCESS_NARROWED,
+                        ChangePointKind.METHOD_ACCESS_NARROWED,
+                        ChangePointKind.FIELD_ACCESS_NARROWED);
+        assertThat(ChangePointKind.CLASS_ACCESS_NARROWED
+                .isAccessNarrowing()).isTrue();
     }
 
     @Test

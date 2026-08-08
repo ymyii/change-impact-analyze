@@ -1,35 +1,27 @@
 package io.github.dependencyanalysis.callgraph;
 
-import java.util.List;
 import java.util.Objects;
 
-import io.github.dependencyanalysis.impact.StructuralScanResult;
+import io.github.dependencyanalysis.impact.StructuralReferenceIndex;
 
 /**
  * Immutable metrics and fixed-point model output from one graph build.
  *
  * @param stats graph build metrics
  * @param entrypoints entrypoint selection metrics
- * @param dynamicEvidence reachable invokedynamic evidence
- * @param dynamicLimitations invokedynamic limitations
- * @param serviceLoader ServiceLoader model metadata
- * @param structuralScan pre-graph structural metadata evidence
+ * @param strategyModels immutable algorithm model metadata
+ * @param structuralReferences pre-graph raw structural metadata index
  */
 record ModuleCallGraphMetadata(
         CallGraphStats stats,
         EntrypointSelectionMetrics entrypoints,
-        DynamicCallEvidenceIndex dynamicEvidence,
-        List<String> dynamicLimitations,
-        ServiceLoaderFixedPointModel serviceLoader,
-        StructuralScanResult structuralScan) {
+        StrategyModelMetadata strategyModels,
+        StructuralReferenceIndex structuralReferences) {
 
     ModuleCallGraphMetadata {
         Objects.requireNonNull(stats, "stats");
         Objects.requireNonNull(entrypoints, "entrypoints");
-        Objects.requireNonNull(dynamicEvidence, "dynamicEvidence");
-        dynamicLimitations = List.copyOf(Objects.requireNonNull(
-                dynamicLimitations, "dynamicLimitations"));
-        Objects.requireNonNull(serviceLoader, "serviceLoader");
-        Objects.requireNonNull(structuralScan, "structuralScan");
+        Objects.requireNonNull(strategyModels, "strategyModels");
+        Objects.requireNonNull(structuralReferences, "structuralReferences");
     }
 }

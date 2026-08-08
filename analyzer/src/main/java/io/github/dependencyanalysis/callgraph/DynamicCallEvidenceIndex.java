@@ -12,15 +12,7 @@ public final class DynamicCallEvidenceIndex {
 
     DynamicCallEvidenceIndex(final List<DynamicCallEvidence> values) {
         final List<DynamicCallEvidence> sorted = new ArrayList<>(values);
-        sorted.sort(Comparator
-                .comparing((DynamicCallEvidence value) -> value.caller()
-                        .getMethod().getReference().toString())
-                .thenComparingInt(value -> value.caller().getGraphNodeId())
-                .thenComparingInt(DynamicCallEvidence::bytecodePc)
-                .thenComparing(value -> value.kind().name())
-                .thenComparing(DynamicCallEvidence::targetOwner)
-                .thenComparing(DynamicCallEvidence::targetName)
-                .thenComparing(DynamicCallEvidence::targetDescriptor));
+        sorted.sort(Comparator.comparing(DynamicCallEvidence::stableKey));
         evidence = List.copyOf(sorted);
     }
 
@@ -41,6 +33,18 @@ public final class DynamicCallEvidenceIndex {
                 .filter(value -> name.equals(value.targetName()))
                 .filter(value -> descriptor.equals(
                         value.targetDescriptor()))
+                .toList();
+    }
+
+    /**
+     * Finds all dynamic references whose target belongs to one class.
+     *
+     * @param owner internal owner
+     * @return stable matching evidence
+     */
+    public List<DynamicCallEvidence> findOwner(final String owner) {
+        return evidence.stream()
+                .filter(value -> owner.equals(value.targetOwner()))
                 .toList();
     }
 

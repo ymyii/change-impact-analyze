@@ -57,12 +57,8 @@ public final class StructuralImpactScanner {
      */
     Map<String, Set<String>> metadataEvidence(
             final byte[] bytes, final Set<String> targetNames) {
-        final Map<String, List<BoundChangePoint>> selected =
-                new LinkedHashMap<>();
-        targetNames.stream().sorted().forEach(name ->
-                selected.put(name, List.of()));
         final MetadataCollector collector =
-                new MetadataCollector(selected);
+                new MetadataCollector(targetNames);
         new ClassReader(bytes).accept(collector,
                 ClassReader.SKIP_CODE
                         | ClassReader.SKIP_DEBUG
@@ -83,14 +79,14 @@ public final class StructuralImpactScanner {
      * @param ownership effective target class definitions
      * @return classified structural references
      */
-    public StructuralScanResult scan(
+    public StructuralReferenceIndex scan(
             final ModuleAnalysisUnit unit,
             final ClassOwnershipIndex ownership) {
-        final Map<String, List<BoundChangePoint>> targets = targets(unit);
+        final Set<String> targets = targets(unit);
         if (targets.isEmpty()) {
-            return StructuralScanResult.empty();
+            return StructuralReferenceIndex.empty();
         }
-        final List<StructuralReferenceMatch> references = new ArrayList<>();
+        final List<StructuralReference> references = new ArrayList<>();
         final Set<String> seen = new LinkedHashSet<>();
         try {
             scanDirectory(unit.getProjectClasses(), CodeOrigin.PROJECT,
@@ -107,23 +103,18 @@ public final class StructuralImpactScanner {
             throw new ImpactException(
                     "Unable to scan structural metadata", exception);
         }
-        references.sort(Comparator
-                .comparing((StructuralReferenceMatch value) ->
-                        value.changePoint().stableKey())
-                .thenComparing(value -> value.reference().stableKey()));
-        return new StructuralScanResult(references);
+        return new StructuralReferenceIndex(references);
     }
 
-    private Map<String, List<BoundChangePoint>> targets(
+    private Set<String> targets(
             final ModuleAnalysisUnit unit) {
-        final Map<String, List<BoundChangePoint>> result =
-                new LinkedHashMap<>();
+        final Set<String> result = new LinkedHashSet<>();
         for (BoundChangePoint point : unit.getChangePoints()) {
             if (point.getChangePoint().getKind()
-                    == ChangePointKind.CLASS_REMOVED) {
-                result.computeIfAbsent(
-                        point.getChangePoint().getOwner(),
-                        ignored -> new ArrayList<>()).add(point);
+                    == ChangePointKind.CLASS_REMOVED
+                    || point.getChangePoint().getKind()
+                    == ChangePointKind.CLASS_ACCESS_NARROWED) {
+                result.add(point.getChangePoint().getOwner());
             }
         }
         return result;
@@ -133,8 +124,8 @@ public final class StructuralImpactScanner {
             final Path directory,
             final CodeOrigin origin,
             final ClassOwnershipIndex ownership,
-            final Map<String, List<BoundChangePoint>> targets,
-            final List<StructuralReferenceMatch> references,
+            final Set<String> targets,
+            final List<StructuralReference> references,
             final Set<String> seen) throws IOException {
         final List<Path> files;
         try (Stream<Path> stream = Files.walk(directory)) {
@@ -158,8 +149,8 @@ public final class StructuralImpactScanner {
             final ArtifactCoord artifact,
             final CodeOrigin origin,
             final ClassOwnershipIndex ownership,
-            final Map<String, List<BoundChangePoint>> targets,
-            final List<StructuralReferenceMatch> references,
+            final Set<String> targets,
+            final List<StructuralReference> references,
             final Set<String> seen) throws IOException {
         try (JarLease lease = jarRepository.open(artifact)) {
             final JarFile jar = lease.jarFile();
@@ -193,8 +184,8 @@ public final class StructuralImpactScanner {
     private void scanClass(
             final byte[] bytes,
             final CodeOrigin origin,
-            final Map<String, List<BoundChangePoint>> targets,
-            final List<StructuralReferenceMatch> references,
+            final Set<String> targets,
+            final List<StructuralReference> references,
             final Set<String> seen) {
         final MetadataCollector collector = new MetadataCollector(targets);
         new ClassReader(bytes).accept(collector,
@@ -202,16 +193,10 @@ public final class StructuralImpactScanner {
                         | ClassReader.SKIP_DEBUG
                         | ClassReader.SKIP_FRAMES);
         for (MetadataReference reference : collector.references()) {
-            for (BoundChangePoint point
-                    : targets.get(reference.target())) {
-                final String key = point.stableKey() + "|"
-                        + collector.owner() + "|" + origin + "|"
-                        + reference.evidence();
-                if (seen.add(key)) {
-                    references.add(new StructuralReferenceMatch(
-                            point, structuralReference(collector.owner(),
-                            origin, reference)));
-                }
+            final StructuralReference value = structuralReference(
+                    collector.owner(), origin, reference);
+            if (seen.add(value.stableKey())) {
+                references.add(value);
             }
         }
     }
@@ -220,65 +205,15 @@ public final class StructuralImpactScanner {
             final String owner,
             final CodeOrigin origin,
             final MetadataReference metadata) {
-        final String evidence = metadata.evidence();
-        final int separator = evidence.indexOf(':');
-        final String prefix = separator < 0 ? evidence
-                : evidence.substring(0, separator);
-        final String member = separator < 0 ? ""
-                : evidence.substring(separator + 1);
-        return new StructuralReference(owner, origin,
-                structuralKind(prefix, evidence, metadata.target()), member,
-                metadata.target(), evidence);
-    }
-
-    private StructuralReferenceKind structuralKind(
-            final String prefix,
-            final String evidence,
-            final String target) {
-        if ("SUPERCLASS".equals(prefix)) {
-            return StructuralReferenceKind.SUPERCLASS;
-        }
-        if ("INTERFACE".equals(prefix)) {
-            return StructuralReferenceKind.INTERFACE;
-        }
-        if (prefix.contains("ANNOTATION")) {
-            return StructuralReferenceKind.ANNOTATION;
-        }
-        if (prefix.startsWith("FIELD")) {
-            return StructuralReferenceKind.FIELD_TYPE;
-        }
-        if ("THROWS".equals(prefix)) {
-            return StructuralReferenceKind.THROWS;
-        }
-        if (prefix.contains("SIGNATURE")) {
-            return StructuralReferenceKind.SIGNATURE;
-        }
-        if ("METHOD_DESCRIPTOR".equals(prefix)) {
-            final int descriptor = evidence.indexOf('(');
-            if (descriptor >= 0) {
-                final String value = evidence.substring(descriptor);
-                if (Type.getReturnType(value).getSort() != Type.VOID
-                        && containsTarget(Type.getReturnType(value), target)) {
-                    return StructuralReferenceKind.METHOD_RETURN;
-                }
-            }
-            return StructuralReferenceKind.METHOD_PARAMETER;
-        }
-        return StructuralReferenceKind.METADATA;
-    }
-
-    private boolean containsTarget(final Type type, final String target) {
-        final Type value = type.getSort() == Type.ARRAY
-                ? type.getElementType() : type;
-        return value.getSort() == Type.OBJECT
-                && target.equals(value.getInternalName());
+        return new StructuralReference(owner, origin, metadata.kind(),
+                metadata.member(), metadata.target(), metadata.evidence());
     }
 
     /** Metadata collection visitor. */
     private static final class MetadataCollector extends ClassVisitor {
 
         /** Relevant changed types. */
-        private final Map<String, List<BoundChangePoint>> targets;
+        private final Set<String> targets;
 
         /** Matched metadata records. */
         private final Set<MetadataReference> references =
@@ -288,8 +223,7 @@ public final class StructuralImpactScanner {
         private String owner;
 
         /** @param changedTypes relevant removed classes */
-        MetadataCollector(
-                final Map<String, List<BoundChangePoint>> changedTypes) {
+        MetadataCollector(final Set<String> changedTypes) {
             super(API);
             targets = changedTypes;
         }
@@ -303,20 +237,25 @@ public final class StructuralImpactScanner {
                 final String superName,
                 final String[] interfaces) {
             owner = name;
-            addInternal(superName, "SUPERCLASS");
+            addInternal(superName, StructuralReferenceKind.SUPERCLASS,
+                    "", "SUPERCLASS");
             if (interfaces != null) {
                 for (String value : interfaces) {
-                    addInternal(value, "INTERFACE");
+                    addInternal(value, StructuralReferenceKind.INTERFACE,
+                            "", "INTERFACE");
                 }
             }
-            addSignature(signature, "CLASS_SIGNATURE");
+            addSignature(signature, StructuralReferenceKind.SIGNATURE,
+                    "", "CLASS_SIGNATURE");
         }
 
         @Override
         public AnnotationVisitor visitAnnotation(
                 final String descriptor, final boolean visible) {
-            addDescriptor(descriptor, "CLASS_ANNOTATION");
-            return annotationVisitor("CLASS_ANNOTATION_VALUE");
+            addDescriptor(descriptor, StructuralReferenceKind.ANNOTATION,
+                    "", "CLASS_ANNOTATION");
+            return annotationVisitor(StructuralReferenceKind.ANNOTATION,
+                    "", "CLASS_ANNOTATION_VALUE");
         }
 
         @Override
@@ -325,8 +264,10 @@ public final class StructuralImpactScanner {
                 final org.objectweb.asm.TypePath typePath,
                 final String descriptor,
                 final boolean visible) {
-            addDescriptor(descriptor, "CLASS_TYPE_ANNOTATION");
-            return annotationVisitor("CLASS_TYPE_ANNOTATION_VALUE");
+            addDescriptor(descriptor, StructuralReferenceKind.ANNOTATION,
+                    "", "CLASS_TYPE_ANNOTATION");
+            return annotationVisitor(StructuralReferenceKind.ANNOTATION,
+                    "", "CLASS_TYPE_ANNOTATION_VALUE");
         }
 
         @Override
@@ -336,14 +277,18 @@ public final class StructuralImpactScanner {
                 final String descriptor,
                 final String signature,
                 final Object value) {
-            addDescriptor(descriptor, "FIELD_DESCRIPTOR:" + name);
-            addSignature(signature, "FIELD_SIGNATURE:" + name);
+            addDescriptor(descriptor, StructuralReferenceKind.FIELD_TYPE,
+                    name, "FIELD_DESCRIPTOR:" + name);
+            addSignature(signature, StructuralReferenceKind.SIGNATURE,
+                    name, "FIELD_SIGNATURE:" + name);
             return new FieldVisitor(API) {
                 @Override
                 public AnnotationVisitor visitAnnotation(
                         final String desc, final boolean visible) {
-                    addDescriptor(desc, "FIELD_ANNOTATION:" + name);
+                    addDescriptor(desc, StructuralReferenceKind.ANNOTATION,
+                            name, "FIELD_ANNOTATION:" + name);
                     return annotationVisitor(
+                            StructuralReferenceKind.ANNOTATION, name,
                             "FIELD_ANNOTATION_VALUE:" + name);
                 }
 
@@ -353,8 +298,10 @@ public final class StructuralImpactScanner {
                         final org.objectweb.asm.TypePath typePath,
                         final String desc,
                         final boolean visible) {
-                    addDescriptor(desc, "FIELD_TYPE_ANNOTATION:" + name);
+                    addDescriptor(desc, StructuralReferenceKind.ANNOTATION,
+                            name, "FIELD_TYPE_ANNOTATION:" + name);
                     return annotationVisitor(
+                            StructuralReferenceKind.ANNOTATION, name,
                             "FIELD_TYPE_ANNOTATION_VALUE:" + name);
                 }
             };
@@ -368,27 +315,30 @@ public final class StructuralImpactScanner {
                 final String signature,
                 final String[] exceptions) {
             final String method = name + descriptor;
-            addMethodDescriptor(descriptor,
-                    "METHOD_DESCRIPTOR:" + method);
-            addSignature(signature, "METHOD_SIGNATURE:" + method);
+            addMethodDescriptor(descriptor, method);
+            addSignature(signature, StructuralReferenceKind.SIGNATURE,
+                    method, "METHOD_SIGNATURE:" + method);
             if (exceptions != null) {
                 for (String value : exceptions) {
-                    addInternal(value, "THROWS:" + method);
+                    addInternal(value, StructuralReferenceKind.THROWS,
+                            method, "THROWS:" + method);
                 }
             }
             return new MethodVisitor(API) {
                 @Override
                 public AnnotationVisitor visitAnnotationDefault() {
                     return annotationVisitor(
+                            StructuralReferenceKind.ANNOTATION, method,
                             "ANNOTATION_DEFAULT_VALUE:" + method);
                 }
 
                 @Override
                 public AnnotationVisitor visitAnnotation(
                         final String desc, final boolean visible) {
-                    addDescriptor(desc,
-                            "METHOD_ANNOTATION:" + method);
+                    addDescriptor(desc, StructuralReferenceKind.ANNOTATION,
+                            method, "METHOD_ANNOTATION:" + method);
                     return annotationVisitor(
+                            StructuralReferenceKind.ANNOTATION, method,
                             "METHOD_ANNOTATION_VALUE:" + method);
                 }
 
@@ -398,9 +348,10 @@ public final class StructuralImpactScanner {
                         final org.objectweb.asm.TypePath typePath,
                         final String desc,
                         final boolean visible) {
-                    addDescriptor(desc,
-                            "METHOD_TYPE_ANNOTATION:" + method);
+                    addDescriptor(desc, StructuralReferenceKind.ANNOTATION,
+                            method, "METHOD_TYPE_ANNOTATION:" + method);
                     return annotationVisitor(
+                            StructuralReferenceKind.ANNOTATION, method,
                             "METHOD_TYPE_ANNOTATION_VALUE:" + method);
                 }
 
@@ -409,22 +360,25 @@ public final class StructuralImpactScanner {
                         final int parameter,
                         final String desc,
                         final boolean visible) {
-                    addDescriptor(desc, "PARAMETER_ANNOTATION:"
-                            + method + ":" + parameter);
+                    final String member = method + ":" + parameter;
+                    addDescriptor(desc, StructuralReferenceKind.ANNOTATION,
+                            member, "PARAMETER_ANNOTATION:" + member);
                     return annotationVisitor(
-                            "PARAMETER_ANNOTATION_VALUE:"
-                                    + method + ":" + parameter);
+                            StructuralReferenceKind.ANNOTATION, member,
+                            "PARAMETER_ANNOTATION_VALUE:" + member);
                 }
             };
         }
 
         private AnnotationVisitor annotationVisitor(
+                final StructuralReferenceKind kind,
+                final String member,
                 final String evidence) {
             return new AnnotationVisitor(API) {
                 @Override
                 public void visit(final String name, final Object value) {
                     if (value instanceof Type) {
-                        addType((Type) value, evidence);
+                        addType((Type) value, kind, member, evidence);
                     }
                 }
 
@@ -433,19 +387,19 @@ public final class StructuralImpactScanner {
                         final String name,
                         final String descriptor,
                         final String value) {
-                    addDescriptor(descriptor, evidence);
+                    addDescriptor(descriptor, kind, member, evidence);
                 }
 
                 @Override
                 public AnnotationVisitor visitAnnotation(
                         final String name, final String descriptor) {
-                    addDescriptor(descriptor, evidence);
-                    return annotationVisitor(evidence);
+                    addDescriptor(descriptor, kind, member, evidence);
+                    return annotationVisitor(kind, member, evidence);
                 }
 
                 @Override
                 public AnnotationVisitor visitArray(final String name) {
-                    return annotationVisitor(evidence);
+                    return annotationVisitor(kind, member, evidence);
                 }
             };
         }
@@ -459,7 +413,10 @@ public final class StructuralImpactScanner {
         }
 
         private void addSignature(
-                final String signature, final String evidence) {
+                final String signature,
+                final StructuralReferenceKind kind,
+                final String member,
+                final String evidence) {
             if (signature == null) {
                 return;
             }
@@ -471,14 +428,14 @@ public final class StructuralImpactScanner {
                 @Override
                 public void visitClassType(final String name) {
                     current = name;
-                    addInternal(name, evidence);
+                    addInternal(name, kind, member, evidence);
                 }
 
                 @Override
                 public void visitInnerClassType(final String name) {
                     current = current == null ? name
                             : current + "$" + name;
-                    addInternal(current, evidence);
+                    addInternal(current, kind, member, evidence);
                 }
             };
             final SignatureReader reader = new SignatureReader(signature);
@@ -492,38 +449,58 @@ public final class StructuralImpactScanner {
         }
 
         private void addMethodDescriptor(
-                final String descriptor, final String evidence) {
+                final String descriptor, final String member) {
             for (Type type : Type.getArgumentTypes(descriptor)) {
-                addType(type, evidence);
+                addType(type, StructuralReferenceKind.METHOD_PARAMETER,
+                        member, "METHOD_DESCRIPTOR:" + member);
             }
-            addType(Type.getReturnType(descriptor), evidence);
+            addType(Type.getReturnType(descriptor),
+                    StructuralReferenceKind.METHOD_RETURN,
+                    member, "METHOD_DESCRIPTOR:" + member);
         }
 
         private void addDescriptor(
-                final String descriptor, final String evidence) {
-            addType(Type.getType(descriptor), evidence);
+                final String descriptor,
+                final StructuralReferenceKind kind,
+                final String member,
+                final String evidence) {
+            addType(Type.getType(descriptor), kind, member, evidence);
         }
 
-        private void addType(final Type type, final String evidence) {
+        private void addType(
+                final Type type,
+                final StructuralReferenceKind kind,
+                final String member,
+                final String evidence) {
             if (type.getSort() == Type.ARRAY) {
-                addType(type.getElementType(), evidence);
+                addType(type.getElementType(), kind, member, evidence);
             } else if (type.getSort() == Type.OBJECT) {
-                addInternal(type.getInternalName(), evidence);
+                addInternal(type.getInternalName(), kind, member, evidence);
             }
         }
 
         private void addInternal(
-                final String value, final String evidence) {
-            if (value != null && targets.containsKey(value)) {
-                references.add(new MetadataReference(value, evidence));
+                final String value,
+                final StructuralReferenceKind kind,
+                final String member,
+                final String evidence) {
+            if (value != null && targets.contains(value)) {
+                references.add(new MetadataReference(
+                        value, kind, member, evidence));
             }
         }
     }
 
     /**
      * @param target referenced class
-     * @param evidence metadata source
+     * @param kind typed structural relationship
+     * @param member declaring member, or empty for class metadata
+     * @param evidence presentation detail
      */
-    private record MetadataReference(String target, String evidence) {
+    private record MetadataReference(
+            String target,
+            StructuralReferenceKind kind,
+            String member,
+            String evidence) {
     }
 }

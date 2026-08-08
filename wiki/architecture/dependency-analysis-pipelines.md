@@ -17,6 +17,10 @@ code_refs:
     desc: "Spring backend per-Module pipeline"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleScopePlanner.java"
     desc: "REACTOR/SINGLE_MODULE 识别"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphAlgorithmStrategy.java"
+    desc: "Call Graph algorithm execution boundary"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleCoverageReducer.java"
+    desc: "typed coverage limitation precedence"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
     desc: "独立 tree pipeline"
 ---
@@ -40,9 +44,11 @@ flowchart TD
   Bind --> EntrySelection["immutable target/classes entrypoint class index"]
   EntrySelection --> ModulePool["bounded Module pool; analysis parallelism"]
   ModulePool --> ScopeValidation["scope validation"]
-  ScopeValidation --> CFA["per-Module selected WALA Call Graph"]
-  CFA --> Query["single-thread direct WALA query"]
-  Query --> SSA["global serial candidate-only SSA equivalence"]
+  ScopeValidation --> Strategy["Factory selects RTA / ZeroCFA / optimized strategy"]
+  Strategy --> CFA["one per-Module WALA Call Graph + immutable metadata"]
+  CFA --> Query["read-only query + typed access resolution"]
+  Query --> Coverage["typed limitation reduction"]
+  Coverage --> SSA["global serial candidate-only SSA equivalence"]
   SSA --> Decompile["parallel path-related code comparison"]
   Decompile --> Report["atomic Overall Index + three pages per analyzed Module"]
 ```
@@ -56,14 +62,17 @@ flowchart TD
 ## Architecture Decision Records
 
 - target每个Module只构建一张 selected Call Graph；baseline不compile也不构图，以控制CPU、heap和workspace成本。
-- `--call-graph-algorithm` command-wide选择 `zero-cfa` 或 `optimized-0-1-cfa`，默认前者；同一次command的全部Module使用一致analysis model，不自动fallback。
+- `--call-graph-algorithm` command-wide选择 `rta`、`zero-cfa` 或 `optimized-0-1-cfa`，默认`rta`；同一次command的全部Module使用一致analysis model，不自动fallback。
+- 三种Call Graph实现通过唯一Factory选择独立strategy。`BasicRTABuilder`与两种`ZeroXCFABuilder`只存在于对应strategy；pipeline依赖immutable request/result与统一metadata shape，不依赖builder capability adapter。
+- `--wala-reflection-options`同样command-wide，默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`；实际值穿过pipeline configuration、strategy、Diagnostic与Report，不由algorithm隐式覆盖。
 - Call Graph完成后所有Impact query只读，不允许overlay、第二张graph或whole-scope补扫，确保结果来源单一且可解释。
+- Scope/model/query limitation通过统一`CoverageLimitation` contract单向汇入reducer；固定reason precedence不读取exception message、summary或HTML。
 
 ## Runtime Flow
 
 - Root CLI完成preflight与scope planning后，front preparation并行收集baseline dependency并编译target。
 - Target dependency、dependency diff和JAR diff完成后，ChangePoint按Module绑定并进入bounded Module pool。
-- 每个Module依次执行scope validation、selected Call Graph build和read-only query；全局随后串行执行SSA equivalence，再并行生成code evidence。
+- 每个Module依次执行scope validation、selected strategy build、read-only query与typed coverage reduction；全局随后串行执行SSA equivalence，再并行生成code evidence。
 - Overall与Module pages全部写入staging成功后，原子替换command-owned Report。
 
 ## Module Contract
@@ -97,12 +106,14 @@ flowchart TD
 
 ## Analysis Model Boundaries
 
-- Call Graph 是 selected WALA over-approximation：ZeroCFA按class合并普通allocation并保留constant identity；optimized 0-1-CFA保留allocation-site/constant identity并smush高成本对象。
+- Call Graph 是 selected WALA over-approximation：RTA按全局已实例化compatible class求virtual/interface reachability；ZeroCFA按class合并普通allocation并保留constant identity；optimized 0-1-CFA保留allocation-site/constant identity并smush高成本对象。
 - Entrypoint fake receiver/parameter只表达 declared interface/abstract type，不探索真实 implementation；因此 implementation-only path可能不可达。
-- Reflection/MethodHandle 使用 WALA `FULL`/MethodHandle extension，属于 best-effort。
+- Reflection使用command选择的WALA `ReflectionOptions`；默认是bounded `ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。两种ZeroX由各自MethodHandle installer安装WALA extension，RTA installer仅使用reachable caller-local IR/DefUse推导已支持的`findStatic` target；resolution保存operation、caller stable identity、bytecode PC与resolved binary identity。
+- `ServiceLoaderProtocolIndex`由engine在strategy前读取、验证并冻结一次；RTA、ZeroCFA、optimized installer分别安装local checkcast、constant aggregate或allocation-site execution，不共享含algorithm分支的execution state。
 - ServiceLoader 与注册的 `invokedynamic` 协议在 `makeCallGraph(...)` 前安装 WALA model，参与 points-to/call graph fixed point；构图后不允许 overlay 补图或 whole-scope JAR/classfile 重扫。
 - 非 constant ServiceLoader service type、非法 provider 与 reachable unknown bootstrap 产生 stable limitation，并使 Module `INCONCLUSIVE`。
 - Spring DI/AOP/annotation/XML/config、custom classloader 不完整建模。
 - 只允许 `PROVEN_EQUIVALENT` 删除 Impact Paths；`UNKNOWN` 保留路径。
+- Access narrowing只读target CHA/IR与raw Structural Reference index；不创建baseline CHA/Call Graph，也不向任何Call Graph strategy注入points-to value。
 - Dependency Changes 只展示 candidate/final Impact Path 或 Structural Reference Path 关联 member；SSA-filtered candidate 仍保留调用链和 decompiled code evidence。
 - “无路径”只表示在声明的 analysis model 内未发现 Impact Path。

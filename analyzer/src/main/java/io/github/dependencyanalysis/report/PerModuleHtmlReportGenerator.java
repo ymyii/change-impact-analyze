@@ -18,6 +18,7 @@ import io.github.dependencyanalysis.impact.ChangePointDisposition;
 import io.github.dependencyanalysis.impact.DependencyUpgradeKey;
 import io.github.dependencyanalysis.impact.ImpactClassification;
 import io.github.dependencyanalysis.impact.ImpactPath;
+import io.github.dependencyanalysis.impact.ImpactEvidence;
 import io.github.dependencyanalysis.impact.MethodEquivalenceResult;
 import io.github.dependencyanalysis.impact.MethodEquivalenceStatus;
 import io.github.dependencyanalysis.impact.ModuleAnalysisResult;
@@ -248,6 +249,8 @@ public final class PerModuleHtmlReportGenerator {
         body.append("<details><summary>Technical details</summary><table>")
                 .append(row("Algorithm",
                         run.getCallGraphAlgorithm().identifier()))
+                .append(row("WALA ReflectionOptions",
+                        run.getReflectionOptions().identifier()))
                 .append(row("WALA", walaVersion()))
                 .append(row("SSA equivalence workers", 1))
                 .append(row("Raw changed members", rawChangeCount(run)))
@@ -757,6 +760,11 @@ public final class PerModuleHtmlReportGenerator {
             result.append("<span class=\"badge filtered\">Shadowed by ")
                     .append("duplicate</span>");
         }
+        if (module.getDispositions().get(point)
+                == ChangePointDisposition.ACCESS_REMAINS_VALID) {
+            result.append("<span class=\"badge filtered\">Access remains "
+                    + "valid</span>");
+        }
         return result.toString();
     }
 
@@ -832,6 +840,12 @@ public final class PerModuleHtmlReportGenerator {
                 .append(row("New descriptor", point.getNewDescriptor()))
                 .append(row("Old hash", point.getOldHash()))
                 .append(row("New hash", point.getNewHash()))
+                .append(row("Old access", point.getAccessTransition()
+                        .map(value -> value.oldAccess().name())
+                        .orElse("Not applicable")))
+                .append(row("New access", point.getAccessTransition()
+                        .map(value -> value.newAccess().name())
+                        .orElse("Not applicable")))
                 .append(row("SSA status", equivalence == null
                         ? "Not compared" : equivalence.getStatus()))
                 .append(row("SSA reason", equivalence == null
@@ -840,6 +854,14 @@ public final class PerModuleHtmlReportGenerator {
                         .getDependencyUpgradeKey().getOldArtifact()))
                 .append(row("New artifact", bound
                         .getDependencyUpgradeKey().getNewArtifact()));
+        final List<ImpactEvidence> observations = module.getObservations()
+                .getOrDefault(bound, List.of());
+        result.append(row("Access/reference observations",
+                observations.size()));
+        for (int index = 0; index < observations.size(); index++) {
+            result.append(row("Observation " + (index + 1),
+                    observations.get(index).render()));
+        }
         final DuplicateClassResolution resolution = duplicateResolution(
                 module, bound);
         if (resolution != null) {
@@ -941,6 +963,10 @@ public final class PerModuleHtmlReportGenerator {
 
     private String algorithmTerm(final CallGraphAlgorithm algorithm) {
         return switch (algorithm) {
+            case RTA -> term("RTA", "Rapid Type Analysis uses the global "
+                    + "set of instantiated compatible classes for virtual "
+                    + "and interface reachability. It does not track "
+                    + "allocation-site or value points-to dataflow.");
             case ZERO_CFA -> term("ZeroCFA", "The conservative WALA call "
                     + "analysis used here. It merges allocations by concrete "
                     + "class while preserving constant-specific identity.");
@@ -1064,13 +1090,16 @@ public final class PerModuleHtmlReportGenerator {
         return switch (kind) {
             case CLASS_ADDED -> "Class added";
             case CLASS_REMOVED -> "Class removed";
+            case CLASS_ACCESS_NARROWED -> "Class access narrowed";
             case METHOD_ADDED -> "Method added";
             case METHOD_REMOVED -> "Method removed";
             case METHOD_DESCRIPTOR_CHANGED -> "Method signature changed";
             case METHOD_BODY_CHANGED -> "Method implementation changed";
+            case METHOD_ACCESS_NARROWED -> "Method access narrowed";
             case FIELD_ADDED -> "Field added";
             case FIELD_REMOVED -> "Field removed";
             case FIELD_DESCRIPTOR_CHANGED -> "Field type changed";
+            case FIELD_ACCESS_NARROWED -> "Field access narrowed";
         };
     }
 
@@ -1090,6 +1119,8 @@ public final class PerModuleHtmlReportGenerator {
             case TARGET_NOT_FOUND -> "The target member could not be resolved.";
             case DECLARED_REFERENCE_NOT_FOUND -> "No reachable bytecode "
                     + "reference to the previous member was found.";
+            case ACCESS_REMAINS_VALID -> "Relevant bytecode references were "
+                    + "found and remain legal under the narrowed access.";
             case NO_PROJECT_PATH -> "No application method was found that can "
                     + "reach the changed member within the analysis scope.";
             case UNATTRIBUTABLE_CLASS_REFERENCE -> "A class reference was "
