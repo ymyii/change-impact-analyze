@@ -64,7 +64,8 @@ public final class CallGraphTopologyAnalyzer {
             final Function<IClass, CodeOrigin> origins) {
         Objects.requireNonNull(graph, "graph");
         Objects.requireNonNull(origins, "origins");
-        final Set<CGNode> sentinels = sentinels(graph);
+        final Map<CGNode, CallGraphNodeSentinelRole> sentinelRoles =
+                sentinelRoles(graph);
         final Map<CGNode, CallGraphNodeIdentity> identities =
                 new IdentityHashMap<>();
         final Map<CallGraphNodeIdentity, CGNode> nodes = new TreeMap<>();
@@ -77,13 +78,13 @@ public final class CallGraphTopologyAnalyzer {
         final Map<CallGraphNodeIdentity, Integer> rawIncoming =
                 new HashMap<>();
         for (CGNode node : graph) {
-            if (!sentinels.contains(node)) {
-                final CallGraphNodeIdentity identity = identity(node, origins);
-                identities.put(node, identity);
-                nodes.put(identity, node);
-                outgoing.put(identity, new TreeSet<>());
-                incoming.put(identity, new TreeSet<>());
-            }
+            final CallGraphNodeIdentity identity = identity(
+                    node, origins, sentinelRoles.getOrDefault(
+                            node, CallGraphNodeSentinelRole.NONE));
+            identities.put(node, identity);
+            nodes.put(identity, node);
+            outgoing.put(identity, new TreeSet<>());
+            incoming.put(identity, new TreeSet<>());
         }
         int rawGraphEdges = 0;
         for (CGNode node : graph) {
@@ -93,9 +94,6 @@ public final class CallGraphTopologyAnalyzer {
                 final CGNode successor = successors.next();
                 rawGraphEdges++;
                 final CallGraphNodeIdentity callee = identities.get(successor);
-                if (caller == null || callee == null) {
-                    continue;
-                }
                 outgoing.get(caller).add(callee);
                 incoming.get(callee).add(caller);
                 rawOutgoing.merge(caller, 1, Integer::sum);
@@ -103,7 +101,9 @@ public final class CallGraphTopologyAnalyzer {
             }
         }
         final Set<CallGraphNodeIdentity> entrypoints = entrypoints(
-                graph, sentinels, identities);
+                graph, sentinelRoles, identities);
+        final Map<CallGraphNodeIdentity, CallGraphPathRootKind> roots =
+                reachabilityRoots(entrypoints, sentinelRoles, identities);
         final Set<CallGraphNodeIdentity> cycleNodes = cycleNodes(
                 nodes.keySet(), outgoing, incoming);
         final List<RankValue> callerRanks = ranks(
@@ -114,45 +114,84 @@ public final class CallGraphTopologyAnalyzer {
         callerRanks.forEach(value -> targets.add(value.node()));
         calleeRanks.forEach(value -> targets.add(value.node()));
         final Map<CallGraphNodeIdentity,
-                List<CallGraphNodeEntrypointPath>> paths = paths(
-                        targets, entrypoints, outgoing, incoming, cycleNodes);
+                List<CallGraphNodeReachabilityPath>> paths = paths(
+                        targets, roots, outgoing, incoming, cycleNodes);
         return new CallGraphTopologySnapshot(
                 entrypoints.size(), graph.getNumberOfNodes(), rawGraphEdges,
                 materialize(callerRanks, outgoing, nodes, paths, cycleNodes),
                 materialize(calleeRanks, incoming, nodes, paths, cycleNodes));
     }
 
-    private Set<CGNode> sentinels(final CallGraph graph) {
-        final Set<CGNode> result = new HashSet<>();
+    private Map<CGNode, CallGraphNodeSentinelRole> sentinelRoles(
+            final CallGraph graph) {
+        final Map<CGNode, CallGraphNodeSentinelRole> result =
+                new IdentityHashMap<>();
         if (graph.getFakeRootNode() != null) {
-            result.add(graph.getFakeRootNode());
+            result.put(graph.getFakeRootNode(),
+                    CallGraphNodeSentinelRole.FAKE_ROOT);
         }
         if (graph.getFakeWorldClinitNode() != null) {
-            result.add(graph.getFakeWorldClinitNode());
+            result.put(graph.getFakeWorldClinitNode(),
+                    CallGraphNodeSentinelRole.FAKE_WORLD_CLINIT);
         }
         return result;
     }
 
     private Set<CallGraphNodeIdentity> entrypoints(
             final CallGraph graph,
-            final Set<CGNode> sentinels,
+            final Map<CGNode, CallGraphNodeSentinelRole> sentinels,
             final Map<CGNode, CallGraphNodeIdentity> identities) {
         final Set<CallGraphNodeIdentity> result = new TreeSet<>();
         for (CGNode node : graph.getEntrypointNodes()) {
-            if (!sentinels.contains(node) && identities.containsKey(node)) {
+            if (!sentinels.containsKey(node)
+                    && identities.containsKey(node)) {
                 result.add(identities.get(node));
             }
         }
         return result;
     }
 
+    private Map<CallGraphNodeIdentity, CallGraphPathRootKind>
+            reachabilityRoots(
+                    final Set<CallGraphNodeIdentity> entrypoints,
+                    final Map<CGNode, CallGraphNodeSentinelRole> sentinels,
+                    final Map<CGNode, CallGraphNodeIdentity> identities) {
+        final Map<CallGraphNodeIdentity, CallGraphPathRootKind> result =
+                new TreeMap<>();
+        for (CallGraphNodeIdentity entrypoint : entrypoints) {
+            result.put(entrypoint,
+                    CallGraphPathRootKind.DECLARED_ENTRYPOINT);
+        }
+        for (Map.Entry<CGNode, CallGraphNodeSentinelRole> sentinel
+                : sentinels.entrySet()) {
+            final CallGraphNodeIdentity identity = identities.get(
+                    sentinel.getKey());
+            if (identity != null) {
+                result.put(identity, rootKind(sentinel.getValue()));
+            }
+        }
+        return result;
+    }
+
+    private CallGraphPathRootKind rootKind(
+            final CallGraphNodeSentinelRole role) {
+        return switch (role) {
+            case FAKE_ROOT -> CallGraphPathRootKind.FAKE_ROOT;
+            case FAKE_WORLD_CLINIT ->
+                    CallGraphPathRootKind.FAKE_WORLD_CLINIT;
+            case NONE -> throw new IllegalArgumentException(
+                    "Ordinary CGNode is not a sentinel root");
+        };
+    }
+
     private CallGraphNodeIdentity identity(
             final CGNode node,
-            final Function<IClass, CodeOrigin> origins) {
+            final Function<IClass, CodeOrigin> origins,
+            final CallGraphNodeSentinelRole sentinelRole) {
         return new CallGraphNodeIdentity(
                 node.getGraphNodeId(), identity(node.getMethod(), origins),
                 normalizeContext(String.valueOf(node.getContext())),
-                node.getMethod().isWalaSynthetic());
+                node.getMethod().isWalaSynthetic(), sentinelRole);
     }
 
     private CallGraphMethodIdentity identity(
@@ -203,7 +242,7 @@ public final class CallGraphTopologyAnalyzer {
                     Set<CallGraphNodeIdentity>> related,
             final Map<CallGraphNodeIdentity, CGNode> nodes,
             final Map<CallGraphNodeIdentity,
-                    List<CallGraphNodeEntrypointPath>> paths,
+                    List<CallGraphNodeReachabilityPath>> paths,
             final Set<CallGraphNodeIdentity> cycles) {
         return ranks.stream().map(value -> new CallGraphRankedNode(
                 value.node(), value.relatedNodeCount(),
@@ -259,28 +298,33 @@ public final class CallGraphTopologyAnalyzer {
     }
 
     private Map<CallGraphNodeIdentity,
-            List<CallGraphNodeEntrypointPath>> paths(
+            List<CallGraphNodeReachabilityPath>> paths(
             final Collection<CallGraphNodeIdentity> targets,
-            final Set<CallGraphNodeIdentity> entrypoints,
+            final Map<CallGraphNodeIdentity, CallGraphPathRootKind> roots,
             final Map<CallGraphNodeIdentity,
                     Set<CallGraphNodeIdentity>> outgoing,
             final Map<CallGraphNodeIdentity,
                     Set<CallGraphNodeIdentity>> incoming,
             final Set<CallGraphNodeIdentity> cycles) {
         final Map<CallGraphNodeIdentity,
-                List<CallGraphNodeEntrypointPath>> result = new TreeMap<>();
+                List<CallGraphNodeReachabilityPath>> result = new TreeMap<>();
         for (CallGraphNodeIdentity target : targets) {
             final Map<CallGraphNodeIdentity, Integer> distances =
                     reverseDistances(target, incoming);
-            final List<CallGraphNodeEntrypointPath> targetPaths =
+            final List<CallGraphNodeReachabilityPath> targetPaths =
                     new ArrayList<>();
-            for (CallGraphNodeIdentity entrypoint : entrypoints) {
-                if (distances.containsKey(entrypoint)) {
-                    targetPaths.add(new CallGraphNodeEntrypointPath(
-                            entrypoint, shortestPath(entrypoint, target,
+            for (Map.Entry<CallGraphNodeIdentity, CallGraphPathRootKind> root
+                    : roots.entrySet()) {
+                if (distances.containsKey(root.getKey())) {
+                    targetPaths.add(new CallGraphNodeReachabilityPath(
+                            root.getValue(), root.getKey(), shortestPath(
+                            root.getKey(), target,
                             distances, outgoing, cycles)));
                 }
             }
+            targetPaths.sort(Comparator.comparing(
+                    CallGraphNodeReachabilityPath::rootKind)
+                    .thenComparing(CallGraphNodeReachabilityPath::root));
             result.put(target, List.copyOf(targetPaths));
         }
         return result;

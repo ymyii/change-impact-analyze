@@ -30,7 +30,7 @@ class CallGraphTopologyAnalyzerTest {
     private static final int EXPECTED_NODE_COUNT = 13;
 
     /** Expected full edge count including WALA sentinel edges. */
-    private static final int EXPECTED_EDGE_COUNT = 15;
+    private static final int EXPECTED_EDGE_COUNT = 17;
 
     /** Expected entry caller related CGNode count. */
     private static final int ENTRY_RELATED_NODES = 6;
@@ -59,11 +59,12 @@ class CallGraphTopologyAnalyzerTest {
         final CGNode self = fixture.node("app.Self", "loop", "()V");
         final CGNode cycleA = fixture.node("app.CycleA", "a", "()V");
         final CGNode cycleB = fixture.node("app.CycleB", "b", "()V");
-        final CGNode unreachable = fixture.node(
-                "app.Unreachable", "call", "()V");
+        final CGNode sentinelOnly = fixture.node(
+                "app.SentinelOnly", "call", "()V");
         fixture.fakeRoot(fakeRoot).fakeWorld(fakeWorld)
                 .entrypoint(entry).entrypoint(other)
-                .edge(fakeRoot, entry).edge(fakeWorld, target)
+                .edge(fakeRoot, fakeWorld).edge(fakeRoot, entry)
+                .edge(fakeRoot, sentinelOnly).edge(fakeWorld, target)
                 .edge(entry, alpha).edge(entry, beta)
                 .edge(alpha, target).edge(beta, target)
                 .edge(entry, sharedOne).edge(entry, sharedTwo)
@@ -71,7 +72,7 @@ class CallGraphTopologyAnalyzerTest {
                 .edge(entry, self).edge(self, self)
                 .edge(entry, cycleA).edge(cycleA, cycleB)
                 .edge(cycleB, cycleA)
-                .edge(unreachable, target);
+                .edge(sentinelOnly, other);
 
         final CallGraphTopologySnapshot topology =
                 new CallGraphTopologyAnalyzer().analyze(
@@ -81,8 +82,14 @@ class CallGraphTopologyAnalyzerTest {
         assertThat(topology.edgeCount()).isEqualTo(EXPECTED_EDGE_COUNT);
         assertThat(topology.entrypointCount()).isEqualTo(2);
         assertThat(topology.topCallers()).extracting(value ->
-                value.node().method().owner()).doesNotContain(
+                value.node().method().owner()).contains(
                         "wala.FakeRoot", "wala.FakeWorld");
+        assertThat(ranked(topology.topCallers(), fakeRoot).node()
+                .sentinelRole()).isEqualTo(
+                        CallGraphNodeSentinelRole.FAKE_ROOT);
+        assertThat(ranked(topology.topCallers(), fakeWorld).node()
+                .sentinelRole()).isEqualTo(
+                        CallGraphNodeSentinelRole.FAKE_WORLD_CLINIT);
         final CallGraphRankedNode entryRank = ranked(
                 topology.topCallers(), entry);
         assertThat(entryRank.relatedCgNodeCount())
@@ -102,19 +109,45 @@ class CallGraphTopologyAnalyzerTest {
         final CallGraphRankedNode sharedTwoRank = ranked(
                 topology.topCallees(), sharedTwo);
         assertThat(sharedTwoRank.relatedCgNodeCount()).isEqualTo(2);
-        assertThat(sharedTwoRank.entrypointPaths()).extracting(path ->
-                path.entrypoint().method().owner()).containsExactly(
+        assertThat(sharedTwoRank.reachabilityPaths().stream()
+                .filter(path -> path.rootKind()
+                        == CallGraphPathRootKind.DECLARED_ENTRYPOINT))
+                .extracting(path -> path.root().method().owner())
+                .containsExactly(
                         "app.Entry", "app.Other");
         final CallGraphRankedNode targetRank = ranked(
                 topology.topCallees(), target);
-        assertThat(targetRank.entrypointPaths().get(0).steps())
+        final CallGraphNodeReachabilityPath declaredTargetPath = targetRank
+                .reachabilityPaths().stream().filter(path -> path.rootKind()
+                        == CallGraphPathRootKind.DECLARED_ENTRYPOINT)
+                .findFirst().orElseThrow();
+        assertThat(declaredTargetPath.steps())
                 .extracting(step -> step.node().method().owner())
                 .containsExactly("app.Entry", "app.Alpha", "app.Target");
+        final CallGraphNodeReachabilityPath fakeRootTargetPath = targetRank
+                .reachabilityPaths().stream().filter(path -> path.rootKind()
+                        == CallGraphPathRootKind.FAKE_ROOT)
+                .findFirst().orElseThrow();
+        assertThat(fakeRootTargetPath.steps())
+                .extracting(step -> step.node().method().owner())
+                .containsExactly("wala.FakeRoot", "wala.FakeWorld",
+                        "app.Target");
+        assertThat(fakeRootTargetPath.steps())
+                .extracting(step -> step.node().sentinelRole())
+                .containsExactly(CallGraphNodeSentinelRole.FAKE_ROOT,
+                        CallGraphNodeSentinelRole.FAKE_WORLD_CLINIT,
+                        CallGraphNodeSentinelRole.NONE);
         assertThat(ranked(topology.topCallers(), self).cycle()).isTrue();
         assertThat(ranked(topology.topCallers(), cycleA).cycle()).isTrue();
         assertThat(ranked(topology.topCallers(), cycleB).cycle()).isTrue();
-        assertThat(ranked(topology.topCallers(), unreachable)
-                .entrypointPaths()).isEmpty();
+        final CallGraphNodeReachabilityPath sentinelOnlyPath = ranked(
+                topology.topCallers(), sentinelOnly).reachabilityPaths()
+                .stream().filter(path -> path.rootKind()
+                        == CallGraphPathRootKind.FAKE_ROOT)
+                .findFirst().orElseThrow();
+        assertThat(sentinelOnlyPath.steps())
+                .extracting(step -> step.node().method().owner())
+                .containsExactly("wala.FakeRoot", "app.SentinelOnly");
         assertThat(entryRank.ir().isAvailable()).isFalse();
         assertThat(entryRank.ir().reason()).contains("unavailable");
     }
@@ -166,6 +199,30 @@ class CallGraphTopologyAnalyzerTest {
         assertThat(rankedSummary.node().method().origin())
                 .isEqualTo(CodeOrigin.JDK);
         assertThat(rankedSummary.node().walaSynthetic()).isTrue();
+    }
+
+    @Test
+    void includesSentinelsInCyclesWithoutCountingThemAsEntrypoints() {
+        final GraphFixture fixture = new GraphFixture();
+        final CGNode fakeRoot = fixture.node(
+                "wala.FakeRoot", "root", "()V");
+        final CGNode fakeWorld = fixture.node(
+                "wala.FakeWorld", "world", "()V");
+        final CGNode ordinary = fixture.node(
+                "app.Ordinary", "call", "()V");
+        fixture.fakeRoot(fakeRoot).fakeWorld(fakeWorld)
+                .entrypoint(fakeRoot).entrypoint(ordinary)
+                .edge(fakeRoot, ordinary).edge(ordinary, fakeRoot)
+                .edge(fakeWorld, fakeWorld);
+
+        final CallGraphTopologySnapshot topology =
+                new CallGraphTopologyAnalyzer().analyze(
+                        fixture.graph(), ignored -> CodeOrigin.PROJECT);
+
+        assertThat(topology.entrypointCount()).isEqualTo(1);
+        assertThat(ranked(topology.topCallers(), fakeRoot).cycle()).isTrue();
+        assertThat(ranked(topology.topCallers(), fakeWorld).cycle()).isTrue();
+        assertThat(ranked(topology.topCallers(), ordinary).cycle()).isTrue();
     }
 
     private CallGraphRankedNode ranked(

@@ -13,7 +13,7 @@ import java.util.Objects;
  * @param topRelatedMethods Top 10 related IMethods by related CGNode count
  * @param cycle whether this exact CGNode belongs to a cycle
  * @param ir WALA IR for this exact CGNode
- * @param entrypointPaths shortest node paths from reachable entrypoints
+ * @param reachabilityPaths shortest paths from declared and sentinel roots
  */
 public record CallGraphRankedNode(
         CallGraphNodeIdentity node,
@@ -23,13 +23,13 @@ public record CallGraphRankedNode(
         List<CallGraphRelatedMethod> topRelatedMethods,
         boolean cycle,
         CallGraphNodeIr ir,
-        List<CallGraphNodeEntrypointPath> entrypointPaths) {
+        List<CallGraphNodeReachabilityPath> reachabilityPaths) {
 
     /** Validates and copies ranked node values. */
     public CallGraphRankedNode {
         Objects.requireNonNull(node, "node");
         topRelatedMethods = List.copyOf(topRelatedMethods);
         Objects.requireNonNull(ir, "ir");
-        entrypointPaths = List.copyOf(entrypointPaths);
+        reachabilityPaths = List.copyOf(reachabilityPaths);
     }
 }

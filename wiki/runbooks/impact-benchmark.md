@@ -38,7 +38,7 @@ code_refs:
   - path: "benchmarks/impact-medium/results/summary.tsv"
     desc: "最近一次成功 suite 的三种 algorithm 汇总"
   - path: "benchmarks/impact-medium/results/topology.tsv"
-    desc: "最近一次成功warm-up的CGNode父榜、IMethod子榜与entrypoint path snapshot"
+    desc: "最近一次成功warm-up的CGNode父榜、IMethod子榜与reachability path snapshot"
   - path: "benchmarks/impact-medium/tests/test_generate_report.py"
     desc: "HTML/TSV、escaping、topology drift、原子发布与历史 comparison 测试"
   - path: "docs/user-manual.md"
@@ -109,9 +109,9 @@ Runtime Metrics每100 ms观察heap，启动和每10 s才输出TRACE snapshot；c
 - 父榜以精确CGNode为单位，不合并WALA Context；identity包含Method、Context、graph node id与`walaSynthetic`。
 - Caller按related callee CGNode count降序；Callee按related caller CGNode count降序。次级排序依次是distinct related IMethod、raw CGEdge与稳定CGNode identity；每个direction取Top 10。
 - 每个父CGNode下按IMethod聚合related CGNode并取Top 10；排序依次是related CGNode count、raw CGEdge与稳定Method identity。子项保存完整count、deterministic前10个exact CGNode/Context example与omitted count，用于定位Context或points-to传播造成的节点膨胀并限制报告体积；没有独立points-to set排行榜。
-- Ranking排除WALA fake root、fake world-clinit及其incident edge；全图CGNode/CGEdge totals继续包含sentinel。
-- Caller与Callee两个父榜的每个CGNode都固定展示`Declared entrypoint shortest CGNode chains`；列出所有可达declared entrypoint CGNode，每个entrypoint输出一条deterministic shortest CGNode chain。Reverse breadth-first search（BFS）使用visited set，路径按稳定CGNode identity解tie。
-- Self-loop与多CGNode strongly connected component（SCC）统一标记`CYCLE`；没有declared entrypoint path时输出`UNREACHABLE_FROM_DECLARED_ENTRYPOINTS`。
+- WALA fake root、fake world-clinit及其incident edge参与CGNode父榜、IMethod子榜、raw edge count、strongly connected component（SCC）与shortest chain；父榜、子榜example和path step使用`sentinelRole`区分`FAKE_ROOT`、`FAKE_WORLD_CLINIT`与`NONE`。
+- Caller与Callee两个父榜的每个CGNode都固定展示`Declared entrypoint shortest CGNode chains`与`WALA sentinel shortest CGNode chains`。Reverse breadth-first search（BFS）的root集合同时包含declared entrypoint、fake root和fake world-clinit；`rootKind`保留root语义，每个可达root输出一条deterministic shortest CGNode chain，路径按稳定CGNode identity解tie。
+- Self-loop与多CGNode SCC统一标记`CYCLE`。HTML、JSON与TSV不生成`UNREACHABLE_FROM_DECLARED_ENTRYPOINTS`；只经WALA sentinel可达的节点直接展示完整sentinel chain。
 - 每个父榜CGNode展示WALA IR。Capture使用`IMethod.isWalaSynthetic()`标记WALA generated/summary Method。Source依次支持PROJECT/reactor classes directory、dependency JAR和JDK 8 boot/ext JAR。Vineflower失败使用ASM instructions；synthetic/WALA summary无bytecode时source为`UNAVAILABLE`，可以仅展示IR。
 - Warm-up与5个Formal的Entrypoint/CGNode/CGEdge必须完全一致，否则Formal标记`TOPOLOGY_DRIFT`。
 
@@ -135,7 +135,7 @@ benchmarks/impact-medium/results/topology.tsv
 
 - `samples.tsv`每个Formal一行。
 - `summary.tsv`每个algorithm一行，包含Min/median/max、稳定graph totals、successful sample数及相对`zero-cfa`ratio。
-- `topology.tsv`使用`RANKED_CGNODE`、`RELATED_IMETHOD`、`ENTRYPOINT_PATH`三种record。Multiline source与IR只进入HTML；TSV保存各自status与SHA-256。
+- `topology.tsv`使用`RANKED_CGNODE`、`RELATED_IMETHOD`、`REACHABILITY_PATH`三种record；path row保存`path_root_kind`、root CGNode identity与包含sentinel标记的shortest path。Multiline source与IR只进入HTML；TSV保存各自status与SHA-256。
 
 18个run和Schema/topology validation全部成功后，suite才原子替换三个canonical TSV。任何failure都保留旧snapshot，只更新failure HTML与tmp candidate。
 

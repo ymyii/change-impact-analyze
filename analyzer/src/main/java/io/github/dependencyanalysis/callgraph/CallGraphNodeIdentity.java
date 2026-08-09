@@ -9,24 +9,29 @@ import java.util.Objects;
  * @param method context-independent Method identity
  * @param context stable printable WALA Context
  * @param walaSynthetic whether WALA generated or summarized the Method
+ * @param sentinelRole WALA sentinel role for this exact node
  */
 public record CallGraphNodeIdentity(
         int graphNodeId,
         CallGraphMethodIdentity method,
         String context,
-        boolean walaSynthetic) implements Comparable<CallGraphNodeIdentity> {
+        boolean walaSynthetic,
+        CallGraphNodeSentinelRole sentinelRole)
+        implements Comparable<CallGraphNodeIdentity> {
 
     /** Validates required identity parts. */
     public CallGraphNodeIdentity {
         Objects.requireNonNull(method, "method");
         Objects.requireNonNull(context, "context");
+        Objects.requireNonNull(sentinelRole, "sentinelRole");
     }
 
     /** @return deterministic identity including Context and graph node id */
     public String stableKey() {
         return method.stableKey() + "|context=" + context
                 + "|nodeId=" + graphNodeId
-                + "|walaSynthetic=" + walaSynthetic;
+                + "|walaSynthetic=" + walaSynthetic
+                + "|sentinelRole=" + sentinelRole;
     }
 
     @Override
@@ -40,6 +45,9 @@ public record CallGraphNodeIdentity(
         }
         if (result == 0) {
             result = Boolean.compare(walaSynthetic, other.walaSynthetic);
+        }
+        if (result == 0) {
+            result = sentinelRole.compareTo(other.sentinelRole);
         }
         return result;
     }

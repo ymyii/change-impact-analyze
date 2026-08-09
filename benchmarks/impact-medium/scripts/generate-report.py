@@ -45,14 +45,15 @@ SUMMARY_COLUMNS = (
 TOPOLOGY_COLUMNS = (
     "algorithm", "wala_reflection_options", "module", "direction",
     "record_type", "rank", "cg_node_id", "cg_node_identity", "context",
-    "wala_synthetic", "method_identity", "owner", "name", "descriptor", "origin",
+    "wala_synthetic", "sentinel_role", "method_identity", "owner", "name",
+    "descriptor", "origin",
     "related_cg_node_count", "distinct_related_method_count", "raw_edge_count",
     "child_rank", "child_method_identity", "child_owner", "child_name",
     "child_descriptor", "child_origin", "child_related_cg_node_count",
     "child_raw_edge_count", "omitted_related_cg_node_count",
     "related_cg_node_examples",
-    "entrypoint_cg_node_identity", "shortest_path", "cycle", "source_status",
-    "source_sha256", "ir_status", "ir_sha256", "path_status",
+    "path_root_kind", "path_root_cg_node_identity", "shortest_path", "cycle",
+    "source_status", "source_sha256", "ir_status", "ir_sha256",
 )
 NUMERIC_SAMPLE_FIELDS = (
     "total_wall_seconds", "call_graph_seconds", "peak_heap_used_mib",
@@ -88,7 +89,7 @@ def load_topology(run_directory: Path) -> dict[str, Any]:
     path = run_directory / "topology.json"
     with path.open(encoding="utf-8") as stream:
         value = json.load(stream)
-    if value.get("schemaVersion") != 2:
+    if value.get("schemaVersion") != 3:
         raise ValueError(f"unsupported topology schema: {path}")
     return value
 
@@ -240,7 +241,12 @@ def summaries(formal: list[dict[str, str]]) -> list[dict[str, str]]:
 
 
 def path_text(path: dict[str, Any]) -> str:
-    return " -> ".join(step["identity"] for step in path.get("steps", []))
+    def step_text(step: dict[str, Any]) -> str:
+        role = step.get("sentinelRole", "NONE")
+        prefix = f"[{role}] " if role != "NONE" else ""
+        return prefix + step["identity"]
+
+    return " -> ".join(step_text(step) for step in path.get("steps", []))
 
 
 def topology_rows(topologies: dict[str, dict[str, Any]]) -> list[dict[str, str]]:
@@ -268,6 +274,7 @@ def topology_rows(topologies: dict[str, dict[str, Any]]) -> list[dict[str, str]]
                         "context": node["context"],
                         "wala_synthetic": str(
                             bool(node.get("walaSynthetic"))).lower(),
+                        "sentinel_role": node.get("sentinelRole", "NONE"),
                         "method_identity": method["identity"],
                         "owner": method["owner"],
                         "name": method["name"],
@@ -282,12 +289,9 @@ def topology_rows(topologies: dict[str, dict[str, Any]]) -> list[dict[str, str]]
                         "source_sha256": source["sha256"],
                         "ir_status": ir["status"],
                         "ir_sha256": ir["sha256"],
-                        "path_status": value["pathStatus"],
                     }
                     ranked_row = dict(common)
                     ranked_row["record_type"] = "RANKED_CGNODE"
-                    if value["pathStatus"] != "REACHABLE":
-                        ranked_row["shortest_path"] = value["pathStatus"]
                     rows.append(ranked_row)
                     for child in value.get(child_field, []):
                         child_method = child["method"]
@@ -312,12 +316,13 @@ def topology_rows(topologies: dict[str, dict[str, Any]]) -> list[dict[str, str]]
                             ),
                         })
                         rows.append(child_row)
-                    for path in value.get("entrypointPaths", []):
+                    for path in value.get("reachabilityPaths", []):
                         path_row = dict(common)
                         path_row.update({
-                            "record_type": "ENTRYPOINT_PATH",
-                            "entrypoint_cg_node_identity":
-                                path["entrypoint"]["identity"],
+                            "record_type": "REACHABILITY_PATH",
+                            "path_root_kind": path["rootKind"],
+                            "path_root_cg_node_identity":
+                                path["root"]["identity"],
                             "shortest_path": path_text(path),
                         })
                         rows.append(path_row)
@@ -344,6 +349,36 @@ def method_label(method: dict[str, Any]) -> str:
 
 def node_label(node: dict[str, Any]) -> str:
     return node["identity"]
+
+
+def sentinel_badge(node: dict[str, Any]) -> str:
+    role = node.get("sentinelRole", "NONE")
+    if role == "NONE":
+        return ""
+    return f' <span class="badge sentinel">{e(role)}</span>'
+
+
+def render_paths(paths: list[dict[str, Any]]) -> str:
+    parts = ["<ol>"]
+    for path in paths:
+        root = path["root"]
+        steps = []
+        for step in path.get("steps", []):
+            cycle_badge = (
+                ' <span class="badge cycle">CYCLE</span>'
+                if step.get("cycle") else ""
+            )
+            steps.append(
+                f'<code>{e(step["identity"])}</code>'
+                f'{sentinel_badge(step)}{cycle_badge}'
+            )
+        parts.append(
+            f'<li><span class="badge root-kind">{e(path["rootKind"])}</span> '
+            f'<code>{e(root["identity"])}</code>{sentinel_badge(root)}<br>'
+            + " → ".join(steps) + "</li>"
+        )
+    parts.append("</ol>")
+    return "".join(parts)
 
 
 def render_related_methods(
@@ -396,6 +431,9 @@ def render_ranked(
             badges.append('<span class="badge cycle">CYCLE</span>')
         if node.get("walaSynthetic"):
             badges.append('<span class="badge">WALA SYNTHETIC</span>')
+        sentinel = sentinel_badge(node)
+        if sentinel:
+            badges.append(sentinel.strip())
         badges.append(f'<span class="badge">SOURCE {e(source["status"])}</span>')
         badges.append(f'<span class="badge">IR {e(ir["status"])}</span>')
         parts.append(
@@ -414,23 +452,27 @@ def render_ranked(
         parts.append(render_related_methods(
             value.get(child_field, []), relation_label.lower()))
         parts.append("<h5>Declared entrypoint shortest CGNode chains</h5>")
-        paths = value.get("entrypointPaths", [])
-        if paths:
-            parts.append("<ol>")
-            for path in paths:
-                steps = []
-                for step in path.get("steps", []):
-                    label = e(step["identity"])
-                    if step.get("cycle"):
-                        label += ' <span class="badge cycle">CYCLE</span>'
-                    steps.append(f"<code>{label}</code>")
-                parts.append(
-                    f'<li><code>{e(path["entrypoint"]["identity"])}</code><br>'
-                    + " → ".join(steps) + "</li>"
-                )
-            parts.append("</ol>")
+        paths = value.get("reachabilityPaths", [])
+        declared_paths = [
+            path for path in paths
+            if path.get("rootKind") == "DECLARED_ENTRYPOINT"
+        ]
+        sentinel_paths = [
+            path for path in paths
+            if path.get("rootKind") in {"FAKE_ROOT", "FAKE_WORLD_CLINIT"}
+        ]
+        if declared_paths:
+            parts.append(render_paths(declared_paths))
         else:
-            parts.append('<p class="warning">UNREACHABLE_FROM_DECLARED_ENTRYPOINTS</p>')
+            parts.append(
+                '<p class="warning">当前 ranked CGNode 无 declared entrypoint path，'
+                '请查看 WALA sentinel shortest CGNode chains。</p>'
+            )
+        parts.append("<h5>WALA sentinel shortest CGNode chains</h5>")
+        if sentinel_paths:
+            parts.append(render_paths(sentinel_paths))
+        else:
+            parts.append("<p>无 WALA sentinel path。</p>")
         reason = source.get("reason", "")
         parts.append(
             f'<details><summary>Source — {e(source["status"])} — SHA-256 '

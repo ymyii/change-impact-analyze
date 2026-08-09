@@ -47,7 +47,7 @@ code_refs: []
 - Summary: logical coordinate pair 经 repository lease 并行去重 diff；除stable method hash外，默认检测class/method/constructor/field Java 8 JVM access narrowing。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
-- Summary: 每Module由独立strategy构建selected WALA Call Graph；可选Schema v2只读capture输出CGNode父榜、IMethod子榜、shortest path、cycle、source与IR。
+- Summary: 每Module由独立strategy构建selected WALA Call Graph；可选Schema v3只读capture保留WALA sentinel的CGNode排行、typed shortest path、source与IR。
 
 ### [JDK Method Models](features/jdk-method-models.md)
 - Summary: 独立`models/jdk`公共engine与`models/jdk8`精确catalog生成conservative WALA Synthetic IR；尚未接入`impact`。

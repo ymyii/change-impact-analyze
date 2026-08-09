@@ -91,13 +91,20 @@ class GenerateReportTest(unittest.TestCase):
             with (candidate_dir / "topology.tsv").open(
                 encoding="utf-8", newline=""
             ) as stream:
-                topology = list(csv.DictReader(stream, delimiter="\t"))
-            self.assertEqual(15, len(topology))
+                reader = csv.DictReader(stream, delimiter="\t")
+                topology_columns = tuple(reader.fieldnames or ())
+                topology = list(reader)
+            self.assertEqual(18, len(topology))
+            self.assertIn("sentinel_role", topology_columns)
+            self.assertIn("path_root_kind", topology_columns)
+            self.assertIn("path_root_cg_node_identity", topology_columns)
+            self.assertNotIn("entrypoint_cg_node_identity", topology_columns)
+            self.assertNotIn("path_status", topology_columns)
             self.assertEqual(
                 {"CALLER", "CALLEE"}, {row["direction"] for row in topology}
             )
             self.assertEqual(
-                {"RANKED_CGNODE", "RELATED_IMETHOD", "ENTRYPOINT_PATH"},
+                {"RANKED_CGNODE", "RELATED_IMETHOD", "REACHABILITY_PATH"},
                 {row["record_type"] for row in topology},
             )
             self.assertEqual(
@@ -105,10 +112,25 @@ class GenerateReportTest(unittest.TestCase):
             )
             self.assertTrue(all(row["ir_sha256"] == "feedface" for row in topology))
             path_rows = [
-                row for row in topology if row["record_type"] == "ENTRYPOINT_PATH"
+                row for row in topology
+                if row["record_type"] == "REACHABILITY_PATH"
             ]
             self.assertTrue(all(" -> " in row["shortest_path"] for row in path_rows))
-            self.assertEqual(3, len(path_rows))
+            self.assertTrue(any(
+                "[FAKE_ROOT]" in row["shortest_path"]
+                and "[FAKE_WORLD_CLINIT]" in row["shortest_path"]
+                for row in path_rows
+            ))
+            self.assertEqual(6, len(path_rows))
+            self.assertEqual(
+                {"DECLARED_ENTRYPOINT", "FAKE_ROOT"},
+                {row["path_root_kind"] for row in path_rows},
+            )
+            self.assertTrue(all(row["path_root_cg_node_identity"] for row in path_rows))
+            self.assertEqual(
+                {"NONE", "FAKE_WORLD_CLINIT"},
+                {row["sentinel_role"] for row in topology},
+            )
             child_rows = [
                 row for row in topology if row["record_type"] == "RELATED_IMETHOD"
             ]
@@ -145,7 +167,19 @@ class GenerateReportTest(unittest.TestCase):
                 6, report.count("Declared entrypoint shortest CGNode chains")
             )
             self.assertEqual(
-                3, report.count("UNREACHABLE_FROM_DECLARED_ENTRYPOINTS")
+                6,
+                report.count("<h5>WALA sentinel shortest CGNode chains</h5>"),
+            )
+            self.assertEqual(
+                3,
+                report.count("请查看 WALA sentinel shortest CGNode chains"),
+            )
+            self.assertNotIn("UNREACHABLE_FROM_DECLARED_ENTRYPOINTS", report)
+            self.assertIn(
+                '<span class="badge sentinel">FAKE_ROOT</span>', report
+            )
+            self.assertIn(
+                '<span class="badge sentinel">FAKE_WORLD_CLINIT</span>', report
             )
             caller_start = report.index("<h3>Top 10 caller CGNode")
             callee_start = report.index("<h3>Top 10 callee CGNode", caller_start)
@@ -154,7 +188,7 @@ class GenerateReportTest(unittest.TestCase):
                 "Declared entrypoint shortest CGNode chains", caller_section
             )
             self.assertIn(
-                "UNREACHABLE_FROM_DECLARED_ENTRYPOINTS", caller_section
+                "WALA sentinel shortest CGNode chains", caller_section
             )
             self.assertEqual(15, report.count("<td>SUCCESS</td>"))
             self.assertIn("Algorithm comparison", report)
@@ -190,6 +224,22 @@ class GenerateReportTest(unittest.TestCase):
             self.assertIn("TOPOLOGY_DRIFT", output_html.read_text(encoding="utf-8"))
             for name, expected in tracked_snapshots.items():
                 self.assertEqual(expected, (tracked_dir / name).read_bytes())
+
+    def test_schema_v2_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run_directories = self._write_suite(root / "runs")
+            topology_path = run_directories[0] / "topology.json"
+            topology = json.loads(topology_path.read_text(encoding="utf-8"))
+            topology["schemaVersion"] = 2
+            topology_path.write_text(json.dumps(topology), encoding="utf-8")
+
+            result = self._generate(
+                root / "benchmark-report.html", root / "candidate", run_directories
+            )
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("unsupported topology schema", result.stderr)
 
     def test_history_comparison_reports_absolute_change_and_ratio(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -381,15 +431,30 @@ class GenerateReportTest(unittest.TestCase):
             3, self._method("example/Callee", "run", "()V", "SYNTHETIC"),
             "ReceiverContext",
         )
+        caller_node["sentinelRole"] = "FAKE_WORLD_CLINIT"
+        caller_node["identity"] = str(caller_node["identity"]).replace(
+            "sentinelRole=NONE", "sentinelRole=FAKE_WORLD_CLINIT"
+        )
+        fake_root = self._node(
+            0,
+            self._method(
+                "com/ibm/wala/FakeRoot", "fakeRootMethod", "()V", "SYNTHETIC"
+            ),
+            "Everywhere",
+        )
+        fake_root["sentinelRole"] = "FAKE_ROOT"
+        fake_root["identity"] = str(fake_root["identity"]).replace(
+            "sentinelRole=NONE", "sentinelRole=FAKE_ROOT"
+        )
         caller = self._ranked_node(
-            1, caller_node, entrypoint_node, callee_node, "topCallees", True,
-            path_available=False,
+            1, caller_node, fake_root, "FAKE_ROOT", callee_node, "topCallees", True,
         )
         callee = self._ranked_node(
-            1, callee_node, entrypoint_node, caller_node, "topCallers", False
+            1, callee_node, entrypoint_node, "DECLARED_ENTRYPOINT", caller_node,
+            "topCallers", False,
         )
         topology = {
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "algorithm": algorithm,
             "reflectionOptions": REFLECTION_OPTIONS,
             "jdk": "1.8-test",
@@ -433,9 +498,11 @@ class GenerateReportTest(unittest.TestCase):
             "graphNodeId": node_id,
             "context": context,
             "walaSynthetic": method["origin"] == "SYNTHETIC",
+            "sentinelRole": "NONE",
             "identity": (
                 f"{method['identity']}|context={context}|nodeId={node_id}"
                 f"|walaSynthetic={str(method['origin'] == 'SYNTHETIC').lower()}"
+                "|sentinelRole=NONE"
             ),
             "method": method,
         }
@@ -444,11 +511,11 @@ class GenerateReportTest(unittest.TestCase):
     def _ranked_node(
         rank: int,
         node: dict[str, object],
-        entrypoint: dict[str, object],
+        root: dict[str, object],
+        root_kind: str,
         related: dict[str, object],
         child_field: str,
         source_available: bool,
-        path_available: bool = True,
     ) -> dict[str, object]:
         related_examples = [
             {
@@ -490,20 +557,16 @@ class GenerateReportTest(unittest.TestCase):
                 "reason": "",
                 "text": '<ir>&"',
             },
-            "pathStatus": (
-                "REACHABLE"
-                if path_available
-                else "UNREACHABLE_FROM_DECLARED_ENTRYPOINTS"
-            ),
-            "entrypointPaths": [
+            "reachabilityPaths": [
                 {
-                    "entrypoint": entrypoint,
+                    "rootKind": root_kind,
+                    "root": root,
                     "steps": [
-                        {**entrypoint, "cycle": False},
+                        {**root, "cycle": False},
                         {**node, "cycle": True},
                     ],
                 }
-            ] if path_available else [],
+            ],
         }
 
 

@@ -7,6 +7,9 @@ import java.util.Objects;
  *
  * @param node exact CGNode identity
  * @param cycle whether the CGNode belongs to a cycle
+ *
+ * <p>The node identity carries its WALA sentinel role so fake root and
+ * fake world-clinit remain explicit in exported chains.</p>
  */
 public record CallGraphNodePathStep(
         CallGraphNodeIdentity node,

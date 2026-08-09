@@ -5,10 +5,10 @@ import com.fasterxml.jackson.core.JsonGenerator;
 
 import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.CallGraphMethodIdentity;
-import io.github.dependencyanalysis.callgraph.CallGraphNodeEntrypointPath;
 import io.github.dependencyanalysis.callgraph.CallGraphNodeIdentity;
 import io.github.dependencyanalysis.callgraph.CallGraphNodeIr;
 import io.github.dependencyanalysis.callgraph.CallGraphNodePathStep;
+import io.github.dependencyanalysis.callgraph.CallGraphNodeReachabilityPath;
 import io.github.dependencyanalysis.callgraph.CallGraphRankedNode;
 import io.github.dependencyanalysis.callgraph.CallGraphRelatedMethod;
 import io.github.dependencyanalysis.callgraph.CallGraphTopologySnapshot;
@@ -37,7 +37,7 @@ import java.util.UUID;
 final class CallGraphDiagnosticsExporter {
 
     /** Diagnostics JSON Schema version. */
-    private static final int SCHEMA_VERSION = 2;
+    static final int SCHEMA_VERSION = 3;
 
     /** SHA-256 algorithm name. */
     private static final String SHA_256 = "SHA-256";
@@ -178,13 +178,7 @@ final class CallGraphDiagnosticsExporter {
                     value.topRelatedMethods());
             writeSource(json, source);
             writeIr(json, value.ir());
-            if (value.entrypointPaths().isEmpty()) {
-                json.writeStringField("pathStatus",
-                        "UNREACHABLE_FROM_DECLARED_ENTRYPOINTS");
-            } else {
-                json.writeStringField("pathStatus", "REACHABLE");
-            }
-            writePaths(json, value.entrypointPaths());
+            writePaths(json, value.reachabilityPaths());
             json.writeEndObject();
         }
         json.writeEndArray();
@@ -243,14 +237,15 @@ final class CallGraphDiagnosticsExporter {
         json.writeEndObject();
     }
 
-    private void writePaths(
+    static void writePaths(
             final JsonGenerator json,
-            final List<CallGraphNodeEntrypointPath> paths)
+            final List<CallGraphNodeReachabilityPath> paths)
             throws IOException {
-        json.writeArrayFieldStart("entrypointPaths");
-        for (CallGraphNodeEntrypointPath path : paths) {
+        json.writeArrayFieldStart("reachabilityPaths");
+        for (CallGraphNodeReachabilityPath path : paths) {
             json.writeStartObject();
-            writeNode(json, "entrypoint", path.entrypoint());
+            json.writeStringField("rootKind", path.rootKind().name());
+            writeNode(json, "root", path.root());
             json.writeArrayFieldStart("steps");
             for (CallGraphNodePathStep step : path.steps()) {
                 json.writeStartObject();
@@ -264,7 +259,7 @@ final class CallGraphDiagnosticsExporter {
         json.writeEndArray();
     }
 
-    private void writeNode(
+    private static void writeNode(
             final JsonGenerator json,
             final String field,
             final CallGraphNodeIdentity node) throws IOException {
@@ -273,7 +268,7 @@ final class CallGraphDiagnosticsExporter {
         json.writeEndObject();
     }
 
-    private void writeNodeValue(
+    private static void writeNodeValue(
             final JsonGenerator json,
             final CallGraphNodeIdentity node) throws IOException {
         json.writeStartObject();
@@ -281,17 +276,18 @@ final class CallGraphDiagnosticsExporter {
         json.writeEndObject();
     }
 
-    private void writeNodeFields(
+    private static void writeNodeFields(
             final JsonGenerator json,
             final CallGraphNodeIdentity node) throws IOException {
         json.writeNumberField("graphNodeId", node.graphNodeId());
         json.writeStringField("context", node.context());
         json.writeBooleanField("walaSynthetic", node.walaSynthetic());
+        json.writeStringField("sentinelRole", node.sentinelRole().name());
         json.writeStringField("identity", node.stableKey());
         writeMethod(json, "method", node.method());
     }
 
-    private void writeMethod(
+    private static void writeMethod(
             final JsonGenerator json,
             final String field,
             final CallGraphMethodIdentity method) throws IOException {

@@ -51,7 +51,7 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 tmp-files/impact-medium-benchmark/benchmark-report.html
 ```
 
-HTML 自包含 CSS，不使用 JavaScript 或外部 asset。`rta`、`zero-cfa`、`optimized-0-1-cfa`与comparison各占一个CSS-only tab。每个algorithm tab包含五个正式样本、Min/median/max、Top 10 caller CGNode、Top 10 callee CGNode、每个父CGNode下按IMethod聚合的Top 10相关节点、每个可达declared entrypoint的deterministic shortest CGNode chain、cycle、decompiled source和WALA IR。Generated Method没有bytecode source时允许仅展示IR。Comparison以`zero-cfa`为ratio baseline；ratio仅描述数据，不自动判定algorithm优劣。
+HTML 自包含 CSS，不使用 JavaScript 或外部 asset。`rta`、`zero-cfa`、`optimized-0-1-cfa`与comparison各占一个CSS-only tab。每个algorithm tab包含五个正式样本、Min/median/max、Top 10 caller CGNode、Top 10 callee CGNode、每个父CGNode下按IMethod聚合的Top 10相关节点、declared entrypoint与WALA sentinel的deterministic shortest CGNode chain、cycle、decompiled source和WALA IR。Sentinel parent、root与chain step显式展示`FAKE_ROOT`或`FAKE_WORLD_CLINIT`badge。Generated Method没有bytecode source时允许仅展示IR。Comparison以`zero-cfa`为ratio baseline；ratio仅描述数据，不自动判定algorithm优劣。
 
 Git 管理的最近一次完整成功快照：
 
@@ -63,7 +63,7 @@ benchmarks/impact-medium/results/topology.tsv
 
 - `samples.tsv`：15 个正式样本；包含 wall、CallGraph、heap、RSS、graph、status 与环境 identity。
 - `summary.tsv`：每种 algorithm 一行；包含资源 Min/median/max、稳定 topology 和相对 `zero-cfa` ratio。
-- `topology.tsv`：使用`RANKED_CGNODE`、`RELATED_IMETHOD`、`ENTRYPOINT_PATH`三种record；保存父CGNode、`wala_synthetic`、子榜IMethod、related CGNode count、最多10个deterministic Context example、omitted count和shortest CGNode path。Multiline source/IR只进入HTML；TSV保存各自status与SHA-256。
+- `topology.tsv`：使用`RANKED_CGNODE`、`RELATED_IMETHOD`、`REACHABILITY_PATH`三种record；保存父CGNode、`wala_synthetic`、`sentinel_role`、子榜IMethod、related CGNode count、最多10个deterministic Context example、omitted count，以及path的`path_root_kind`、`path_root_cg_node_identity`和shortest CGNode chain。Multiline source/IR只进入HTML；TSV保存各自status与SHA-256。
 
 Suite 只有在 18 个 run 全部通过 semantic verification，且 warm-up 与五个正式样本的 Entrypoint/CGNode/CGEdge 完全一致时，才逐文件原子替换 tracked TSV。出现 `FAILED` 或 `TOPOLOGY_DRIFT` 时，旧 tracked snapshot 不变；failure HTML、candidate TSV、raw run、topology JSON 与 `failure.txt` 保留在 `tmp-files/impact-medium-benchmark/`。
 
@@ -108,6 +108,6 @@ benchmarks/impact-medium/scripts/compare-summaries.sh \
 - `<run>/logs/stderr.log`：Preflight、CLI、Runtime Metrics 与 pipeline failure。
 - `<run>/logs/verification.txt`：42 dependencies、9 raw changes、`6 / 5` chains、Structural Reference Path、Algorithm/ReflectionOptions failure。
 - `<run>/logs/metrics.tsv`：即使 run failure 也尽量保留的单样本指标。
-- `<run>/topology.json`：warm-up Schema v2 CGNode topology、IMethod子榜、shortest chain、source与IR。
+- `<run>/topology.json`：warm-up Schema v3 CGNode topology、sentinel role、declared entrypoint/WALA sentinel reachability path、IMethod子榜、shortest chain、source与IR。
 - `<suite>-candidate-results/failure.txt`：suite Schema、环境或 topology drift failure。
 - `benchmark-report.html`：成功或失败均更新的用户入口；失败时明确说明 tracked TSV 未发布。
