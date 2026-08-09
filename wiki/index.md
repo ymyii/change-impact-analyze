@@ -50,7 +50,7 @@ code_refs: []
 - Summary: 每Module由独立strategy构建selected WALA Call Graph；可选Schema v2只读capture输出CGNode父榜、IMethod子榜、shortest path、cycle、source与IR。
 
 ### [JDK Method Models](features/jdk-method-models.md)
-- Summary: 独立`models/jdk`以exact catalog生成conservative WALA Synthetic IR；支持跨JDK layout能力检测，尚未接入`impact`。
+- Summary: 独立`models/jdk`公共engine与`models/jdk8`精确catalog生成conservative WALA Synthetic IR；尚未接入`impact`。
 
 ### [Impact Tracing](features/impact-tracing.md)
 - Summary: 构图后read-only解析call/structural/access reference，使用typed JVM access decision与deterministic reverse BFS生成representative path/disposition。
@@ -61,7 +61,7 @@ code_refs: []
 ## Rules
 
 ### [Release Versioning](rules/release-versioning.md)
-- Summary: Analyzer/Artifact Path Plugin 独立 SemVer、Snapshot 周期复用、Maven release profile 与 Git annotated tag。
+- Summary: Analyzer、Artifact Path Plugin、公共JDK engine与JDK 8 model独立SemVer、release profile与Git annotated tag。
 
 ### [Process Command Resolution](rules/process-command-resolution.md)
 - Summary: 所有 production external process token 在 `ProcessBuilder` 前必须经过 `CommandResolver.resolve()`。
@@ -72,7 +72,7 @@ code_refs: []
 - Summary: 双 reactor bootstrap、完整 JDK 8 gate、unit/integration tests、两个 repository ZIP、uber JAR 和 CLI smoke。
 
 ### [JDK Models Build and Test](runbooks/jdk-models-build-test.md)
-- Summary: 独立JDK model module的JDK 8/JDK 17 prerequisites、Maven gate、fixed-point验收、metrics与failure entrypoint。
+- Summary: 公共JDK engine与JDK 8 model的顺序构建、exact catalog/fixed-point/Packaging验收、metrics与failure entrypoint。
 
 ### [Version and Distribution](runbooks/version-and-distribution.md)
 - Summary: Maven Versions/Enforcer 驱动的 Snapshot iteration、Stable release、commit 与双 Git tag。

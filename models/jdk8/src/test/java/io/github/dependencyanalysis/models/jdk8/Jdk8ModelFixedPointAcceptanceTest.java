@@ -1,4 +1,4 @@
-package io.github.dependencyanalysis.models.jdk;
+package io.github.dependencyanalysis.models.jdk8;
 
 import com.ibm.wala.classLoader.IMethod;
 import com.ibm.wala.classLoader.Language;
@@ -14,6 +14,8 @@ import com.ibm.wala.ipa.callgraph.propagation.rta.BasicRTABuilder;
 import com.ibm.wala.ipa.cha.IClassHierarchy;
 import com.ibm.wala.ipa.summaries.SummarizedMethod;
 import com.ibm.wala.types.ClassLoaderReference;
+import io.github.dependencyanalysis.models.jdk.JdkModelMetadata;
+import io.github.dependencyanalysis.models.jdk.JdkModelSession;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -27,7 +29,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Direct WALA fixed-point acceptance across supported algorithms. */
-class JdkModelFixedPointAcceptanceTest {
+class Jdk8ModelFixedPointAcceptanceTest {
 
     /** Minimum catalog targets expected to be exercised. */
     private static final int MINIMUM_HITS = 10;
@@ -47,11 +49,33 @@ class JdkModelFixedPointAcceptanceTest {
                     + "Ljava/lang/Object;"
                     + "Ljava/nio/file/attribute/BasicFileAttributes;)"
                     + "Ljava/nio/file/FileVisitResult;",
+            "fixture/JdkModelFixture$NonSerializableBase.<init>()V",
+            "fixture/JdkModelFixture$SerialValue.writeObject("
+                    + "Ljava/io/ObjectOutputStream;)V",
+            "fixture/JdkModelFixture$SerialValue.readObject("
+                    + "Ljava/io/ObjectInputStream;)V",
+            "fixture/JdkModelFixture$SerialValue.readObjectNoData()V",
+            "fixture/JdkModelFixture$SerialValue.writeReplace()"
+                    + "Ljava/lang/Object;",
             "fixture/JdkModelFixture$SerialValue.readResolve()"
                     + "Ljava/lang/Object;",
+            "fixture/JdkModelFixture$ExternalValue.writeExternal("
+                    + "Ljava/io/ObjectOutput;)V",
             "fixture/JdkModelFixture$ExternalValue.readExternal("
                     + "Ljava/io/ObjectInput;)V",
-            "fixture/JdkModelFixture$Validation.validateObject()V");
+            "fixture/JdkModelFixture$Validation.validateObject()V",
+            "fixture/JdkModelFixture$InputHooks.resolveObject("
+                    + "Ljava/lang/Object;)Ljava/lang/Object;",
+            "fixture/JdkModelFixture$InputHooks.resolveClass("
+                    + "Ljava/io/ObjectStreamClass;)Ljava/lang/Class;",
+            "fixture/JdkModelFixture$InputHooks.readClassDescriptor()"
+                    + "Ljava/io/ObjectStreamClass;",
+            "fixture/JdkModelFixture$OutputHooks.replaceObject("
+                    + "Ljava/lang/Object;)Ljava/lang/Object;",
+            "fixture/JdkModelFixture$OutputHooks.annotateClass("
+                    + "Ljava/lang/Class;)V",
+            "fixture/JdkModelFixture$OutputHooks.writeClassDescriptor("
+                    + "Ljava/io/ObjectStreamClass;)V");
 
     /** Optimized ZeroX instance-key policy used by the application. */
     private static final int OPTIMIZED_POLICY =
@@ -97,6 +121,10 @@ class JdkModelFixedPointAcceptanceTest {
                 method.contains("java/util/stream/ReferencePipeline"));
         assertThat(modeled.jdkMethods()).noneMatch(method ->
                 method.contains("AbstractQueuedSynchronizer.acquire"));
+        assertThat(modeled.jdkMethods()).noneMatch(method ->
+                method.contains("ObjectInputStream.readObject0"));
+        assertThat(modeled.jdkMethods()).noneMatch(method ->
+                method.contains("sun/net/www/protocol"));
         record(algorithm, baseline, comparable, modeled);
     }
 
@@ -116,7 +144,7 @@ class JdkModelFixedPointAcceptanceTest {
         Util.addDefaultBypassLogic(options, Util.class.getClassLoader(),
                 hierarchy);
         final JdkModelSession session = modelsEnabled
-                ? JdkModels.install(options, hierarchy) : null;
+                ? Jdk8Models.install(options, hierarchy) : null;
         final AnalysisCacheImpl cache = new AnalysisCacheImpl();
         final CallGraphBuilder<?> builder = algorithm.builder(
                 hierarchy, options, cache);
@@ -168,7 +196,7 @@ class JdkModelFixedPointAcceptanceTest {
             final BuildResult comparable,
             final BuildResult modeled) throws Exception {
         final Path report = Path.of("target",
-                "jdk-model-acceptance.tsv");
+                "jdk8-model-acceptance.tsv");
         Files.createDirectories(report.getParent());
         final String line = algorithm + "\tbaseline\t"
                 + baseline.metrics(false) + System.lineSeparator()

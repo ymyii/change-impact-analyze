@@ -11,26 +11,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Catalog parsing and validation tests. */
 class JdkModelCatalogTest {
 
-    /** Minimum accepted initial catalog size. */
-    private static final int MINIMUM_CATALOG_SIZE = 120;
-
     @Test
-    void committedCatalogCoversAllModelFamilies() {
-        final var entries = new JdkModelCatalog().load();
+    void testCatalogCoversEveryEngineTemplate() {
+        final var entries = new JdkModelCatalog().load(
+                new JdkModelDefinition("engine-test", getClass(),
+                        "/engine-test-models.tsv"));
 
-        assertThat(entries).hasSizeGreaterThan(MINIMUM_CATALOG_SIZE);
         assertThat(entries).extracting(CatalogEntry::template)
-                .contains(SummaryTemplate.STORE, SummaryTemplate.LOAD,
-                        SummaryTemplate.CALLBACK_NEW,
-                        SummaryTemplate.FILE_VISITOR,
-                        SummaryTemplate.SERIALIZE_READ,
-                        SummaryTemplate.SERIALIZE_WRITE);
-        assertThat(entries).extracting(CatalogEntry::owner)
-                .contains("java/util/Collection", "java/util/stream/Stream",
-                        "java/time/LocalDate",
-                        "java/util/concurrent/CompletableFuture",
-                        "java/nio/file/Files",
-                        "java/io/ObjectInputStream");
+                .containsExactlyInAnyOrder(SummaryTemplate.values());
     }
 
     @Test
@@ -55,5 +43,18 @@ class JdkModelCatalogTest {
         assertThatThrownBy(() -> new JdkModelCatalog().parse(input))
                 .isInstanceOf(JdkModelException.class)
                 .hasMessageContaining("Invalid callback specification");
+    }
+
+    @Test
+    void rejectsMalformedDescriptorDuringInstallation() throws Exception {
+        final String line = "java/util/List\tget\t(not-a-descriptor)"
+                + "\tfalse\tLOAD\t-\tCOLLECTION_ELEMENT\t-\t-\n";
+        final ByteArrayInputStream input = new ByteArrayInputStream(
+                line.getBytes(StandardCharsets.UTF_8));
+        final CatalogEntry entry = new JdkModelCatalog().parse(input).get(0);
+
+        assertThatThrownBy(entry::reference)
+                .isInstanceOf(JdkModelException.class)
+                .hasMessageContaining("Invalid catalog method");
     }
 }

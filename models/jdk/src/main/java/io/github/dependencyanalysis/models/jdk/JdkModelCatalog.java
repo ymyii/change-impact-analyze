@@ -13,10 +13,6 @@ import java.util.Map;
 /** Loads and validates the committed exact-method catalog. */
 final class JdkModelCatalog {
 
-    /** Catalog resource. */
-    static final String RESOURCE =
-            "/io/github/dependencyanalysis/models/jdk/jdk-models.tsv";
-
     /** Expected number of tab-separated fields. */
     private static final int FIELD_COUNT = 9;
 
@@ -38,17 +34,13 @@ final class JdkModelCatalog {
     /** Result slot field position. */
     private static final int RESULT_SLOT_FIELD = 8;
 
-    List<CatalogEntry> load() {
-        try (InputStream input = JdkModelCatalog.class
-                .getResourceAsStream(RESOURCE)) {
-            if (input == null) {
-                throw new JdkModelException(
-                        "JDK model catalog is unavailable: " + RESOURCE);
-            }
+    List<CatalogEntry> load(final JdkModelDefinition definition) {
+        try (InputStream input = definition.openCatalog()) {
             return parse(input);
         } catch (IOException exception) {
             throw new JdkModelException(
-                    "Unable to close JDK model catalog", exception);
+                    "Unable to close JDK model catalog for "
+                            + definition.modelId(), exception);
         }
     }
 

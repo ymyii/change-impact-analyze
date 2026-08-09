@@ -16,51 +16,41 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** Public installation, selection and metadata tests. */
+/** Public common-engine installation and selector tests. */
 class JdkModelsTest {
 
-    /** Minimum accepted initial catalog size. */
-    private static final int MINIMUM_CATALOG_SIZE = 120;
+    /** Shared engine test definition. */
+    private static final JdkModelDefinition DEFINITION = definition(
+            "engine-test-models.tsv");
 
-    /** Minimum methods available on the configured JDK 8. */
-    private static final int MINIMUM_AVAILABLE_SIZE = 100;
-
-    /** Shared JDK 8 hierarchy. */
+    /** Shared host JDK hierarchy. */
     private static IClassHierarchy hierarchy;
 
     @BeforeAll
     static void prepareHierarchy() throws Exception {
-        hierarchy = TestHierarchies.jdk8();
+        hierarchy = TestHierarchies.hostJdk();
     }
 
     @Test
-    void installsAvailableTargetsAndTracksUnavailableTargets() {
-        final AnalysisOptions options = TestHierarchies.options(hierarchy);
+    void installsDefinitionAndUsesItsModelId() {
+        final JdkModelMetadata metadata = JdkModels.install(
+                TestHierarchies.options(hierarchy), hierarchy,
+                DEFINITION).snapshot();
 
-        final JdkModelSession session = JdkModels.install(
-                options, hierarchy);
-        final JdkModelMetadata metadata = session.snapshot();
-
-        assertThat(metadata.modelId()).isEqualTo("jdk");
-        assertThat(metadata.catalogTargetCount())
-                .isGreaterThan(MINIMUM_CATALOG_SIZE);
-        assertThat(metadata.availableTargetCount())
-                .isGreaterThan(MINIMUM_AVAILABLE_SIZE);
-        assertThat(metadata.catalogTargetCount()).isEqualTo(
-                metadata.availableTargetCount()
-                        + metadata.unavailableTargetCount());
+        assertThat(metadata.modelId()).isEqualTo("engine-test");
+        assertThat(metadata.catalogTargetCount()).isPositive();
+        assertThat(metadata.availableTargetCount()).isEqualTo(
+                metadata.catalogTargetCount());
+        assertThat(metadata.unavailableTargetCount()).isZero();
         assertThat(metadata.hitTargetCount()).isZero();
-        assertThat(metadata.unavailableTargets()).hasSize(1)
-                .allMatch(target -> target.contains(
-                        "Stream, toList()Ljava/util/List;"));
-        assertThat(JdkModels.supports(hierarchy)).isTrue();
+        assertThat(metadata.availableTargets()).isSorted();
     }
 
     @Test
-    void selectsSyntheticIrAndRecordsExactHit() {
+    void selectsSyntheticIrAndRecordsDeterministicHit() {
         final AnalysisOptions options = TestHierarchies.options(hierarchy);
         final JdkModelSession session = JdkModels.install(
-                options, hierarchy);
+                options, hierarchy, DEFINITION);
         final MethodReference target = MethodReference.findOrCreate(
                 TypeReference.findOrCreate(
                         ClassLoaderReference.Primordial,
@@ -75,44 +65,67 @@ class JdkModelsTest {
                                 "Ljava/util/ArrayList")));
 
         assertThat(selected).isInstanceOf(SummarizedMethod.class);
-        assertThat(selected.getReference().getSelector())
-                .isEqualTo(target.getSelector());
-        assertThat(((SummarizedMethod) selected).getStatements())
-                .isNotEmpty();
         assertThat(session.snapshot().hitTargets())
-                .contains(selected.getReference().toString());
+                .containsExactly(selected.getReference().toString());
+        assertThat(session.snapshot()).isEqualTo(session.snapshot());
     }
 
     @Test
-    void requiresAnExistingTargetSelector() {
+    void requiresExistingSelector() {
         final AnalysisOptions options = new AnalysisOptions(
                 hierarchy.getScope(), java.util.List.of());
 
-        assertThatThrownBy(() -> JdkModels.install(options, hierarchy))
+        assertThatThrownBy(() -> JdkModels.install(
+                options, hierarchy, DEFINITION))
                 .isInstanceOf(JdkModelException.class)
                 .hasMessageContaining("existing method target selector");
     }
 
     @Test
-    void delegatesUnavailableCrossVersionTargets() {
+    void delegatesUnavailableTargetToParentSelector() {
         final AnalysisOptions options = TestHierarchies.options(hierarchy);
         final IMethod fallback = hierarchy.resolveMethod(
                 MethodReference.findOrCreate(
                         TypeReference.JavaLangObject,
                         Selector.make("toString()Ljava/lang/String;")));
         options.setSelector((caller, site, receiver) -> fallback);
-        JdkModels.install(options, hierarchy);
+        final JdkModelSession session = JdkModels.install(
+                options, hierarchy, definition("unavailable-models.tsv"));
         final MethodReference unavailable = MethodReference.findOrCreate(
                 TypeReference.findOrCreate(
                         ClassLoaderReference.Primordial,
-                        "Ljava/util/stream/Stream"),
-                Selector.make("toList()Ljava/util/List;"));
+                        "Ljava/util/List"),
+                Selector.make("missing()Ljava/lang/Object;"));
         final CallSiteReference site = CallSiteReference.make(
                 0, unavailable, Dispatch.INTERFACE);
 
+        assertThat(session.snapshot().unavailableTargetCount()).isOne();
         assertThat(options.getMethodTargetSelector().getCalleeTarget(
                 null, site, hierarchy.lookupClass(
                         unavailable.getDeclaringClass())))
                 .isSameAs(fallback);
+    }
+
+    @Test
+    void rejectsResolvedStaticContractMismatch() {
+        assertThatThrownBy(() -> JdkModels.install(
+                TestHierarchies.options(hierarchy), hierarchy,
+                definition("invalid-static-models.tsv")))
+                .isInstanceOf(JdkModelException.class)
+                .hasMessageContaining("static contract mismatch");
+    }
+
+    @Test
+    void rejectsWalaNativeSummaryConflict() {
+        assertThatThrownBy(() -> JdkModels.install(
+                TestHierarchies.options(hierarchy), hierarchy,
+                definition("native-conflict-models.tsv")))
+                .isInstanceOf(JdkModelException.class)
+                .hasMessageContaining("native summaries");
+    }
+
+    private static JdkModelDefinition definition(final String resource) {
+        return new JdkModelDefinition("engine-test", JdkModelsTest.class,
+                "/" + resource);
     }
 }

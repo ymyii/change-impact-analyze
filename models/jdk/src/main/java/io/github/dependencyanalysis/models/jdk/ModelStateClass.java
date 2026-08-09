@@ -21,9 +21,9 @@ import java.util.Map;
 /** Synthetic class owning conservative model-only static state. */
 final class ModelStateClass extends SyntheticClass {
 
-    /** Synthetic type name. */
-    private static final String TYPE_NAME =
-            "Ldependencyanalysis/jdkmodel/State";
+    /** Synthetic type prefix. */
+    private static final String TYPE_PREFIX =
+            "Ldependencyanalysis/jdkmodel/";
 
     /** Fields by semantic slot. */
     private final Map<StateSlot, IField> slots;
@@ -31,9 +31,12 @@ final class ModelStateClass extends SyntheticClass {
     /** Fields by name. */
     private final Map<Atom, IField> fields;
 
-    ModelStateClass(final IClassHierarchy hierarchy) {
+    ModelStateClass(
+            final IClassHierarchy hierarchy,
+            final String modelId) {
         super(TypeReference.findOrCreate(
-                hierarchy.getScope().getSyntheticLoader(), TYPE_NAME),
+                hierarchy.getScope().getSyntheticLoader(),
+                TYPE_PREFIX + modelId + "/State"),
                 hierarchy);
         final Map<StateSlot, IField> slotValues =
                 new EnumMap<>(StateSlot.class);

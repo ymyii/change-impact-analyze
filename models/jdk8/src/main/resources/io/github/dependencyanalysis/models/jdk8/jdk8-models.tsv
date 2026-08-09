@@ -62,7 +62,6 @@ java/util/stream/Stream	anyMatch	(Ljava/util/function/Predicate;)Z	false	CALLBAC
 java/util/stream/Stream	allMatch	(Ljava/util/function/Predicate;)Z	false	CALLBACK_VOID	-	-	0@java/util/function/Predicate#test#(Ljava/lang/Object;)Z#INTERFACE@slot:STREAM_ELEMENT	-
 java/util/stream/Stream	findFirst	()Ljava/util/Optional;	false	COPY_NEW	-	STREAM_ELEMENT	-	OPTIONAL_VALUE
 java/util/stream/Stream	findAny	()Ljava/util/Optional;	false	COPY_NEW	-	STREAM_ELEMENT	-	OPTIONAL_VALUE
-java/util/stream/Stream	toList	()Ljava/util/List;	false	COPY_NEW	-	STREAM_ELEMENT	-	COLLECTION_ELEMENT
 java/util/Optional	empty	()Ljava/util/Optional;	true	RETURN_NEW	-	-	-	-
 java/util/Optional	of	(Ljava/lang/Object;)Ljava/util/Optional;	true	STORE_RETURN_NEW	0	OPTIONAL_VALUE	-	-
 java/util/Optional	ofNullable	(Ljava/lang/Object;)Ljava/util/Optional;	true	STORE_RETURN_NEW	0	OPTIONAL_VALUE	-	-

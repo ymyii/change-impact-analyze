@@ -28,13 +28,16 @@ public final class JdkModels {
      *
      * @param options configured WALA analysis options
      * @param hierarchy active class hierarchy
+     * @param definition version-specific model definition
      * @return per-hierarchy model session
      */
     public static JdkModelSession install(
             final AnalysisOptions options,
-            final IClassHierarchy hierarchy) {
+            final IClassHierarchy hierarchy,
+            final JdkModelDefinition definition) {
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(hierarchy, "hierarchy");
+        Objects.requireNonNull(definition, "definition");
         final MethodTargetSelector parent = options.getMethodTargetSelector();
         if (parent == null) {
             throw new JdkModelException(
@@ -42,14 +45,16 @@ public final class JdkModels {
         }
         final ModelSyntheticTypes syntheticTypes =
                 new ModelSyntheticTypes(hierarchy);
-        final ModelStateClass state = new ModelStateClass(hierarchy);
+        final ModelStateClass state = new ModelStateClass(
+                hierarchy, definition.modelId());
         syntheticTypes.register(state);
         final JdkSummaryBuilder builder = new JdkSummaryBuilder(
                 hierarchy, state, syntheticTypes);
         final Map<MethodReference, MethodSummary> summaries =
                 new LinkedHashMap<>();
         final Set<MethodReference> unavailable = new LinkedHashSet<>();
-        final List<CatalogEntry> entries = new JdkModelCatalog().load();
+        final List<CatalogEntry> entries = new JdkModelCatalog().load(
+                definition);
         final CatalogContractValidator validator =
                 new CatalogContractValidator(hierarchy);
         validator.validateNativeConflicts(entries);
@@ -69,7 +74,7 @@ public final class JdkModels {
             }
         }
         final JdkModelSession session = new JdkModelSession(
-                summaries.keySet(), unavailable);
+                definition.modelId(), summaries.keySet(), unavailable);
         options.setSelector(new RecordingBypassMethodTargetSelector(
                 parent, summaries, hierarchy, session));
         return session;

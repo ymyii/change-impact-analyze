@@ -3,121 +3,136 @@ title: "JDK Method Models"
 type: feature
 relations:
   - path: "wiki/runbooks/jdk-models-build-test.md"
-    desc: "独立 module 的构建、跨版本验证与 failure entrypoint"
+    desc: "公共 engine 与 JDK 8 model 的独立构建、验收和 failure entrypoint"
+  - path: "wiki/rules/release-versioning.md"
+    desc: "两个 model artifact 的独立 SemVer 与发布约束"
 code_refs:
   - path: "models/jdk/pom.xml"
-    desc: "独立 Maven module、WALA/test dependencies 与 Checkstyle gate"
+    desc: "公共 engine artifact、SemVer gate 与 flattened consumer POM"
+  - path: "models/jdk8/pom.xml"
+    desc: "JDK 8 model artifact、公共 engine dependency 与独立 SemVer gate"
   - path: "models/jdk/src/main/java/io/github/dependencyanalysis/models/jdk/JdkModels.java"
-    desc: "公共 install/supports API 与 per-hierarchy 安装边界"
+    desc: "definition 驱动的公共 install/supports API"
+  - path: "models/jdk/src/main/java/io/github/dependencyanalysis/models/jdk/JdkModelDefinition.java"
+    desc: "model ID 与版本专属 catalog resource contract"
   - path: "models/jdk/src/main/java/io/github/dependencyanalysis/models/jdk/JdkModelSession.java"
-    desc: "per-builder target hit recorder 与 deterministic snapshot"
+    desc: "per-hierarchy target hit recorder 与 deterministic snapshot"
   - path: "models/jdk/src/main/java/io/github/dependencyanalysis/models/jdk/JdkModelMetadata.java"
     desc: "immutable catalog/available/unavailable/hit metadata"
   - path: "models/jdk/src/main/java/io/github/dependencyanalysis/models/jdk/JdkModelException.java"
-    desc: "catalog、contract 与 Synthetic IR blocking failure"
+    desc: "catalog、contract与Synthetic IR blocking failure"
   - path: "models/jdk/src/main/java/io/github/dependencyanalysis/models/jdk/JdkModelCatalog.java"
-    desc: "committed TSV catalog parser 与 duplicate detection"
-  - path: "models/jdk/src/main/resources/io/github/dependencyanalysis/models/jdk/jdk-models.tsv"
-    desc: "精确 owner/name/descriptor/static/template/state/callback catalog"
+    desc: "definition-owned TSV parsing与duplicate detection"
   - path: "models/jdk/src/main/java/io/github/dependencyanalysis/models/jdk/CatalogContractValidator.java"
-    desc: "resolved method、callback 与 WALA native summary conflict 验证"
+    desc: "resolved method、callback与WALA native-summary conflict验证"
   - path: "models/jdk/src/main/java/io/github/dependencyanalysis/models/jdk/JdkSummaryBuilder.java"
     desc: "declarative、resource 与 serialization Synthetic IR builder"
   - path: "models/jdk/src/main/java/io/github/dependencyanalysis/models/jdk/ModelStateClass.java"
-    desc: "per-hierarchy conservative global reference state"
+    desc: "model-specific synthetic global reference state"
   - path: "models/jdk/src/main/java/io/github/dependencyanalysis/models/jdk/ModelSyntheticTypes.java"
-    desc: "interface/abstract return 的 Synthetic placeholder registry"
+    desc: "interface/abstract return的Synthetic placeholder registry"
   - path: "models/jdk/src/main/java/io/github/dependencyanalysis/models/jdk/RecordingBypassMethodTargetSelector.java"
     desc: "exact available-target bypass、fallback delegation 与 hit recording"
-  - path: "models/jdk/src/test/java/io/github/dependencyanalysis/models/jdk/JdkSummaryTemplateTest.java"
-    desc: "全部 template 的 JDK 8 IR generation gate"
-  - path: "models/jdk/src/test/java/io/github/dependencyanalysis/models/jdk/JdkRuntimeCompatibilityTest.java"
-    desc: "host JDK jrt:/ layout compatibility gate"
-  - path: "models/jdk/src/test/java/io/github/dependencyanalysis/models/jdk/JdkModelFixedPointAcceptanceTest.java"
-    desc: "RTA、ZeroCFA 与 optimized ZeroX direct WALA acceptance"
+  - path: "models/jdk8/src/main/java/io/github/dependencyanalysis/models/jdk8/Jdk8Models.java"
+    desc: "JDK 8 model definition 与安装 façade"
+  - path: "models/jdk8/src/main/resources/io/github/dependencyanalysis/models/jdk8/jdk8-models.tsv"
+    desc: "384 个精确 JDK 8 public method contracts"
+  - path: "models/jdk8/src/test/java/io/github/dependencyanalysis/models/jdk8/Jdk8ModelFixedPointAcceptanceTest.java"
+    desc: "三种 Call Graph algorithm 的 direct WALA acceptance"
 ---
 
 # Feature: JDK Method Models
 
 ## Summary
 
-`models/jdk` 是不依赖 Analyzer 的普通 JAR，以 WALA `MethodSummary` / `SummarizedMethod` 为稳定 public JDK method contract 生成 conservative Synthetic Intermediate Representation（Synthetic IR）。目标是保留 application receiver、points-to、容器元素、callback 和 serialization hook，同时避免 Call Graph 为高频 JDK API 深入大量内部实现。
+JDK Method Models 由两个不依赖 Analyzer 的普通 JAR 组成。`models/jdk` 提供可复用的 WALA Synthetic Intermediate Representation（Synthetic IR）engine/API；`models/jdk8` 提供精确 JDK 8 catalog 与安装 façade。模型保留 application receiver、points-to、容器元素、callback 和 serialization hook，同时避免 Call Graph 为高频 JDK API 深入大量内部实现。
 
-本页只描述独立 module。它尚未加入 root Maven reactor，也尚未接入 `impact`、Call Graph strategy、CLI、Diagnostic、Report 或 pipeline。主流程接入属于第二部分。
+该能力尚未加入 root Maven reactor，也尚未接入 `impact`、Call Graph strategy、CLI、Diagnostic、Report 或 pipeline。主流程接入属于第二部分。
 
-## Artifact and Public API
+## Design Decisions
 
-- Maven coordinate：`io.github.dependencyanalysis:dependency-analyzer-jdk-models:${revision}`。
-- Java package：`io.github.dependencyanalysis.models.jdk`。
-- model ID：`jdk`。
-- `JdkModels.install(AnalysisOptions, IClassHierarchy)` 在现有 selector 外安装模型，返回新的 `JdkModelSession`。
-- `JdkModelSession.snapshot()` 返回 deterministic immutable `JdkModelMetadata`，包含 catalog、available、unavailable 和实际 hit target。
-- `JdkModelException` 表达 duplicate、resolved contract mismatch、callback/native conflict、serialization contract 与 Synthetic IR generation failure。
+- 公共 engine 与版本专属 catalog 分离。未来 JDK 版本通过新的 model module 引用 `models/jdk`，不在公共 JAR 中混合多个版本的 target。
+- JDK 8 只约束被分析的 public API。两个 model JAR 按项目 Java 17 runtime 编译和执行，不承诺在 Java 8 JVM 运行。
+- 两个 artifact 独立使用 Semantic Versioning（SemVer）；公共 API 与 JDK 8 coverage 可独立演进和发布。
+- 使用 exact method target 和 conservative global family state。允许 points-to over-approximation，不使用 package ignore、whole-JDK exclusion 或通用 no-op fallback 丢失 application method。
+- JDK 8 reference hierarchy 必须完整解析 catalog；公共 engine 仍保留 unavailable/delegation，以支持不完整 hierarchy 和未来版本 module。
 
-安装前 `AnalysisOptions` 必须已有 WALA default selector/native bypass。安装后不得调用会重装 selector 的 convenience builder factory；例如 RTA 应直接构造 `BasicRTABuilder`。module 不持有 Analyzer 类型，也不跨 hierarchy、builder 或线程复用 session。
+## Actors / Entrypoints
+
+- 版本专属 module 通过 `JdkModelDefinition` 提供稳定 model ID、resource anchor 与 absolute catalog resource。
+- Call Graph builder owner 在配置 WALA default selector/native bypass 后调用 `Jdk8Models.install(AnalysisOptions, IClassHierarchy)`。
+- 构图完成后调用 `JdkModelSession.snapshot()` 获取 catalog、available、unavailable 和 hit metadata。
+
+公共 engine 的低层入口如下；业务调用方应优先使用版本 façade：
 
 ```java
-Util.addDefaultSelectors(options, hierarchy);
-Util.addDefaultBypassLogic(
-        options, Util.class.getClassLoader(), hierarchy);
-JdkModelSession session = JdkModels.install(options, hierarchy);
+JdkModelDefinition definition = new JdkModelDefinition(
+        "jdk8", Jdk8Models.class,
+        "/io/github/dependencyanalysis/models/jdk8/jdk8-models.tsv");
+JdkModelSession session = JdkModels.install(
+        options, hierarchy, definition);
 ```
 
-## Catalog and Capability Detection
+## Behavior Contract
 
-committed TSV catalog 使用精确 JVM owner、method name、descriptor、static flag、semantic template、state slot 与 callback parameter 描述 target。当前 catalog 包含 385 个 target。
+- 公共 coordinate：`io.github.dependencyanalysis:dependency-analyzer-jdk-models:0.1.0-SNAPSHOT`；package 为 `io.github.dependencyanalysis.models.jdk`。
+- JDK 8 coordinate：`io.github.dependencyanalysis:dependency-analyzer-jdk8-models:0.1.0-SNAPSHOT`；package 为 `io.github.dependencyanalysis.models.jdk8`；model ID 固定为 `jdk8`。
+- JDK 8 catalog 包含 384 个 JDK 8 public targets，不包含 Java 16 引入的 `Stream.toList()`。
+- duplicate target、resolved static contract mismatch、callback target/dispatch mismatch、WALA `natives.xml` conflict、无法生成 Synthetic IR 和必要 serialization constructor 缺失均抛出 `JdkModelException`。
+- unavailable target 不被替换并委托原 selector；只有 available exact target 返回 `SummarizedMethod` 并计入 session hit。
+- session 为 per-hierarchy、per-builder mutable recorder；snapshot 为稳定排序的 immutable metadata，不跨 Call Graph 或线程复用。
+- synthetic state type 包含 model ID；同一 hierarchy 中不同版本模型不会共享同名 state class。
 
-安装时逐项执行：
+## Core Flow
 
-1. duplicate catalog identity 直接失败。
-2. 当前 Class Hierarchy Analysis（CHA）可解析且 static contract 一致的 target 进入 available set并生成 summary。
-3. 当前 runtime 不存在的 target 进入 unavailable set；selector继续委托原实现，不阻塞其他模型。
-4. callback owner/method/descriptor/dispatch、argument index 与 WALA `natives.xml` conflict fail-fast。
-5. 只有 available exact target会被 bypass；未建模 method继续使用真实 JDK IR。
-
-该机制不依赖 JDK 8 `rt.jar` layout。测试同时覆盖配置的 JDK 8 `rt.jar` 和 Maven test JVM 的 JDK 17 `jrt:/` module image。跨版本能力来自运行时解析 public contract，不代表任意未来 JDK 的新增 API 自动获得语义；新增 target仍须进入 catalog。
-
-## Conservative State and Return Types
-
-每次安装向当前 hierarchy 的 Synthetic loader注册 module-owned state class。static field按 collection element、map key/value、stream element、optional value、future result、ThreadLocal value、atomic value、byte/char buffer、resource与serialized object分类。
-
-- 写操作把 application reference合并到对应 slot；读操作从 slot返回。
-- global family state允许不同实例互相污染，可能增加 false positive，但不丢失 application type。
-- concrete return直接分配 declared type；interface/abstract return使用 WALA Synthetic placeholder。
-- primitive return使用 conservative default；primitive functional callback仍生成显式 invoke edge。
-- 未使用 package ignore、whole-JDK exclusion或通用 no-op fallback。
+1. `Jdk8Models` 创建固定 `jdk8` definition并委托公共 engine。
+2. engine 从版本 module 的 classpath读取 TSV，校验 identity、descriptor、static flag、callback、state slot 和 native-summary ownership。
+3. engine为当前 hierarchy注册 model-specific synthetic state与interface/abstract return placeholder。
+4. available target生成`MethodSummary`；unavailable target只写入metadata。
+5. recording `BypassMethodTargetSelector`包装原 selector，仅替换exact available target并记录实际hit。
+6. WALA builder继续fixed point；未建模method使用真实JDK IR，application callback由summary中的显式invoke进入Call Graph。
 
 ## Coverage
 
-- Collection：`Iterable`、iterator、Collection/List/Set/Map/Entry、Queue/Deque、sorted/navigable view、常见 concrete collection、legacy collection、ConcurrentMap、concurrent/skip-list/copy-on-write/blocking collection、`Collections` 与 `Arrays` 高频操作。
-- Stream/Optional：object/primitive Stream、BaseStream、object/primitive Optional、factory、intermediate/terminal operation与 functional interface callback。
-- Text/value：String、StringBuilder/StringBuffer、StringJoiner、Formatter、Scanner、Pattern/Matcher、Objects、UUID、wrapper、BigInteger/BigDecimal、Random、Locale/Currency/ResourceBundle与Base64。
-- Time：Clock、Instant、Duration、Period、local/offset/zoned types、Zone、Year/Month、DateTimeFormatter、legacy Date/Calendar/TimeZone/DateFormat；TemporalQuery/TemporalAdjuster显式 callback。
-- Concurrency：Lock/ReadWriteLock/Condition/StampedLock、同步器、Atomic/LongAdder、ThreadLocal、Executor/ScheduledExecutor、Future/ForkJoin、CompletionStage/CompletableFuture；Runnable、Callable与 completion callback进入 Call Graph。
-- Resource：stream/reader/writer、File/RandomAccessFile、Path/Files、Buffer/Channel、Charset、URI/URL/URLConnection/InetAddress、ZIP/GZIP/JAR；FileVisitor与DirectoryStream Filter显式 callback。
-- Serialization：扫描 concrete Serializable/Externalizable application type，保留 private read/write hook、readResolve/writeReplace、Externalizable、ObjectInputValidation、stream subclass hook及首个 non-serializable superclass zero-argument constructor。
+- Collection：Iterable、Iterator、Collection/List/Set/Map/Entry、Queue/Deque、sorted/navigable variant、常见 concrete/legacy/concurrent collection、`Collections` 与 `Arrays`。
+- Stream/Optional：object/primitive Stream、BaseStream、object/primitive Optional、factory、intermediate/terminal operation 与 functional interface callback。
+- Text/value：String、builder/buffer、StringJoiner、Formatter、Scanner、Pattern/Matcher、Objects、UUID、wrapper、BigInteger/BigDecimal、Random、Locale/Currency/ResourceBundle 与 Base64。
+- Time：`java.time`、DateTimeFormatter、legacy Date/Calendar/TimeZone/DateFormat，以及 TemporalQuery/TemporalAdjuster callback。
+- Concurrency：Lock/Condition/synchronizer、Atomic、ThreadLocal、Executor、Future/ForkJoin 与 CompletableFuture callback。
+- Resource：I/O、NIO、Path/Files、Buffer/Channel、Charset、URI/URL、ZIP/GZIP/JAR、FileVisitor 与 DirectoryStream Filter。
+- Serialization：concrete Serializable/Externalizable application type、private read/write hook、readResolve/writeReplace、ObjectInputValidation、stream subclass hook及首个non-serializable superclass zero-argument constructor。
 
-Class/Reflection、Proxy、ClassLoader、ServiceLoader、MethodHandle与`invokedynamic`不属于该 module。
+Class/Reflection、Proxy、ClassLoader、ServiceLoader、MethodHandle 与 `invokedynamic` 不属于这两个 module。
 
-## Serialization Contract
+## Acceptance Criteria
 
-`ObjectOutputStream.writeObject` 将输入写入 global serialization state并调用候选 write hook。`ObjectInputStream.readObject` 为全部 concrete application Serializable/Externalizable type分配候选值、调用 read hook、合并返回并调用 resolve hook。
+### Functional
 
-stream subclass覆盖的 annotate/descriptor/header/resolve hook也进入 summary。首个 non-serializable superclass找不到 zero-argument constructor时安装失败，不静默生成不完整模型。`registerValidation` 显式调用传入 `ObjectInputValidation.validateObject()`。
+- Given 配置的完整 JDK 8 `rt.jar`，When 安装 `Jdk8Models`，Then catalog/available 均为 384、unavailable 为 0，且没有 post-JDK 8 target。
+- Given 已安装 WALA default selector，When available target 被解析，Then 返回 `SummarizedMethod`、记录 deterministic hit，并保留 application points-to 与 callback edge。
+- Given target 不存在于当前 hierarchy，When selector查询该 target，Then session记录 unavailable 且调用委托到原 selector。
+- Given collection、Stream、Temporal、async、resource 或 serialization fixture，When RTA、ZeroCFA、optimized ZeroX 完成 fixed point，Then required application callback、business receiver 与 downstream method 可达。
+- Given lightweight同源fixture，When分别构建models-on和models-off Call Graph，Then models-on reachable application method set包含models-off集合。
 
-## Acceptance
+### Non-Functional
 
-- catalog parser、duplicate、descriptor/static/callback/native conflict、metadata排序、unavailable fallback和selector delegation通过 unit gate。
-- 每个 semantic template都必须在真实 JDK 8 hierarchy生成非空且可构造 IR的 `SummarizedMethod`。
-- direct WALA fixture分别运行 `BasicRTABuilder`、class-based ZeroCFA和 optimized ZeroX policy；application callback、business downstream、serialization hook与state propagation必须可达。
-- lightweight同源 fixture的 model-on application method set必须包含 model-off set。
-- modeled target必须出现 `SummarizedMethod`，且典型 Stream pipeline与AbstractQueuedSynchronizer内部实现不继续展开。
-- JAR必须包含 public API和catalog，不包含 Analyzer class，也不 shade WALA。
+- [x] 公共与JDK 8 artifact使用独立SemVer和flattened consumer POM。
+- [x] model JAR不shade WALA，也不包含Analyzer class。
+- [x] host JDK `jrt:/` test验证公共engine没有`rt.jar` layout依赖。
+- [x] JDK 8 fixed-point test记录wall time、nodes、edges、JDK nodes和hit count，但不设置性能硬阈值。
+- [ ] `impact`接入、CLI toggle、Diagnostic与Report metadata留待第二部分。
 
 ## Edge Cases
 
-- unavailable target不是 coverage failure；它自动委托真实 JDK method target selector。
-- global state可能把无关实例合并，属于接受的 over-approximation。
-- runtime class存在但 descriptor/static/callback contract不一致时属于 blocking model failure。
-- 重复安装或错误安装顺序可能造成 selector stacking；第二部分接入时必须由唯一 AnalysisOptions factory控制。
-- module当前不能从 `impact` CLI启用；没有 `--jdk-models` 或 Report metadata。
+- 将`Jdk8Models`安装到非JDK 8 hierarchy不属于兼容性承诺；公共engine仍会按available/unavailable安全退化。
+- global family state可能合并无关实例，属于接受的false positive；不得因此改为instance-blind no-op。
+- 缺失原selector、错误安装顺序或重复selector stacking属于调用方配置错误。
+- 首个non-serializable superclass缺少可解析zero-argument constructor时安装失败，不静默省略constructor edge。
+- catalog resource必须由definition anchor的ClassLoader可见，并使用absolute classpath path。
+
+## Implementation Boundaries
+
+- `models/jdk`只拥有公共definition、parser、validator、summary engine、synthetic state/type、selector与metadata；production JAR不包含版本catalog。
+- `models/jdk8`只拥有JDK 8 façade、catalog和版本专属acceptance；通过精确version dependency引用公共engine。
+- 两个module继续继承root parent，但不属于root `<modules>`；独立build不会触发Analyzer或`impact` tests。
+- 第二部分才允许修改root/analyzer POM、Call Graph安装顺序、CLI、pipeline、Diagnostic、Report与benchmark。

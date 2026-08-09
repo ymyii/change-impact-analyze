@@ -42,6 +42,7 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 
+/** Backend-style JDK 8 model acceptance fixture. */
 public final class JdkModelFixture {
 
     private static Object sink;

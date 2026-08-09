@@ -1,0 +1,21 @@
+# owner	name	descriptor	static	template	dataArg	stateSlot	callbacks	resultSlot
+java/util/Collection	addAll	(Ljava/util/Collection;)Z	false	NO_OP	-	-	-	-
+java/lang/StringBuilder	append	(Ljava/lang/String;)Ljava/lang/StringBuilder;	false	RETURN_THIS	-	-	-	-
+java/util/Objects	requireNonNull	(Ljava/lang/Object;)Ljava/lang/Object;	true	RETURN_ARG	0	-	-	-
+java/util/Collections	emptyList	()Ljava/util/List;	true	RETURN_NEW	-	-	-	-
+java/util/Collection	add	(Ljava/lang/Object;)Z	false	STORE	0	COLLECTION_ELEMENT	-	-
+java/nio/ByteBuffer	put	([B)Ljava/nio/ByteBuffer;	false	STORE_RETURN_THIS	0	BYTE_BUFFER	-	-
+java/util/stream/Stream	of	(Ljava/lang/Object;)Ljava/util/stream/Stream;	true	STORE_RETURN_NEW	0	STREAM_ELEMENT	-	-
+java/util/Map	put	(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;	false	MAP_STORE	-	-	-	-
+java/util/Collections	singletonMap	(Ljava/lang/Object;Ljava/lang/Object;)Ljava/util/Map;	true	MAP_STORE_RETURN_NEW	-	-	-	-
+java/util/Iterator	next	()Ljava/lang/Object;	false	LOAD	-	COLLECTION_ELEMENT	-	-
+java/util/Collection	stream	()Ljava/util/stream/Stream;	false	COPY_NEW	-	COLLECTION_ELEMENT	-	STREAM_ELEMENT
+java/lang/Iterable	forEach	(Ljava/util/function/Consumer;)V	false	CALLBACK_VOID	-	-	0@java/util/function/Consumer#accept#(Ljava/lang/Object;)V#INTERFACE@slot:COLLECTION_ELEMENT	-
+java/util/Optional	filter	(Ljava/util/function/Predicate;)Ljava/util/Optional;	false	CALLBACK_THIS	-	-	0@java/util/function/Predicate#test#(Ljava/lang/Object;)Z#INTERFACE@slot:OPTIONAL_VALUE	-
+java/util/Optional	orElseGet	(Ljava/util/function/Supplier;)Ljava/lang/Object;	false	CALLBACK_RESULT	-	-	0@java/util/function/Supplier#get#()Ljava/lang/Object;#INTERFACE@-	OPTIONAL_VALUE
+java/util/stream/Stream	map	(Ljava/util/function/Function;)Ljava/util/stream/Stream;	false	CALLBACK_NEW	-	-	0@java/util/function/Function#apply#(Ljava/lang/Object;)Ljava/lang/Object;#INTERFACE@slot:STREAM_ELEMENT	STREAM_ELEMENT
+java/nio/file/Files	walkFileTree	(Ljava/nio/file/Path;Ljava/nio/file/FileVisitor;)Ljava/nio/file/Path;	true	FILE_VISITOR	1	-	-	-
+java/nio/file/Files	lines	(Ljava/nio/file/Path;)Ljava/util/stream/Stream;	true	RESOURCE_STREAM	-	-	-	-
+java/io/ObjectOutputStream	writeObject	(Ljava/lang/Object;)V	false	SERIALIZE_WRITE	-	-	-	-
+java/io/ObjectInputStream	readObject	()Ljava/lang/Object;	false	SERIALIZE_READ	-	-	-	-
+java/io/ObjectInputStream	registerValidation	(Ljava/io/ObjectInputValidation;I)V	false	SERIALIZE_VALIDATE	-	-	-	-

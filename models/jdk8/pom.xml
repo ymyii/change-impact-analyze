@@ -11,18 +11,24 @@
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
-    <artifactId>dependency-analyzer-jdk-models</artifactId>
+    <artifactId>dependency-analyzer-jdk8-models</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <packaging>jar</packaging>
-    <name>Dependency Analyzer JDK Models</name>
-    <description>Common engine and API for version-specific JDK Synthetic IR models</description>
+    <name>Dependency Analyzer JDK 8 Models</name>
+    <description>Conservative WALA Synthetic IR models for public JDK 8 APIs</description>
 
     <properties>
+        <jdk-models.version>0.1.0-SNAPSHOT</jdk-models.version>
         <maven.compiler.release>17</maven.compiler.release>
         <flatten-maven-plugin.version>1.6.0</flatten-maven-plugin.version>
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>io.github.dependencyanalysis</groupId>
+            <artifactId>dependency-analyzer-jdk-models</artifactId>
+            <version>${jdk-models.version}</version>
+        </dependency>
         <dependency>
             <groupId>com.ibm.wala</groupId>
             <artifactId>com.ibm.wala.core</artifactId>
@@ -68,6 +74,11 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <environmentVariables>
+                        <TEST_JDK8_HOME>${test.jdk8.home}</TEST_JDK8_HOME>
+                    </environmentVariables>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -111,7 +122,7 @@
                 <artifactId>maven-enforcer-plugin</artifactId>
                 <executions>
                     <execution>
-                        <id>jdk-model-version-contract</id>
+                        <id>jdk8-model-version-contract</id>
                         <goals>
                             <goal>enforce</goal>
                         </goals>
@@ -120,7 +131,12 @@
                                 <requireProperty>
                                     <property>project.version</property>
                                     <regex>[0-9]+\.[0-9]+\.[0-9]+(-SNAPSHOT)?</regex>
-                                    <regexMessage>JDK model version must be SemVer X.Y.Z or X.Y.Z-SNAPSHOT</regexMessage>
+                                    <regexMessage>JDK 8 model version must be SemVer X.Y.Z or X.Y.Z-SNAPSHOT</regexMessage>
+                                </requireProperty>
+                                <requireProperty>
+                                    <property>jdk-models.version</property>
+                                    <regex>[0-9]+\.[0-9]+\.[0-9]+(-SNAPSHOT)?</regex>
+                                    <regexMessage>JDK engine version must be SemVer X.Y.Z or X.Y.Z-SNAPSHOT</regexMessage>
                                 </requireProperty>
                             </rules>
                         </configuration>
@@ -140,7 +156,7 @@
                         <artifactId>maven-enforcer-plugin</artifactId>
                         <executions>
                             <execution>
-                                <id>jdk-model-release-contract</id>
+                                <id>jdk8-model-release-contract</id>
                                 <goals>
                                     <goal>enforce</goal>
                                 </goals>
@@ -149,7 +165,12 @@
                                         <requireProperty>
                                             <property>project.version</property>
                                             <regex>[0-9]+\.[0-9]+\.[0-9]+</regex>
-                                            <regexMessage>JDK model release must use stable SemVer X.Y.Z</regexMessage>
+                                            <regexMessage>JDK 8 model release must use stable SemVer X.Y.Z</regexMessage>
+                                        </requireProperty>
+                                        <requireProperty>
+                                            <property>jdk-models.version</property>
+                                            <regex>[0-9]+\.[0-9]+\.[0-9]+</regex>
+                                            <regexMessage>JDK engine release dependency must use stable SemVer X.Y.Z</regexMessage>
                                         </requireProperty>
                                         <requireReleaseDeps/>
                                     </rules>

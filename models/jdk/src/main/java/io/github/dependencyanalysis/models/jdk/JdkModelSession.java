@@ -12,7 +12,7 @@ import java.util.Set;
 public final class JdkModelSession {
 
     /** Stable model identifier. */
-    public static final String MODEL_ID = "jdk";
+    private final String modelId;
 
     /** Available modeled targets. */
     private final Set<MethodReference> available;
@@ -24,8 +24,11 @@ public final class JdkModelSession {
     private final Set<MethodReference> hits = new LinkedHashSet<>();
 
     JdkModelSession(
+            final String installedModelId,
             final Collection<MethodReference> availableTargets,
             final Collection<MethodReference> unavailableTargets) {
+        modelId = Objects.requireNonNull(installedModelId,
+                "installedModelId");
         available = Set.copyOf(Objects.requireNonNull(
                 availableTargets, "availableTargets"));
         unavailable = Set.copyOf(Objects.requireNonNull(
@@ -47,7 +50,7 @@ public final class JdkModelSession {
         final List<String> availableValues = sorted(available);
         final List<String> unavailableValues = sorted(unavailable);
         final List<String> hitValues = sorted(hits);
-        return new JdkModelMetadata(MODEL_ID,
+        return new JdkModelMetadata(modelId,
                 availableValues.size() + unavailableValues.size(),
                 availableValues.size(), unavailableValues.size(),
                 hitValues.size(), availableValues, unavailableValues,

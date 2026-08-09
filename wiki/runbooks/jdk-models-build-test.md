@@ -3,131 +3,153 @@ title: "JDK Models Build and Test"
 type: runbook
 relations:
   - path: "wiki/features/jdk-method-models.md"
-    desc: "public API、catalog、conservative semantics与acceptance contract"
+    desc: "公共 engine、JDK 8 catalog、保守语义与 acceptance contract"
+  - path: "wiki/rules/release-versioning.md"
+    desc: "两个 model artifact 的独立 SemVer 与 Stable release gate"
 code_refs:
   - path: "models/jdk/pom.xml"
-    desc: "独立 build、test JVM environment 与 Checkstyle配置"
-  - path: "models/jdk/src/main/resources/io/github/dependencyanalysis/models/jdk/jdk-models.tsv"
-    desc: "committed exact-method catalog"
-  - path: "models/jdk/src/test/java/io/github/dependencyanalysis/models/jdk/TestHierarchies.java"
-    desc: "JDK 8 rt.jar、host jrt:/ 与Java 8 fixture compiler setup"
+    desc: "公共 engine build、SemVer、flatten与Packaging gate"
+  - path: "models/jdk8/pom.xml"
+    desc: "JDK 8 model dependency、JDK 8 test environment与Packaging gate"
   - path: "models/jdk/src/test/java/io/github/dependencyanalysis/models/jdk/JdkModelsTest.java"
-    desc: "install、metadata、selector与cross-version fallback gate"
+    desc: "definition、metadata、selector、unavailable与native conflict gate"
   - path: "models/jdk/src/test/java/io/github/dependencyanalysis/models/jdk/JdkSummaryTemplateTest.java"
-    desc: "catalog contract与全部template IR gate"
-  - path: "models/jdk/src/test/java/io/github/dependencyanalysis/models/jdk/JdkRuntimeCompatibilityTest.java"
-    desc: "JDK 17 jrt:/ compatibility gate"
-  - path: "models/jdk/src/test/java/io/github/dependencyanalysis/models/jdk/JdkModelFixedPointAcceptanceTest.java"
-    desc: "三种algorithm的on/off、reachability与metric gate"
-  - path: "models/jdk/src/test/resources/fixtures/JdkModelFixture.java"
-    desc: "Java 8 compiled coverage与lightweight comparison fixture"
+    desc: "全部template的host jrt Synthetic IR gate"
+  - path: "models/jdk/src/test/java/io/github/dependencyanalysis/models/jdk/JdkPackagingIT.java"
+    desc: "公共普通JAR与无版本catalog验收"
+  - path: "models/jdk8/src/test/java/io/github/dependencyanalysis/models/jdk8/TestHierarchies.java"
+    desc: "JDK 8 rt.jar hierarchy与Java 8 fixture compiler setup"
+  - path: "models/jdk8/src/test/java/io/github/dependencyanalysis/models/jdk8/Jdk8ModelsTest.java"
+    desc: "384-target exact JDK 8 contract gate"
+  - path: "models/jdk8/src/test/java/io/github/dependencyanalysis/models/jdk8/Jdk8ModelFixedPointAcceptanceTest.java"
+    desc: "三种algorithm的on/off、reachability、serialization与metrics gate"
+  - path: "models/jdk8/src/test/java/io/github/dependencyanalysis/models/jdk8/Jdk8PackagingIT.java"
+    desc: "JDK 8 façade/catalog普通JAR验收"
 ---
 
 # Runbook: JDK Models Build and Test
 
 ## Summary
 
-本 runbook只构建和验收独立 `models/jdk` module。命令不会把 module加入 root reactor，不修改或验证 `impact` 主流程接入。
+本runbook按dependency顺序独立构建`models/jdk`公共engine与`models/jdk8`版本module。命令不把module加入root reactor，也不构建或验证`impact`主流程。
 
 ## Prerequisites
 
-- Maven JVM使用 Java 17 JDK。
+- Maven JVM使用Java 17 JDK。
 - Maven 3.x。
-- `test.jdk8.home` 指向完整 JDK 8，必须包含 `bin/java`、`bin/javac` 与 `jre/lib/rt.jar`。
-- 默认路径继承 root POM。其他环境通过 `-Dtest.jdk8.home=/absolute/path/to/jdk8` 覆盖。
-- Maven test JVM本身提供 JDK 17 `jrt:/` image和`javax.tools.JavaCompiler`。
-- 所有 command从repository root执行。
+- `test.jdk8.home`指向完整JDK 8，必须包含`bin/java`、`bin/javac`与`jre/lib/rt.jar`。
+- 默认JDK 8路径继承root POM；其他环境使用`-Dtest.jdk8.home=/absolute/path/to/jdk8`覆盖。
+- 所有command从repository root执行。
 
 ## Commands
 
-完整独立 quality gate：
+完整quality gate先安装公共engine，再验收JDK 8 module：
+
+```sh
+mvn -f models/jdk/pom.xml clean install
+mvn -f models/jdk8/pom.xml clean verify
+```
+
+覆盖JDK 8路径时，两条命令都传入相同property，因为两个POM继承root Enforcer：
+
+```sh
+mvn -f models/jdk/pom.xml \
+  -Dtest.jdk8.home=/absolute/path/to/jdk8 \
+  clean install
+mvn -f models/jdk8/pom.xml \
+  -Dtest.jdk8.home=/absolute/path/to/jdk8 \
+  clean verify
+```
+
+只验收公共engine：
 
 ```sh
 mvn -f models/jdk/pom.xml clean verify
 ```
 
-覆盖 JDK 8路径：
+只运行公共API/catalog/layout tests：
 
 ```sh
 mvn -f models/jdk/pom.xml \
-  -Dtest.jdk8.home=/absolute/path/to/jdk8 \
-  clean verify
-```
-
-只运行快速 API/catalog/runtime tests：
-
-```sh
-mvn -f models/jdk/pom.xml \
-  -Dtest=JdkModelCatalogTest,JdkModelsTest,JdkRuntimeCompatibilityTest \
+  -Dtest=JdkModelDefinitionTest,JdkModelCatalogTest,JdkModelsTest,JdkRuntimeCompatibilityTest \
   test
 ```
 
-只运行全部 template IR gate：
+只运行全部Synthetic IR template gate：
 
 ```sh
 mvn -f models/jdk/pom.xml -Dtest=JdkSummaryTemplateTest test
 ```
 
-只运行 direct WALA fixed-point acceptance：
+公共engine已安装后，只运行JDK 8 fixed-point acceptance：
 
 ```sh
-mvn -f models/jdk/pom.xml \
-  -Dtest=JdkModelFixedPointAcceptanceTest \
+mvn -f models/jdk8/pom.xml \
+  -Dtest=Jdk8ModelFixedPointAcceptanceTest \
   test
 ```
 
-检查普通 JAR内容：
+Packaging gate由Failsafe在`verify`阶段自动运行。人工检查使用：
 
 ```sh
-jar tf models/jdk/target/dependency-analyzer-jdk-models-*.jar
+jar tf models/jdk/target/dependency-analyzer-jdk-models-0.1.0-SNAPSHOT.jar
+jar tf models/jdk8/target/dependency-analyzer-jdk8-models-0.1.0-SNAPSHOT.jar
 ```
 
 ## Test Matrix
 
-| Gate | Runtime/scope | 核心断言 |
+| Gate | Module/runtime | 核心断言 |
 |---|---|---|
-| catalog/API | JDK 8 `rt.jar` | duplicate、descriptor/static、native conflict、metadata、selector delegation |
-| runtime compatibility | test JVM JDK 17 `jrt:/` | 无 JDK 8 layout假设；available/unavailable能力检测 |
-| template IR | JDK 8 `rt.jar` | 每个template生成非空合法 Synthetic IR；state put/get与callback invoke |
-| fixed point | JDK 8 `rt.jar` + `--release 8` fixture | Basic RTA、ZeroCFA、optimized ZeroX callback与business reachability |
-| packaging | Maven JAR | public API/catalog存在；无Analyzer class；WALA未shade |
+| definition/catalog/API | `models/jdk`, host JDK 17 | model ID、duplicate、descriptor/static、native conflict、metadata、selector delegation |
+| layout compatibility | `models/jdk`, JDK 17 `jrt:/` | 公共engine不依赖`rt.jar` layout |
+| template IR | `models/jdk`, JDK 17 `jrt:/` | 每个template生成合法Synthetic IR；state put/get与callback invoke |
+| exact contract | `models/jdk8`, JDK 8 `rt.jar` | catalog=384、available=384、unavailable=0、无post-JDK 8 target |
+| fixed point | `models/jdk8`, JDK 8 `rt.jar` + `--release 8` fixture | Basic RTA、ZeroCFA、optimized ZeroX callback、serialization与business reachability |
+| packaging | 两个普通JAR | artifact职责分离；无Analyzer class；WALA未shade；flattened consumer POM可解析 |
 
-fixed-point test使用同一 source生成两类 entrypoint：lightweight fixture执行model on/off application method set比较；coverage fixture只用于完整 conservative callback与serialization gate，避免model-off深入整个JDK导致unit gate失控。
+fixed-point test使用同一source中的lightweight entrypoint比较models-on/off application method set；coverage entrypoint验证完整conservative callback、I/O与serialization行为，避免models-off展开整个JDK使unit gate失控。
 
 ## Metrics
 
-fixed-point test在以下路径记录非门禁指标：
+JDK 8 fixed-point test记录非门禁metrics：
 
 ```text
-models/jdk/target/jdk-model-acceptance.tsv
+models/jdk8/target/jdk8-model-acceptance.tsv
 ```
 
-每行依次为algorithm、phase、models-enabled、elapsed nanoseconds、nodes、edges、JDK method count与hit count。`clean`会删除旧文件；性能值只用于同环境观察，不设置硬阈值。
+每行依次为algorithm、phase、models-enabled、elapsed nanoseconds、nodes、edges、JDK method count与hit count。`clean`删除旧文件；只比较同一环境结果，不设置性能硬阈值。
 
 ## Success Criteria
 
-- Maven输出`0 Checkstyle violations`。
-- unit、runtime、template与fixed-point tests全部通过且`Skipped: 0`。
-- JDK 8 catalog除显式跨版本`Stream.toList()`外均为available；JDK 17将该target识别为available。
-- 三种algorithm均命中model target并产生`SummarizedMethod`；required application callback与downstream method可达。
-- lightweight model-on application method set包含model-off set。
-- 输出JAR包含`JdkModels`、`JdkModelSession`、`JdkModelMetadata`、`JdkModelException`与`jdk-models.tsv`。
-- 输出JAR不含`io/github/dependencyanalysis/callgraph/`、`impact/`、`report/`或`com/ibm/wala/`class。
-- root `pom.xml`、`analyzer/pom.xml`与Analyzer source/tests未因本 module验收发生修改。
+- 两个module均输出`0 Checkstyle violations`，且所有test为`Failures: 0, Errors: 0, Skipped: 0`。
+- 公共gate运行16个unit tests与1个Packaging integration test；JDK 8 gate运行5个unit/fixed-point tests与1个Packaging integration test。
+- JDK 8 metadata为`modelId=jdk8`、catalog=384、available=384、unavailable=0。
+- 三种algorithm均命中model target并产生`SummarizedMethod`；required application callback、serialization hook与downstream method可达。
+- lightweight models-on application method set包含models-off set；Stream、AbstractQueuedSynchronizer、ObjectInputStream内部实现与URL protocol implementation不被继续展开。
+- 公共JAR包含`JdkModels`、`JdkModelDefinition`、session/metadata/exception与engine，不包含production catalog。
+- JDK 8 JAR包含`Jdk8Models`与`jdk8-models.tsv`，不包含公共engine class副本。
+- 两个JAR均不含Analyzer或`com/ibm/wala/`class；local repository中的flattened POM不依赖root parent解析。
+- root`pom.xml`、`analyzer/pom.xml`和Analyzer source/tests未因model验收发生修改。
 
 ## Failure Entrypoints
 
-- `test.jdk8.home must point to a complete JDK 8`：确认路径包含完整 JDK 8，或传入absolute `-Dtest.jdk8.home`。
-- `JDK model catalog is unavailable`：检查`jdk-models.tsv` resource path及JAR内容。
+- `test.jdk8.home must point to a complete JDK 8`：确认路径含完整JDK 8，或传入absolute`-Dtest.jdk8.home`。
+- 无法解析`dependency-analyzer-jdk-models`：先执行公共module的`clean install`，并确认`models/jdk8/pom.xml`中的`jdk-models.version`一致。
+- consumer尝试解析`${revision}` parent：确认公共module启用了Flatten Maven Plugin，并检查`models/jdk/target/flattened-pom.xml`。
+- `JDK model catalog is unavailable`：检查definition的absolute resource path、resource anchor与JAR内容。
 - `Duplicate catalog target`：按owner/name/descriptor删除duplicate；overload descriptor必须不同。
-- `Catalog static contract mismatch`：以当前 public JDK API校正static flag或descriptor。
-- `Catalog callback target is unresolved`：校正callback owner/name/descriptor/dispatch；不得改为no-op掩盖。
-- `Catalog conflicts with WALA native summaries`：删除overlap或先明确WALA native model ownership，禁止selector顺序覆盖。
+- `Catalog static contract mismatch`：以JDK 8 public API校正static flag或descriptor。
+- `Catalog callback target is unresolved`：校正callback owner/name/descriptor/dispatch；不得改成no-op掩盖。
+- `Catalog conflicts with WALA native summaries`：删除overlap或明确native model ownership，禁止用selector顺序覆盖。
 - `Serializable type has no resolvable first non-serializable constructor`：确认fixture/application hierarchy符合Java serialization constructor contract。
-- unit failure report：`models/jdk/target/surefire-reports/`。
-- Checkstyle failure：Maven Console中的file/line/check名称。
-- fixed-point reachability failure：先检查`JdkModelFixedPointAcceptanceTest`的hit target，再检查summary callback receiver、state slot与builder安装顺序。
+- unit/fixed-point failure：分别检查`models/jdk/target/surefire-reports/`和`models/jdk8/target/surefire-reports/`；Packaging failure检查对应`failsafe-reports/`。
+
+## Configuration
+
+- 公共artifact version由`models/jdk/pom.xml`的`project.version`维护。
+- JDK 8 artifact version由`models/jdk8/pom.xml`的`project.version`维护；公共dependency version由同一POM的`jdk-models.version`维护。
+- 默认profile接受Stable或Snapshot SemVer；`release` profile只接受Stable SemVer并拒绝Snapshot dependency。
 
 ## Isolation Boundary
 
-第一部分完成后仍然不能从`impact`启用模型。root reactor、Analyzer dependency、CLI option、Call Graph安装顺序、Diagnostic与Report metadata全部留给第二部分；不要在本 runbook的修复中顺带修改这些边界。
+第一部分完成后仍不能从`impact`启用模型。root reactor、Analyzer dependency、CLI option、Call Graph安装顺序、Diagnostic与Report metadata全部留给第二部分；不得在本runbook的故障修复中顺带修改这些边界。

@@ -19,10 +19,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 class JdkSummaryTemplateTest {
 
     @Test
-    void everyTemplateBuildsValidIrOnJdk8() throws Exception {
-        final IClassHierarchy hierarchy = TestHierarchies.jdk8();
+    void everyTemplateBuildsValidIrOnHostJdk() throws Exception {
+        final IClassHierarchy hierarchy = TestHierarchies.hostJdk();
         final ModelSyntheticTypes types = new ModelSyntheticTypes(hierarchy);
-        final ModelStateClass state = new ModelStateClass(hierarchy);
+        final ModelStateClass state = new ModelStateClass(
+                hierarchy, "engine-test");
         types.register(state);
         final JdkSummaryBuilder builder = new JdkSummaryBuilder(
                 hierarchy, state, types);
@@ -31,7 +32,7 @@ class JdkSummaryTemplateTest {
         final EnumSet<SummaryTemplate> generated = EnumSet.noneOf(
                 SummaryTemplate.class);
 
-        for (CatalogEntry entry : new JdkModelCatalog().load()) {
+        for (CatalogEntry entry : catalog()) {
             final IMethod resolved = hierarchy.resolveMethod(
                     entry.reference());
             if (resolved == null) {
@@ -55,9 +56,10 @@ class JdkSummaryTemplateTest {
     @Test
     void stateAndCallbackTemplatesEmitExpectedInstructions()
             throws Exception {
-        final IClassHierarchy hierarchy = TestHierarchies.jdk8();
+        final IClassHierarchy hierarchy = TestHierarchies.hostJdk();
         final ModelSyntheticTypes types = new ModelSyntheticTypes(hierarchy);
-        final ModelStateClass state = new ModelStateClass(hierarchy);
+        final ModelStateClass state = new ModelStateClass(
+                hierarchy, "engine-test");
         types.register(state);
         final JdkSummaryBuilder builder = new JdkSummaryBuilder(
                 hierarchy, state, types);
@@ -85,12 +87,17 @@ class JdkSummaryTemplateTest {
             final IClassHierarchy hierarchy,
             final String owner,
             final String selector) {
-        final CatalogEntry entry = new JdkModelCatalog().load().stream()
+        final CatalogEntry entry = catalog().stream()
                 .filter(value -> value.owner().equals(owner))
                 .filter(value -> (value.name() + value.descriptor())
                         .equals(selector))
                 .findFirst().orElseThrow();
         return builder.build(entry,
                 hierarchy.resolveMethod(entry.reference()));
+    }
+
+    private java.util.List<CatalogEntry> catalog() {
+        return new JdkModelCatalog().load(new JdkModelDefinition(
+                "engine-test", getClass(), "/engine-test-models.tsv"));
     }
 }
