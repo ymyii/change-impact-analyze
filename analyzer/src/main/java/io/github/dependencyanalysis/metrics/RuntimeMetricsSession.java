@@ -20,8 +20,12 @@ import java.util.concurrent.atomic.AtomicLong;
 /** Command-scoped asynchronous heap and business-pool metric sampler. */
 public final class RuntimeMetricsSession implements AutoCloseable {
 
-    /** Production interval. */
+    /** Production TRACE snapshot interval. */
     public static final Duration INTERVAL = Duration.ofSeconds(10L);
+
+    /** Production heap observation interval. */
+    public static final Duration OBSERVATION_INTERVAL =
+            Duration.ofMillis(100L);
 
     /** Bytes per MiB. */
     private static final double BYTES_PER_MIB = 1024.0 * 1024.0;
@@ -44,6 +48,21 @@ public final class RuntimeMetricsSession implements AutoCloseable {
     /** Sample sequence. */
     private final AtomicLong samples = new AtomicLong();
 
+    /** TRACE snapshot cadence. */
+    private final long logIntervalNanos;
+
+    /** Last TRACE snapshot time. */
+    private long lastLoggedNanos;
+
+    /** Peak observed heap usage. */
+    private long peakHeapUsed;
+
+    /** Peak observed committed heap. */
+    private long peakHeapCommitted;
+
+    /** Maximum configured heap observed by the command. */
+    private long heapMax = -1L;
+
     /** Closed flag. */
     private boolean closed;
 
@@ -52,15 +71,19 @@ public final class RuntimeMetricsSession implements AutoCloseable {
             final ManagedExecutorRegistry registry,
             final MemoryMXBean memoryBean,
             final ScheduledExecutorService scheduledExecutor,
-            final Duration interval) {
+            final Duration observationInterval,
+            final Duration logInterval) {
         log = Objects.requireNonNull(diagnosticLog, "log");
         executors = Objects.requireNonNull(registry, "executors");
         memory = Objects.requireNonNull(memoryBean, "memory");
         scheduler = scheduledExecutor;
+        logIntervalNanos = Objects.requireNonNull(logInterval, "logInterval")
+                .toNanos();
         if (scheduler != null) {
-            sample();
-            scheduler.scheduleWithFixedDelay(this::sample,
-                    interval.toMillis(), interval.toMillis(),
+            observe(true);
+            scheduler.scheduleWithFixedDelay(this::scheduledObserve,
+                    observationInterval.toMillis(),
+                    observationInterval.toMillis(),
                     TimeUnit.MILLISECONDS);
         }
     }
@@ -76,7 +99,8 @@ public final class RuntimeMetricsSession implements AutoCloseable {
                 new ManagedExecutorRegistry();
         if (!log.getVerbosity().includes(LogVerbosity.TRACE)) {
             return new RuntimeMetricsSession(log, registry,
-                    ManagementFactory.getMemoryMXBean(), null, INTERVAL);
+                    ManagementFactory.getMemoryMXBean(), null,
+                    OBSERVATION_INTERVAL, INTERVAL);
         }
         final ScheduledExecutorService scheduler =
                 Executors.newSingleThreadScheduledExecutor(runnable -> {
@@ -86,7 +110,8 @@ public final class RuntimeMetricsSession implements AutoCloseable {
                     return thread;
                 });
         return new RuntimeMetricsSession(log, registry,
-                ManagementFactory.getMemoryMXBean(), scheduler, INTERVAL);
+                ManagementFactory.getMemoryMXBean(), scheduler,
+                OBSERVATION_INTERVAL, INTERVAL);
     }
 
     /**
@@ -106,7 +131,7 @@ public final class RuntimeMetricsSession implements AutoCloseable {
             final ScheduledExecutorService scheduledExecutor,
             final Duration interval) {
         return new RuntimeMetricsSession(log, registry, memoryBean,
-                scheduledExecutor, interval);
+                scheduledExecutor, interval, interval);
     }
 
     /** @return Analyzer-owned pool registry */
@@ -116,17 +141,35 @@ public final class RuntimeMetricsSession implements AutoCloseable {
 
     /** Samples heap and all currently registered business pools. */
     synchronized void sample() {
+        observe(true);
+    }
+
+    private synchronized void scheduledObserve() {
+        observe(false);
+    }
+
+    private void observe(final boolean forceLog) {
         if (closed) {
             return;
         }
         final long sample = samples.incrementAndGet();
+        final long now = System.nanoTime();
         final long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(
-                System.nanoTime() - startedNanos);
+                now - startedNanos);
         try {
-            emitHeap(sample, elapsedMillis, memory.getHeapMemoryUsage());
-            for (ManagedExecutorRegistry.ExecutorMetrics pool
-                    : executors.snapshot()) {
-                emitPool(sample, elapsedMillis, pool);
+            final MemoryUsage heap = memory.getHeapMemoryUsage();
+            peakHeapUsed = Math.max(peakHeapUsed, heap.getUsed());
+            peakHeapCommitted = Math.max(peakHeapCommitted,
+                    heap.getCommitted());
+            heapMax = Math.max(heapMax, heap.getMax());
+            if (forceLog || lastLoggedNanos == 0L
+                    || now - lastLoggedNanos >= logIntervalNanos) {
+                lastLoggedNanos = now;
+                emitHeap(sample, elapsedMillis, heap);
+                for (ManagedExecutorRegistry.ExecutorMetrics pool
+                        : executors.snapshot()) {
+                    emitPool(sample, elapsedMillis, pool);
+                }
             }
         } catch (RuntimeException failure) {
             final DiagnosticContext context = DiagnosticContext.of(
@@ -139,6 +182,19 @@ public final class RuntimeMetricsSession implements AutoCloseable {
                             + failure.getClass().getSimpleName()
                             + ": " + failure.getMessage());
         }
+    }
+
+    private void emitSummary() {
+        final DiagnosticContext context = DiagnosticContext.of(
+                "runtime-metrics", "summary");
+        log.transientLog(context, DiagnosticLevel.TRACE,
+                LogVerbosity.TRACE,
+                "Runtime metrics summary; samples=" + samples.get()
+                        + "; peakHeapUsedMiB="
+                        + mebibytes(peakHeapUsed)
+                        + "; peakHeapCommittedMiB="
+                        + mebibytes(peakHeapCommitted)
+                        + "; heapMaxMiB=" + mebibytes(heapMax));
     }
 
     private void emitHeap(
@@ -192,9 +248,13 @@ public final class RuntimeMetricsSession implements AutoCloseable {
         if (closed) {
             return;
         }
-        closed = true;
         if (scheduler != null) {
             scheduler.shutdownNow();
         }
+        if (log.getVerbosity().includes(LogVerbosity.TRACE)) {
+            observe(false);
+            emitSummary();
+        }
+        closed = true;
     }
 }

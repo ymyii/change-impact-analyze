@@ -31,6 +31,18 @@ code_refs:
     desc: "per-CHA interface/abstract synthetic placeholder复用"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/ModuleCallGraphSession.java"
     desc: "live graph、CHA、cache、ownership 与 immutable model metadata"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphTopologyAnalyzer.java"
+    desc: "benchmark-only CGNode父榜、IMethod子榜、shortest path与SCC cycle"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphNodeIdentity.java"
+    desc: "Method、WALA Context、graph node id与walaSynthetic组成的精确CGNode identity"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphRankedNode.java"
+    desc: "父榜CGNode、related计数、IR与entrypoint path快照"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphRelatedMethod.java"
+    desc: "父CGNode下按IMethod聚合的related CGNode子榜"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/CallGraphDiagnosticsExporter.java"
+    desc: "Schema v2 CGNode topology/source/IR JSON原子输出"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/CallGraphMethodSourceBuilder.java"
+    desc: "PROJECT/reactor/dependency/JDK exact bytecode source 与 ASM fallback"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/ServiceLoaderProtocolIndex.java"
     desc: "immutable resource/provider protocol facts"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/ServiceLoaderProtocol.java"
@@ -193,6 +205,17 @@ RTA 使用 caller-local `IR`/`DefUse` 解析 `Lookup.findStatic*` 到 `invokeExa
 - Winner-only Structural Reference metadata在`makeCallGraph(...)`前经repository lease收集，并作为immutable `StructuralReferenceIndex`放入session；query阶段由`StructuralReferenceResolver`绑定ChangePoint。
 - 构图后禁止新增 node/edge、attachment overlay、重新扫描 whole scope classfile 或构建第二张 Call Graph。
 - Query 可 read-only 访问 graph predecessor、possible sites、reachable IR、dynamic evidence、model limitations、synthetic edge metadata 与 precomputed structural metadata。
+
+## Benchmark-only Topology Capture
+
+- `impact --call-graph-diagnostics-output <json>`只在显式设置时启用；未设置时`ModuleCallGraphEngine`不创建topology analyzer、不遍历ranking、不计算path、不执行decompilation。
+- Capture读取同一张已完成Call Graph并作为nullable immutable metadata进入session；不新增edge、不运行第二个builder、不改变Impact query或最终analysis status。JSON使用`schemaVersion: 2`并原子替换目标文件。
+- 父榜以精确CGNode为单位，不合并WALA Context。CGNode identity包含`owner + name + descriptor + origin + Context + graphNodeId + walaSynthetic`。Caller/Callee先按related CGNode count降序，再按distinct related IMethod、raw CGEdge与stable CGNode identity排序，各保留Top 10。
+- 每个父榜CGNode包含一个按IMethod聚合的Top 10子榜；子榜按该IMethod代表的related CGNode count、raw CGEdge与stable Method identity排序。每个子项保留完整count、deterministic前10个exact CGNode/Context example与omitted count；这一层用于定位同一Method因Context或points-to传播产生的节点膨胀，同时限制HTML与tracked TSV体积。不输出独立points-to set排行榜。
+- Ranking排除`getFakeRootNode()`、`getFakeWorldClinitNode()`及其incident edge；其他synthetic protocol Method保留。全图CGNode/CGEdge totals仍包含WALA sentinel。
+- 对每个Top CGNode执行reverse breadth-first search（BFS），为所有可达declared entrypoint CGNode生成一条deterministic shortest chain；同距离next step按stable CGNode identity解tie。BFS使用visited distance map，不重复展开recursion。
+- Iterative Kosaraju strongly connected component（SCC）标记self-loop与多CGNode cycle；path step和父榜CGNode同时输出`cycle`。无declared entrypoint path时输出`UNREACHABLE_FROM_DECLARED_ENTRYPOINTS`。
+- 每个父榜CGNode输出WALA IR。Capture保留`IMethod.isWalaSynthetic()`，避免将声明在JDK或dependency class上的`SummarizedMethod`误报为真实bytecode source。Source定位使用winner ownership：PROJECT/reactor classes directory、dependency `ArtifactCoord`对应repository JAR、target JDK 8 boot/ext JAR。Vineflower按exact owner/name/descriptor反编译；失败时输出ASM Method instructions；synthetic/WALA summary无bytecode时source为`UNAVAILABLE`，但仍展示IR。Multiline source与IR进入JSON/benchmark HTML，tracked TSV只保存各自status与SHA-256。
 
 ## Module Classification
 

@@ -35,6 +35,9 @@ class MethodBodyDecompilerTest {
     /** Test class owner. */
     private static final String OWNER = "com/example/Foo";
 
+    /** Constructor marker used by directory decompilation. */
+    private static final int DIRECTORY_MARKER = 4;
+
     /** Baseline artifact. */
     private static final ArtifactCoord OLD =
             new ArtifactCoord("g", "a", "jar", "1.0");
@@ -113,6 +116,23 @@ class MethodBodyDecompilerTest {
         assertThat(evidence.getNewMethod().getSource())
                 .contains("Foo()")
                 .contains("consume(4)");
+    }
+
+    @Test
+    void decompilesExactMethodFromClassesDirectory() throws Exception {
+        final Path classes = temporary.resolve("classes");
+        final Path classFile = classes.resolve(OWNER + ".class");
+        Files.createDirectories(classFile.getParent());
+        Files.write(classFile, classBytes(2, DIRECTORY_MARKER));
+
+        final DecompiledMethod result = decompiler.decompileMethod(
+                classes, OWNER, "value", "()I", "benchmark", "PROJECT");
+
+        assertThat(result.isAvailable()).isTrue();
+        assertThat(result.getSource())
+                .contains("value()")
+                .contains("return 2;")
+                .doesNotContain("value(int");
     }
 
     @Test

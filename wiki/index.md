@@ -20,7 +20,7 @@ code_refs: []
 ## Features
 
 ### [CLI Preflight and Diagnostics](features/cli-preflight-diagnostics.md)
-- Summary: stderr-only 五段 DiagnosticLog、retained/transient 边界、Preflight、verbosity，以及 `-vv` command-scoped Runtime Metrics。
+- Summary: stderr-only 五段 DiagnosticLog、Preflight、verbosity，以及`-vv`下100 ms heap observation、10 s snapshot与final peak summary。
 
 ### [Maven Runtime](features/maven-runtime.md)
 - Summary: 用户 executable、跨平台内嵌 Maven 3.6.3、两个独立 repository ZIP，以及 Stable/Snapshot 分离 cache 与 command-scoped settings。
@@ -47,7 +47,7 @@ code_refs: []
 - Summary: logical coordinate pair 经 repository lease 并行去重 diff；除stable method hash外，默认检测class/method/constructor/field Java 8 JVM access narrowing。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
-- Summary: 每Module由独立strategy构建selected WALA Call Graph；默认Basic RTA与bounded ReflectionOptions，两种ZeroX算法保持可选。
+- Summary: 每Module由独立strategy构建selected WALA Call Graph；可选Schema v2只读capture输出CGNode父榜、IMethod子榜、shortest path、cycle、source与IR。
 
 ### [JDK Method Models](features/jdk-method-models.md)
 - Summary: 独立`models/jdk`以exact catalog生成conservative WALA Synthetic IR；支持跨JDK layout能力检测，尚未接入`impact`。
@@ -78,6 +78,6 @@ code_refs: []
 - Summary: Maven Versions/Enforcer 驱动的 Snapshot iteration、Stable release、commit 与双 Git tag。
 
 ### [Impact Benchmark](runbooks/impact-benchmark.md)
-- Summary: 显式选择algorithm/ReflectionOptions运行42-dependency fixture，校验versioned path count与四页Report，并汇总三次以上同环境Wall/RSS中位数。
+- Summary: 三种algorithm执行3次warm-up与15个交错正式样本，固定输出self-contained HTML及Git管理的samples/summary/topology TSV；failure或topology drift不发布snapshot。
 
 ## Glossary

@@ -31,8 +31,8 @@ code_refs:
     desc: "Spring backend per-Module impact pipeline 编排"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
     desc: "tree pipeline 编排"
-  - path: "benchmarks/impact-medium/run-benchmark.sh"
-    desc: "Git 管理的 impact benchmark 总入口"
+  - path: "benchmarks/impact-medium/run-suite.sh"
+    desc: "三种algorithm的canonical benchmark suite与tracked snapshot发布入口"
 ---
 
 # Project: Dependency Analyzer
@@ -65,7 +65,7 @@ Source repository 包含两个独立 Maven reactor：root reactor 只构建 Anal
 - `analyzer/src/test/java/` - unit tests；`analyzer/src/integration-test/java/` - Failsafe integration tests。
 - `plugins/pom.xml` - 独立 Plugin reactor parent/aggregator。
 - `plugins/artifact-path-resolver/` - GAV `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:2.1.0`；Java 8 `resolve-artifact-paths` goal 与 attached `repository` ZIP。
-- `benchmarks/impact-medium/` - 可复现的中型 impact fixture、资源采样与报告 contract verification。
+- `benchmarks/impact-medium/` - 可复现的中型impact fixture、18进程CallGraph suite、HTML报告与Git管理的TSV snapshot。
 
 ## Technical Stack
 

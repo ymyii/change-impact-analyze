@@ -11,12 +11,14 @@ import io.github.dependencyanalysis.impact.StructuralReferenceIndex;
  * @param entrypoints entrypoint selection metrics
  * @param strategyModels immutable algorithm model metadata
  * @param structuralReferences pre-graph raw structural metadata index
+ * @param topology optional read-only benchmark topology capture
  */
 record ModuleCallGraphMetadata(
         CallGraphStats stats,
         EntrypointSelectionMetrics entrypoints,
         StrategyModelMetadata strategyModels,
-        StructuralReferenceIndex structuralReferences) {
+        StructuralReferenceIndex structuralReferences,
+        CallGraphTopologySnapshot topology) {
 
     ModuleCallGraphMetadata {
         Objects.requireNonNull(stats, "stats");

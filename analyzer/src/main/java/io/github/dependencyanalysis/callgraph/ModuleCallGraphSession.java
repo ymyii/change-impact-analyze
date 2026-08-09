@@ -10,6 +10,7 @@ import com.ibm.wala.types.ClassLoaderReference;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 import io.github.dependencyanalysis.impact.StructuralReferenceIndex;
 import io.github.dependencyanalysis.impact.ModuleAnalysisReason;
@@ -50,6 +51,9 @@ public final class ModuleCallGraphSession {
     /** Structural metadata indexed before Call Graph construction. */
     private final StructuralReferenceIndex structuralReferences;
 
+    /** Optional read-only benchmark topology capture. */
+    private final CallGraphTopologySnapshot topology;
+
     /**
      * Creates a live module Call Graph session.
      *
@@ -80,6 +84,7 @@ public final class ModuleCallGraphSession {
         dynamicEvidence = strategy.dynamicEvidence();
         serviceLoaderMetadata = strategy.serviceLoader();
         structuralReferences = values.structuralReferences();
+        topology = values.topology();
         modelLimitations = strategy.limitations();
     }
 
@@ -184,6 +189,11 @@ public final class ModuleCallGraphSession {
     /** @return pre-graph immutable structural evidence */
     public StructuralReferenceIndex getStructuralReferences() {
         return structuralReferences;
+    }
+
+    /** @return topology capture when explicitly enabled */
+    public Optional<CallGraphTopologySnapshot> getTopology() {
+        return Optional.ofNullable(topology);
     }
 
     /**

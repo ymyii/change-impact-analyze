@@ -15,6 +15,7 @@ import org.jetbrains.java.decompiler.main.extern.IResultSaver;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
@@ -125,8 +126,31 @@ public final class MethodBodyDecompiler {
             final String side,
             final ArtifactCoord artifact) {
         Objects.requireNonNull(descriptor, "descriptor");
-        return decompileSide(jar, point, side, artifact,
-                point.getOwner() + "." + point.getName() + descriptor);
+        return decompileMethod(jar, point.getOwner(), point.getName(),
+                descriptor, side, artifact.toString());
+    }
+
+    /**
+     * Decompiles one exact Method from a directory or JAR classpath entry.
+     *
+     * @param classpathEntry directory or JAR containing the class
+     * @param owner internal class owner name
+     * @param name Method name
+     * @param descriptor exact JVM Method descriptor
+     * @param side diagnostic side label
+     * @param sourceLabel diagnostic source label
+     * @return best-effort Java representation
+     */
+    public DecompiledMethod decompileMethod(
+            final Path classpathEntry,
+            final String owner,
+            final String name,
+            final String descriptor,
+            final String side,
+            final String sourceLabel) {
+        Objects.requireNonNull(descriptor, "descriptor");
+        return decompileSide(classpathEntry, owner, name, side, sourceLabel,
+                owner + "." + name + descriptor);
     }
 
     /**
@@ -143,25 +167,27 @@ public final class MethodBodyDecompiler {
             final ChangePoint point,
             final String side,
             final ArtifactCoord artifact) {
-        return decompileSide(jar, point, side, artifact, null);
+        return decompileSide(jar, point.getOwner(), point.getName(), side,
+                artifact.toString(), null);
     }
 
     private DecompiledMethod decompileSide(
-            final Path jar,
-            final ChangePoint point,
+            final Path classpathEntry,
+            final String owner,
+            final String name,
             final String side,
-            final ArtifactCoord artifact,
+            final String sourceLabel,
             final String methodId) {
         try {
             final byte[] classBytes = readClass(
-                    jar, point.getOwner());
+                    classpathEntry, owner);
             final CapturingSaver saver =
                     new CapturingSaver();
             final CapturingLogger logger =
                     new CapturingLogger();
             final IContextSource source =
                     new SingleClassSource(
-                            point.getOwner(),
+                            owner,
                             classBytes);
             final Decompiler.Builder builder = Decompiler.builder()
                     .inputs(source)
@@ -185,8 +211,8 @@ public final class MethodBodyDecompiler {
                             .DUMP_EXCEPTION_ON_ERROR,
                             false);
             final List<Path> sideLibraries = new java.util.ArrayList<>();
-            sideLibraries.add(jar);
-            libraries.stream().filter(value -> !value.equals(jar))
+            sideLibraries.add(classpathEntry);
+            libraries.stream().filter(value -> !value.equals(classpathEntry))
                     .forEach(sideLibraries::add);
             if (!sideLibraries.isEmpty()) {
                 builder.libraries(sideLibraries.stream().map(Path::toFile)
@@ -198,20 +224,20 @@ public final class MethodBodyDecompiler {
             }
             builder.build().decompile();
             if (logger.getError() != null) {
-                return unavailable(side, artifact,
-                        point, logger.getError());
+                return unavailable(side, sourceLabel,
+                        owner, name, methodId, logger.getError());
             }
             final String content = saver.getContent();
             if (content == null
                     || content.isBlank()) {
-                return unavailable(side, artifact,
-                        point,
+                return unavailable(side, sourceLabel,
+                        owner, name, methodId,
                         "Decompiler produced no source");
             }
             if (content.contains(
                     "$VF: Unable to decompile")) {
-                return unavailable(side, artifact,
-                        point,
+                return unavailable(side, sourceLabel,
+                        owner, name, methodId,
                         "Vineflower could not "
                                 + "decompile the method");
             }
@@ -219,24 +245,25 @@ public final class MethodBodyDecompiler {
                     normalizeNewlines(content));
         } catch (IOException
                 | RuntimeException exception) {
-            return unavailable(side, artifact,
-                    point, summarize(exception));
+            return unavailable(side, sourceLabel,
+                    owner, name, methodId, summarize(exception));
         }
     }
 
     private DecompiledMethod unavailable(
             final String side,
-            final ArtifactCoord artifact,
-            final ChangePoint point,
+            final String sourceLabel,
+            final String owner,
+            final String name,
+            final String methodId,
             final String reason) {
         final String value = compact(reason);
         diagnostics.warn(STAGE,
                 "Unable to decompile " + side
                         + " method/class code: artifact="
-                        + artifact + ", method="
-                        + point.getOwner() + "."
-                        + String.valueOf(point.getName())
-                        + String.valueOf(point.getDescriptor())
+                        + sourceLabel + ", method="
+                        + (methodId == null
+                        ? owner + "." + String.valueOf(name) : methodId)
                         + ", reason=" + value);
         return DecompiledMethod.unavailable(value);
     }
@@ -247,6 +274,14 @@ public final class MethodBodyDecompiler {
             throws IOException {
         final String entryName = owner
                 + IContextSource.CLASS_SUFFIX;
+        if (Files.isDirectory(jar)) {
+            final Path classFile = jar.resolve(entryName);
+            if (!Files.isRegularFile(classFile)) {
+                throw new IOException(
+                        "Class entry not found: " + entryName);
+            }
+            return Files.readAllBytes(classFile);
+        }
         try (ZipFile zip = new ZipFile(
                 jar.toFile())) {
             final ZipEntry entry =

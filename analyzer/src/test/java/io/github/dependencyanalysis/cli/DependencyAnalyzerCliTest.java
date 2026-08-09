@@ -120,6 +120,7 @@ class DependencyAnalyzerCliTest {
                 .contains("-k, --include-change-kinds")
                 .contains("--analysis-parallelism")
                 .contains("--call-graph-algorithm")
+                .contains("--call-graph-diagnostics-output")
                 .contains("--wala-reflection-options")
                 .contains("--entrypoint-include")
                 .contains("--entrypoint-exclude")
@@ -268,6 +269,20 @@ class DependencyAnalyzerCliTest {
                 .isEqualTo("FULL");
         assertThat(reflectionOptions(aliasResult).identifier())
                 .isEqualTo("NONE");
+    }
+
+    @Test
+    void callGraphDiagnosticsOutputIsOptionalAndParsesAsFile() {
+        final CommandLine command = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli());
+
+        final CommandLine.ParseResult result = command.parseArgs(
+                "impact", "--baseline", "HEAD", "--output", "report.html",
+                "--call-graph-diagnostics-output", "topology.json");
+
+        assertThat((java.io.File) result.subcommand().commandSpec()
+                .findOption("--call-graph-diagnostics-output").getValue())
+                .hasName("topology.json");
     }
 
     @Test

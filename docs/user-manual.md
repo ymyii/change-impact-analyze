@@ -557,17 +557,16 @@ Version policy、failure entrypoints 与完整发布步骤见
 
 ## 11. 持续 Impact Benchmark
 
-Repository 内置 Git 管理的中型 `impact` benchmark。它从source生成42个compile-scope external dependencies、带`impact-baseline`/`impact-target` refs的临时Git project。运行必须显式设置`BENCHMARK_CALL_GRAPH_ALGORITHM=rta|zero-cfa|optimized-0-1-cfa`；`BENCHMARK_WALA_REFLECTION_OPTIONS`默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。Verifier校验实际Algorithm/ReflectionOptions、9类legacy raw ChangePoint、versioned candidate/final count、Structural Reference Path、过滤候选、反编译代码evidence及四页HTML Report；三种algorithm经关键路径审查后均锁定`6 / 5`。三次同环境normal run由`summarize-runs.sh`计算中位数，`compare-summaries.sh`按versioned门槛校验RTA相对`zero-cfa`的Wall time不超过`3.50x`、process-tree peak RSS不超过`1.75x`。
+Repository 内置 Git 管理的中型 `impact` benchmark。它从source生成42个compile-scope external dependencies、带`impact-baseline`/`impact-target` refs的临时Git project。Canonical suite 对`rta`、`zero-cfa`、`optimized-0-1-cfa`各执行1次warm-up topology capture和5次正式样本，共18个独立Java Virtual Machine（JVM）进程；`BENCHMARK_WALA_REFLECTION_OPTIONS`默认并验收为`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。Verifier校验实际Algorithm/ReflectionOptions、9类legacy raw ChangePoint、versioned candidate/final count、Structural Reference Path、过滤候选、反编译代码evidence及四页HTML Report；三种algorithm均锁定`6 / 5`。
 
 ```sh
 mvn -f plugins/pom.xml clean install
 mvn package
 JAVA8_HOME=/absolute/path/to/jdk8 \
-  BENCHMARK_CALL_GRAPH_ALGORITHM=rta \
-  benchmarks/impact-medium/run-benchmark.sh candidate-01
+  benchmarks/impact-medium/run-suite.sh
 ```
 
-运行生成物进入 `tmp-files/impact-medium-benchmark/candidate-01/`，不会写入 Git 管理目录。完整 prerequisites、环境变量、measurement contract、成功条件和 troubleshooting 见 [`benchmarks/impact-medium/README.md`](../benchmarks/impact-medium/README.md)。
+固定HTML报告输出到`tmp-files/impact-medium-benchmark/benchmark-report.html`，三种algorithm与comparison分别使用一个CSS-only tab。Caller/callee父榜以精确CGNode为单位，每个父节点展示decompiled source、WALA IR，以及按IMethod聚合的Top 10相关节点；generated Method允许仅展示IR。不提供独立points-to set排行榜。最近一次完整成功的15个正式样本、algorithm summary和CGNode topology分别保存到Git管理的`samples.tsv`、`summary.tsv`、`topology.tsv`；任一run失败或发生`TOPOLOGY_DRIFT`时不替换旧snapshot。历史对比使用任意两个`summary.tsv`输出absolute change与ratio，不执行固定threshold或algorithm优劣判定。完整prerequisites、环境变量、measurement contract、成功条件和troubleshooting见[`benchmarks/impact-medium/README.md`](../benchmarks/impact-medium/README.md)。
 
 ## 12. Third-Party Attribution
 

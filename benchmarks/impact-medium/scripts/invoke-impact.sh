@@ -11,6 +11,7 @@ set -eu
 : "${BENCHMARK_REPORT:?BENCHMARK_REPORT is required}"
 : "${BENCHMARK_CALL_GRAPH_ALGORITHM:?BENCHMARK_CALL_GRAPH_ALGORITHM is required}"
 : "${BENCHMARK_WALA_REFLECTION_OPTIONS:?BENCHMARK_WALA_REFLECTION_OPTIONS is required}"
+: "${BENCHMARK_CAPTURE_TOPOLOGY:?BENCHMARK_CAPTURE_TOPOLOGY is required}"
 
 case "$BENCHMARK_CALL_GRAPH_ALGORITHM" in
   rta|zero-cfa|optimized-0-1-cfa) ;;
@@ -20,9 +21,7 @@ case "$BENCHMARK_CALL_GRAPH_ALGORITHM" in
     ;;
 esac
 
-# Wiki: wiki/runbooks/impact-benchmark.md - Canonical impact benchmark CLI invocation.
-exec "$ANALYZER_JAVA" \
-  -jar "$ANALYZER_JAR" \
+set -- \
   --maven "$MAVEN_BIN" \
   --java-home "$JAVA8_HOME" \
   --config-dir "$BENCHMARK_CONFIG_DIR" \
@@ -40,3 +39,11 @@ exec "$ANALYZER_JAVA" \
   --wala-reflection-options "$BENCHMARK_WALA_REFLECTION_OPTIONS" \
   --include-change-kinds CLASS_ADDED,CLASS_REMOVED,METHOD_ADDED,METHOD_REMOVED,METHOD_DESCRIPTOR_CHANGED,METHOD_BODY_CHANGED,FIELD_ADDED,FIELD_REMOVED,FIELD_DESCRIPTOR_CHANGED \
   --call-graph-timeout-seconds 120
+
+if [ "$BENCHMARK_CAPTURE_TOPOLOGY" = 1 ]; then
+  : "${BENCHMARK_DIAGNOSTICS:?BENCHMARK_DIAGNOSTICS is required when topology capture is enabled}"
+  set -- "$@" --call-graph-diagnostics-output "$BENCHMARK_DIAGNOSTICS"
+fi
+
+# Wiki: wiki/runbooks/impact-benchmark.md - Canonical impact benchmark CLI invocation.
+exec "$ANALYZER_JAVA" -jar "$ANALYZER_JAR" "$@"

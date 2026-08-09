@@ -106,6 +106,9 @@ final class PerModuleImpactPipeline {
     /** Command temporary directory. */
     private final Path temporaryDirectory;
 
+    /** Optional Call Graph benchmark diagnostics JSON. */
+    private final Path callGraphDiagnosticsOutput;
+
     /** Immutable JAR repository for the active command. */
     private IJarRepository jarRepository;
 
@@ -139,6 +142,7 @@ final class PerModuleImpactPipeline {
         callGraphTimeoutSeconds = options.callGraphTimeoutSeconds();
         analysisParallelism = options.analysisParallelism();
         temporaryDirectory = options.temporaryDirectory();
+        callGraphDiagnosticsOutput = options.callGraphDiagnosticsOutput();
         entrypointSelection = Objects.requireNonNull(
                 options.entrypointSelection(), "entrypointSelection");
         callGraphAlgorithm = Objects.requireNonNull(
@@ -257,6 +261,12 @@ final class PerModuleImpactPipeline {
         final CodeEvidenceResult codeEvidence = buildCodeComparisons(filtered);
         elapsed.put("code-comparison",
                 System.currentTimeMillis() - codeStart);
+        if (callGraphDiagnosticsOutput != null) {
+            new CallGraphDiagnosticsExporter(
+                    diagnostics, javaRuntime, repository()).write(
+                    callGraphDiagnosticsOutput, callGraphAlgorithm,
+                    reflectionOptions, codeEvidence.modules());
+        }
         return new AnalysisRunResult(targetScope.getMode(),
                 overallStatus(codeEvidence.modules()), changes,
                 codeEvidence.modules(), new AnalysisConcurrency(
@@ -982,7 +992,8 @@ final class PerModuleImpactPipeline {
                             entrypointSelection, callGraphAlgorithm,
                             reflectionOptions, repository())
                             .build(unit, entrypointIndex,
-                                    callGraphTimeoutSeconds);
+                                    callGraphTimeoutSeconds,
+                                    callGraphDiagnosticsOutput != null);
             stageElapsed.put("call-graph",
                     System.currentTimeMillis() - stageStart);
             stageStart = System.currentTimeMillis();

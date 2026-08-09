@@ -2,79 +2,74 @@
 set -eu
 
 if [ "$#" -ne 2 ]; then
-  echo "usage: $0 <candidate-summary.tsv> <baseline-summary.tsv>" >&2
+  echo "usage: $0 <baseline-summary.tsv> <candidate-summary.tsv>" >&2
   exit 2
 fi
 
-candidate_summary=$1
-baseline_summary=$2
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-thresholds="$script_dir/../performance-thresholds.tsv"
+baseline=$1
+candidate=$2
+expected_header=$(printf 'algorithm\twala_reflection_options\tsamples\tmin_total_wall_seconds\tmedian_total_wall_seconds\tmax_total_wall_seconds\tmin_call_graph_seconds\tmedian_call_graph_seconds\tmax_call_graph_seconds\tmin_peak_heap_used_mib\tmedian_peak_heap_used_mib\tmax_peak_heap_used_mib\tmin_peak_heap_committed_mib\tmedian_peak_heap_committed_mib\tmax_peak_heap_committed_mib\tmin_heap_max_mib\tmedian_heap_max_mib\tmax_heap_max_mib\tmin_process_tree_peak_rss_kib\tmedian_process_tree_peak_rss_kib\tmax_process_tree_peak_rss_kib\tentrypoint_count\tcg_node_count\tcg_edge_count\tsuccessful_samples\twall_vs_zero_cfa\theap_vs_zero_cfa\tnode_vs_zero_cfa\tedge_vs_zero_cfa')
 
-fail() {
-  echo "comparison failed: $*" >&2
-  exit 1
-}
+for summary in "$baseline" "$candidate"; do
+  [ -f "$summary" ] || {
+    echo "missing summary: $summary" >&2
+    exit 1
+  }
+  [ "$(sed -n '1p' "$summary")" = "$expected_header" ] || {
+    echo "unexpected summary Schema: $summary" >&2
+    exit 1
+  }
+done
 
-summary_row() {
-  summary=$1
-  expected_header=$(printf 'algorithm\twala_reflection_options\truns\tmedian_wall_seconds\tmedian_process_tree_peak_rss_kib')
-  header=$(sed -n '1p' "$summary")
-  [ "$header" = "$expected_header" ] \
-    || fail "unexpected summary header: $summary"
-  row=$(sed -n '2p' "$summary")
-  fields=$(printf '%s\n' "$row" | awk -F '\t' 'NF == 5 { print NF }')
-  [ "$fields" = 5 ] || fail "invalid summary row: $summary"
-  [ -z "$(sed -n '3p' "$summary")" ] \
-    || fail "summary must contain exactly one data row: $summary"
-  printf '%s\n' "$row"
-}
-
-[ -f "$candidate_summary" ] || fail "missing candidate summary: $candidate_summary"
-[ -f "$baseline_summary" ] || fail "missing baseline summary: $baseline_summary"
-[ -f "$thresholds" ] || fail "missing performance thresholds: $thresholds"
-
-candidate=$(summary_row "$candidate_summary")
-baseline=$(summary_row "$baseline_summary")
-candidate_algorithm=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $1}')
-baseline_algorithm=$(printf '%s\n' "$baseline" | awk -F '\t' '{print $1}')
-candidate_reflection=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $2}')
-baseline_reflection=$(printf '%s\n' "$baseline" | awk -F '\t' '{print $2}')
-candidate_wall=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $4}')
-baseline_wall=$(printf '%s\n' "$baseline" | awk -F '\t' '{print $4}')
-candidate_rss=$(printf '%s\n' "$candidate" | awk -F '\t' '{print $5}')
-baseline_rss=$(printf '%s\n' "$baseline" | awk -F '\t' '{print $5}')
-
-[ "$candidate_reflection" = "$baseline_reflection" ] \
-  || fail "WALA ReflectionOptions differ: $candidate_reflection and $baseline_reflection"
-
-threshold=$(awk -F '\t' -v candidate="$candidate_algorithm" \
-  -v baseline="$baseline_algorithm" '
-    $0 !~ /^#/ && NF == 4 && $1 == candidate && $2 == baseline {
-      print $3 "\t" $4
-      found++
+awk -F '\t' '
+  BEGIN {
+    OFS = "\t"
+    print "algorithm", "wala_reflection_options", "metric", "baseline", "candidate", "absolute_change", "ratio"
+    metric[1] = "median_total_wall_seconds"; column[1] = 5
+    metric[2] = "median_call_graph_seconds"; column[2] = 8
+    metric[3] = "median_peak_heap_used_mib"; column[3] = 11
+    metric[4] = "median_process_tree_peak_rss_kib"; column[4] = 20
+    metric[5] = "cg_node_count"; column[5] = 23
+    metric[6] = "cg_edge_count"; column[6] = 24
+  }
+  NR == FNR {
+    if (FNR > 1) {
+      reflection[$1] = $2
+      baseline_seen[$1] = 1
+      for (metric_index = 1; metric_index <= 6; metric_index++) {
+        old[$1, metric_index] = $(column[metric_index])
+      }
     }
-    END { if (found != 1) exit 1 }
-  ' "$thresholds") \
-  || fail "no unique threshold for $candidate_algorithm relative to $baseline_algorithm"
-max_wall_ratio=$(printf '%s\n' "$threshold" | awk -F '\t' '{print $1}')
-max_rss_ratio=$(printf '%s\n' "$threshold" | awk -F '\t' '{print $2}')
-
-awk -v candidate="$candidate_wall" -v baseline="$baseline_wall" \
-  -v maximum="$max_wall_ratio" \
-  'BEGIN { exit !(baseline > 0 && candidate <= baseline * maximum) }' \
-  || fail "wall ratio exceeds $max_wall_ratio: $candidate_wall / $baseline_wall"
-awk -v candidate="$candidate_rss" -v baseline="$baseline_rss" \
-  -v maximum="$max_rss_ratio" \
-  'BEGIN { exit !(baseline > 0 && candidate <= baseline * maximum) }' \
-  || fail "RSS ratio exceeds $max_rss_ratio: $candidate_rss / $baseline_rss"
-
-wall_ratio=$(awk -v candidate="$candidate_wall" -v baseline="$baseline_wall" \
-  'BEGIN { printf "%.4f", candidate / baseline }')
-rss_ratio=$(awk -v candidate="$candidate_rss" -v baseline="$baseline_rss" \
-  'BEGIN { printf "%.4f", candidate / baseline }')
-
-printf 'candidate_algorithm\tbaseline_algorithm\twala_reflection_options\twall_ratio\tmax_wall_ratio\trss_ratio\tmax_rss_ratio\tstatus\n'
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\tPASS\n' \
-  "$candidate_algorithm" "$baseline_algorithm" "$candidate_reflection" \
-  "$wall_ratio" "$max_wall_ratio" "$rss_ratio" "$max_rss_ratio"
+    next
+  }
+  FNR > 1 {
+    algorithm = $1
+    candidate_seen[algorithm] = 1
+    if (!(algorithm in baseline_seen)) {
+      print "candidate algorithm is missing from baseline: " algorithm > "/dev/stderr"
+      failed = 1
+      next
+    }
+    if (reflection[algorithm] != $2) {
+      print "WALA ReflectionOptions differ for " algorithm > "/dev/stderr"
+      failed = 1
+      next
+    }
+    for (metric_index = 1; metric_index <= 6; metric_index++) {
+      before = old[algorithm, metric_index]
+      after = $(column[metric_index])
+      change = after - before
+      relative = before == 0 ? "UNAVAILABLE" : sprintf("%.6f", after / before)
+      printf "%s\t%s\t%s\t%.6f\t%.6f\t%.6f\t%s\n", algorithm, $2, metric[metric_index], before, after, change, relative
+    }
+  }
+  END {
+    for (algorithm in baseline_seen) {
+      if (!(algorithm in candidate_seen)) {
+        print "baseline algorithm is missing from candidate: " algorithm > "/dev/stderr"
+        failed = 1
+      }
+    }
+    exit failed
+  }
+' "$baseline" "$candidate"

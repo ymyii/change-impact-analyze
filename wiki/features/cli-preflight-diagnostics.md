@@ -20,7 +20,7 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/diagnostic/DiagnosticLogFormatter.java"
     desc: "Console/HTML 共用的五段 prefix 与 attribute canonicalization"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/metrics/RuntimeMetricsSession.java"
-    desc: "TRACE-only heap/thread-pool 异步采样生命周期"
+    desc: "TRACE-only 100 ms heap observation、10 s snapshot 与 final peak summary"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/metrics/ManagedExecutorRegistry.java"
     desc: "Analyzer-owned fixed pool factory 与 registry"
 ---
@@ -41,7 +41,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 
 - 未传 `-v`：`INFO`，输出稳定的 stage、progress、warning 和 error；Maven subprocess 只透传 warning/error。
 - `-v` 或一个 `--verbose`：`DEBUG`，增加 analysis option/decision、完整 Maven subprocess output；command failure 同时输出 stack trace。
-- `-vv` 或两个 `--verbose`：`TRACE`，增加 normalized path、ref、scope 等细粒度 evidence，并在 command dispatch 后立即输出 Runtime Metrics，之后每 10 秒采样。
+- `-vv` 或两个 `--verbose`：`TRACE`，增加 normalized path、ref、scope 等细粒度 evidence，并在 command dispatch 后立即输出 Runtime Metrics snapshot，之后每10 s输出一次；heap observation独立按100 ms执行。
 - `-v` 是 inherited global option，可位于 subcommand 前或后。`DEBUG`/`TRACE` event 只有相应级别启用时才进入 console 与 `impact` HTML Diagnostics；默认 Report 不携带被过滤的详细 event。
 - Analyzer 运行日志只写 stderr；stdout 不承载 Analyzer 日志。Picocli help/usage、参数解析错误和绕过 Analyzer logging 的第三方库 stderr 不受五段 prefix contract 约束。
 - `impact`/`tree` 的 Maven subprocess output 逐行分类后写入 Console，不生成 build/dependency `.log` 文件。默认只显示 warning/error，`-v/-vv` 显示完整输出；Maven `[INFO]` 保持外层 `INFO` level。该 transient output 不进入 HTML Diagnostics；failure 只在内存保留 bounded tail。
@@ -56,6 +56,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - `--wala-reflection-options <enum-name>`：默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`，接受WALA `ReflectionOptions` enum name；`--reflection-options`为alias。
 - `--entrypoint-include '<class-path-pattern>'` 与 `--entrypoint-exclude ...`：可重复；直接匹配 slash-separated JVM internal class path，include 取并集，exclude 优先。普通 segment支持 `*`、`?`；`**` 只能作为最后一个完整 segment。Colon/dot旧语法、leading/trailing slash、空 segment与嵌入式 `**` 在 CLI validation阶段 exit `1`。
 - `--call-graph-timeout-seconds <N>`：默认 `0`；按 Module、从实际 WALA build 开始计时。
+- `--call-graph-diagnostics-output <json>`：可选benchmark-only只读输出；未设置时不执行CGNode ranking、IMethod子榜、shortest path、IR capture或decompilation。路径不得与`--output`相同。
 - `--format html`：唯一有效格式；`md` fail fast。
 - `--java-home`：必须是完整 JDK 8；analyzer JVM 可为 Java 17。
 
@@ -97,7 +98,8 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 
 - 生命周期从 Picocli 成功 dispatch 到 `impact`/`tree` 的 `call()` 开始，到 command 返回结束。Help、usage 和参数解析失败不启动采样。
 - `INFO`/`DEBUG` 使用 no-op session；不创建 scheduler、不读取 heap、不输出 metrics。
-- `TRACE` 使用 command-scoped daemon scheduler：启动时立即采样，之后每 10 秒 fixed-delay 采样；所有 normal return、early return 和 exception path 都通过 `close()` 停止。
+- `TRACE` 使用 command-scoped daemon scheduler：启动时立即观察并输出snapshot，之后每100 ms fixed-delay观察heap，但只按10 s cadence输出heap/thread-pool snapshot。所有normal return、early return和exception path都通过`close()`停止。
 - Heap 行使用 `stage=runtime-metrics, substage=heap` 和空第五段；`sample/elapsedMs/heapUsedMiB/heapCommittedMiB/heapMaxMiB` 位于 message，MiB 保留 1 位小数。
 - 当前注册的每个 Analyzer-owned pool 单独使用 `stage=runtime-metrics, substage=thread-pool`，第五段只保留 `pool` identity；sample、elapsed、pool size、task count 和 lifecycle value 位于 message。Registry 只包含 `front-preparation`、`jar-diff`、`module-analysis`、`code-comparison`；scheduler、process-output pump、JVM common pool、WALA internal thread 和 Maven external process 不注册。
 - 单次采样异常使用 `stage=runtime-metrics, substage=sampler` 和空第五段；sample、elapsed 与 error 位于 TRACE transient message，不会改变 command status、Report 或 exit code。
+- `close()`在设置closed flag前强制一次final heap observation，然后使用`stage=runtime-metrics, substage=summary`输出`sample count`、`peakHeapUsedMiB`、`peakHeapCommittedMiB`与`heapMaxMiB`。该summary是benchmark heap主指标来源；process-tree RSS继续由外部runner采集。

@@ -83,6 +83,12 @@ public final class ImpactCommand
             description = "Output report file.")
     private File output;
 
+    /** Optional read-only Call Graph benchmark diagnostics JSON. */
+    @Option(names = "--call-graph-diagnostics-output",
+            description = "Optional JSON path for read-only Call Graph "
+                    + "benchmark CGNode topology, source, and IR.")
+    private File callGraphDiagnosticsOutput;
+
     /** Report format. */
     @Option(names = {"-f", "--format"},
             defaultValue = "HTML",
@@ -193,13 +199,28 @@ public final class ImpactCommand
             path = new File(System.getProperty(
                     "user.dir"));
         }
+        final java.nio.file.Path normalizedReport = output.toPath()
+                .toAbsolutePath().normalize();
+        final java.nio.file.Path normalizedDiagnostics =
+                callGraphDiagnosticsOutput == null ? null
+                        : callGraphDiagnosticsOutput.toPath()
+                        .toAbsolutePath().normalize();
+        if (normalizedReport.equals(normalizedDiagnostics)) {
+            diagnostics.error("preflight",
+                    "--call-graph-diagnostics-output must differ from "
+                            + "--output");
+            return 1;
+        }
         diagnostics.trace("cli",
                 "path=" + path.toPath().toAbsolutePath().normalize()
                         + "; baseline=" + baseline
                         + "; target="
                         + (target == null ? "CURRENT" : target)
                         + "; output=" + output.toPath()
-                                .toAbsolutePath().normalize());
+                                .toAbsolutePath().normalize()
+                        + "; callGraphDiagnosticsOutput="
+                        + (normalizedDiagnostics == null ? "DISABLED"
+                        : normalizedDiagnostics));
         try (PreflightContext context =
                      new PreflightContext()) {
             final PreflightReport report =
@@ -233,10 +254,11 @@ public final class ImpactCommand
                     new PerModulePipelineOptions(
                             callGraphTimeoutSeconds,
                             analysisParallelism,
-                            context.get(
+                            new PipelineOutputPaths(context.get(
                                     ImpactPreflightService.COMMAND_RUN,
                                     CommandRunDirectory.class)
                                     .getTemporaryDirectory(),
+                                    normalizedDiagnostics),
                             entrypointSelection,
                             callGraphAlgorithm,
                             reflectionOptions,

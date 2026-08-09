@@ -4,6 +4,7 @@ import com.ibm.wala.classLoader.BinaryDirectoryTreeModule;
 import com.ibm.wala.classLoader.IClass;
 import com.ibm.wala.classLoader.IMethod;
 import com.ibm.wala.classLoader.JarFileModule;
+import com.ibm.wala.classLoader.SyntheticClass;
 import com.ibm.wala.ipa.callgraph.AnalysisCacheImpl;
 import com.ibm.wala.ipa.callgraph.AnalysisScope;
 import com.ibm.wala.ipa.callgraph.Entrypoint;
@@ -250,6 +251,23 @@ public final class ModuleCallGraphEngine {
             final ModuleAnalysisUnit unit,
             final EntrypointClassIndex entrypointIndex,
             final long timeoutSeconds) {
+        return build(unit, entrypointIndex, timeoutSeconds, false);
+    }
+
+    /**
+     * Builds a graph and optionally captures read-only benchmark topology.
+     *
+     * @param unit module analysis input
+     * @param entrypointIndex selected target/classes index
+     * @param timeoutSeconds module build timeout, zero for unlimited
+     * @param captureTopology whether to capture benchmark topology
+     * @return live graph session
+     */
+    public ModuleCallGraphSession build(
+            final ModuleAnalysisUnit unit,
+            final EntrypointClassIndex entrypointIndex,
+            final long timeoutSeconds,
+            final boolean captureTopology) {
         final DiagnosticContext context = DiagnosticContext.of(
                 "module-analysis", "call-graph").withModule(
                 unit.getModuleId().stableKey());
@@ -313,6 +331,9 @@ public final class ModuleCallGraphEngine {
                     entrypoints);
             final int selectedClasses =
                     entrypointIndex.selectedClassNames().size();
+            final CallGraphTopologySnapshot topology = captureTopology
+                    ? new CallGraphTopologyAnalyzer().analyze(
+                            graph, type -> originOf(ownership, type)) : null;
             diagnostics.info(context, "algorithm="
                     + algorithm.identifier() + "; reflectionOptions="
                     + reflectionOptions.identifier() + "; nodes="
@@ -326,7 +347,7 @@ public final class ModuleCallGraphEngine {
                             selectedClasses, entrypoints.size(),
                             parameterCandidates),
                             strategyResult.metadata(),
-                            structuralReferences));
+                            structuralReferences, topology));
         } catch (CallGraphException exception) {
             diagnostics.failStage(context, exception.getMessage());
             throw exception;
@@ -335,6 +356,24 @@ public final class ModuleCallGraphEngine {
             throw new CallGraphException(
                     "Module Call Graph construction failed", exception);
         }
+    }
+
+    private CodeOrigin originOf(
+            final ClassOwnershipIndex ownership,
+            final IClass type) {
+        final ClassOwnership value = ownership.ownershipOf(
+                type.getName().toString());
+        if (value != null) {
+            return value.getOrigin();
+        }
+        if (type instanceof SyntheticClass) {
+            return CodeOrigin.SYNTHETIC;
+        }
+        final ClassLoaderReference loader = type.getClassLoader()
+                .getReference();
+        return ClassLoaderReference.Primordial.equals(loader)
+                || ClassLoaderReference.Extension.equals(loader)
+                ? CodeOrigin.JDK : CodeOrigin.SYNTHETIC;
     }
 
     private ClassOwnershipIndex ownership(final ModuleAnalysisUnit unit)

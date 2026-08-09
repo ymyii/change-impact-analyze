@@ -41,6 +41,27 @@ case "$BENCHMARK_CALIBRATION" in
     ;;
 esac
 
+BENCHMARK_CAPTURE_TOPOLOGY=${BENCHMARK_CAPTURE_TOPOLOGY:-0}
+case "$BENCHMARK_CAPTURE_TOPOLOGY" in
+  0|1) ;;
+  *)
+    echo "BENCHMARK_CAPTURE_TOPOLOGY must be 0 or 1" >&2
+    exit 2
+    ;;
+esac
+
+BENCHMARK_RUN_KIND=${BENCHMARK_RUN_KIND:-formal}
+case "$BENCHMARK_RUN_KIND" in
+  warmup|formal) ;;
+  *)
+    echo "BENCHMARK_RUN_KIND must be warmup or formal" >&2
+    exit 2
+    ;;
+esac
+
+BENCHMARK_ROUND=${BENCHMARK_ROUND:-0}
+BENCHMARK_SAMPLE=${BENCHMARK_SAMPLE:-0}
+
 ANALYZER_JAR=${ANALYZER_JAR:-$repository_root/target/dependency-analyzer.jar}
 ANALYZER_JAVA=${ANALYZER_JAVA:-$(command -v java 2>/dev/null)}
 MAVEN_BIN=${MAVEN_BIN:-$(command -v mvn 2>/dev/null)}
@@ -53,6 +74,7 @@ reports_root="$run_root/reports"
 BENCHMARK_PROJECT="$fixture_root/project"
 BENCHMARK_CONFIG_DIR="$run_root/config"
 BENCHMARK_REPORT="$reports_root/impact-report.html"
+BENCHMARK_DIAGNOSTICS="$run_root/topology.json"
 
 for executable in "$ANALYZER_JAVA" "$MAVEN_BIN"; do
   if [ -z "$executable" ] || [ ! -x "$executable" ]; then
@@ -77,7 +99,7 @@ mkdir -p "$logs_root" "$reports_root" "$BENCHMARK_CONFIG_DIR"
 export ANALYZER_JAR ANALYZER_JAVA MAVEN_BIN JAVA8_HOME
 export BENCHMARK_MAVEN_REPO BENCHMARK_PROJECT BENCHMARK_CONFIG_DIR BENCHMARK_REPORT
 export BENCHMARK_CALL_GRAPH_ALGORITHM BENCHMARK_WALA_REFLECTION_OPTIONS
-export BENCHMARK_CALIBRATION
+export BENCHMARK_CALIBRATION BENCHMARK_CAPTURE_TOPOLOGY BENCHMARK_DIAGNOSTICS
 
 # Wiki: wiki/runbooks/impact-benchmark.md - Stable benchmark preparation, measurement, and verification entrypoint.
 "$script_dir/scripts/prepare-fixture.sh" "$fixture_root"
@@ -90,6 +112,16 @@ else
   analyzer_sha256=unavailable
 fi
 
+git_commit=$(git -C "$repository_root" rev-parse HEAD 2>/dev/null || echo unavailable)
+if [ -n "$(git -C "$repository_root" status --porcelain --untracked-files=normal 2>/dev/null)" ]; then
+  git_dirty=true
+else
+  git_dirty=false
+fi
+analyzer_java_identity=$("$ANALYZER_JAVA" -version 2>&1 | sed -n '1p' | tr '\t' ' ')
+jdk_identity=$("$JAVA8_HOME/bin/java" -version 2>&1 | sed -n '1p' | tr '\t' ' ')
+maven_identity=$("$MAVEN_BIN" --version 2>&1 | sed -n '1p' | tr '\t' ' ')
+
 cat >"$logs_root/run-metadata.txt" <<EOF
 label=$label
 algorithm=$BENCHMARK_CALL_GRAPH_ALGORITHM
@@ -97,10 +129,20 @@ wala_reflection_options=$BENCHMARK_WALA_REFLECTION_OPTIONS
 calibration=$BENCHMARK_CALIBRATION
 fixture_scenario=impact-medium-v1
 analysis_parallelism=2
+run_kind=$BENCHMARK_RUN_KIND
+round=$BENCHMARK_ROUND
+sample=$BENCHMARK_SAMPLE
+capture_topology=$BENCHMARK_CAPTURE_TOPOLOGY
 os=$(uname -a)
 cpu_logical=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo unavailable)
+architecture=$(uname -m)
 analyzer_jar=$ANALYZER_JAR
 analyzer_sha256=$analyzer_sha256
+git_commit=$git_commit
+git_dirty=$git_dirty
+analyzer_java_identity=$analyzer_java_identity
+jdk_identity=$jdk_identity
+maven_identity=$maven_identity
 analyzer_java=$ANALYZER_JAVA
 jdk8_home=$JAVA8_HOME
 maven=$MAVEN_BIN
@@ -186,18 +228,6 @@ verification_result=0
 
 cat "$logs_root/verification.txt"
 
-if [ "$analysis_result" -ne 0 ]; then
-  echo "impact benchmark failed with exit code $analysis_result" >&2
-  echo "logs: $logs_root" >&2
-  exit "$analysis_result"
-fi
-
-if [ "$verification_result" -ne 0 ]; then
-  echo "impact report verification failed" >&2
-  echo "logs: $logs_root" >&2
-  exit "$verification_result"
-fi
-
 module_dir=${BENCHMARK_REPORT%.html}-modules
 set -- "$module_dir"/*.html
 module_page=
@@ -208,13 +238,16 @@ for page in "$@"; do
   esac
 done
 
-if [ -z "$module_page" ] || [ ! -f "$module_page" ]; then
-  echo "unable to locate Module Index for metrics" >&2
-  exit 1
+nodes=
+edges=
+entrypoints=
+call_graph_millis=
+if [ -n "$module_page" ] && [ -f "$module_page" ]; then
+  nodes=$(sed -n 's/.*<th>Call Graph nodes<\/th><td>\([0-9][0-9]*\)<\/td>.*/\1/p' "$module_page" | head -n 1)
+  edges=$(sed -n 's/.*<th>Call Graph edges<\/th><td>\([0-9][0-9]*\)<\/td>.*/\1/p' "$module_page" | head -n 1)
+  entrypoints=$(sed -n 's/.*<th>Entry methods<\/th><td>\([0-9][0-9]*\)<\/td>.*/\1/p' "$module_page" | head -n 1)
+  call_graph_millis=$(sed -n 's/.*<td>call-graph<\/td><td>\([0-9][0-9]*\)<\/td>.*/\1/p' "$module_page" | head -n 1)
 fi
-
-nodes=$(sed -n 's/.*<th>Call Graph nodes<\/th><td>\([0-9][0-9]*\)<\/td>.*/\1/p' "$module_page" | head -n 1)
-edges=$(sed -n 's/.*<th>Call Graph edges<\/th><td>\([0-9][0-9]*\)<\/td>.*/\1/p' "$module_page" | head -n 1)
 wall_seconds=$(awk '
   /^real[[:space:]]+[0-9.]+$/ { print $2; exit }
   /^Elapsed \(wall clock\) time/ {
@@ -228,15 +261,45 @@ wall_seconds=$(awk '
 ' "$logs_root/time.txt")
 peak_rss_kib=$(awk -F ',' 'NR > 1 && $3 ~ /^[0-9]+$/ && $3 > peak { peak = $3 } END { print peak + 0 }' "$logs_root/process-tree.csv")
 
-if [ -z "$nodes" ] || [ -z "$edges" ] || [ -z "$wall_seconds" ]; then
-  echo "unable to extract benchmark metrics" >&2
-  exit 1
+runtime_summary=$(grep 'Runtime metrics summary;' "$logs_root/stderr.log" | tail -n 1 || true)
+heap_samples=$(printf '%s\n' "$runtime_summary" | sed -n 's/.*samples=\([0-9][0-9]*\);.*/\1/p')
+peak_heap_used_mib=$(printf '%s\n' "$runtime_summary" | sed -n 's/.*peakHeapUsedMiB=\([0-9.-][0-9.-]*\);.*/\1/p')
+peak_heap_committed_mib=$(printf '%s\n' "$runtime_summary" | sed -n 's/.*peakHeapCommittedMiB=\([0-9.-][0-9.-]*\);.*/\1/p')
+heap_max_mib=$(printf '%s\n' "$runtime_summary" | sed -n 's/.*heapMaxMiB=\([0-9.-][0-9.-]*\).*/\1/p')
+if [ -n "$call_graph_millis" ]; then
+  call_graph_seconds=$(awk -v value="$call_graph_millis" 'BEGIN { printf "%.3f", value / 1000 }')
+else
+  call_graph_seconds=
 fi
 
-printf 'label\talgorithm\twala_reflection_options\tnodes\tedges\twall_seconds\tprocess_tree_peak_rss_kib\n' >"$logs_root/metrics.tsv"
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-  "$label" "$BENCHMARK_CALL_GRAPH_ALGORITHM" \
-  "$BENCHMARK_WALA_REFLECTION_OPTIONS" "$nodes" "$edges" \
-  "$wall_seconds" "$peak_rss_kib" >>"$logs_root/metrics.tsv"
+status=FAILED
+if [ "$analysis_result" -eq 0 ] && [ "$verification_result" -eq 0 ]; then
+  status=SUCCESS
+fi
+
+printf 'label\trun_kind\tround\tsample\talgorithm\twala_reflection_options\ttotal_wall_seconds\tcall_graph_seconds\tpeak_heap_used_mib\tpeak_heap_committed_mib\theap_max_mib\theap_sample_count\tprocess_tree_peak_rss_kib\tentrypoint_count\tcg_node_count\tcg_edge_count\tstatus\texit_code\tanalyzer_sha256\tgit_commit\tgit_dirty\tos\tarchitecture\tanalyzer_java\tjdk\tmaven\n' >"$logs_root/metrics.tsv"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  "$label" "$BENCHMARK_RUN_KIND" "$BENCHMARK_ROUND" "$BENCHMARK_SAMPLE" \
+  "$BENCHMARK_CALL_GRAPH_ALGORITHM" "$BENCHMARK_WALA_REFLECTION_OPTIONS" \
+  "$wall_seconds" "$call_graph_seconds" "$peak_heap_used_mib" \
+  "$peak_heap_committed_mib" "$heap_max_mib" "$heap_samples" \
+  "$peak_rss_kib" "$entrypoints" "$nodes" "$edges" "$status" \
+  "$analysis_result" "$analyzer_sha256" "$git_commit" "$git_dirty" \
+  "$(uname -s) $(uname -r)" "$(uname -m)" "$analyzer_java_identity" \
+  "$jdk_identity" "$maven_identity" >>"$logs_root/metrics.tsv"
+
+if [ "$status" != SUCCESS ]; then
+  echo "impact benchmark failed; analyzer_exit=$analysis_result; verification_exit=$verification_result" >&2
+  echo "logs: $logs_root" >&2
+  [ "$analysis_result" -ne 0 ] && exit "$analysis_result"
+  exit "$verification_result"
+fi
+
+if [ -z "$nodes" ] || [ -z "$edges" ] || [ -z "$entrypoints" ] \
+  || [ -z "$wall_seconds" ] || [ -z "$call_graph_seconds" ] \
+  || [ -z "$peak_heap_used_mib" ] || [ -z "$heap_samples" ]; then
+  echo "unable to extract complete benchmark metrics" >&2
+  exit 1
+fi
 
 echo "benchmark completed: $run_root"

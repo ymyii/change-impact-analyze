@@ -1,138 +1,113 @@
-# Impact Medium Benchmark
+# Impact Medium CallGraph Benchmark
 
-本 benchmark 持续验证打包后的 `dependency-analyzer impact`：构造一个 Java 8 Maven application、42 个 compile-scope external dependencies 和 9 类 bytecode changes，执行分析并采集阶段耗时、CPU、内存与报告完整性。
+本 benchmark 对打包后的 `dependency-analyzer impact` 执行三种 Call Graph algorithm 的可复现对比。Fixture 固定包含 42 个 compile-scope external dependencies 和 9 类 bytecode change；semantic contract 继续由 `expected-results.tsv` 锁定为每种 algorithm `6 / 5` 条 candidate/final call chains。
 
-## 目录
+## Canonical suite
 
-- `fixtures/application/baseline/`：`impact-baseline` snapshot。
-- `fixtures/application/target-overlay/`：生成 `impact-target` snapshot 的 source overlay。
-- `fixtures/artifacts/`：`scenario-api`、`legacy-impact-bridge` 和 vendor artifact source。
-- `scripts/prepare-fixture.sh`：编译并安装 fixture artifacts，生成临时 Git project。
-- `scripts/invoke-impact.sh`：唯一的 `impact` CLI 参数入口。
-- `scripts/verify-report.sh`：校验 exit code、42 个 dependencies、raw changes、final/filtered call chains、Structural Reference Path 和反编译代码证据。
-- `run-benchmark.sh`：准备 fixture、采样资源、执行分析和校验报告。
+先打包 Analyzer，再运行唯一 suite 入口：
 
-所有生成物默认位于 `tmp-files/impact-medium-benchmark/<label>/`。
+```sh
+mvn package
+JAVA8_HOME=/absolute/path/to/jdk8 \
+  benchmarks/impact-medium/run-suite.sh
+```
+
+可选 positional argument 是 suite label；同名 raw/candidate 目录存在时拒绝覆盖。Suite 固定执行：
+
+- `rta`、`zero-cfa`、`optimized-0-1-cfa` 各 1 次 warm-up，共 3 个独立 Java Virtual Machine（JVM）进程。Warm-up 预热 fixture、Maven 与文件缓存，并通过 `--call-graph-diagnostics-output` 采集 CGNode topology、source 与 IR。
+- 5 个 round，每个 round 各运行三种 algorithm，共 15 个正式样本和 15 个独立 JVM 进程。
+- 正式样本按 round 交错，algorithm 顺序在 `rta → zero-cfa → optimized-0-1-cfa`、`zero-cfa → optimized-0-1-cfa → rta`、`optimized-0-1-cfa → rta → zero-cfa` 之间轮换。
+- 正式样本不设置 diagnostics option，不执行 CGNode ranking、IMethod 子榜、shortest path、IR capture 或反编译。
+
+`BENCHMARK_WALA_REFLECTION_OPTIONS` 默认且正式验收要求为 `ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。
 
 ## Prerequisites
 
 - Java 17：启动 Analyzer。
 - 完整 JDK 8：fixture 编译与 `impact --java-home`。
-- Maven 3.6.3–3.x、Git、POSIX shell。
+- Maven 3.6.3–3.x、Git、Python 3、POSIX shell。
 - macOS `/usr/bin/time -lp` 或 GNU `/usr/bin/time -v`。
-- 已打包的 `target/dependency-analyzer.jar`。
-- Maven local repository 已缓存 `maven-compiler-plugin:3.13.0`；正常执行一次本工程 `mvn package` 即可。benchmark 本身以 offline Maven 运行，避免网络波动进入计时。
+- Maven local repository 已缓存 `maven-compiler-plugin:3.13.0`；suite 使用 offline Maven。
 
-先打包 Analyzer：
-
-```sh
-mvn package
-```
-
-## 执行
-
-```sh
-JAVA8_HOME=/absolute/path/to/jdk8 \
-  BENCHMARK_CALL_GRAPH_ALGORITHM=zero-cfa \
-  benchmarks/impact-medium/run-benchmark.sh
-```
-
-指定稳定 label 便于对比：
-
-```sh
-JAVA8_HOME=/absolute/path/to/jdk8 \
-  BENCHMARK_CALL_GRAPH_ALGORITHM=rta \
-  benchmarks/impact-medium/run-benchmark.sh candidate-01
-```
-
-同名结果目录已存在时脚本拒绝覆盖。可通过环境变量替换 runtime：
+可覆盖的 runtime 环境变量：
 
 | 环境变量 | 默认值 | 用途 |
 |---|---|---|
 | `ANALYZER_JAR` | `target/dependency-analyzer.jar` | 待测 shaded JAR |
 | `ANALYZER_JAVA` | PATH 中的 `java` | 启动 Analyzer 的 Java 17 executable |
 | `MAVEN_BIN` | PATH 中的 `mvn` | 传给 CLI 的 Maven executable |
-| `JAVA8_HOME` | 无 | 必填，target JDK 8 home |
-| `BENCHMARK_CALL_GRAPH_ALGORITHM` | 无 | 必填；仅接受 `rta`、`zero-cfa`、`optimized-0-1-cfa` |
-| `BENCHMARK_WALA_REFLECTION_OPTIONS` | `ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD` | 传给 `--wala-reflection-options`；接受 WALA `ReflectionOptions` enum name |
-| `BENCHMARK_CALIBRATION` | `0` | 仅 `1` 可临时跳过未来尚未锁定 algorithm 的 candidate/final count；其余报告断言仍执行 |
-| `BENCHMARK_MAVEN_REPO` | `$HOME/.m2/repository` | fixture artifacts 安装位置和 Maven local repository |
-| `BENCHMARK_RUNTIME_ROOT` | `tmp-files/impact-medium-benchmark` | report、log、config 和临时 Git project 根目录 |
+| `JAVA8_HOME` | 无 | 必填，完整 target JDK 8 home |
+| `BENCHMARK_WALA_REFLECTION_OPTIONS` | `ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD` | command-wide WALA ReflectionOptions |
+| `BENCHMARK_MAVEN_REPO` | `$HOME/.m2/repository` | fixture artifact 与 offline Maven repository |
+| `BENCHMARK_RUNTIME_ROOT` | `tmp-files/impact-medium-benchmark` | raw run、candidate、topology JSON 与 HTML 根目录 |
 
-如果使用全新的 `BENCHMARK_MAVEN_REPO`，须先将 Maven lifecycle plugin 及其依赖预热到该 repository；fixture 自有的 42 个 artifacts 会由准备脚本生成。
+`run-benchmark.sh` 是 suite 使用的单进程底层入口。手工诊断时必须显式设置 `BENCHMARK_CALL_GRAPH_ALGORITHM`；`BENCHMARK_CAPTURE_TOPOLOGY=1` 仅用于 warm-up。
 
-## 固定场景
+## Outputs
 
-`scenario-api:1.0.0 -> 2.0.0` 必须产生以下 9 个 raw changes：
-
-1. `CLASS_ADDED`
-2. `CLASS_REMOVED`
-3. `METHOD_ADDED`
-4. `METHOD_REMOVED`
-5. `METHOD_DESCRIPTOR_CHANGED`
-6. `METHOD_BODY_CHANGED`
-7. `FIELD_ADDED`
-8. `FIELD_REMOVED`
-9. `FIELD_DESCRIPTOR_CHANGED`
-
-`legacy-impact-bridge` 固定以 API v1 编译，使 target application 在升级到 API v2 后仍保留 removed method、old descriptor、removed field 和 removed class reference。40 个 vendor JAR 均包含一个 class，用于稳定构造中型 direct dependency set。
-
-## 成功条件
-
-脚本仅在下列条件全部满足时返回 `0`：
-
-- Analyzer exit code 为 `0`，Overall status 为 `Completed`。
-- Overall technical details 中 Algorithm 必须与显式 `BENCHMARK_CALL_GRAPH_ALGORITHM` 一致。
-- Overall technical details 中 WALA ReflectionOptions 必须与 `BENCHMARK_WALA_REFLECTION_OPTIONS` 一致。
-- application POM 包含 42 个 direct dependencies。
-- Overall technical details 中 raw changed members 为 `9`；Changes 页面仅展示有 candidate/final/Structural Reference Path 的变更，并隐藏三类 added change。
-- Candidate / final call chains 必须匹配 versioned `expected-results.tsv` 中该 algorithm 的已锁定值。`rta`、`zero-cfa`、`optimized-0-1-cfa` 经关键路径审查后均锁定为 `6 / 5`；新增 algorithm 首轮只允许用 `BENCHMARK_CALIBRATION=1` 运行并人工审查。
-- Affected Call Chains 页面包含 Structural Reference Path；Changes 页面包含 final、filtered、structural badge 与反编译 Unified diff。
-- Overall、Module Index、Affected Call Chains、Dependency Changes 四个 HTML 页面均存在。
-
-## 结果目录
+固定用户报告：
 
 ```text
-tmp-files/impact-medium-benchmark/<label>/
-├── config/                 # impact config/cache/workspace
-├── fixture/project/        # 带 impact-baseline/impact-target tags 的临时 Git project
-├── logs/
-│   ├── exit-code.txt
-│   ├── process-tree.csv
-│   ├── metrics.tsv
-│   ├── run-metadata.txt
-│   ├── stderr.log
-│   ├── stdout.log
-│   ├── time.txt
-│   └── verification.txt
-└── reports/
-    ├── impact-report.html
-    └── impact-report-modules/
+tmp-files/impact-medium-benchmark/benchmark-report.html
 ```
 
-`time.txt` 的 `real/user/sys` 是总耗时与 CPU time。`process-tree.csv` 每 250 ms 采样 Analyzer 及 Maven/Javac 子进程的 aggregate RSS/CPU。`metrics.tsv` 以 machine-readable TSV 固定记录 algorithm、WALA ReflectionOptions、Call Graph nodes/edges、Wall time 与 process-tree peak RSS KiB。macOS `time` 的 maximum resident set size 单位为 byte，GNU `time` 为 KiB。
+HTML 自包含 CSS，不使用 JavaScript 或外部 asset。`rta`、`zero-cfa`、`optimized-0-1-cfa`与comparison各占一个CSS-only tab。每个algorithm tab包含五个正式样本、Min/median/max、Top 10 caller CGNode、Top 10 callee CGNode、每个父CGNode下按IMethod聚合的Top 10相关节点、每个可达declared entrypoint的deterministic shortest CGNode chain、cycle、decompiled source和WALA IR。Generated Method没有bytecode source时允许仅展示IR。Comparison以`zero-cfa`为ratio baseline；ratio仅描述数据，不自动判定algorithm优劣。
 
-每个 algorithm 以同一环境至少成功运行三次；使用 `scripts/summarize-runs.sh` 读取三个或更多 run directory，并输出 Wall time 与 process-tree peak RSS 的中位数。脚本拒绝混合 algorithm、calibration run 或不同 JAR SHA-256、JVM、JDK 8、Maven repository、fixture、CPU、`analysis-parallelism` 的结果。不同 algorithm 的性能比较只读取该 summary 输出。`front-parallel` 包含并发的 `baseline-dependency` 与 `target-build`，阶段时间不能全部相加推导 Wall time。
+Git 管理的最近一次完整成功快照：
+
+```text
+benchmarks/impact-medium/results/samples.tsv
+benchmarks/impact-medium/results/summary.tsv
+benchmarks/impact-medium/results/topology.tsv
+```
+
+- `samples.tsv`：15 个正式样本；包含 wall、CallGraph、heap、RSS、graph、status 与环境 identity。
+- `summary.tsv`：每种 algorithm 一行；包含资源 Min/median/max、稳定 topology 和相对 `zero-cfa` ratio。
+- `topology.tsv`：使用`RANKED_CGNODE`、`RELATED_IMETHOD`、`ENTRYPOINT_PATH`三种record；保存父CGNode、`wala_synthetic`、子榜IMethod、related CGNode count、最多10个deterministic Context example、omitted count和shortest CGNode path。Multiline source/IR只进入HTML；TSV保存各自status与SHA-256。
+
+Suite 只有在 18 个 run 全部通过 semantic verification，且 warm-up 与五个正式样本的 Entrypoint/CGNode/CGEdge 完全一致时，才逐文件原子替换 tracked TSV。出现 `FAILED` 或 `TOPOLOGY_DRIFT` 时，旧 tracked snapshot 不变；failure HTML、candidate TSV、raw run、topology JSON 与 `failure.txt` 保留在 `tmp-files/impact-medium-benchmark/`。
+
+## Metrics
+
+每个正式样本记录：
+
+- Total wall time、CallGraph stage time。
+- 每 100 ms 观察得到的 Peak Heap Used、Peak Heap Committed、Heap Max 与 sample count；TRACE snapshot 仍只在启动和每 10 s 输出，command 关闭前强制 final observation。
+- 每 250 ms 采样的 process-tree peak Resident Set Size（RSS），作为辅助指标。
+- Entrypoint、CGNode、CGEdge、execution status、exit code。
+- Analyzer SHA-256、Git commit/dirty、OS、architecture、Analyzer Java、target JDK、Maven identity。
+
+全图CGNode/CGEdge totals包含WALA fake root/world-clinit；排行榜排除两个sentinel及其incident edge。父榜不合并Context，以精确CGNode为单位，先按related CGNode count降序，再按distinct related IMethod、raw CGEdge与稳定CGNode identity排序。每个父CGNode下的子榜按IMethod聚合，以该IMethod代表的related CGNode count、raw CGEdge和稳定Method identity排序；展开项保留deterministic前10个具体CGNode/Context example与omitted count，从而定位同一Method的Context或points-to膨胀，同时避免单个高膨胀Method令HTML/TSV不可浏览。项目不输出独立points-to set排行榜。
+
+## Semantic success criteria
+
+每个 run 必须同时满足：
+
+- Analyzer exit code 为 `0`，Overall status 为 `Completed`。
+- 实际 Algorithm 等于请求值；实际 WALA ReflectionOptions 等于 `ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。
+- POM 有 42 个 direct dependencies；Overall 有 9 个 raw changed members。
+- `expected-results.tsv` 中该 algorithm 的 candidate/final call chains 为 `6 / 5`。
+- Affected Call Chains 页面包含 Structural Reference Path 与 filtered candidate。
+- Dependency Changes 页面包含 final、filtered、structural badge 与反编译代码 evidence。
+- Overall、Module Index、Affected Call Chains、Dependency Changes 四页均存在。
+
+## Historical comparison
+
+保存任意两个版本的 `summary.tsv`，执行：
 
 ```sh
-benchmarks/impact-medium/scripts/summarize-runs.sh \
-  tmp-files/impact-medium-benchmark/rta-01 \
-  tmp-files/impact-medium-benchmark/rta-02 \
-  tmp-files/impact-medium-benchmark/rta-03 \
-  > tmp-files/impact-medium-benchmark/rta-summary.tsv
-
 benchmarks/impact-medium/scripts/compare-summaries.sh \
-  tmp-files/impact-medium-benchmark/rta-summary.tsv \
-  tmp-files/impact-medium-benchmark/zero-cfa-summary.tsv
+  /path/to/baseline-summary.tsv \
+  /path/to/candidate-summary.tsv
 ```
 
-`performance-thresholds.tsv` 锁定 RTA 相对 `zero-cfa` 的中位数门槛：Wall time 不超过 `3.50x`，process-tree peak RSS 不超过 `1.75x`。`compare-summaries.sh` 只接收两个 summary，要求相同 WALA ReflectionOptions，并同时执行两项门禁。
+输出各 algorithm 的 median wall、CallGraph、Peak Heap Used、RSS、CGNode、CGEdge 的 baseline、candidate、absolute change 与 ratio。没有固定 threshold，也不输出 PASS/FAIL。
 
-## Failure Entrypoints
+## Failure entrypoints
 
-- `logs/stderr.log`：Preflight 与 CLI failure。
-- `logs/stdout.log`：各 pipeline task、Call Graph 和 JAR diff diagnostics。
-- `logs/verification.txt`：场景或报告完整性 failure。
-- `logs/time.txt`：进程退出及资源统计。
-- `fixture/project/pom.xml`：42 个 dependency coordinates 和 target API version。
-- Maven offline plugin resolution failure：先对 `BENCHMARK_MAVEN_REPO` 执行正常 Maven build 预热。
+- `<run>/logs/stderr.log`：Preflight、CLI、Runtime Metrics 与 pipeline failure。
+- `<run>/logs/verification.txt`：42 dependencies、9 raw changes、`6 / 5` chains、Structural Reference Path、Algorithm/ReflectionOptions failure。
+- `<run>/logs/metrics.tsv`：即使 run failure 也尽量保留的单样本指标。
+- `<run>/topology.json`：warm-up Schema v2 CGNode topology、IMethod子榜、shortest chain、source与IR。
+- `<suite>-candidate-results/failure.txt`：suite Schema、环境或 topology drift failure。
+- `benchmark-report.html`：成功或失败均更新的用户入口；失败时明确说明 tracked TSV 未发布。
