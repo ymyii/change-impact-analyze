@@ -125,6 +125,14 @@ public final class ImpactCommand
                     + "ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD.")
     private WalaReflectionOptions reflectionOptions;
 
+    /** External dependency method-body analysis scope. */
+    @Option(names = "--dependency-analysis-scope",
+            defaultValue = "changed-paths",
+            converter = DependencyAnalysisScopeModeConverter.class,
+            description = "Dependency method-body scope: changed-paths "
+                    + "or full; default: changed-paths.")
+    private DependencyAnalysisScopeMode dependencyAnalysisScope;
+
     /** Included PROJECT entrypoint classes. */
     @Option(names = "--entrypoint-include",
             description = "Repeatable slash-separated class-path pattern "
@@ -263,6 +271,7 @@ public final class ImpactCommand
                             entrypointSelection,
                             callGraphAlgorithm,
                             reflectionOptions,
+                            dependencyAnalysisScope,
                             metrics.executors())).run(
                     context.get(
                             ImpactPreflightService

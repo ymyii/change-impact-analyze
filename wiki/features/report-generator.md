@@ -15,6 +15,10 @@ code_refs:
     desc: "run status、selected algorithm 与 metrics"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleAnalysisResult.java"
     desc: "Module detail result"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleChangedPathSelection.java"
+    desc: "requested/actual scope、fallback 与全部 dependency paths"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/DependencyBodyBoundaryMetadata.java"
+    desc: "external artifact/method policy counts 与 boundary evidence"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeReportRenderer.java"
     desc: "独立 tree HTML renderer"
 ---
@@ -23,7 +27,7 @@ code_refs:
 
 ## Summary
 
-`impact` 只生成英文 offline HTML：用户 `--output` 是 Overall Index；同级 command-owned `<stem>-modules/` 为每个非 `SKIPPED` Module 保存 Module Index、Affected Call Chains、Dependency Changes 三页。Markdown renderer 与 legacy overload 已移除。`tree` 的 repository/reactor HTML contract 保持独立。
+`impact` 只生成英文 offline HTML：用户 `--output` 是 Overall Index；同级 command-owned `<stem>-modules/` 为每个非 `SKIPPED` Module 保存 Module Index、Affected Call Chains、Dependency Changes 三页。Report投影 requested/actual dependency analysis scope、全部 changed dependency paths、external method-body policy、dangerous transfer、factory evidence 与 fallback。`tree` 的 repository/reactor HTML contract 保持独立。
 
 ## Design Decisions
 
@@ -39,6 +43,7 @@ code_refs:
 ## Behavior Contract
 
 - Overall technical details展示command实际使用的Algorithm与WALA ReflectionOptions。
+- Overall汇总 changed-paths/full/fallback Module 数量、real-IR/no-op external artifact 数量、no-op/factory method node、dangerous transfer与 `INCONCLUSIVE` 比例。
 - Access narrowing member展示old/new access、typed decision/reason及代表性caller/reference evidence。
 - 全部coverage limitation保留；Module单一reason使用typed precedence。
 
@@ -55,15 +60,17 @@ Index 记录：
 - 每 Module status/reason/link、candidate/filtered/final、direct/transitive、affected methods/classes、Structural Reference Paths、entrypoint selector/matching、scope、CG nodes/edges/contexts、SSA/limitation counts。
 - Preflight 与 Diagnostics 整体默认折叠。
 - Algorithm与WALA ReflectionOptions读取command-wide `AnalysisRunResult`：默认显示`rta`、global instantiated-compatible-class precision及`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`；显式ZeroX/Reflection配置展示实际选择。
+- Dependency analysis scope同时展示command requested mode与每个Module actual mode；默认requested为`changed-paths`，graph/path planning failure的Module显示`full`和fallback reason。
 
 ## Module Pages
 
-- Module Index：status/reason、scope、entrypoint selection、affected method/class/path/dependency/member counts、stage/worker/entry/call metrics、coverage limitations 和 sibling links。`Duplicate class resolution` 表展示 binary name、winner origin/logical source、shadowed logical source 与 precedence reason；dependency source 使用 Maven coordinate。Duplicate warning 不进入 Coverage limitations，也不改变 Module status。
+- Module Index：status/reason、scope、entrypoint selection、affected method/class/path/dependency/member counts、stage/worker/entry/call metrics、coverage limitations 和 sibling links。Dependency body section展示 requested/actual mode、fallback、每个 changed dependency 的全部到达路径、real-IR/no-op artifact列表和数量、real/no-op/factory method node数量、dangerous transfer表与flow-to-cast factory evidence。`Duplicate class resolution` 表展示 binary name、winner origin/logical source、shadowed logical source 与 precedence reason。
 - Affected Call Chains：一级按 changed JAR，二级按 changed member 与 affected application method；最终链展示 Java method sequence 及 `Direct dependency impact`/`Transitive dependency impact`。SSA-equivalent candidate chains 独立默认折叠。Structural Reference Chains 显示 PROJECT boundary 到 changed class 的完整关系；raw Context/edge evidence 位于 `Technical details`。Changed member 链接到 Dependency Changes anchor。
 - Dependency Changes：展示至少关联candidate/final Impact Path、Structural Reference Path，或disposition为`SHADOWED_BY_DUPLICATE`/`ACCESS_REMAINS_VALID`的changed member，按Maven coordinate/JAR分组。Access member展示`PUBLIC->PROTECTED`等transition、`ACCESSIBLE`/`INACCESSIBLE`/`POTENTIALLY_INACCESSIBLE` decision与representative evidence。其他raw changes只保留总数和未展示数；JAR diff failure转移到Module limitations/Diagnostics。
 - 每个相关 member 默认折叠，并使用 `Affected`、`Equivalent (filtered)`、`Structural impact`、`Shadowed by duplicate` badge。Shadowed member 明确说明未生成 Impact Path 的原因、actual winner 与 precedence；dependency winner 使用 logical coordinate，不展示 physical path。其他 member 的 `View code changes` 展示由 dependency bytecode 生成的 old/new Unified diff，明确标记为 `Decompiled Java representation`；反编译失败或文本相同时展示 ASM fallback/unavailable reason。
 - 默认展开区只显示 Maven/Module coordinate、scope/version、Java package/class/member、影响链和核心 metrics。Dependency JAR physical path 在所有区域均不输出；Workspace、classpath、Maven executable、JDK/config/temp/output 等其他 filesystem path 进入 `Technical details`。
 - Call chain 空态固定为 `No affected call chain was found within the documented analysis scope.`，不声明确定性 no impact。
+- `changed-paths` 的 `SUCCESS` 页面必须明确说明：只代表 selected dependency path 与 modeled boundary 内未发现 Impact Path，不代表 no-op dependency 内部不存在影响。
 
 所有页面共享 top breadcrumbs、Module sibling navigation、sticky side TOC；窄屏下 TOC 回到正文顶部。Navigation 使用纯 HTML/CSS，无 JavaScript、CDN 或外部 asset。Dynamic text、href 和 anchor attribute 均 HTML escaping；anchor 使用 stable hash。
 
@@ -93,6 +100,8 @@ Index 记录：
 - Given default command configuration；When发布Report；Then technical details显示`rta`与`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。
 - Given access reference全部仍合法；When发布Dependency Changes；Then显示`ACCESS_REMAINS_VALID`与old/new access，Affected Call Chains中不存在虚假path。
 - Given potential access reference；When发布Report；Then明确标注`Potential access incompatibility`且不改变Module status。
+- Given dangerous transfer或flow-to-cast factory；When发布Report；ThenModule reason为`INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY`并展示caller、callee、artifact、PC、typed proof/type与dependency path evidence。
+- Given occurrence graph recovery failure；When发布Report；Thenrequested mode保持`changed-paths`、actual mode显示`full`并展示stable fallback reason。
 
 ### Non-Functional
 

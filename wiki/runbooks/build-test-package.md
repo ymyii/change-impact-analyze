@@ -12,6 +12,8 @@ relations:
     desc: "Stable version、release profile、commit 与 tag 操作"
   - path: "wiki/rules/release-versioning.md"
     desc: "独立 SemVer、Snapshot 复用与 release gate"
+  - path: "wiki/rules/benchmark-scenario-coverage.md"
+    desc: "Analyzer 能力新增的 semantic benchmark 完成条件"
 code_refs:
   - path: "pom.xml"
     desc: "Analyzer parent/aggregator、Enforcer 与 shared build management"
@@ -112,6 +114,7 @@ java -jar target/dependency-analyzer.jar tree --help
 - Empty Maven local repository + blocked wildcard mirror 下，packaged runtime 可执行 `dependency:tree + resolve-artifact-paths`。
 - 最新 duplicate class precedence tests、report tests 与 `PackagedJarCliIT` 全部通过。
 - Root/两个 subcommand help 列出当前 option；CLI `--version` 与 Maven build metadata 一致。
+- Analyzer 能力新增或行为扩展时，必须同步新增/更新 benchmark fixture、verification 与 expected baseline，并执行 `JAVA8_HOME=/absolute/path/to/jdk8 benchmarks/impact-medium/run-scope-matrix.sh`；48 个 JVM、8 组 semantic baseline 和两份 HTML Report 全部成功后才完成任务。
 
 ## Failure Entrypoints
 

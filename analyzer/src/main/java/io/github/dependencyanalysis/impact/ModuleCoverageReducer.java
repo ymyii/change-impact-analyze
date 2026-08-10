@@ -11,10 +11,12 @@ final class ModuleCoverageReducer {
     /** Stable highest-first reason precedence. */
     private static final Map<ModuleAnalysisReason, Integer> PRECEDENCE =
             Map.of(
-                    ModuleAnalysisReason.INCONCLUSIVE_INVOKEDYNAMIC_MODEL, 1,
-                    ModuleAnalysisReason.INCONCLUSIVE_METHOD_HANDLE_MODEL, 2,
-                    ModuleAnalysisReason.INCONCLUSIVE_SERVICE_LOADER, 3,
-                    ModuleAnalysisReason.INCONCLUSIVE_SCOPE_VALIDATION, 4);
+                    ModuleAnalysisReason
+                            .INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY, 1,
+                    ModuleAnalysisReason.INCONCLUSIVE_INVOKEDYNAMIC_MODEL, 2,
+                    ModuleAnalysisReason.INCONCLUSIVE_METHOD_HANDLE_MODEL, 3,
+                    ModuleAnalysisReason.INCONCLUSIVE_SERVICE_LOADER, 4,
+                    ModuleAnalysisReason.INCONCLUSIVE_SCOPE_VALIDATION, 5);
 
     private ModuleCoverageReducer() {
     }

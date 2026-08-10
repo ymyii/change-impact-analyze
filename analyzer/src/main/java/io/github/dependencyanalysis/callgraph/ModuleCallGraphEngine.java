@@ -288,6 +288,8 @@ public final class ModuleCallGraphEngine {
             reportDuplicateResolutions(context, ownership);
             final AnalysisScope scope = scope(unit, ownership);
             final IClassHierarchy hierarchy = hierarchy(scope);
+            final DependencyBodyBoundary dependencyBoundary =
+                    new DependencyBodyBoundary(unit, ownership, hierarchy);
             final List<Entrypoint> entrypoints = entrypoints(
                     hierarchy, entrypointIndex);
             if (entrypoints.isEmpty()) {
@@ -316,7 +318,8 @@ public final class ModuleCallGraphEngine {
                         .build(new CallGraphBuildRequest(
                                 scope, hierarchy, entrypoints, cache,
                                 serviceLoaderIndex, dynamicModels,
-                                reflectionOptions, monitor));
+                                reflectionOptions, dependencyBoundary,
+                                monitor));
             } catch (Exception exception) {
                 if (monitor.isTimedOut()) {
                     throw CallGraphException.timeout(
@@ -352,6 +355,7 @@ public final class ModuleCallGraphEngine {
                             selectedClasses, entrypoints.size(),
                             parameterCandidates),
                             strategyResult.metadata(),
+                            dependencyBoundary.metadata(graph),
                             structuralReferences, topology));
         } catch (CallGraphException exception) {
             diagnostics.failStage(context, exception.getMessage());

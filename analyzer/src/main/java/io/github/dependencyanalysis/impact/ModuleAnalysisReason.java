@@ -36,6 +36,9 @@ public enum ModuleAnalysisReason {
     /** External dependencies reference excluded JDK classes. */
     INCONCLUSIVE_SCOPE_VALIDATION,
 
+    /** A changed instance crossed into, or was materialized by, a no-op JAR. */
+    INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY,
+
     /** Scope validation rejected a classpath boundary. */
     FAILED_SCOPE_VALIDATION,
 

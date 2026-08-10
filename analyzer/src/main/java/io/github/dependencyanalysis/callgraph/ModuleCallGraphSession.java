@@ -14,6 +14,7 @@ import java.util.Optional;
 
 import io.github.dependencyanalysis.impact.StructuralReferenceIndex;
 import io.github.dependencyanalysis.impact.ModuleAnalysisReason;
+import io.github.dependencyanalysis.impact.CoverageLimitation;
 
 /** Live per-module WALA graph and its ownership/metric context. */
 public final class ModuleCallGraphSession {
@@ -47,6 +48,9 @@ public final class ModuleCallGraphSession {
 
     /** Immutable ServiceLoader fixed-point metadata. */
     private final ServiceLoaderModelMetadata serviceLoaderMetadata;
+
+    /** External dependency body-boundary evidence and node counts. */
+    private final DependencyBodyBoundaryMetadata dependencyBoundary;
 
     /** Structural metadata indexed before Call Graph construction. */
     private final StructuralReferenceIndex structuralReferences;
@@ -83,6 +87,7 @@ public final class ModuleCallGraphSession {
         final StrategyModelMetadata strategy = values.strategyModels();
         dynamicEvidence = strategy.dynamicEvidence();
         serviceLoaderMetadata = strategy.serviceLoader();
+        dependencyBoundary = values.dependencyBoundary();
         structuralReferences = values.structuralReferences();
         topology = values.topology();
         modelLimitations = strategy.limitations();
@@ -157,6 +162,20 @@ public final class ModuleCallGraphSession {
     /** @return typed immutable fixed-point coverage limitations */
     public List<ModelLimitation> getCoverageLimitations() {
         return modelLimitations;
+    }
+
+    /** @return dependency body boundary output */
+    public DependencyBodyBoundaryMetadata getDependencyBoundary() {
+        return dependencyBoundary;
+    }
+
+    /** @return typed dependency boundary limitations */
+    public List<CoverageLimitation> getDependencyBoundaryLimitations() {
+        final java.util.ArrayList<CoverageLimitation> result =
+                new java.util.ArrayList<>();
+        result.addAll(dependencyBoundary.dangerousTransfers());
+        result.addAll(dependencyBoundary.factories());
+        return List.copyOf(result);
     }
 
     /** @return true when a fixed-point model reported a limitation */

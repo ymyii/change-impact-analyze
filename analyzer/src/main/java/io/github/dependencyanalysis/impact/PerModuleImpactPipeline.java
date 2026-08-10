@@ -45,7 +45,6 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -103,6 +102,9 @@ final class PerModuleImpactPipeline {
     /** Command-wide WALA ReflectionOptions. */
     private final WalaReflectionOptions reflectionOptions;
 
+    /** Requested dependency method-body scope. */
+    private final DependencyAnalysisScopeMode dependencyAnalysisScope;
+
     /** Command temporary directory. */
     private final Path temporaryDirectory;
 
@@ -149,6 +151,9 @@ final class PerModuleImpactPipeline {
                 options.callGraphAlgorithm(), "callGraphAlgorithm");
         reflectionOptions = Objects.requireNonNull(
                 options.reflectionOptions(), "reflectionOptions");
+        dependencyAnalysisScope = Objects.requireNonNull(
+                options.dependencyAnalysisScope(),
+                "dependencyAnalysisScope");
     }
 
     /**
@@ -265,7 +270,8 @@ final class PerModuleImpactPipeline {
             new CallGraphDiagnosticsExporter(
                     diagnostics, javaRuntime, repository()).write(
                     callGraphDiagnosticsOutput, callGraphAlgorithm,
-                    reflectionOptions, codeEvidence.modules());
+                    reflectionOptions, dependencyAnalysisScope,
+                    codeEvidence.modules());
         }
         return new AnalysisRunResult(targetScope.getMode(),
                 overallStatus(codeEvidence.modules()), changes,
@@ -275,7 +281,7 @@ final class PerModuleImpactPipeline {
                 codeEvidence.actualWorkers()), elapsed,
                 new AnalysisRunConfiguration(
                         entrypointSelection, callGraphAlgorithm,
-                        reflectionOptions));
+                        reflectionOptions, dependencyAnalysisScope));
         } finally {
             jarRepository = null;
         }
@@ -557,7 +563,7 @@ final class PerModuleImpactPipeline {
         final File javaHome = mavenRuntime.getJavaHome() == null
                 ? null : mavenRuntime.getJavaHome().toFile();
         return new DependencyAnalyzer(side, scope.getReactorRoot(),
-                Collections.emptySet(), diagnostics, javaHome,
+                scope.getReactorCoordinates(), diagnostics, javaHome,
                 mavenRuntime.getExecutable(), mavenArguments)
                 .withPluginRuntime(pluginRuntime)
                 .withProjectArguments(scope.getProjectArguments())
@@ -837,18 +843,36 @@ final class PerModuleImpactPipeline {
                     ? ModulePresence.BASELINE_ONLY
                     : baseline == null ? ModulePresence.TARGET_ONLY
                     : ModulePresence.BOTH;
+            final ModuleChangeSet changeSet = new ModuleChangeSet(
+                    changesByModule.getOrDefault(key, List.of()),
+                    bindings.pointsByModule().getOrDefault(
+                            key, List.of()),
+                    bindings.failuresByModule().getOrDefault(
+                            key, List.of()));
+            final ModuleChangedPathSelection pathSelection = targetTree == null
+                    ? ModuleChangedPathSelection.fullArtifacts(
+                    targetArtifacts)
+                    : ModuleChangedPathSelection.plan(
+                    targetTree.getOccurrenceGraph(),
+                    changedArtifacts(changeSet.changePoints()),
+                    dependencyAnalysisScope);
             result.add(new ModuleAnalysisUnit(identity, presence, classes,
-                    reactorClasses, targetArtifacts, baselineArtifacts,
-                    new ModuleChangeSet(
-                            changesByModule.getOrDefault(key, List.of()),
-                            bindings.pointsByModule().getOrDefault(
-                                    key, List.of()),
-                            bindings.failuresByModule().getOrDefault(
-                                    key, List.of()))));
+                    reactorClasses, new ModuleDependencyInputs(
+                    targetArtifacts, baselineArtifacts, pathSelection),
+                    changeSet));
         }
         result.sort(Comparator.comparing(unit ->
                 unit.getModuleId().stableKey()));
         return result;
+    }
+
+    private Set<ArtifactCoord> changedArtifacts(
+            final List<BoundChangePoint> points) {
+        final Set<ArtifactCoord> result = new LinkedHashSet<>();
+        points.stream().sorted(Comparator.comparing(
+                BoundChangePoint::stableKey)).forEach(point -> result.add(
+                point.getDependencyUpgradeKey().getNewArtifact()));
+        return Set.copyOf(result);
     }
 
     private List<ModuleAnalysisResult> analyzeModules(
@@ -1004,6 +1028,8 @@ final class PerModuleImpactPipeline {
             final List<String> limitations = new ArrayList<>(
                     scopeValidation.limitations());
             limitations.addAll(session.getModelLimitations());
+            limitations.addAll(session.getDependencyBoundaryLimitations()
+                    .stream().map(CoverageLimitation::summary).toList());
             limitations.addAll(query.getLimitations().stream()
                     .map(QueryLimitation::summary).toList());
             if (diffFailed) {
@@ -1012,6 +1038,7 @@ final class PerModuleImpactPipeline {
             final List<CoverageLimitation> coverage = new ArrayList<>(
                     scopeValidation.warnings());
             coverage.addAll(session.getCoverageLimitations());
+            coverage.addAll(session.getDependencyBoundaryLimitations());
             coverage.addAll(query.getLimitations());
             final ModuleAnalysisReason reason =
                     ModuleCoverageReducer.reduce(diffFailed, coverage);
@@ -1190,9 +1217,15 @@ final class PerModuleImpactPipeline {
             final String currentKey) {
         final Map<String, ModuleId> modules = moduleMap(
                 scope.getAllModules());
-        final Set<String> closure = new LinkedHashSet<>(
-                ModuleClasspathOrder.reactorKeys(
-                        tree, scope.getReactorCoordinates()));
+        final Set<String> reactor = scope.getReactorCoordinates().stream()
+                .map(ArtifactCoord::diffKey)
+                .collect(java.util.stream.Collectors.toSet());
+        final Set<String> closure = new LinkedHashSet<>();
+        tree.getOccurrenceGraph().occurrences().stream()
+                .filter(value -> !value.moduleRoot())
+                .map(value -> value.artifact().diffKey())
+                .filter(reactor::contains)
+                .forEach(closure::add);
         closure.remove(currentKey);
         return closure.stream()
                 .map(modules::get)

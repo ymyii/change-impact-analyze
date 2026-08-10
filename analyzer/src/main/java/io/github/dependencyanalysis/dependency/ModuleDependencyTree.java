@@ -23,6 +23,9 @@ public final class ModuleDependencyTree {
     private final List<DependencyNode>
             dependencies;
 
+    /** Occurrence-preserving dependency graph. */
+    private final ModuleDependencyOccurrenceGraph occurrenceGraph;
+
     /**
      * Creates a new module dependency
      * tree.
@@ -36,6 +39,22 @@ public final class ModuleDependencyTree {
             final Path path,
             final List<DependencyNode>
                     deps) {
+        this(mod, path, deps, graphFromTree(mod, deps));
+    }
+
+    /**
+     * Creates a tree plus its occurrence-preserving source graph.
+     *
+     * @param mod module coordinate
+     * @param path module directory
+     * @param deps coordinate-projection tree
+     * @param graph occurrence graph
+     */
+    public ModuleDependencyTree(
+            final ArtifactCoord mod,
+            final Path path,
+            final List<DependencyNode> deps,
+            final ModuleDependencyOccurrenceGraph graph) {
         this.module =
                 Objects.requireNonNull(
                         mod, "module");
@@ -49,6 +68,8 @@ public final class ModuleDependencyTree {
                                         .requireNonNull(
                                                 deps,
                                                 "dependencies")));
+        this.occurrenceGraph = Objects.requireNonNull(graph,
+                "occurrenceGraph");
     }
 
     /**
@@ -78,6 +99,42 @@ public final class ModuleDependencyTree {
     public List<DependencyNode>
             getDependencies() {
         return dependencies;
+    }
+
+    /** @return GraphML occurrence graph used only for path planning */
+    public ModuleDependencyOccurrenceGraph getOccurrenceGraph() {
+        return occurrenceGraph;
+    }
+
+    private static ModuleDependencyOccurrenceGraph graphFromTree(
+            final ArtifactCoord module,
+            final List<DependencyNode> roots) {
+        final List<ModuleDependencyOccurrenceGraph.Occurrence> nodes =
+                new ArrayList<>();
+        final List<ModuleDependencyOccurrenceGraph.Edge> edges =
+                new ArrayList<>();
+        nodes.add(new ModuleDependencyOccurrenceGraph.Occurrence(
+                "module", module, null, true, false));
+        final int[] sequence = {0};
+        for (DependencyNode root : roots) {
+            append(root, "module", nodes, edges, sequence);
+        }
+        return new ModuleDependencyOccurrenceGraph("module", nodes, edges);
+    }
+
+    private static void append(
+            final DependencyNode node,
+            final String parent,
+            final List<ModuleDependencyOccurrenceGraph.Occurrence> nodes,
+            final List<ModuleDependencyOccurrenceGraph.Edge> edges,
+            final int[] sequence) {
+        final String id = "tree-" + sequence[0]++;
+        nodes.add(new ModuleDependencyOccurrenceGraph.Occurrence(
+                id, node.getArtifact(), node.getScope(), false, false));
+        edges.add(new ModuleDependencyOccurrenceGraph.Edge(parent, id));
+        for (DependencyNode child : node.getChildren()) {
+            append(child, id, nodes, edges, sequence);
+        }
     }
 
     @Override

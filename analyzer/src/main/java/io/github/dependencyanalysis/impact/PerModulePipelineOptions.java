@@ -16,6 +16,7 @@ import java.nio.file.Path;
  * @param entrypointSelection user-selected PROJECT entrypoint boundary
  * @param callGraphAlgorithm command-wide Call Graph algorithm
  * @param reflectionOptions command-wide WALA ReflectionOptions
+ * @param dependencyAnalysisScope dependency method-body scope
  * @param executors Analyzer-owned pool registry
  */
 record PerModulePipelineOptions(
@@ -25,6 +26,7 @@ record PerModulePipelineOptions(
         EntrypointSelection entrypointSelection,
         CallGraphAlgorithm callGraphAlgorithm,
         WalaReflectionOptions reflectionOptions,
+        DependencyAnalysisScopeMode dependencyAnalysisScope,
         ManagedExecutorRegistry executors) {
 
     PerModulePipelineOptions(
@@ -37,7 +39,8 @@ record PerModulePipelineOptions(
             final ManagedExecutorRegistry executorRegistry) {
         this(timeoutSeconds, parallelism,
                 new PipelineOutputPaths(tempDirectory, null),
-                selection, algorithm, reflection, executorRegistry);
+                selection, algorithm, reflection,
+                DependencyAnalysisScopeMode.defaultMode(), executorRegistry);
     }
 
     PerModulePipelineOptions(
@@ -50,7 +53,8 @@ record PerModulePipelineOptions(
         this(timeoutSeconds, parallelism,
                 new PipelineOutputPaths(tempDirectory, null),
                 selection, algorithm,
-                WalaReflectionOptions.defaultOptions(), executorRegistry);
+                WalaReflectionOptions.defaultOptions(),
+                DependencyAnalysisScopeMode.defaultMode(), executorRegistry);
     }
 
     /** @return command temporary directory */

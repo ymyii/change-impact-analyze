@@ -55,6 +55,15 @@ class PerModuleImpactPipelineTest {
                 .isEqualTo(ModuleAnalysisReason.NONE);
     }
 
+    @Test
+    void dependencyBodyBoundaryMakesModuleInconclusive() {
+        assertThat(ModuleCoverageReducer.reduce(false, List.of(
+                limitation(ModuleAnalysisReason
+                        .INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY))))
+                .isEqualTo(ModuleAnalysisReason
+                        .INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY);
+    }
+
     private CoverageLimitation limitation(
             final ModuleAnalysisReason reason) {
         return new CoverageLimitation() {

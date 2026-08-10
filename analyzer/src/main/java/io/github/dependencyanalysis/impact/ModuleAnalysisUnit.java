@@ -39,6 +39,9 @@ public final class ModuleAnalysisUnit {
     /** Isolated coordinate-pair JAR diff failures for this module. */
     private final List<JarDiffFailure> jarDiffFailures;
 
+    /** External dependency path selection and method-body policy. */
+    private final ModuleChangedPathSelection changedPathSelection;
+
     /**
      * Creates a module analysis unit.
      *
@@ -58,16 +61,42 @@ public final class ModuleAnalysisUnit {
             final List<ArtifactCoord> targetDependencies,
             final List<ArtifactCoord> baselineDependencies,
             final ModuleChangeSet changes) {
+        this(id, modulePresence, classes, reactorClasses,
+                new ModuleDependencyInputs(targetDependencies,
+                        baselineDependencies,
+                        ModuleChangedPathSelection.fullArtifacts(
+                                targetDependencies)), changes);
+    }
+
+    /**
+     * Creates a module analysis unit with planned dependency body scope.
+     *
+     * @param id module identity
+     * @param modulePresence cross-side presence
+     * @param classes current module classes
+     * @param reactorClasses reactor dependency classes
+     * @param dependencyInputs external dependency inputs and path selection
+     * @param changes bound changes
+     */
+    public ModuleAnalysisUnit(
+            final ModuleId id,
+            final ModulePresence modulePresence,
+            final Path classes,
+            final List<Path> reactorClasses,
+            final ModuleDependencyInputs dependencyInputs,
+            final ModuleChangeSet changes) {
         moduleId = Objects.requireNonNull(id, "moduleId");
         presence = Objects.requireNonNull(modulePresence, "presence");
         projectClasses = Objects.requireNonNull(classes,
                 "projectClasses");
         reactorDependencyClasses = immutable(reactorClasses);
-        targetArtifacts = immutable(targetDependencies);
-        baselineArtifacts = immutable(baselineDependencies);
+        targetArtifacts = immutable(dependencyInputs.targetArtifacts());
+        baselineArtifacts = immutable(dependencyInputs.baselineArtifacts());
         dependencyChanges = immutable(changes.dependencyChanges());
         changePoints = immutable(changes.changePoints());
         jarDiffFailures = immutable(changes.jarDiffFailures());
+        changedPathSelection = Objects.requireNonNull(
+                dependencyInputs.changedPathSelection(), "pathSelection");
     }
 
     private static <T> List<T> immutable(final List<T> values) {
@@ -124,5 +153,10 @@ public final class ModuleAnalysisUnit {
     public List<String> getJarDiffFailureSummaries() {
         return jarDiffFailures.stream()
                 .map(JarDiffFailure::summary).toList();
+    }
+
+    /** @return dependency path selection and body policy */
+    public ModuleChangedPathSelection getChangedPathSelection() {
+        return changedPathSelection;
     }
 }

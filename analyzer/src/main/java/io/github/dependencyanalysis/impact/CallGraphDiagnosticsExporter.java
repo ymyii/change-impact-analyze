@@ -15,6 +15,7 @@ import io.github.dependencyanalysis.callgraph.CallGraphTopologySnapshot;
 import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
 import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
+import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.jar.IJarRepository;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 
@@ -37,7 +38,7 @@ import java.util.UUID;
 final class CallGraphDiagnosticsExporter {
 
     /** Diagnostics JSON Schema version. */
-    static final int SCHEMA_VERSION = 3;
+    static final int SCHEMA_VERSION = 4;
 
     /** SHA-256 algorithm name. */
     private static final String SHA_256 = "SHA-256";
@@ -76,6 +77,7 @@ final class CallGraphDiagnosticsExporter {
      * @param output destination JSON
      * @param algorithm Call Graph algorithm
      * @param reflectionOptions WALA ReflectionOptions
+     * @param dependencyScope requested dependency method-body scope
      * @param modules module analysis results
      * @throws IOException on publication failure
      */
@@ -83,6 +85,7 @@ final class CallGraphDiagnosticsExporter {
             final Path output,
             final CallGraphAlgorithm algorithm,
             final WalaReflectionOptions reflectionOptions,
+            final DependencyAnalysisScopeMode dependencyScope,
             final List<ModuleAnalysisResult> modules) throws IOException {
         final Path destination = output.toAbsolutePath().normalize();
         Files.createDirectories(destination.getParent());
@@ -92,7 +95,8 @@ final class CallGraphDiagnosticsExporter {
             try (JsonGenerator json = JSON_FACTORY.createGenerator(
                     Files.newBufferedWriter(temporary,
                             StandardCharsets.UTF_8))) {
-                writeDocument(json, algorithm, reflectionOptions, modules);
+                writeDocument(json, algorithm, reflectionOptions,
+                        dependencyScope, modules);
             }
             move(temporary, destination);
         } finally {
@@ -104,6 +108,7 @@ final class CallGraphDiagnosticsExporter {
             final JsonGenerator json,
             final CallGraphAlgorithm algorithm,
             final WalaReflectionOptions reflectionOptions,
+            final DependencyAnalysisScopeMode dependencyScope,
             final List<ModuleAnalysisResult> modules) throws IOException {
         json.useDefaultPrettyPrinter();
         json.writeStartObject();
@@ -111,6 +116,8 @@ final class CallGraphDiagnosticsExporter {
         json.writeStringField("algorithm", algorithm.identifier());
         json.writeStringField("reflectionOptions",
                 reflectionOptions.identifier());
+        json.writeStringField("requestedDependencyAnalysisScope",
+                dependencyScope.identifier());
         json.writeStringField("jdk", javaRuntime.getVersion());
         json.writeArrayFieldStart("modules");
         for (ModuleAnalysisResult module : modules) {
@@ -134,10 +141,47 @@ final class CallGraphDiagnosticsExporter {
                 new LinkedHashMap<>();
         json.writeStartObject();
         json.writeStringField("module", module.getModuleId().stableKey());
+        json.writeStringField("actualDependencyAnalysisScope",
+                module.getUnit().getChangedPathSelection().actualMode()
+                        .identifier());
+        json.writeStringField("dependencyScopeFallbackReason",
+                module.getUnit().getChangedPathSelection().fallbackReason()
+                        .orElse(""));
         json.writeNumberField("entrypointCount",
                 topology.entrypointCount());
         json.writeNumberField("cgNodeCount", topology.nodeCount());
         json.writeNumberField("cgEdgeCount", topology.edgeCount());
+        final var boundary = session.getDependencyBoundary();
+        json.writeNumberField("realExternalMethodNodeCount",
+                boundary.realExternalMethodNodes());
+        json.writeNumberField("noOpMethodNodeCount",
+                boundary.noOpMethodNodes());
+        json.writeNumberField("factoryMethodNodeCount",
+                boundary.factoryMethodNodes());
+        json.writeNumberField("dangerousTransferCount",
+                boundary.dangerousTransfers().size());
+        final List<ArtifactCoord> externalArtifacts = module.getUnit()
+                .getTargetArtifacts().stream().distinct()
+                .sorted(java.util.Comparator.comparing(ArtifactCoord::toString))
+                .toList();
+        final long realArtifacts = externalArtifacts.stream().filter(value ->
+                module.getUnit().getChangedPathSelection().policyFor(value)
+                        == DependencyMethodBodyPolicy.REAL_IR).count();
+        json.writeNumberField("realExternalArtifactCount", realArtifacts);
+        json.writeNumberField("noOpExternalArtifactCount",
+                externalArtifacts.size() - realArtifacts);
+        json.writeArrayFieldStart("dependencyPaths");
+        module.getUnit().getChangedPathSelection().paths().forEach(path -> {
+            try {
+                json.writeStartObject();
+                json.writeStringField("seed", path.seed().toString());
+                json.writeStringField("path", path.stablePath());
+                json.writeEndObject();
+            } catch (IOException exception) {
+                throw new java.io.UncheckedIOException(exception);
+            }
+        });
+        json.writeEndArray();
         writeRanks(json, "topCallers", "CALLEE", "topCallees", session,
                 topology.topCallers(), cache);
         writeRanks(json, "topCallees", "CALLER", "topCallers", session,

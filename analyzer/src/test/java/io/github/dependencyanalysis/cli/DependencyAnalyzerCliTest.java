@@ -3,6 +3,7 @@ package io.github.dependencyanalysis.cli;
 import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
 import io.github.dependencyanalysis.diagnostic.LogVerbosity;
+import io.github.dependencyanalysis.impact.DependencyAnalysisScopeMode;
 
 import org.junit.jupiter.api.Test;
 import picocli.CommandLine;
@@ -120,6 +121,7 @@ class DependencyAnalyzerCliTest {
                 .contains("-k, --include-change-kinds")
                 .contains("--analysis-parallelism")
                 .contains("--call-graph-algorithm")
+                .contains("--dependency-analysis-scope")
                 .contains("--call-graph-diagnostics-output")
                 .contains("--wala-reflection-options")
                 .contains("--entrypoint-include")
@@ -283,6 +285,27 @@ class DependencyAnalyzerCliTest {
     }
 
     @Test
+    void dependencyAnalysisScopeDefaultsToChangedPathsAndParsesFull() {
+        final CommandLine defaultCommand = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli());
+        final CommandLine fullCommand = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli());
+
+        final CommandLine.ParseResult defaultResult =
+                defaultCommand.parseArgs("impact", "--baseline", "HEAD",
+                        "--output", "report.html");
+        final CommandLine.ParseResult fullResult =
+                fullCommand.parseArgs("impact", "--baseline", "HEAD",
+                        "--output", "report.html",
+                        "--dependency-analysis-scope", "FULL");
+
+        assertThat(dependencyScope(defaultResult)).isEqualTo(
+                DependencyAnalysisScopeMode.CHANGED_PATHS);
+        assertThat(dependencyScope(fullResult)).isEqualTo(
+                DependencyAnalysisScopeMode.FULL);
+    }
+
+    @Test
     void callGraphDiagnosticsOutputIsOptionalAndParsesAsFile() {
         final CommandLine command = DependencyAnalyzerCli
                 .newCommandLine(new DependencyAnalyzerCli());
@@ -365,5 +388,11 @@ class DependencyAnalyzerCliTest {
             final CommandLine.ParseResult result) {
         return result.subcommand().commandSpec().findOption(
                 "--wala-reflection-options").getValue();
+    }
+
+    private DependencyAnalysisScopeMode dependencyScope(
+            final CommandLine.ParseResult result) {
+        return result.subcommand().commandSpec().findOption(
+                "--dependency-analysis-scope").getValue();
     }
 }

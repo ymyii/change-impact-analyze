@@ -12,17 +12,21 @@ import java.util.Objects;
  * @param entrypointSelection user-selected PROJECT entrypoint boundary
  * @param callGraphAlgorithm command-wide Call Graph algorithm
  * @param reflectionOptions command-wide WALA ReflectionOptions
+ * @param dependencyAnalysisScope requested dependency method-body scope
  */
 public record AnalysisRunConfiguration(
         EntrypointSelection entrypointSelection,
         CallGraphAlgorithm callGraphAlgorithm,
-        WalaReflectionOptions reflectionOptions) {
+        WalaReflectionOptions reflectionOptions,
+        DependencyAnalysisScopeMode dependencyAnalysisScope) {
 
     /** Validates command-wide configuration. */
     public AnalysisRunConfiguration {
         Objects.requireNonNull(entrypointSelection, "entrypointSelection");
         Objects.requireNonNull(callGraphAlgorithm, "callGraphAlgorithm");
         Objects.requireNonNull(reflectionOptions, "reflectionOptions");
+        Objects.requireNonNull(dependencyAnalysisScope,
+                "dependencyAnalysisScope");
     }
 
     /**
@@ -35,6 +39,16 @@ public record AnalysisRunConfiguration(
             final EntrypointSelection selection,
             final CallGraphAlgorithm algorithm) {
         this(selection, algorithm,
-                WalaReflectionOptions.defaultOptions());
+                WalaReflectionOptions.defaultOptions(),
+                DependencyAnalysisScopeMode.defaultMode());
+    }
+
+    /** Compatibility constructor using the default dependency scope. */
+    public AnalysisRunConfiguration(
+            final EntrypointSelection selection,
+            final CallGraphAlgorithm algorithm,
+            final WalaReflectionOptions reflection) {
+        this(selection, algorithm, reflection,
+                DependencyAnalysisScopeMode.defaultMode());
     }
 }

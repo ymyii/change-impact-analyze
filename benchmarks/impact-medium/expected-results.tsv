@@ -1,6 +1,10 @@
-# algorithm	candidate_call_chains	final_call_chains
-# Lock a new algorithm only after manual review. This file is never modified by run scripts.
-rta	6	5
-zero-cfa	6	5
-optimized-0-1-cfa	6	5
-1-object-1-call-site	6	5
+# dependency_analysis_scope	algorithm	candidate_call_chains	final_call_chains
+# Lock a scope/algorithm pair only after manual review. This file is never modified by run scripts.
+changed-paths	rta	4	1
+changed-paths	zero-cfa	4	1
+changed-paths	optimized-0-1-cfa	4	1
+changed-paths	1-object-1-call-site	4	1
+full	rta	8	5
+full	zero-cfa	8	5
+full	optimized-0-1-cfa	8	5
+full	1-object-1-call-site	8	5

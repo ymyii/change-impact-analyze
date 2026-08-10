@@ -15,7 +15,7 @@ code_refs: []
 ## Architecture
 
 ### [Dependency Analysis Pipelines](architecture/dependency-analysis-pipelines.md)
-- Summary: Root CLI、共享 Maven runtime/preflight 与独立 `impact`/`tree` pipeline 的结构和数据流。
+- Summary: Root CLI、dependency occurrence path planning、method-body boundary 与独立 `impact`/`tree` pipeline 的结构和数据流。
 
 ## Features
 
@@ -35,7 +35,7 @@ code_refs: []
 - Summary: 只编译 target；reactor root compile 一次，leaf 使用 `-pl/-am`；baseline dependency 与 target build 并行。
 
 ### [Dependency Tree Extraction](features/dependency-tree-extraction.md)
-- Summary: GraphML 决定 mediation；Schema v2 manifest 只作为 command-scoped immutable `IJarRepository` 的 Resolver/systemPath ingestion 输入。
+- Summary: 普通 GraphML 决定 mediation/binding，verbose GraphML 保留 occurrence/multi-parent topology；Schema v2 manifest 初始化 command-scoped repository。
 
 ### [Dependency Diff Engine](features/dependency-diff-engine.md)
 - Summary: 对比 baseline/target resolved dependency tree，生成稳定排序的 dependency changes。
@@ -47,16 +47,16 @@ code_refs: []
 - Summary: logical coordinate pair 经 repository lease 并行去重 diff；除stable method hash外，默认检测class/method/constructor/field Java 8 JVM access narrowing。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
-- Summary: 每Module从四种独立strategy选择一张WALA Call Graph；private declaration不成为root；可选Schema v3只读capture保留WALA sentinel的CGNode排行、typed shortest path、source与IR。
+- Summary: 每 Module 构建一张 WALA Call Graph；默认 changed-paths 仅让到达变更 dependency 的路径使用真实 IR，其他 external method 使用 no-op/factory boundary。
 
 ### [JDK Method Models](features/jdk-method-models.md)
 - Summary: 独立`models/jdk`公共engine与`models/jdk8`精确catalog生成conservative WALA Synthetic IR；尚未接入`impact`。
 
 ### [Impact Tracing](features/impact-tracing.md)
-- Summary: 构图后read-only解析call/structural/access reference，使用typed JVM access decision与deterministic reverse BFS生成representative path/disposition。
+- Summary: 构图后 read-only 解析 call/structural/access reference，并结合 dangerous transfer、factory evidence 与 deterministic reverse BFS 生成结果。
 
 ### [Report Generator](features/report-generator.md)
-- Summary: `impact`原子生成英文Overall与Module三页；展示实际algorithm/ReflectionOptions、typed coverage/access evidence、path/disposition与Unified diff。
+- Summary: `impact` 原子生成英文 Overall 与 Module 三页；展示 requested/actual dependency scope、全部到达路径、body policy 与 boundary evidence。
 
 ## Rules
 
@@ -65,6 +65,9 @@ code_refs: []
 
 ### [Process Command Resolution](rules/process-command-resolution.md)
 - Summary: 所有 production external process token 在 `ProcessBuilder` 前必须经过 `CommandResolver.resolve()`。
+
+### [Benchmark Scenario Coverage](rules/benchmark-scenario-coverage.md)
+- Summary: Analyzer 能力新增必须同步提交 semantic benchmark 场景，并通过 changed-paths/full 48-JVM canonical matrix。
 
 ## Runbooks
 
@@ -78,6 +81,6 @@ code_refs: []
 - Summary: Maven Versions/Enforcer 驱动的 Snapshot iteration、Stable release、commit 与双 Git tag。
 
 ### [Impact Benchmark](runbooks/impact-benchmark.md)
-- Summary: 四种algorithm执行4次warm-up与20个交错正式样本，固定输出self-contained HTML及Git管理的samples/summary/topology TSV；failure或topology drift不发布snapshot。
+- Summary: changed-paths/full 各执行4次warm-up与20个正式样本，输出两份HTML及两组snapshot；48个JVM和8组semantic baseline全部通过后原子发布。
 
 ## Glossary

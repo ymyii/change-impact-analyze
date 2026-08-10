@@ -41,6 +41,9 @@ public final class AnalysisRunResult {
     /** Command-wide WALA ReflectionOptions. */
     private final WalaReflectionOptions reflectionOptions;
 
+    /** Requested dependency method-body scope. */
+    private final DependencyAnalysisScopeMode dependencyAnalysisScope;
+
     /**
      * Creates a completed run result.
      *
@@ -103,6 +106,9 @@ public final class AnalysisRunResult {
                 settings.callGraphAlgorithm(), "callGraphAlgorithm");
         reflectionOptions = java.util.Objects.requireNonNull(
                 settings.reflectionOptions(), "reflectionOptions");
+        dependencyAnalysisScope = java.util.Objects.requireNonNull(
+                settings.dependencyAnalysisScope(),
+                "dependencyAnalysisScope");
     }
 
     /** @return analysis mode */
@@ -168,6 +174,11 @@ public final class AnalysisRunResult {
     /** @return command-wide WALA ReflectionOptions */
     public WalaReflectionOptions getReflectionOptions() {
         return reflectionOptions;
+    }
+
+    /** @return requested dependency method-body scope */
+    public DependencyAnalysisScopeMode getDependencyAnalysisScope() {
+        return dependencyAnalysisScope;
     }
 
     /** @return stage elapsed metrics */

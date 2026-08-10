@@ -3,7 +3,16 @@ set -u
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repository_root=$(CDPATH= cd -- "$script_dir/../.." && pwd)
-suite_label=${1:-suite-$(date '+%Y%m%d-%H%M%S')}
+: "${BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE:?BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE must be explicitly set}"
+scope=$BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE
+case "$scope" in
+  changed-paths|full) ;;
+  *)
+    echo "BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE must be changed-paths or full" >&2
+    exit 2
+    ;;
+esac
+suite_label=${1:-$scope-suite-$(date '+%Y%m%d-%H%M%S')}
 
 case "$suite_label" in
   ''|*[!A-Za-z0-9._-]*)
@@ -16,10 +25,18 @@ esac
 
 BENCHMARK_RUNTIME_ROOT=${BENCHMARK_RUNTIME_ROOT:-$repository_root/tmp-files/impact-medium-benchmark}
 BENCHMARK_WALA_REFLECTION_OPTIONS=${BENCHMARK_WALA_REFLECTION_OPTIONS:-ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD}
-report="$BENCHMARK_RUNTIME_ROOT/benchmark-report.html"
+report="$BENCHMARK_RUNTIME_ROOT/benchmark-report-$scope.html"
 candidate_dir="$BENCHMARK_RUNTIME_ROOT/$suite_label-candidate-results"
 run_list="$BENCHMARK_RUNTIME_ROOT/$suite_label-run-list.txt"
-tracked_results="$script_dir/results"
+tracked_results="$script_dir/results/$scope"
+BENCHMARK_DEFER_PUBLISH=${BENCHMARK_DEFER_PUBLISH:-0}
+case "$BENCHMARK_DEFER_PUBLISH" in
+  0|1) ;;
+  *)
+    echo "BENCHMARK_DEFER_PUBLISH must be 0 or 1" >&2
+    exit 2
+    ;;
+esac
 
 if [ -e "$run_list" ] || [ -e "$candidate_dir" ]; then
   echo "suite output already exists for label: $suite_label" >&2
@@ -42,6 +59,7 @@ run_one() {
   echo "[$run_kind] algorithm=$algorithm round=$round sample=$sample"
   BENCHMARK_RUNTIME_ROOT="$BENCHMARK_RUNTIME_ROOT" \
   BENCHMARK_CALL_GRAPH_ALGORITHM="$algorithm" \
+  BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE="$scope" \
   BENCHMARK_WALA_REFLECTION_OPTIONS="$BENCHMARK_WALA_REFLECTION_OPTIONS" \
   BENCHMARK_RUN_KIND="$run_kind" \
   BENCHMARK_ROUND="$round" \
@@ -50,7 +68,7 @@ run_one() {
     "$script_dir/run-benchmark.sh" "$label" || suite_failed=1
 }
 
-# Wiki: wiki/runbooks/impact-benchmark.md - Canonical 4 warm-up + 20 formal suite entrypoint.
+# One scope: 4 warm-up + 20 formal independent JVM processes.
 for algorithm in rta zero-cfa optimized-0-1-cfa 1-object-1-call-site; do
   run_one "$algorithm" warmup 0 0 1
 done
@@ -76,6 +94,7 @@ report_result=0
 python3 "$script_dir/scripts/generate-report.py" \
   --output-html "$report" \
   --candidate-dir "$candidate_dir" \
+  --scope "$scope" \
   "$@" || report_result=$?
 
 if [ "$suite_failed" -ne 0 ] || [ "$report_result" -ne 0 ]; then
@@ -84,8 +103,15 @@ if [ "$suite_failed" -ne 0 ] || [ "$report_result" -ne 0 ]; then
   exit 1
 fi
 
-"$script_dir/scripts/publish-results.sh" "$candidate_dir" "$tracked_results"
+if [ "$BENCHMARK_DEFER_PUBLISH" -eq 0 ]; then
+  "$script_dir/scripts/publish-results.sh" "$candidate_dir" "$tracked_results"
+fi
 
 echo "benchmark suite completed: $suite_label"
 echo "HTML report: $report"
-echo "tracked TSV: $tracked_results"
+echo "candidate TSV: $candidate_dir"
+if [ "$BENCHMARK_DEFER_PUBLISH" -eq 0 ]; then
+  echo "tracked TSV: $tracked_results"
+else
+  echo "tracked TSV publication: deferred"
+fi

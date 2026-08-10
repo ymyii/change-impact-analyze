@@ -22,17 +22,21 @@ ALGORITHMS = (
 )
 REFLECTION_DEFAULT = "ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD"
 SAMPLE_COLUMNS = (
-    "label", "run_kind", "round", "sample", "algorithm",
+    "label", "run_kind", "round", "sample", "dependency_analysis_scope",
+    "algorithm",
     "wala_reflection_options", "total_wall_seconds",
     "call_graph_seconds", "peak_heap_used_mib",
     "peak_heap_committed_mib", "heap_max_mib", "heap_sample_count",
     "process_tree_peak_rss_kib", "entrypoint_count", "cg_node_count",
-    "cg_edge_count", "status", "exit_code", "analyzer_sha256",
+    "cg_edge_count", "real_external_artifact_count",
+    "no_op_external_artifact_count", "real_external_method_node_count",
+    "no_op_method_node_count", "factory_method_node_count",
+    "dangerous_transfer_count", "status", "exit_code", "analyzer_sha256",
     "git_commit", "git_dirty", "os", "architecture", "analyzer_java",
     "jdk", "maven",
 )
 SUMMARY_COLUMNS = (
-    "algorithm", "wala_reflection_options", "samples",
+    "dependency_analysis_scope", "algorithm", "wala_reflection_options", "samples",
     "min_total_wall_seconds", "median_total_wall_seconds",
     "max_total_wall_seconds", "min_call_graph_seconds",
     "median_call_graph_seconds", "max_call_graph_seconds",
@@ -43,7 +47,10 @@ SUMMARY_COLUMNS = (
     "min_process_tree_peak_rss_kib",
     "median_process_tree_peak_rss_kib",
     "max_process_tree_peak_rss_kib", "entrypoint_count",
-    "cg_node_count", "cg_edge_count", "successful_samples",
+    "cg_node_count", "cg_edge_count", "real_external_artifact_count",
+    "no_op_external_artifact_count", "real_external_method_node_count",
+    "no_op_method_node_count", "factory_method_node_count",
+    "dangerous_transfer_count", "successful_samples",
     "wall_vs_zero_cfa", "heap_vs_zero_cfa", "node_vs_zero_cfa",
     "edge_vs_zero_cfa",
 )
@@ -59,12 +66,20 @@ TOPOLOGY_COLUMNS = (
     "related_cg_node_examples",
     "path_root_kind", "path_root_cg_node_identity", "shortest_path", "cycle",
     "source_status", "source_sha256", "ir_status", "ir_sha256",
+    "requested_dependency_scope", "actual_dependency_scope",
+    "dependency_scope_fallback_reason", "real_external_artifact_count",
+    "no_op_external_artifact_count", "real_external_method_node_count",
+    "no_op_method_node_count", "factory_method_node_count",
+    "dangerous_transfer_count", "changed_dependency_seed", "dependency_path",
 )
 NUMERIC_SAMPLE_FIELDS = (
     "total_wall_seconds", "call_graph_seconds", "peak_heap_used_mib",
     "peak_heap_committed_mib", "heap_max_mib",
     "process_tree_peak_rss_kib", "entrypoint_count", "cg_node_count",
-    "cg_edge_count",
+    "cg_edge_count", "real_external_artifact_count",
+    "no_op_external_artifact_count", "real_external_method_node_count",
+    "no_op_method_node_count", "factory_method_node_count",
+    "dangerous_transfer_count",
 )
 
 
@@ -72,6 +87,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-html", required=True, type=Path)
     parser.add_argument("--candidate-dir", required=True, type=Path)
+    parser.add_argument("--scope", required=True, choices=("changed-paths", "full"))
     parser.add_argument("run_directories", nargs="+", type=Path)
     return parser.parse_args()
 
@@ -94,7 +110,7 @@ def load_topology(run_directory: Path) -> dict[str, Any]:
     path = run_directory / "topology.json"
     with path.open(encoding="utf-8") as stream:
         value = json.load(stream)
-    if value.get("schemaVersion") != 3:
+    if value.get("schemaVersion") != 4:
         raise ValueError(f"unsupported topology schema: {path}")
     return value
 
@@ -115,9 +131,21 @@ def topology_totals(topology: dict[str, Any]) -> tuple[int, int, int]:
     )
 
 
+def boundary_totals(topology: dict[str, Any]) -> tuple[int, int, int, int, int, int]:
+    modules = topology.get("modules", [])
+    fields = (
+        "realExternalArtifactCount", "noOpExternalArtifactCount",
+        "realExternalMethodNodeCount", "noOpMethodNodeCount",
+        "factoryMethodNodeCount", "dangerousTransferCount",
+    )
+    return tuple(sum(int(module.get(field, 0)) for module in modules)
+                 for field in fields)
+
+
 def validate(
     rows: list[dict[str, str]],
     topologies: dict[str, dict[str, Any]],
+    scope: str,
 ) -> list[str]:
     errors: list[str] = []
     by_kind: dict[str, list[dict[str, str]]] = defaultdict(list)
@@ -130,7 +158,8 @@ def validate(
     if len(by_kind["formal"]) != 20:
         errors.append(f"应有 20 个正式样本，实际 {len(by_kind['formal'])} 个")
     environment_fields = (
-        "wala_reflection_options", "analyzer_sha256", "git_commit",
+        "dependency_analysis_scope", "wala_reflection_options",
+        "analyzer_sha256", "git_commit",
         "git_dirty", "os", "architecture", "analyzer_java", "jdk", "maven",
     )
     for field in environment_fields:
@@ -138,6 +167,11 @@ def validate(
         if len(values) != 1:
             errors.append(f"环境字段 {field} 不一致: {sorted(values)}")
     for row in rows:
+        if row.get("dependency_analysis_scope") != scope:
+            errors.append(
+                f"{row.get('label')} scope 不匹配: "
+                f"{row.get('dependency_analysis_scope')} != {scope}"
+            )
         if row.get("status") != "SUCCESS" or row.get("exit_code") != "0":
             errors.append(f"运行失败: {row.get('label')} status={row.get('status')}")
         if row.get("wala_reflection_options") != REFLECTION_DEFAULT:
@@ -168,6 +202,14 @@ def validate(
             errors.append(f"{algorithm} topology algorithm 不匹配")
         if topology.get("reflectionOptions") != REFLECTION_DEFAULT:
             errors.append(f"{algorithm} topology ReflectionOptions 不匹配")
+        if topology.get("requestedDependencyAnalysisScope") != scope:
+            errors.append(f"{algorithm} topology requested scope 不匹配")
+        for module in topology.get("modules", []):
+            if module.get("actualDependencyAnalysisScope") != scope:
+                errors.append(
+                    f"{algorithm} {module.get('module')} actual scope="
+                    f"{module.get('actualDependencyAnalysisScope')}"
+                )
         expected = topology_totals(topology)
         warmup_counts = tuple(int(number(warmups[0], field)) for field in (
             "entrypoint_count", "cg_node_count", "cg_edge_count"))
@@ -176,6 +218,19 @@ def validate(
                 f"{algorithm} warm-up topology JSON/report 不一致: "
                 f"{expected} != {warmup_counts}"
             )
+        expected_boundary = boundary_totals(topology)
+        boundary_fields = (
+            "real_external_artifact_count", "no_op_external_artifact_count",
+            "real_external_method_node_count", "no_op_method_node_count",
+            "factory_method_node_count", "dangerous_transfer_count",
+        )
+        warmup_boundary = tuple(int(number(warmups[0], field))
+                                for field in boundary_fields)
+        if expected_boundary != warmup_boundary:
+            errors.append(
+                f"{algorithm} warm-up boundary JSON/report 不一致: "
+                f"{expected_boundary} != {warmup_boundary}"
+            )
         for row in formal:
             actual = tuple(int(number(row, field)) for field in (
                 "entrypoint_count", "cg_node_count", "cg_edge_count"))
@@ -183,6 +238,14 @@ def validate(
                 row["status"] = "TOPOLOGY_DRIFT"
                 errors.append(
                     f"{row.get('label')} TOPOLOGY_DRIFT: {actual} != {expected}"
+                )
+            actual_boundary = tuple(int(number(row, field))
+                                    for field in boundary_fields)
+            if actual_boundary != expected_boundary:
+                row["status"] = "TOPOLOGY_DRIFT"
+                errors.append(
+                    f"{row.get('label')} BOUNDARY_DRIFT: "
+                    f"{actual_boundary} != {expected_boundary}"
                 )
     return errors
 
@@ -196,7 +259,7 @@ def ratio(value: float, baseline: float) -> str:
     return "" if baseline == 0 else f"{value / baseline:.6f}"
 
 
-def summaries(formal: list[dict[str, str]]) -> list[dict[str, str]]:
+def summaries(formal: list[dict[str, str]], scope: str) -> list[dict[str, str]]:
     result: list[dict[str, str]] = []
     medians: dict[str, dict[str, float]] = {}
     for algorithm in ALGORITHMS:
@@ -218,12 +281,25 @@ def summaries(formal: list[dict[str, str]]) -> list[dict[str, str]]:
         rss = stats(rows, "process_tree_peak_rss_kib")
         current = medians[algorithm]
         values: dict[str, Any] = {
+            "dependency_analysis_scope": scope,
             "algorithm": algorithm,
             "wala_reflection_options": rows[0]["wala_reflection_options"],
             "samples": len(rows),
             "entrypoint_count": int(number(rows[0], "entrypoint_count")),
             "cg_node_count": int(current["node"]),
             "cg_edge_count": int(current["edge"]),
+            "real_external_artifact_count": int(number(
+                rows[0], "real_external_artifact_count")),
+            "no_op_external_artifact_count": int(number(
+                rows[0], "no_op_external_artifact_count")),
+            "real_external_method_node_count": int(number(
+                rows[0], "real_external_method_node_count")),
+            "no_op_method_node_count": int(number(
+                rows[0], "no_op_method_node_count")),
+            "factory_method_node_count": int(number(
+                rows[0], "factory_method_node_count")),
+            "dangerous_transfer_count": int(number(
+                rows[0], "dangerous_transfer_count")),
             "successful_samples": sum(row["status"] == "SUCCESS" for row in rows),
             "wall_vs_zero_cfa": ratio(current["wall"], baseline["wall"]),
             "heap_vs_zero_cfa": ratio(current["heap"], baseline["heap"]),
@@ -259,6 +335,41 @@ def topology_rows(topologies: dict[str, dict[str, Any]]) -> list[dict[str, str]]
     for algorithm in ALGORITHMS:
         topology = topologies[algorithm]
         for module in topology.get("modules", []):
+            scope_values = {
+                "algorithm": algorithm,
+                "wala_reflection_options": topology["reflectionOptions"],
+                "module": module["module"],
+                "direction": "DEPENDENCY",
+                "requested_dependency_scope": topology[
+                    "requestedDependencyAnalysisScope"],
+                "actual_dependency_scope": module[
+                    "actualDependencyAnalysisScope"],
+                "dependency_scope_fallback_reason": module.get(
+                    "dependencyScopeFallbackReason", ""),
+                "real_external_artifact_count": str(module.get(
+                    "realExternalArtifactCount", 0)),
+                "no_op_external_artifact_count": str(module.get(
+                    "noOpExternalArtifactCount", 0)),
+                "real_external_method_node_count": str(module.get(
+                    "realExternalMethodNodeCount", 0)),
+                "no_op_method_node_count": str(module.get(
+                    "noOpMethodNodeCount", 0)),
+                "factory_method_node_count": str(module.get(
+                    "factoryMethodNodeCount", 0)),
+                "dangerous_transfer_count": str(module.get(
+                    "dangerousTransferCount", 0)),
+            }
+            module_row = dict(scope_values)
+            module_row["record_type"] = "DEPENDENCY_SCOPE"
+            rows.append(module_row)
+            for dependency_path in module.get("dependencyPaths", []):
+                path_row = dict(scope_values)
+                path_row.update({
+                    "record_type": "DEPENDENCY_PATH",
+                    "changed_dependency_seed": dependency_path["seed"],
+                    "dependency_path": dependency_path["path"],
+                })
+                rows.append(path_row)
             for field, direction, child_field in (
                 ("topCallers", "CALLER", "topCallees"),
                 ("topCallees", "CALLEE", "topCallers"),
@@ -500,6 +611,7 @@ def render_html(
     topologies: dict[str, dict[str, Any]],
     summary_rows: list[dict[str, str]],
     errors: list[str],
+    scope: str,
 ) -> str:
     formal = [row for row in rows if row.get("run_kind") == "formal"]
     status = "SUCCESS" if not errors else "FAILED"
@@ -515,8 +627,8 @@ table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{bo
     parts = [
         "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">",
         '<meta name="viewport" content="width=device-width,initial-scale=1">',
-        f"<title>CallGraph Benchmark</title><style>{css}</style></head><body><main>",
-        "<h1>CallGraph Benchmark 可观测性报告</h1>",
+        f"<title>CallGraph Benchmark — {e(scope)}</title><style>{css}</style></head><body><main>",
+        f"<h1>CallGraph Benchmark 可观测性报告 — <code>{e(scope)}</code></h1>",
         f'<p>Suite status: <strong class="{"ok" if not errors else "bad"}">{status}</strong>。'
         "正式样本使用全新 Java Virtual Machine（JVM），warm-up 仅用于 topology 与缓存预热。</p>",
     ]
@@ -551,13 +663,18 @@ table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{bo
                      "<th>Sample</th><th>Total wall (s)</th><th>CallGraph (s)</th>"
                      "<th>Peak Heap Used (MiB)</th><th>Heap Committed (MiB)</th>"
                      "<th>Heap Max (MiB)</th><th>Peak RSS (KiB)</th>"
-                     "<th>Entrypoint</th><th>CGNode</th><th>CGEdge</th><th>Status</th></tr>")
+                     "<th>Entrypoint</th><th>CGNode</th><th>CGEdge</th>"
+                     "<th>Real external method</th><th>No-op method</th>"
+                     "<th>Factory method</th><th>Dangerous transfer</th>"
+                     "<th>Status</th></tr>")
         for row in algorithm_rows:
             parts.append("<tr>" + "".join(f"<td>{e(row.get(field, ''))}</td>" for field in (
                 "sample", "total_wall_seconds", "call_graph_seconds",
                 "peak_heap_used_mib", "peak_heap_committed_mib", "heap_max_mib",
                 "process_tree_peak_rss_kib", "entrypoint_count", "cg_node_count",
-                "cg_edge_count", "status",
+                "cg_edge_count", "real_external_method_node_count",
+                "no_op_method_node_count", "factory_method_node_count",
+                "dangerous_transfer_count", "status",
             )) + "</tr>")
         parts.append("</table>")
         summary = summary_by_algorithm.get(algorithm)
@@ -581,7 +698,23 @@ table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{bo
             parts.append('<div class="grid">'
                          f'<div class="metric">Entrypoint<br><strong>{module["entrypointCount"]}</strong></div>'
                          f'<div class="metric">CGNode<br><strong>{module["cgNodeCount"]}</strong></div>'
-                         f'<div class="metric">CGEdge<br><strong>{module["cgEdgeCount"]}</strong></div></div>')
+                         f'<div class="metric">CGEdge<br><strong>{module["cgEdgeCount"]}</strong></div>'
+                         f'<div class="metric">Actual scope<br><strong>{e(module["actualDependencyAnalysisScope"])}</strong></div>'
+                         f'<div class="metric">Real/no-op artifact<br><strong>{module.get("realExternalArtifactCount", 0)} / {module.get("noOpExternalArtifactCount", 0)}</strong></div>'
+                         f'<div class="metric">Real/no-op/factory method<br><strong>{module.get("realExternalMethodNodeCount", 0)} / {module.get("noOpMethodNodeCount", 0)} / {module.get("factoryMethodNodeCount", 0)}</strong></div>'
+                         f'<div class="metric">Dangerous transfer<br><strong>{module.get("dangerousTransferCount", 0)}</strong></div></div>')
+            fallback = module.get("dependencyScopeFallbackReason", "")
+            if fallback:
+                parts.append(f'<p class="warning">Fallback: <code>{e(fallback)}</code></p>')
+            paths = module.get("dependencyPaths", [])
+            if paths:
+                parts.append("<h4>Changed dependency paths</h4><ol>")
+                parts.extend(
+                    f'<li><code>{e(path["seed"])}</code>: '
+                    f'<code>{e(path["path"])}</code></li>'
+                    for path in paths
+                )
+                parts.append("</ol>")
             parts.append("<h3>Top 10 caller CGNode（按 related callee CGNode）</h3>")
             parts.append(render_ranked(
                 module.get("topCallers", []), "Callee", "topCallees"))
@@ -594,6 +727,9 @@ table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{bo
                  "<th>Algorithm</th><th>Median wall (s)</th><th>Median CallGraph (s)</th>"
                  "<th>Median Peak Heap Used (MiB)</th><th>Median RSS (KiB)</th>"
                  "<th>Entrypoint</th><th>CGNode</th><th>CGEdge</th><th>Successful</th>"
+                 "<th>Real external artifact</th><th>No-op external artifact</th>"
+                 "<th>Real external method</th><th>No-op method</th>"
+                 "<th>Factory method</th><th>Dangerous transfer</th>"
                  "<th>Wall / ZeroCFA</th><th>Heap / ZeroCFA</th>"
                  "<th>Node / ZeroCFA</th><th>Edge / ZeroCFA</th></tr>")
     for row in summary_rows:
@@ -601,7 +737,10 @@ table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{bo
             "algorithm", "median_total_wall_seconds", "median_call_graph_seconds",
             "median_peak_heap_used_mib", "median_process_tree_peak_rss_kib",
             "entrypoint_count", "cg_node_count", "cg_edge_count",
-            "successful_samples", "wall_vs_zero_cfa", "heap_vs_zero_cfa",
+            "successful_samples", "real_external_artifact_count",
+            "no_op_external_artifact_count", "real_external_method_node_count",
+            "no_op_method_node_count", "factory_method_node_count",
+            "dangerous_transfer_count", "wall_vs_zero_cfa", "heap_vs_zero_cfa",
             "node_vs_zero_cfa", "edge_vs_zero_cfa",
         )
         parts.append("<tr>" + "".join(f"<td>{e(row[field])}</td>" for field in fields) + "</tr>")
@@ -627,17 +766,17 @@ def main() -> int:
                 topologies[algorithm] = topology
         except (OSError, ValueError, json.JSONDecodeError) as failure:
             errors.append(str(failure))
-    errors.extend(validate(rows, topologies))
+    errors.extend(validate(rows, topologies, args.scope))
     formal = [row for row in rows if row.get("run_kind") == "formal"]
     summary_rows: list[dict[str, str]] = []
     if len(formal) == 20 and all(
             sum(row.get("algorithm") == algorithm for row in formal) == 5
             for algorithm in ALGORITHMS):
         try:
-            summary_rows = summaries(formal)
+            summary_rows = summaries(formal, args.scope)
         except (ValueError, statistics.StatisticsError) as failure:
             errors.append(str(failure))
-    report = render_html(rows, topologies, summary_rows, errors)
+    report = render_html(rows, topologies, summary_rows, errors, args.scope)
     args.output_html.parent.mkdir(parents=True, exist_ok=True)
     temporary_html = args.output_html.with_suffix(args.output_html.suffix + ".tmp")
     temporary_html.write_text(report, encoding="utf-8")

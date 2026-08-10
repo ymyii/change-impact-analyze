@@ -33,6 +33,7 @@ final class ZeroCfaCallGraphStrategy implements CallGraphAlgorithmStrategy {
                 new ZeroCfaServiceLoaderInstaller(
                         request.serviceLoaderIndex(), request.hierarchy());
         serviceLoader.install(builder);
+        request.dependencyBoundary().install(builder);
         final com.ibm.wala.ipa.callgraph.CallGraph graph =
                 builder.makeCallGraph(options, request.monitor());
         final ArrayList<ModelLimitation> limitations =

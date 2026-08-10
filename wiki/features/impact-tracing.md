@@ -17,6 +17,10 @@ code_refs:
     desc: "typed access decision 与 representative reference evidence"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleImpactQueryResult.java"
     desc: "path、disposition、observation 与 query limitation Result Object"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/DependencyBoundaryEvidence.java"
+    desc: "changed instance 进入 no-op dependency 的 typed evidence"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/DependencyFactoryEvidence.java"
+    desc: "flow-to-cast factory materialization evidence"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/DynamicCallEvidenceIndex.java"
     desc: "fixed-point 期间登记的 reachable bootstrap/handle evidence"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/StructuralReferenceIndex.java"
@@ -47,7 +51,7 @@ code_refs:
 
 ## Summary
 
-Impact Tracing 在 target Call Graph 完成后执行 read-only query。它从 reachable WALA node/IR、构图期 typed dynamic evidence与precomputed structural metadata解析seed；access narrowing先通过target CHA解析declaration，再由algorithm-independent `JvmAccessChecker`判断new access。`ChangePointSeedResolution`集中验证`NONE`、`ACCESSIBLE_ONLY`、`IMPACTING`不变量，`StructuralReferencePreparation`把access decision与path materialization分离，最终由pure `ChangePointDispositionReducer`归并结果。Query直接读取WALA predecessors，为同一 `ChangePoint + affected PROJECT method` 跨seed/Context保留一条deterministic representative shortest path，不创建overlay node/edge、baseline Call Graph或whole-graph predecessor copy。
+Impact Tracing 在 target Call Graph 完成后执行 read-only query。它从 reachable WALA node/IR、构图期 typed dynamic evidence、dependency body boundary evidence 与 precomputed structural metadata解析结果。`changed-paths` 的 no-op/factory IR 已在 fixed point 中生效；query 不重放或补边。Dangerous transfer 与 factory evidence 作为 typed coverage limitation进入 Module status，同时保留对应 dependency path context。
 
 ## Design Decisions
 
@@ -65,6 +69,7 @@ Impact Tracing 在 target Call Graph 完成后执行 read-only query。它从 re
 
 - 每个BoundChangePoint恰有一个最终disposition；path与observation携带typed evidence。
 - Query resolution gap通过`QueryLimitation`回传pipeline，不改写scope validation或strategy metadata。
+- Boundary evidence由 Call Graph fixed point期间收集，query/report只读。普通 no-op没有dangerous/factory evidence时不自动产生coverage limitation。
 
 ## Seed Resolution
 
@@ -145,7 +150,7 @@ Impact Tracing 在 target Call Graph 完成后执行 read-only query。它从 re
 
 Call Graph 完成后，Impact query 只读取 graph、IR、model metadata 与 precomputed structural metadata。禁止 post-build ServiceLoader overlay、post-build `invokedynamic` whole-scope ASM scan、node/edge mutation或第二张 target Call Graph。
 
-“未发现 Impact Path”只适用于公开 analysis model。Reflection target、Spring dynamic semantics、custom classloader 与未注册 bootstrap 不保证完整；model limitation 必须以 `INCONCLUSIVE` 表达，不能输出确定性的“无影响”。
+“未发现 Impact Path”只适用于公开 analysis model。`changed-paths` 的 `SUCCESS` 只表示 selected path 与已建模 boundary 内未发现路径，不代表 no-op dependency 内部不存在影响。Reflection target、Spring dynamic semantics、custom classloader 与未注册 bootstrap 同样不保证完整；明确 typed limitation 必须以 `INCONCLUSIVE` 表达。
 
 ## Acceptance Criteria
 

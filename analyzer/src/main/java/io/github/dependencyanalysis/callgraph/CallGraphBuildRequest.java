@@ -19,6 +19,7 @@ import java.util.Objects;
  * @param serviceLoaderIndex immutable validated ServiceLoader facts
  * @param dynamicModels invokedynamic model registry
  * @param reflectionOptions command-wide WALA ReflectionOptions
+ * @param dependencyBoundary external method-body boundary model
  * @param monitor cooperative fixed-point monitor
  */
 record CallGraphBuildRequest(
@@ -29,6 +30,7 @@ record CallGraphBuildRequest(
         ServiceLoaderProtocolIndex serviceLoaderIndex,
         InvokeDynamicBootstrapModelRegistry dynamicModels,
         WalaReflectionOptions reflectionOptions,
+        DependencyBodyBoundary dependencyBoundary,
         IProgressMonitor monitor) {
 
     CallGraphBuildRequest {
@@ -40,6 +42,7 @@ record CallGraphBuildRequest(
         Objects.requireNonNull(serviceLoaderIndex, "serviceLoaderIndex");
         Objects.requireNonNull(dynamicModels, "dynamicModels");
         Objects.requireNonNull(reflectionOptions, "reflectionOptions");
+        Objects.requireNonNull(dependencyBoundary, "dependencyBoundary");
         Objects.requireNonNull(monitor, "monitor");
     }
 }

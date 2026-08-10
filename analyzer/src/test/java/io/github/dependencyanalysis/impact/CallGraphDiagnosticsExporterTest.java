@@ -21,10 +21,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class CallGraphDiagnosticsExporterTest {
 
     /** Expected diagnostics JSON Schema version. */
-    private static final int EXPECTED_SCHEMA_VERSION = 3;
+    private static final int EXPECTED_SCHEMA_VERSION = 4;
 
     @Test
-    void writesSchemaV3TypedSentinelReachabilityPath() throws Exception {
+    void writesSchemaV4TypedSentinelReachabilityPath() throws Exception {
         final CallGraphNodeIdentity fakeRoot = node(
                 0, "com.ibm.wala.FakeRoot", "fakeRootMethod",
                 CallGraphNodeSentinelRole.FAKE_ROOT);

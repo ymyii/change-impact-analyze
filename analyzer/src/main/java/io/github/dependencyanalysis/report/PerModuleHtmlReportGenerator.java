@@ -6,6 +6,7 @@ import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.CallGraphStats;
 import io.github.dependencyanalysis.callgraph.ClassOwnership;
 import io.github.dependencyanalysis.callgraph.DuplicateClassResolution;
+import io.github.dependencyanalysis.callgraph.DependencyBodyBoundaryMetadata;
 import io.github.dependencyanalysis.callgraph.MethodId;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.diagnostic.DiagnosticEvent;
@@ -217,6 +218,18 @@ public final class PerModuleHtmlReportGenerator {
         body.append("<section id=\"run\"><h2>Run summary</h2><table>")
                 .append(row("Status", statusText(run.getStatus().name())))
                 .append(row("Analysis mode", run.getMode()))
+                .append(row("Requested dependency scope",
+                        run.getDependencyAnalysisScope().identifier()))
+                .append(row("Changed-paths / full / fallback Modules",
+                        dependencyScopeCounts(run)))
+                .append(row("Real-IR / no-op external artifacts",
+                        dependencyArtifactCounts(run)))
+                .append(row("No-op / factory method nodes",
+                        dependencyMethodCounts(run)))
+                .append(row("Dangerous dependency transfers",
+                        dangerousTransferCount(run)))
+                .append(row("INCONCLUSIVE Module ratio",
+                        inconclusiveRatio(run)))
                 .append(row("Application entrypoint boundary",
                         entrypointSelectionLabel(run)))
                 .append(row("Target JDK",
@@ -372,6 +385,7 @@ public final class PerModuleHtmlReportGenerator {
                 .append(escape(artifact.toString()))
                 .append("</code></li>"));
         body.append("</ul></details></section>");
+        appendDependencyBodyBoundary(body, module);
         appendDuplicateResolutions(body, module);
         body.append("<section id=\"metrics\"><h2>Runtime metrics</h2>")
                 .append("<table>")
@@ -416,6 +430,136 @@ public final class PerModuleHtmlReportGenerator {
                 breadcrumbs(overallFile, module, pages.index(),
                         "Module Index"), siblingLinks(pages, "index"),
                 moduleIndexToc(), body.toString());
+    }
+
+    private void appendDependencyBodyBoundary(
+            final StringBuilder body,
+            final ModuleAnalysisResult module) {
+        final var selection = module.getUnit().getChangedPathSelection();
+        final List<ArtifactCoord> realArtifacts = module.getUnit()
+                .getTargetArtifacts().stream()
+                .filter(value -> selection.policyFor(value)
+                        == io.github.dependencyanalysis.impact
+                        .DependencyMethodBodyPolicy.REAL_IR)
+                .toList();
+        final List<ArtifactCoord> noOpArtifacts = module.getUnit()
+                .getTargetArtifacts().stream()
+                .filter(value -> selection.policyFor(value)
+                        == io.github.dependencyanalysis.impact
+                        .DependencyMethodBodyPolicy.NO_OP)
+                .toList();
+        body.append("<section id=\"dependency-body-boundary\"><h2>")
+                .append("Dependency method-body boundary</h2><p>")
+                .append("All external classes, methods and resources remain ")
+                .append("in AnalysisScope and CHA. The selected scope only ")
+                .append("controls external method-body interpretation.</p>")
+                .append("<table>")
+                .append(row("Requested mode",
+                        selection.requestedMode().identifier()))
+                .append(row("Actual mode",
+                        selection.actualMode().identifier()))
+                .append(row("Fallback reason",
+                        selection.fallbackReason().orElse("None")))
+                .append(row("Real-IR external artifacts",
+                        realArtifacts.size()))
+                .append(row("No-op external artifacts",
+                        noOpArtifacts.size()));
+        final DependencyBodyBoundaryMetadata metadata = module.getSession()
+                == null ? DependencyBodyBoundaryMetadata.empty()
+                : module.getSession().getDependencyBoundary();
+        body.append(row("Real / no-op / factory method nodes",
+                        metadata.realExternalMethodNodes() + " / "
+                                + metadata.noOpMethodNodes() + " / "
+                                + metadata.factoryMethodNodes()))
+                .append("</table><h3>Changed dependency paths</h3>");
+        if (selection.paths().isEmpty()) {
+            body.append("<p>No reverse dependency path evidence was ")
+                    .append("required for the actual mode.</p>");
+        } else {
+            body.append("<table><tr><th>Changed artifact</th>")
+                    .append("<th>Module direct dependency to seed</th></tr>");
+            selection.paths().forEach(path -> body.append("<tr><td><code>")
+                    .append(escape(path.seed().toString()))
+                    .append("</code></td><td><code>")
+                    .append(escape(path.stablePath()))
+                    .append("</code></td></tr>"));
+            body.append("</table>");
+        }
+        appendArtifactPolicyList(body, "Real-IR artifacts", realArtifacts);
+        appendArtifactPolicyList(body, "No-op artifacts", noOpArtifacts);
+        appendBoundaryEvidence(body, metadata);
+        body.append("<p><strong>Interpretation:</strong> SUCCESS means no ")
+                .append("Impact Path was found within the selected paths and ")
+                .append("modeled boundaries. It does not prove that a no-op ")
+                .append("dependency body contains no impact.</p></section>");
+    }
+
+    private void appendArtifactPolicyList(
+            final StringBuilder body,
+            final String title,
+            final List<ArtifactCoord> artifacts) {
+        body.append("<details><summary>").append(escape(title))
+                .append(" (").append(artifacts.size())
+                .append(")</summary><ul>");
+        artifacts.forEach(value -> body.append("<li><code>")
+                .append(escape(value.toString())).append("</code></li>"));
+        if (artifacts.isEmpty()) {
+            body.append("<li>None</li>");
+        }
+        body.append("</ul></details>");
+    }
+
+    private void appendBoundaryEvidence(
+            final StringBuilder body,
+            final DependencyBodyBoundaryMetadata metadata) {
+        body.append("<h3>Dangerous transfers</h3>");
+        if (metadata.dangerousTransfers().isEmpty()) {
+            body.append("<p>No typed changed-instance transfer to a no-op ")
+                    .append("dependency was found.</p>");
+        } else {
+            body.append("<table><tr><th>Caller</th><th>PC / argument</th>")
+                    .append("<th>Callee artifact and method</th>")
+                    .append("<th>Changed class / proof</th>")
+                    .append("<th>Dependency paths</th></tr>");
+            metadata.dangerousTransfers().forEach(value -> body
+                    .append("<tr><td><code>")
+                    .append(escape(value.callerMethod()))
+                    .append("</code></td><td>")
+                    .append(value.bytecodePc()).append(" / ")
+                    .append(value.argumentIndex() < 0 ? "receiver"
+                            : value.argumentIndex())
+                    .append("</td><td><code>")
+                    .append(escape(value.calleeArtifact() + " :: "
+                            + value.resolvedCallee()))
+                    .append("</code></td><td><code>")
+                    .append(escape(value.changedClass() + " / "
+                            + value.typeEvidence()))
+                    .append("</code></td><td>")
+                    .append(escape(String.join("; ",
+                            value.dependencyPaths())))
+                    .append("</td></tr>"));
+            body.append("</table>");
+        }
+        body.append("<h3>Flow-to-cast factory evidence</h3>");
+        if (metadata.factories().isEmpty()) {
+            body.append("<p>No flow-to-cast factory approximation was ")
+                    .append("generated.</p>");
+        } else {
+            body.append("<table><tr><th>Caller / PC</th><th>Callee</th>")
+                    .append("<th>Cast / inferred concrete type</th>")
+                    .append("<th>Context</th></tr>");
+            metadata.factories().forEach(value -> body.append("<tr><td>")
+                    .append(escape(value.callerMethod())).append(" / ")
+                    .append(value.bytecodePc()).append("</td><td><code>")
+                    .append(escape(value.resolvedCallee()))
+                    .append("</code></td><td>")
+                    .append(value.castInstruction()).append(" / <code>")
+                    .append(escape(value.inferredType()))
+                    .append("</code></td><td><code>")
+                    .append(escape(value.context()))
+                    .append("</code></td></tr>"));
+            body.append("</table>");
+        }
     }
 
     private void appendDuplicateResolutions(
@@ -1327,6 +1471,72 @@ public final class PerModuleHtmlReportGenerator {
                 .distinct().count();
     }
 
+    private String dependencyScopeCounts(final AnalysisRunResult run) {
+        final long changedPaths = run.getModuleResults().stream()
+                .filter(value -> value.getUnit().getChangedPathSelection()
+                        .actualMode() == io.github.dependencyanalysis.impact
+                        .DependencyAnalysisScopeMode.CHANGED_PATHS)
+                .count();
+        final long full = run.getModuleResults().size() - changedPaths;
+        final long fallback = run.getModuleResults().stream()
+                .filter(value -> value.getUnit().getChangedPathSelection()
+                        .fallbackReason().isPresent()).count();
+        return changedPaths + " / " + full + " / " + fallback;
+    }
+
+    private String dependencyArtifactCounts(final AnalysisRunResult run) {
+        long real = 0L;
+        long noOp = 0L;
+        for (ModuleAnalysisResult module : run.getModuleResults()) {
+            for (ArtifactCoord artifact : module.getUnit()
+                    .getTargetArtifacts()) {
+                if (module.getUnit().getChangedPathSelection()
+                        .policyFor(artifact)
+                        == io.github.dependencyanalysis.impact
+                        .DependencyMethodBodyPolicy.REAL_IR) {
+                    real++;
+                } else {
+                    noOp++;
+                }
+            }
+        }
+        return real + " / " + noOp;
+    }
+
+    private String dependencyMethodCounts(final AnalysisRunResult run) {
+        long noOp = 0L;
+        long factory = 0L;
+        for (ModuleAnalysisResult module : run.getModuleResults()) {
+            if (module.getSession() != null) {
+                noOp += module.getSession().getDependencyBoundary()
+                        .noOpMethodNodes();
+                factory += module.getSession().getDependencyBoundary()
+                        .factoryMethodNodes();
+            }
+        }
+        return noOp + " / " + factory;
+    }
+
+    private long dangerousTransferCount(final AnalysisRunResult run) {
+        return run.getModuleResults().stream()
+                .filter(value -> value.getSession() != null)
+                .mapToLong(value -> value.getSession()
+                        .getDependencyBoundary().dangerousTransfers().size())
+                .sum();
+    }
+
+    private String inconclusiveRatio(final AnalysisRunResult run) {
+        final int total = run.getModuleResults().size();
+        final long inconclusive = run.getModuleResults().stream()
+                .filter(value -> value.getStatus()
+                        == ModuleAnalysisStatus.INCONCLUSIVE).count();
+        final double ratio = total == 0 ? 0.0D
+                : (double) inconclusive / total;
+        return inconclusive + " / " + total + " ("
+                + String.format(java.util.Locale.ROOT, "%.2f", ratio)
+                + ")";
+    }
+
     private String sessionRows(final ModuleAnalysisResult module) {
         if (module.getSession() == null) {
             return row("Call Graph", "Not available");
@@ -1406,6 +1616,7 @@ public final class PerModuleHtmlReportGenerator {
 
     private String moduleIndexToc() {
         return toc("summary", "Summary", "scope", "Analysis scope",
+                "dependency-body-boundary", "Dependency body boundary",
                 "duplicates", "Duplicate class resolution",
                 "metrics", "Runtime metrics", "limits", "Limitations",
                 "diagnostics", "Diagnostics");

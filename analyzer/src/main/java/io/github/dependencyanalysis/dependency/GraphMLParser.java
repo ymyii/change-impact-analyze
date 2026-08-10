@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -107,7 +108,7 @@ public final class GraphMLParser {
                             + "in " + graphmlFile);
         }
         final ArtifactCoord moduleCoord =
-                ArtifactCoord.parse(rootLabel);
+                ArtifactCoord.parse(normalizeLabel(rootLabel));
         final Map<String, List<String>>
                 adj = buildAdjacency(edges);
         final Set<ArtifactCoord> reactor =
@@ -118,10 +119,85 @@ public final class GraphMLParser {
                 buildChildren(
                         rootId, adj,
                         nodeLabels, reactor);
+        final ModuleDependencyOccurrenceGraph graph = occurrenceGraph(
+                rootId, nodeLabels, edges, reactor);
         return new ModuleDependencyTree(
                 moduleCoord,
                 graphmlFile.getParent(),
-                deps);
+                deps, graph);
+    }
+
+    private static ModuleDependencyOccurrenceGraph occurrenceGraph(
+            final String rootId,
+            final Map<String, String> labels,
+            final List<String[]> rawEdges,
+            final Set<ArtifactCoord> reactor) {
+        final Map<String, List<String>> adjacency =
+                buildAdjacency(rawEdges);
+        final Set<String> retained = new LinkedHashSet<>();
+        retain(rootId, rootId, adjacency, labels, reactor, retained,
+                new HashSet<>());
+        final List<ModuleDependencyOccurrenceGraph.Occurrence> nodes =
+                new ArrayList<>();
+        for (Map.Entry<String, String> value : labels.entrySet()) {
+            if (!retained.contains(value.getKey())) {
+                continue;
+            }
+            final ArtifactCoord artifact = ArtifactCoord.parse(
+                    normalizeLabel(value.getValue()));
+            final boolean root = value.getKey().equals(rootId);
+            final DependencyScope scope = root ? null
+                    : DependencyScope.fromString(
+                    extractScopeFromLabel(value.getValue()));
+            nodes.add(new ModuleDependencyOccurrenceGraph.Occurrence(
+                    value.getKey(), artifact, scope, root,
+                    !root && reactor.contains(artifact)));
+        }
+        final List<ModuleDependencyOccurrenceGraph.Edge> graphEdges =
+                new ArrayList<>();
+        for (String[] edge : rawEdges) {
+            if (retained.contains(edge[0]) && retained.contains(edge[1])) {
+                graphEdges.add(new ModuleDependencyOccurrenceGraph.Edge(
+                        edge[0], edge[1]));
+            }
+        }
+        return new ModuleDependencyOccurrenceGraph(rootId, nodes,
+                graphEdges);
+    }
+
+    private static void retain(
+            final String current,
+            final String rootId,
+            final Map<String, List<String>> adjacency,
+            final Map<String, String> labels,
+            final Set<ArtifactCoord> reactor,
+            final Set<String> retained,
+            final Set<String> active) {
+        if (!active.add(current)) {
+            retained.add(current);
+            return;
+        }
+        final String label = labels.get(current);
+        if (label == null) {
+            active.remove(current);
+            return;
+        }
+        if (!current.equals(rootId)) {
+            final ArtifactCoord artifact = ArtifactCoord.parse(
+                    normalizeLabel(label));
+            if (!reactor.contains(artifact)
+                    && DependencyScope.fromString(
+                    extractScopeFromLabel(label)) == null) {
+                active.remove(current);
+                return;
+            }
+        }
+        retained.add(current);
+        for (String child : adjacency.getOrDefault(current, List.of())) {
+            retain(child, rootId, adjacency, labels, reactor, retained,
+                    active);
+        }
+        active.remove(current);
     }
 
     /**
@@ -315,8 +391,10 @@ public final class GraphMLParser {
                 continue;
             }
             final ArtifactCoord coord =
-                    ArtifactCoord.parse(label);
+                    ArtifactCoord.parse(normalizeLabel(label));
             if (reactor.contains(coord)) {
+                result.addAll(buildChildren(
+                        childId, adj, labels, reactor));
                 continue;
             }
             final String scopeStr =
@@ -351,10 +429,26 @@ public final class GraphMLParser {
             extractScopeFromLabel(
             final String label) {
         final String[] parts =
-                label.split(":");
+                normalizeLabel(label).split(":");
         if (parts.length >= SCOPE_SEGMENTS) {
             return parts[parts.length - 1];
         }
         return "";
+    }
+
+    private static String normalizeLabel(final String label) {
+        String result = label.trim();
+        if (result.startsWith("(") && result.endsWith(")")) {
+            result = result.substring(1, result.length() - 1).trim();
+        }
+        final int explanation = result.indexOf(" - ");
+        if (explanation >= 0) {
+            result = result.substring(0, explanation).trim();
+        }
+        final int managed = result.indexOf(" (");
+        if (managed >= 0) {
+            result = result.substring(0, managed).trim();
+        }
+        return result;
     }
 }

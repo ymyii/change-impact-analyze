@@ -35,6 +35,14 @@ code_refs:
     desc: "per-CHA interface/abstract synthetic placeholder复用"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/ModuleCallGraphSession.java"
     desc: "live graph、CHA、cache、ownership 与 immutable model metadata"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/DependencyBodyBoundary.java"
+    desc: "四种 algorithm 共享的 no-op/factory interpreter 与 typed boundary detection"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/DependencyBodyBoundaryMetadata.java"
+    desc: "real/no-op/factory method counts 与 immutable evidence"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleChangedPathSelection.java"
+    desc: "resolved logical artifact 的 real-IR/no-op policy source"
+  - path: "analyzer/src/test/java/io/github/dependencyanalysis/callgraph/DependencyBodyBoundaryTest.java"
+    desc: "四种 algorithm 的 no-op、factory、dangerous transfer 与 full regression"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphTopologyAnalyzer.java"
     desc: "benchmark-only CGNode父榜、IMethod子榜、shortest path与SCC cycle"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphNodeIdentity.java"
@@ -46,7 +54,7 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphRelatedMethod.java"
     desc: "父CGNode下按IMethod聚合的related CGNode子榜"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/CallGraphDiagnosticsExporter.java"
-    desc: "Schema v3 CGNode topology/source/IR JSON原子输出"
+    desc: "Schema v4 CGNode topology/source/IR/scope JSON原子输出"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/CallGraphMethodSourceBuilder.java"
     desc: "PROJECT/reactor/dependency/JDK exact bytecode source 与 ASM fallback"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/ServiceLoaderProtocolIndex.java"
@@ -121,7 +129,7 @@ code_refs:
 
 ## Summary
 
-每个 relevant target Module 使用 command-wide `--call-graph-algorithm` 构建一个独立 WALA Call Graph。默认 `rta` 直接使用 `BasicRTABuilder` 的全局已实例化 compatible class reachability；`zero-cfa`、`optimized-0-1-cfa`与`1-object-1-call-site`提供不同points-to与Context precision。Reflection、ServiceLoader、MethodHandle 与注册的 `invokedynamic` model 均在 `makeCallGraph(...)` 前进入 fixed point。构图完成后 session 只暴露 graph、Class Hierarchy Analysis（CHA）、IR cache、ownership 与 immutable model metadata，不暴露 builder 或 installer。
+每个 relevant target Module 使用 command-wide `--call-graph-algorithm` 构建一个独立 WALA Call Graph。Command-wide `--dependency-analysis-scope=changed-paths|full` 默认 `changed-paths`。两种 scope 都完整加载 PROJECT、reactor、全部 target external JAR、resource 和 JDK；`changed-paths` 仅将到达 changed dependency 的全部反向路径上的 external artifact 保留真实 IR，其他 external method 由共享 boundary interpreter 提供 no-op 或 flow-to-cast factory IR。Reflection、ServiceLoader、MethodHandle 与注册的 `invokedynamic` model 继续基于完整 scope 在 fixed point 前安装。
 
 ## Design Decisions
 
@@ -130,15 +138,18 @@ code_refs:
 - `optimized-0-1-cfa` 使用 `ALLOCATIONS | CONSTANT_SPECIFIC | SMUSH_MANY | SMUSH_PRIMITIVE_HOLDERS | SMUSH_STRINGS | SMUSH_THROWABLES`，保持原 allocation-sensitive contract。
 - `1-object-1-call-site`使用`nObjBuilder(1, ...)`与`ALLOCATIONS | CONSTANT_SPECIFIC`，不启用smushing；随后以`nCFAContextSelector(1, ...)`包装receiver allocation Context，使同一Context同时携带`ALLOCATION_STRING_KEY`与`CALL_STRING`。精确allocation-site与复合Context通常增加时间和内存成本。
 - 算法在 command 级选择并应用到全部 Module；不存在 per-Module override、timeout fallback或同一 run 混用算法。
+- Dependency analysis scope 在 command 级请求，但 `changed-paths` 的 occurrence graph/path recovery 异常会使单个 Module actual mode fallback 到 `full`。`full` 不安装 dependency body boundary。
 - 四种算法由唯一 Factory 选择独立 strategy。Request/Result 与 model metadata 是 immutable boundary；builder、selector、interpreter、installer与build-time collector都是strategy-local state。`ModuleCallGraphEngine`在strategy选择前只创建一次immutable `ServiceLoaderProtocolIndex`；四套installer分别消费，只共享immutable protocol facts与pure resolver/helper，不共享mutable execution state。
 - `--wala-reflection-options`（alias `--reflection-options`）接受 WALA `ReflectionOptions` enum name，大小写不敏感；默认 `ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。该 bounded default启用WALA原生string reflection、`Method.invoke`与一次flow-to-casts配置，同时避免WALA 1.8.0 `FULL`在RTA + default bypass下的无界扩张。实际target closure仍受selected builder的WALA能力边界约束；用户可显式选择`FULL`或其他原生enum value。
 - ZeroCFA 对 modeled ServiceLoader allocation 使用 service/loader-specific `ConstantKey`，使 constant service receiver Context不因普通 class-based allocation丢失；真正的 class-based ServiceLoader receiver使用 deterministic `ALL_CONFIGURED_SERVICES` aggregate fallback。
+- Method-body policy 依据 resolved `IMethod.getDeclaringClass()` 的 logical artifact source判断；call-site declared owner不参与。Selected subclass override 即使覆盖 unselected base declaration，仍按 override 的 declaring source使用真实 IR。
 
 ## Behavior Contract
 
 - Diagnostic与HTML Report使用实际稳定算法标识 `rta`、`zero-cfa`、`optimized-0-1-cfa`或`1-object-1-call-site`，并展示实际 WALA ReflectionOptions；Report Terminology使用`1-Object + 1-Call-Site`说明精确allocation-site、无smushing及成本。
 - Call Graph保持 conservative over-approximation；class-based merging或smushing可能改变 nodes、edges、contexts与候选 Impact Path数量，但不改变 Module status、timeout、query和publication contract。
 - ServiceLoader、MethodHandle与注册的 `invokedynamic` model limitation 使用 typed reason/code/location/detail；RTA 无法从 caller-local IR推导 MethodHandle 或 ServiceLoader contract 时保留 empty/default protocol behavior并使 Module `INCONCLUSIVE`，不猜测业务 target。
+- 路径外 external method 的普通 no-op 不单独改变 Module status。Dangerous transfer、flow-to-cast factory 或其他明确 typed boundary limitation 使 Module 为 `INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY`。
 
 ## Scope and Logical Ownership
 
@@ -147,6 +158,8 @@ code_refs:
 - `DEPENDENCY`：`ArtifactCoord` logical source；physical JAR path 只由 command-scoped `IJarRepository` 持有。
 - `JDK`：显式 `--java-home` 的 JDK 8 boot/ext JAR。
 - `SYNTHETIC`：WALA lambda、`altMetafactory` lambda 与 ServiceLoader provider iterator。
+- `changed-paths` selected external source：至少位于一条 `Module root -> changed dependency occurrence` 的完整路径中；seed 的 child/downstream 不自动 selected。
+- `changed-paths` unselected external source：class、method declaration、resource、ownership、CHA 与 resolution仍真实存在，仅 method body被 boundary解释。
 - Scope load 前按 `JDK > PROJECT > REACTOR_DEPENDENCY > DEPENDENCY` 建立 single-winner ownership。Reactor/external tier 保留当前 Module 的 Maven GraphML traversal order。
 - Dependency duplicate evidence、`MethodId.sourceId` 与 Report source 均使用 coordinate；PROJECT/reactor/JDK 可继续使用非 dependency path identity。
 - byte-identical duplicate 静默去重。内容不同的 duplicate 记录 winner、loser logical source 与 precedence reason；不改变 Module status。
@@ -184,9 +197,29 @@ RTA 使用 caller-local `IR`/`DefUse` 解析 `Lookup.findStatic*` 到 `invokeExa
 
 1. 建立 winner-only ownership、structural metadata、WALA scope与CHA。
 2. 从 immutable PROJECT class index生成 declared-type entrypoints。
-3. Factory选择独立 strategy，安装 selected ReflectionOptions、default selectors/bypass、MethodHandle、`invokedynamic`与ServiceLoader model。
+3. Factory选择独立 strategy，安装 selected ReflectionOptions、default selectors/bypass、MethodHandle、`invokedynamic`与ServiceLoader model；`changed-paths` 再安装共享 dependency body boundary decorator。
 4. 单线程求解 selected RTA/points-to 与 Call Graph fixed point；timeout仅通过 cooperative monitor取消，失败使用 typed `CallGraphFailureKind.TIMEOUT`。
 5. 将 graph、IR cache、ownership和immutable model metadata封装为只读 query session。
+
+## Dependency Method-body Boundary
+
+### No-op Summary
+
+- 只覆盖路径并集外 external JAR 的 resolved method；PROJECT、REACTOR_DEPENDENCY、JDK、SYNTHETIC、selected external method 与现有 WALA model不覆盖。
+- 不向 analysis cache 请求被覆盖 method 的原始 IR。
+- `void`、constructor 与 class initializer生成空 body和正常 return；primitive返回 JVM 默认值；reference返回 `null`。
+- 不生成内部 call、field read/write、callback、exception或thread behavior。Caller 到 resolved no-op callee 的 edge保留，callee不继续展开真实实现。
+- 普通 no-op summary按 resolved method稳定复用。
+
+### Flow-to-cast Factory
+
+No-op callee只有满足全部条件时才使用 caller/call-site-specific factory IR：invoke具有未丢弃的reference result；同一 caller `DefUse` 仅经direct use或bounded `phi`/`pi`到达`checkcast`；cast target可由当前CHA解析，且是concrete、非interface、非abstract的PROJECT、reactor或selected external class。Field、array、collection、unknown call、跨method flow及另一个no-op external target均不推断。
+
+Factory summary使用真实 resolved callee owner、method与descriptor，生成稳定排序、去重后的 `NewInstruction` 和 return，不创建 synthetic owner且不调用constructor。四种builder按自己的 `InstanceKey` policy消费allocation。Evidence保存caller、callee、logical artifact、bytecode PC、cast位置、推断类型与Context。
+
+### Dangerous Transfer
+
+对 reachable no-op external invoke 检查 receiver、argument、array与varargs。Descriptor、`TypeInference`或bounded `DefUse` 能证明值可能是包含 `ChangePoint` 的 class实例时，记录 `CHANGED_INSTANCE_TO_NO_OP_DEPENDENCY`。只声明为`Object`且无法恢复实际类型时不猜测。Evidence保存caller/origin、PC、invocation kind、resolved callee/artifact、parameter位置、changed class、typed proof和对应 dependency paths。
 
 ## ServiceLoader Model
 
@@ -222,8 +255,8 @@ RTA 使用 caller-local `IR`/`DefUse` 解析 `Lookup.findStatic*` 到 `invokeExa
 
 ## Benchmark-only Topology Capture
 
-- `impact --call-graph-diagnostics-output <json>`只在显式设置时启用；未设置时`ModuleCallGraphEngine`不创建topology analyzer、不遍历ranking、不计算path、不执行decompilation。
-- Capture读取同一张已完成Call Graph并作为nullable immutable metadata进入session；不新增edge、不运行第二个builder、不改变Impact query或最终analysis status。JSON使用`schemaVersion: 3`并原子替换目标文件。
+- `impact --call-graph-diagnostics-output <json>`只在显式设置时启用；未设置时`ModuleCallGraphEngine`不创建topology analyzer、不遍历ranking、不计算Call Graph path、不执行decompilation。
+- Capture读取同一张已完成Call Graph并作为nullable immutable metadata进入session；不新增edge、不运行第二个builder、不改变Impact query。JSON使用`schemaVersion: 4`并原子替换目标文件，同时记录requested/actual scope、fallback、external artifact/method policy counts、dangerous/factory evidence与全部 dependency paths。
 - 父榜以精确CGNode为单位，不合并WALA Context。CGNode identity包含`owner + name + descriptor + origin + Context + graphNodeId + walaSynthetic + sentinelRole`。Caller/Callee先按related CGNode count降序，再按distinct related IMethod、raw CGEdge与stable CGNode identity排序，各保留Top 10。
 - 每个父榜CGNode包含一个按IMethod聚合的Top 10子榜；子榜按该IMethod代表的related CGNode count、raw CGEdge与stable Method identity排序。每个子项保留完整count、deterministic前10个exact CGNode/Context example与omitted count；这一层用于定位同一Method因Context或points-to传播产生的节点膨胀，同时限制HTML与tracked TSV体积。不输出独立points-to set排行榜。
 - `getFakeRootNode()`、`getFakeWorldClinitNode()`及其incident edge与普通CGNode/CGEdge相同，参与父榜、IMethod子榜、raw edge count、strongly connected component（SCC）和shortest chain。Node的`sentinelRole`固定为`FAKE_ROOT`、`FAKE_WORLD_CLINIT`或`NONE`。
@@ -234,8 +267,8 @@ RTA 使用 caller-local `IR`/`DefUse` 解析 `Lookup.findStatic*` 到 `invokeExa
 ## Module Classification
 
 - Blocking：PROJECT/reactor 命中 excluded JDK class、scope unreadable、零 PROJECT entrypoint、CHA/Call Graph failure、timeout。
-- Coverage warning：external excluded JDK reference、MethodHandle/ServiceLoader limitation、reachable unsupported `invokedynamic`、SSA `UNKNOWN`。
-- Typed coverage reason precedence为 bytecode diff > `INCONCLUSIVE_INVOKEDYNAMIC_MODEL` > `INCONCLUSIVE_METHOD_HANDLE_MODEL` > `INCONCLUSIVE_SERVICE_LOADER` > `INCONCLUSIVE_SCOPE_VALIDATION`；全部 limitation仍保留。Duplicate warning不进入 Coverage limitations。
+- Coverage warning：dependency body boundary、external excluded JDK reference、MethodHandle/ServiceLoader limitation、reachable unsupported `invokedynamic`、SSA `UNKNOWN`。
+- Typed coverage reason包含 `INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY`，并与 bytecode diff、dynamic model和scope limitation按 reducer 固定 precedence归并；全部 limitation仍保留。Duplicate warning不进入 Coverage limitations。
 
 ## Acceptance
 
@@ -250,6 +283,8 @@ RTA 使用 caller-local `IR`/`DefUse` 解析 `Lookup.findStatic*` 到 `invokeExa
 - Given Stream/Optional、Collection/Map、AbstractExecutorService/CompletableFuture或Thread callback；WhenRTA与两种ZeroX algorithm使用完整target JDK 8构图；Thenapplication callback存在来自non-native、non-synthetic且具有IR的JDK dispatch predecessor。`1-object-1-call-site`使用最小Java 8 Primordial `Thread.run()` bytecode独立验证同一真实dispatch contract，避免完整JDK call-string状态空间超过test budget。callback测试使用`ReflectionOptions.NONE`隔离无关Reflection状态空间；默认ReflectionOptions由独立CLI与benchmark门禁验证。
 - Given已完成Call Graph包含WALA fake root或fake world-clinit；When启用benchmark topology capture；Then sentinel node及incident edge参与CGNode ranking、IMethod子榜、SCC与shortest chain，chain step使用typed `sentinelRole`标记，且不输出declared-entrypoint unreachable状态。
 - Given `AccessController.doPrivileged(PrivilegedAction)`；When target JDK 8构图；Then callback通过WALA内置`SummarizedMethod` native model可达。JDK 8该API本身是native，不能宣称经过真实JDK bytecode body。
+- Given `changed-paths` 与路径外 external sink/factory/plain；When四种 algorithm 构图；Then sink产生dangerous transfer、factory cast materializes included type、plain call只产生no-op；Module因前两者为`INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY`。
+- Given相同 fixture显式使用`full`；When构图；Then全部 external method使用真实 IR，不产生 no-op/factory/dangerous approximation evidence。
 
 ### Non-Functional
 

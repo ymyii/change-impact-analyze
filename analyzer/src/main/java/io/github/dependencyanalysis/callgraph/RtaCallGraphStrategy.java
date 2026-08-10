@@ -1,6 +1,7 @@
 package io.github.dependencyanalysis.callgraph;
 
 import com.ibm.wala.ipa.callgraph.AnalysisOptions;
+import com.ibm.wala.ipa.callgraph.ContextSelector;
 import com.ibm.wala.ipa.callgraph.impl.Util;
 import com.ibm.wala.ipa.callgraph.impl.DefaultContextSelector;
 import com.ibm.wala.ipa.callgraph.propagation.SSAContextInterpreter;
@@ -41,12 +42,21 @@ final class RtaCallGraphStrategy implements CallGraphAlgorithmStrategy {
         final SSAContextInterpreter methodHandleInterpreter =
                 methodHandles.interpreter(new DefaultSSAInterpreter(
                         options, request.cache()));
-        final BasicRTABuilder builder = new BasicRTABuilder(
-                request.hierarchy(), options, request.cache(),
-                serviceLoader.contextSelector(),
+        final SSAContextInterpreter baseInterpreter =
                 new DelegatingSSAContextInterpreter(
                         methodHandleInterpreter,
-                        serviceLoader.contextInterpreter()));
+                        serviceLoader.contextInterpreter());
+        final ContextSelector contextSelector = request.dependencyBoundary()
+                .active() ? request.dependencyBoundary().wrapSelector(
+                serviceLoader.contextSelector(), baseInterpreter)
+                : serviceLoader.contextSelector();
+        final SSAContextInterpreter contextInterpreter =
+                request.dependencyBoundary().active()
+                        ? request.dependencyBoundary().wrapInterpreter(
+                        baseInterpreter) : baseInterpreter;
+        final BasicRTABuilder builder = new BasicRTABuilder(
+                request.hierarchy(), options, request.cache(),
+                contextSelector, contextInterpreter);
         builder.setInstanceKeys(new RtaClassBasedInstanceKeys(
                 options, builder.getInstanceKeys()));
         final com.ibm.wala.ipa.callgraph.CallGraph graph =

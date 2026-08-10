@@ -199,11 +199,11 @@ public final class DependencyAnalyzer {
         final String graphmlName = GRAPHML_PREFIX
                 + UUID.randomUUID() + ".graphml";
         final ProcessConsoleResult execution = runMaven(
-                graphmlName, null);
+                graphmlName, null, true);
         final List<Path> graphmlFiles = findNamedFiles(
                 workspacePath, graphmlName);
         try {
-            requireSuccessful(execution, graphmlName, null);
+            requireSuccessful(execution, graphmlName, null, true);
             if (graphmlFiles.isEmpty()) {
                 throw new DependencyAnalysisException(
                         "No GraphML files found in workspace: "
@@ -219,7 +219,9 @@ public final class DependencyAnalyzer {
     }
 
     /**
-     * Collects GraphML and physical artifact bindings in one Maven session.
+     * Collects physical artifact bindings and a separate verbose occurrence
+     * GraphML. The built-in path resolver consumes ordinary GraphML; Maven's
+     * verbose labels are retained only for occurrence topology.
      *
      * @return dependency trees and physical paths
      * @throws DependencyAnalysisException Maven or contract failure
@@ -231,16 +233,24 @@ public final class DependencyAnalyzer {
             InterruptedException {
         start();
         final String nonce = UUID.randomUUID().toString();
+        final String bindingGraphmlName = GRAPHML_PREFIX + nonce
+                + "-binding.graphml";
         final String graphmlName = GRAPHML_PREFIX + nonce + ".graphml";
         final String jsonName = ARTIFACT_JSON_PREFIX + nonce + ".json";
-        final ProcessConsoleResult execution = runMaven(
-                graphmlName, jsonName);
+        final ProcessConsoleResult bindingExecution = runMaven(
+                bindingGraphmlName, jsonName, false);
+        requireSuccessful(bindingExecution, bindingGraphmlName, jsonName,
+                false);
+        final ProcessConsoleResult occurrenceExecution = runMaven(
+                graphmlName, null, true);
         final List<Path> graphmlFiles = findNamedFiles(
                 workspacePath, graphmlName);
+        final List<Path> bindingGraphmlFiles = findNamedFiles(
+                workspacePath, bindingGraphmlName);
         final List<Path> jsonFiles = findNamedFiles(
                 workspacePath, jsonName);
         try {
-            requireSuccessful(execution, graphmlName, jsonName);
+            requireSuccessful(occurrenceExecution, graphmlName, null, true);
             if (graphmlFiles.isEmpty() || jsonFiles.isEmpty()) {
                 throw new DependencyAnalysisException(
                         "Missing dependency evidence: graphml="
@@ -257,6 +267,7 @@ public final class DependencyAnalyzer {
             return new DependencyAnalysisResult(trees, artifacts);
         } finally {
             deleteFiles(graphmlFiles);
+            deleteFiles(bindingGraphmlFiles);
             deleteFiles(jsonFiles);
         }
     }
@@ -276,7 +287,8 @@ public final class DependencyAnalyzer {
 
     private ProcessConsoleResult runMaven(
             final String graphmlName,
-            final String jsonName) throws IOException,
+            final String jsonName,
+            final boolean verbose) throws IOException,
             InterruptedException {
         final List<String> command = new ArrayList<>();
         command.add(mavenExecutable.toString());
@@ -284,6 +296,9 @@ public final class DependencyAnalyzer {
         command.addAll(projectArguments);
         command.add(dependencyGoal("tree"));
         command.add("-DoutputType=graphml");
+        if (verbose) {
+            command.add("-Dverbose=true");
+        }
         command.add("-DoutputFile=" + graphmlName);
         if (jsonName != null) {
             command.add(artifactPathGoal());
@@ -308,7 +323,8 @@ public final class DependencyAnalyzer {
     private void requireSuccessful(
             final ProcessConsoleResult execution,
             final String graphmlName,
-            final String jsonName) throws DependencyAnalysisException {
+            final String jsonName,
+            final boolean verbose) throws DependencyAnalysisException {
         if (execution.exitCode() == 0) {
             return;
         }
@@ -317,8 +333,11 @@ public final class DependencyAnalyzer {
                         + " exitCode=" + execution.exitCode());
         final StringBuilder command = new StringBuilder("mvn ")
                 .append(dependencyGoal("tree"))
-                .append(" -DoutputType=graphml -DoutputFile=")
-                .append(graphmlName);
+                .append(" -DoutputType=graphml");
+        if (verbose) {
+            command.append(" -Dverbose=true");
+        }
+        command.append(" -DoutputFile=").append(graphmlName);
         if (jsonName != null) {
             command.append(' ').append(artifactPathGoal())
                     .append(" -Dcia.dependencyGraphFileName=")

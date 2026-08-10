@@ -247,6 +247,28 @@ class GraphMLParserTest {
                         .COMPILE);
     }
 
+    @Test
+    void verboseDuplicateOccurrencesRetainBothParentPaths()
+            throws Exception {
+        final Path graphml = copyResource(
+                "verbose-multiple-paths.graphml");
+
+        final ModuleDependencyTree tree = GraphMLParser.parse(
+                graphml, Set.of());
+        final ArtifactCoord seed = new ArtifactCoord(
+                "test", "scenario-api", "jar", "2");
+
+        assertThat(tree.getOccurrenceGraph().occurrencesOf(seed))
+                .extracting(value -> value.id())
+                .containsExactly("e1", "e2");
+        assertThat(tree.getOccurrenceGraph().parentsOf("e1"))
+                .extracting(value -> value.artifact().getArtifactId())
+                .containsExactly("path-c");
+        assertThat(tree.getOccurrenceGraph().parentsOf("e2"))
+                .extracting(value -> value.artifact().getArtifactId())
+                .containsExactly("path-y");
+    }
+
     /**
      * Copies a test resource to temp dir.
      *

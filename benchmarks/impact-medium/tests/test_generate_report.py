@@ -24,6 +24,7 @@ SAMPLE_COLUMNS = (
     "run_kind",
     "round",
     "sample",
+    "dependency_analysis_scope",
     "algorithm",
     "wala_reflection_options",
     "total_wall_seconds",
@@ -36,6 +37,12 @@ SAMPLE_COLUMNS = (
     "entrypoint_count",
     "cg_node_count",
     "cg_edge_count",
+    "real_external_artifact_count",
+    "no_op_external_artifact_count",
+    "real_external_method_node_count",
+    "no_op_method_node_count",
+    "factory_method_node_count",
+    "dangerous_transfer_count",
     "status",
     "exit_code",
     "analyzer_sha256",
@@ -64,6 +71,8 @@ class GenerateReportTest(unittest.TestCase):
         cls.generator = scripts / "generate-report.py"
         cls.comparator = scripts / "compare-summaries.sh"
         cls.publisher = scripts / "publish-results.sh"
+        cls.matrix_publisher = scripts / "publish-scope-matrix.sh"
+        cls.scope_comparator = scripts / "add-scope-comparison.py"
 
     def test_complete_suite_generates_html_and_three_tsv_snapshots(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -100,23 +109,28 @@ class GenerateReportTest(unittest.TestCase):
                 reader = csv.DictReader(stream, delimiter="\t")
                 topology_columns = tuple(reader.fieldnames or ())
                 topology = list(reader)
-            self.assertEqual(24, len(topology))
+            self.assertEqual(32, len(topology))
             self.assertIn("sentinel_role", topology_columns)
             self.assertIn("path_root_kind", topology_columns)
             self.assertIn("path_root_cg_node_identity", topology_columns)
             self.assertNotIn("entrypoint_cg_node_identity", topology_columns)
             self.assertNotIn("path_status", topology_columns)
             self.assertEqual(
-                {"CALLER", "CALLEE"}, {row["direction"] for row in topology}
+                {"CALLER", "CALLEE", "DEPENDENCY"},
+                {row["direction"] for row in topology},
             )
             self.assertEqual(
-                {"RANKED_CGNODE", "RELATED_IMETHOD", "REACHABILITY_PATH"},
+                {"DEPENDENCY_SCOPE", "DEPENDENCY_PATH", "RANKED_CGNODE",
+                 "RELATED_IMETHOD", "REACHABILITY_PATH"},
                 {row["record_type"] for row in topology},
             )
             self.assertEqual(
                 {"", "deadbeef"}, {row["source_sha256"] for row in topology}
             )
-            self.assertTrue(all(row["ir_sha256"] == "feedface" for row in topology))
+            graph_rows = [row for row in topology
+                          if row["direction"] != "DEPENDENCY"]
+            self.assertTrue(all(row["ir_sha256"] == "feedface"
+                                for row in graph_rows))
             path_rows = [
                 row for row in topology
                 if row["record_type"] == "REACHABILITY_PATH"
@@ -135,7 +149,7 @@ class GenerateReportTest(unittest.TestCase):
             self.assertTrue(all(row["path_root_cg_node_identity"] for row in path_rows))
             self.assertEqual(
                 {"NONE", "FAKE_WORLD_CLINIT"},
-                {row["sentinel_role"] for row in topology},
+                {row["sentinel_role"] for row in graph_rows},
             )
             child_rows = [
                 row for row in topology if row["record_type"] == "RELATED_IMETHOD"
@@ -198,6 +212,8 @@ class GenerateReportTest(unittest.TestCase):
             )
             self.assertEqual(20, report.count("<td>SUCCESS</td>"))
             self.assertIn("Algorithm comparison", report)
+            self.assertIn("Changed dependency paths", report)
+            self.assertIn("changed-paths", report)
             self.assertIn("Wall / ZeroCFA", report)
             self.assertIn("&lt;danger&gt;&amp;&quot;", report)
             self.assertIn("&lt;ir&gt;&amp;&quot;", report)
@@ -328,11 +344,66 @@ class GenerateReportTest(unittest.TestCase):
                     f"new-{name}\n", (tracked_dir / name).read_text(encoding="utf-8")
                 )
 
+    def test_scope_comparison_and_atomic_matrix_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            changed_runs = self._write_suite(root / "changed-runs")
+            full_runs = self._write_suite(root / "full-runs", scope="full")
+            changed_report = root / "changed.html"
+            full_report = root / "full.html"
+            changed_candidate = root / "changed-candidate"
+            full_candidate = root / "full-candidate"
+            changed = self._generate(
+                changed_report, changed_candidate, changed_runs, "changed-paths"
+            )
+            full = self._generate(full_report, full_candidate, full_runs, "full")
+            self.assertEqual(0, changed.returncode, changed.stderr)
+            self.assertEqual(0, full.returncode, full.stderr)
+
+            compared = subprocess.run(
+                [
+                    sys.executable,
+                    str(self.scope_comparator),
+                    "--changed-summary", str(changed_candidate / "summary.tsv"),
+                    "--full-summary", str(full_candidate / "summary.tsv"),
+                    "--changed-report", str(changed_report),
+                    "--full-report", str(full_report),
+                ],
+                check=False,
+                capture_output=True,
+                encoding="utf-8",
+            )
+            self.assertEqual(0, compared.returncode, compared.stderr)
+            for report in (changed_report, full_report):
+                content = report.read_text(encoding="utf-8")
+                self.assertIn("changed-paths 与 full 对照", content)
+                self.assertIn("Absolute change", content)
+                self.assertIn("Ratio", content)
+
+            tracked = root / "results"
+            tracked.mkdir()
+            (tracked / "old.tsv").write_text("old\n", encoding="utf-8")
+            published = subprocess.run(
+                [str(self.matrix_publisher), str(changed_candidate),
+                 str(full_candidate), str(tracked)],
+                check=False,
+                capture_output=True,
+                encoding="utf-8",
+            )
+            self.assertEqual(0, published.returncode, published.stderr)
+            self.assertFalse((tracked / "old.tsv").exists())
+            for scope in ("changed-paths", "full"):
+                self.assertEqual(
+                    {"samples.tsv", "summary.tsv", "topology.tsv"},
+                    {path.name for path in (tracked / scope).iterdir()},
+                )
+
     def _generate(
         self,
         output_html: Path,
         candidate_dir: Path,
         run_directories: list[Path],
+        scope: str = "changed-paths",
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [
@@ -342,6 +413,8 @@ class GenerateReportTest(unittest.TestCase):
                 str(output_html),
                 "--candidate-dir",
                 str(candidate_dir),
+                "--scope",
+                scope,
                 *(str(path) for path in run_directories),
             ],
             check=False,
@@ -353,12 +426,14 @@ class GenerateReportTest(unittest.TestCase):
         self,
         root: Path,
         drift_algorithm: str | None = None,
+        scope: str = "changed-paths",
     ) -> list[Path]:
         run_directories: list[Path] = []
         for algorithm in ALGORITHMS:
             warmup = root / f"warmup-{algorithm}"
-            self._write_metrics(warmup, algorithm, "warmup", 0, 0)
-            self._write_topology(warmup, algorithm)
+            self._write_metrics(warmup, algorithm, "warmup", 0, 0,
+                                scope=scope)
+            self._write_topology(warmup, algorithm, scope)
             run_directories.append(warmup)
         for sample in range(1, 6):
             rotation = (sample - 1) % len(ALGORITHMS)
@@ -366,7 +441,8 @@ class GenerateReportTest(unittest.TestCase):
             for algorithm in order:
                 run = root / f"formal-{sample}-{algorithm}"
                 drift = algorithm == drift_algorithm and sample == 3
-                self._write_metrics(run, algorithm, "formal", sample, sample, drift)
+                self._write_metrics(run, algorithm, "formal", sample, sample,
+                                    drift, scope)
                 run_directories.append(run)
         return run_directories
 
@@ -378,6 +454,7 @@ class GenerateReportTest(unittest.TestCase):
         round_number: int,
         sample: int,
         drift: bool = False,
+        scope: str = "changed-paths",
     ) -> None:
         logs = run_directory / "logs"
         logs.mkdir(parents=True, exist_ok=True)
@@ -390,6 +467,7 @@ class GenerateReportTest(unittest.TestCase):
             "run_kind": run_kind,
             "round": str(round_number),
             "sample": str(sample),
+            "dependency_analysis_scope": scope,
             "algorithm": algorithm,
             "wala_reflection_options": REFLECTION_OPTIONS,
             "total_wall_seconds": f"{4 + algorithm_offset + sample / 10:.3f}",
@@ -402,6 +480,12 @@ class GenerateReportTest(unittest.TestCase):
             "entrypoint_count": str(entrypoints),
             "cg_node_count": str(nodes),
             "cg_edge_count": str(edges),
+            "real_external_artifact_count": "5" if scope == "changed-paths" else "42",
+            "no_op_external_artifact_count": "37" if scope == "changed-paths" else "0",
+            "real_external_method_node_count": "14",
+            "no_op_method_node_count": "7" if scope == "changed-paths" else "0",
+            "factory_method_node_count": "1" if scope == "changed-paths" else "0",
+            "dangerous_transfer_count": "1" if scope == "changed-paths" else "0",
             "status": "SUCCESS",
             "exit_code": "0",
             "analyzer_sha256": "analyzer-sha256",
@@ -423,7 +507,9 @@ class GenerateReportTest(unittest.TestCase):
             writer.writeheader()
             writer.writerow(row)
 
-    def _write_topology(self, run_directory: Path, algorithm: str) -> None:
+    def _write_topology(
+        self, run_directory: Path, algorithm: str, scope: str
+    ) -> None:
         entrypoints, nodes, edges = GRAPH_COUNTS[algorithm]
         entrypoint = self._method(
             "example/Entrypoint", "main", "([Ljava/lang/String;)V", "PROJECT"
@@ -460,9 +546,10 @@ class GenerateReportTest(unittest.TestCase):
             "topCallers", False,
         )
         topology = {
-            "schemaVersion": 3,
+            "schemaVersion": 4,
             "algorithm": algorithm,
             "reflectionOptions": REFLECTION_OPTIONS,
+            "requestedDependencyAnalysisScope": scope,
             "jdk": "1.8-test",
             "modules": [
                 {
@@ -470,6 +557,18 @@ class GenerateReportTest(unittest.TestCase):
                     "entrypointCount": entrypoints,
                     "cgNodeCount": nodes,
                     "cgEdgeCount": edges,
+                    "actualDependencyAnalysisScope": scope,
+                    "dependencyScopeFallbackReason": "",
+                    "realExternalArtifactCount": 5 if scope == "changed-paths" else 42,
+                    "noOpExternalArtifactCount": 37 if scope == "changed-paths" else 0,
+                    "realExternalMethodNodeCount": 14,
+                    "noOpMethodNodeCount": 7 if scope == "changed-paths" else 0,
+                    "factoryMethodNodeCount": 1 if scope == "changed-paths" else 0,
+                    "dangerousTransferCount": 1 if scope == "changed-paths" else 0,
+                    "dependencyPaths": [{
+                        "seed": "fixture:scenario-api:jar:2.0",
+                        "path": "fixture:path-a:jar:1.0 -> fixture:scenario-api:jar:2.0",
+                    }],
                     "topCallers": [caller],
                     "topCallees": [callee],
                 }

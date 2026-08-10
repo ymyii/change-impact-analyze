@@ -10,6 +10,7 @@ import io.github.dependencyanalysis.impact.StructuralReferenceIndex;
  * @param stats graph build metrics
  * @param entrypoints entrypoint selection metrics
  * @param strategyModels immutable algorithm model metadata
+ * @param dependencyBoundary dependency body boundary metadata
  * @param structuralReferences pre-graph raw structural metadata index
  * @param topology optional read-only benchmark topology capture
  */
@@ -17,6 +18,7 @@ record ModuleCallGraphMetadata(
         CallGraphStats stats,
         EntrypointSelectionMetrics entrypoints,
         StrategyModelMetadata strategyModels,
+        DependencyBodyBoundaryMetadata dependencyBoundary,
         StructuralReferenceIndex structuralReferences,
         CallGraphTopologySnapshot topology) {
 
@@ -24,6 +26,7 @@ record ModuleCallGraphMetadata(
         Objects.requireNonNull(stats, "stats");
         Objects.requireNonNull(entrypoints, "entrypoints");
         Objects.requireNonNull(strategyModels, "strategyModels");
+        Objects.requireNonNull(dependencyBoundary, "dependencyBoundary");
         Objects.requireNonNull(structuralReferences, "structuralReferences");
     }
 }

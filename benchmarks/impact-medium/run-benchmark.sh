@@ -14,6 +14,15 @@ esac
 
 : "${JAVA8_HOME:?JAVA8_HOME must point to a complete JDK 8}"
 : "${BENCHMARK_CALL_GRAPH_ALGORITHM:?BENCHMARK_CALL_GRAPH_ALGORITHM must be explicitly set}"
+: "${BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE:?BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE must be explicitly set}"
+
+case "$BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE" in
+  changed-paths|full) ;;
+  *)
+    echo "BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE must be changed-paths or full" >&2
+    exit 2
+    ;;
+esac
 
 case "$BENCHMARK_CALL_GRAPH_ALGORITHM" in
   rta|zero-cfa|optimized-0-1-cfa|1-object-1-call-site) ;;
@@ -99,6 +108,7 @@ mkdir -p "$logs_root" "$reports_root" "$BENCHMARK_CONFIG_DIR"
 export ANALYZER_JAR ANALYZER_JAVA MAVEN_BIN JAVA8_HOME
 export BENCHMARK_MAVEN_REPO BENCHMARK_PROJECT BENCHMARK_CONFIG_DIR BENCHMARK_REPORT
 export BENCHMARK_CALL_GRAPH_ALGORITHM BENCHMARK_WALA_REFLECTION_OPTIONS
+export BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE
 export BENCHMARK_CALIBRATION BENCHMARK_CAPTURE_TOPOLOGY BENCHMARK_DIAGNOSTICS
 
 # Wiki: wiki/runbooks/impact-benchmark.md - Stable benchmark preparation, measurement, and verification entrypoint.
@@ -125,6 +135,7 @@ maven_identity=$("$MAVEN_BIN" --version 2>&1 | sed -n '1p' | tr '\t' ' ')
 cat >"$logs_root/run-metadata.txt" <<EOF
 label=$label
 algorithm=$BENCHMARK_CALL_GRAPH_ALGORITHM
+dependency_analysis_scope=$BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE
 wala_reflection_options=$BENCHMARK_WALA_REFLECTION_OPTIONS
 calibration=$BENCHMARK_CALIBRATION
 fixture_scenario=impact-medium-v1
@@ -223,6 +234,7 @@ verification_result=0
   "$BENCHMARK_PROJECT" \
   "$BENCHMARK_CALL_GRAPH_ALGORITHM" \
   "$BENCHMARK_WALA_REFLECTION_OPTIONS" \
+  "$BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE" \
   >"$logs_root/verification.txt" \
   2>&1 || verification_result=$?
 
@@ -242,11 +254,25 @@ nodes=
 edges=
 entrypoints=
 call_graph_millis=
+real_external_artifacts=
+no_op_external_artifacts=
+real_external_method_nodes=
+no_op_method_nodes=
+factory_method_nodes=
+dangerous_transfers=
 if [ -n "$module_page" ] && [ -f "$module_page" ]; then
-  nodes=$(sed -n 's/.*<th>Call Graph nodes<\/th><td>\([0-9][0-9]*\)<\/td>.*/\1/p' "$module_page" | head -n 1)
-  edges=$(sed -n 's/.*<th>Call Graph edges<\/th><td>\([0-9][0-9]*\)<\/td>.*/\1/p' "$module_page" | head -n 1)
-  entrypoints=$(sed -n 's/.*<th>Entry methods<\/th><td>\([0-9][0-9]*\)<\/td>.*/\1/p' "$module_page" | head -n 1)
-  call_graph_millis=$(sed -n 's/.*<td>call-graph<\/td><td>\([0-9][0-9]*\)<\/td>.*/\1/p' "$module_page" | head -n 1)
+  nodes=$(sed -n 's/.*<th>Call Graph nodes<\/th><td>\([0-9][0-9]*\)<\/td>.*/\1/p' "$module_dir"/*.html | awk '{ total += $1 } END { print total + 0 }')
+  edges=$(sed -n 's/.*<th>Call Graph edges<\/th><td>\([0-9][0-9]*\)<\/td>.*/\1/p' "$module_dir"/*.html | awk '{ total += $1 } END { print total + 0 }')
+  entrypoints=$(sed -n 's/.*<th>Entry methods<\/th><td>\([0-9][0-9]*\)<\/td>.*/\1/p' "$module_dir"/*.html | awk '{ total += $1 } END { print total + 0 }')
+  call_graph_millis=$(sed -n 's/.*<td>call-graph<\/td><td>\([0-9][0-9]*\)<\/td>.*/\1/p' "$module_dir"/*.html | awk '{ total += $1 } END { print total + 0 }')
+fi
+real_external_artifacts=$(sed -n 's/.*<th>Real-IR \/ no-op external artifacts<\/th><td>\([0-9][0-9]*\) \/ \([0-9][0-9]*\)<\/td>.*/\1/p' "$BENCHMARK_REPORT" | head -n 1)
+no_op_external_artifacts=$(sed -n 's/.*<th>Real-IR \/ no-op external artifacts<\/th><td>\([0-9][0-9]*\) \/ \([0-9][0-9]*\)<\/td>.*/\2/p' "$BENCHMARK_REPORT" | head -n 1)
+no_op_method_nodes=$(sed -n 's/.*<th>No-op \/ factory method nodes<\/th><td>\([0-9][0-9]*\) \/ \([0-9][0-9]*\)<\/td>.*/\1/p' "$BENCHMARK_REPORT" | head -n 1)
+factory_method_nodes=$(sed -n 's/.*<th>No-op \/ factory method nodes<\/th><td>\([0-9][0-9]*\) \/ \([0-9][0-9]*\)<\/td>.*/\2/p' "$BENCHMARK_REPORT" | head -n 1)
+dangerous_transfers=$(sed -n 's/.*<th>Dangerous dependency transfers<\/th><td>\([0-9][0-9]*\)<\/td>.*/\1/p' "$BENCHMARK_REPORT" | head -n 1)
+if [ -n "$module_dir" ] && [ -d "$module_dir" ]; then
+  real_external_method_nodes=$(sed -n 's/.*<th>Real \/ no-op \/ factory method nodes<\/th><td>\([0-9][0-9]*\) \/ \([0-9][0-9]*\) \/ \([0-9][0-9]*\)<\/td>.*/\1/p' "$module_dir"/*.html | awk '{ total += $1 } END { print total + 0 }')
 fi
 wall_seconds=$(awk '
   /^real[[:space:]]+[0-9.]+$/ { print $2; exit }
@@ -277,13 +303,17 @@ if [ "$analysis_result" -eq 0 ] && [ "$verification_result" -eq 0 ]; then
   status=SUCCESS
 fi
 
-printf 'label\trun_kind\tround\tsample\talgorithm\twala_reflection_options\ttotal_wall_seconds\tcall_graph_seconds\tpeak_heap_used_mib\tpeak_heap_committed_mib\theap_max_mib\theap_sample_count\tprocess_tree_peak_rss_kib\tentrypoint_count\tcg_node_count\tcg_edge_count\tstatus\texit_code\tanalyzer_sha256\tgit_commit\tgit_dirty\tos\tarchitecture\tanalyzer_java\tjdk\tmaven\n' >"$logs_root/metrics.tsv"
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+printf 'label\trun_kind\tround\tsample\tdependency_analysis_scope\talgorithm\twala_reflection_options\ttotal_wall_seconds\tcall_graph_seconds\tpeak_heap_used_mib\tpeak_heap_committed_mib\theap_max_mib\theap_sample_count\tprocess_tree_peak_rss_kib\tentrypoint_count\tcg_node_count\tcg_edge_count\treal_external_artifact_count\tno_op_external_artifact_count\treal_external_method_node_count\tno_op_method_node_count\tfactory_method_node_count\tdangerous_transfer_count\tstatus\texit_code\tanalyzer_sha256\tgit_commit\tgit_dirty\tos\tarchitecture\tanalyzer_java\tjdk\tmaven\n' >"$logs_root/metrics.tsv"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
   "$label" "$BENCHMARK_RUN_KIND" "$BENCHMARK_ROUND" "$BENCHMARK_SAMPLE" \
+  "$BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE" \
   "$BENCHMARK_CALL_GRAPH_ALGORITHM" "$BENCHMARK_WALA_REFLECTION_OPTIONS" \
   "$wall_seconds" "$call_graph_seconds" "$peak_heap_used_mib" \
   "$peak_heap_committed_mib" "$heap_max_mib" "$heap_samples" \
-  "$peak_rss_kib" "$entrypoints" "$nodes" "$edges" "$status" \
+  "$peak_rss_kib" "$entrypoints" "$nodes" "$edges" \
+  "$real_external_artifacts" "$no_op_external_artifacts" \
+  "$real_external_method_nodes" "$no_op_method_nodes" \
+  "$factory_method_nodes" "$dangerous_transfers" "$status" \
   "$analysis_result" "$analyzer_sha256" "$git_commit" "$git_dirty" \
   "$(uname -s) $(uname -r)" "$(uname -m)" "$analyzer_java_identity" \
   "$jdk_identity" "$maven_identity" >>"$logs_root/metrics.tsv"
@@ -297,7 +327,13 @@ fi
 
 if [ -z "$nodes" ] || [ -z "$edges" ] || [ -z "$entrypoints" ] \
   || [ -z "$wall_seconds" ] || [ -z "$call_graph_seconds" ] \
-  || [ -z "$peak_heap_used_mib" ] || [ -z "$heap_samples" ]; then
+  || [ -z "$peak_heap_used_mib" ] || [ -z "$heap_samples" ] \
+  || [ -z "$real_external_artifacts" ] \
+  || [ -z "$no_op_external_artifacts" ] \
+  || [ -z "$real_external_method_nodes" ] \
+  || [ -z "$no_op_method_nodes" ] \
+  || [ -z "$factory_method_nodes" ] \
+  || [ -z "$dangerous_transfers" ]; then
   echo "unable to extract complete benchmark metrics" >&2
   exit 1
 fi

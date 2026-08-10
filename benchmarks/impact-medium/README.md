@@ -1,23 +1,25 @@
 # Impact Medium CallGraph Benchmark
 
-本 benchmark 对打包后的 `dependency-analyzer impact` 执行四种 Call Graph algorithm 的可复现对比。Fixture 固定包含 42 个 compile-scope external dependencies 和 9 类 bytecode change；每种algorithm的candidate/final call chains由`expected-results.tsv`锁定。
+本 benchmark 对打包后的 `dependency-analyzer impact` 执行四种 Call Graph algorithm 和两种 dependency analysis scope 的可复现对比。Fixture 固定包含 42 个 direct dependencies 和 9 类 bytecode change；每个 scope/algorithm 的 candidate/final call chains 由 `expected-results.tsv` 锁定。
 
 ## Canonical suite
 
-先打包 Analyzer，再运行唯一 suite 入口：
+先打包 Analyzer，再运行唯一 canonical matrix 入口：
 
 ```sh
 mvn package
 JAVA8_HOME=/absolute/path/to/jdk8 \
-  benchmarks/impact-medium/run-suite.sh
+  benchmarks/impact-medium/run-scope-matrix.sh
 ```
 
-可选 positional argument 是 suite label；同名 raw/candidate 目录存在时拒绝覆盖。Suite 固定执行：
+可选 positional argument 是 matrix label；同名 raw/candidate 目录存在时拒绝覆盖。Matrix 显式执行 `changed-paths` 与 `full`，每个 scope 固定执行：
 
 - `rta`、`zero-cfa`、`optimized-0-1-cfa`、`1-object-1-call-site`各1次warm-up，共4个独立Java Virtual Machine（JVM）进程。Warm-up预热fixture、Maven与文件缓存，并通过`--call-graph-diagnostics-output`采集CGNode topology、source与IR。
 - 5个round，每个round各运行四种algorithm，共20个正式样本和20个独立JVM进程。
 - 正式样本按round交错；algorithm列表在每个round循环左移一位，第5个round回到原始顺序。
 - 正式样本不设置 diagnostics option，不执行 CGNode ranking、IMethod 子榜、shortest path、IR capture 或反编译。
+
+每个 scope 使用 24 个独立 Java Virtual Machine（JVM），双 scope 合计 48 个。`run-suite.sh` 是单 scope 内部入口，要求显式设置 `BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE`；canonical 验收必须使用 `run-scope-matrix.sh`。
 
 `BENCHMARK_WALA_REFLECTION_OPTIONS` 默认且正式验收要求为 `ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。
 
@@ -38,6 +40,7 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 | `MAVEN_BIN` | PATH 中的 `mvn` | 传给 CLI 的 Maven executable |
 | `JAVA8_HOME` | 无 | 必填，完整 target JDK 8 home |
 | `BENCHMARK_WALA_REFLECTION_OPTIONS` | `ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD` | command-wide WALA ReflectionOptions |
+| `BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE` | 无 | `run-benchmark.sh` 与 `run-suite.sh` 必填：`changed-paths` 或 `full` |
 | `BENCHMARK_MAVEN_REPO` | `$HOME/.m2/repository` | fixture artifact 与 offline Maven repository |
 | `BENCHMARK_RUNTIME_ROOT` | `tmp-files/impact-medium-benchmark` | raw run、candidate、topology JSON 与 HTML 根目录 |
 
@@ -48,24 +51,28 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 固定用户报告：
 
 ```text
-tmp-files/impact-medium-benchmark/benchmark-report.html
+tmp-files/impact-medium-benchmark/benchmark-report-changed-paths.html
+tmp-files/impact-medium-benchmark/benchmark-report-full.html
 ```
 
-HTML 自包含 CSS，不使用 JavaScript 或外部 asset。四种algorithm与comparison各占一个CSS-only tab。每个algorithm tab包含五个正式样本、Min/median/max、Top 10 caller CGNode、Top 10 callee CGNode、每个父CGNode下按IMethod聚合的Top 10相关节点、declared entrypoint与WALA sentinel的deterministic shortest CGNode chain、cycle、decompiled source和WALA IR。Sentinel parent、root与chain step显式展示`FAKE_ROOT`或`FAKE_WORLD_CLINIT`badge。Generated Method没有bytecode source时允许仅展示IR。Comparison以`zero-cfa`为ratio baseline；ratio仅描述数据，不自动判定algorithm优劣。
+HTML 自包含 CSS，不使用 JavaScript 或外部 asset。每份报告包含本 scope 的四种 algorithm、五个正式样本、Min/median/max、Call Graph topology、dependency path evidence 和 method-body boundary 计数。两份报告均包含 changed-paths 相对 full 的 absolute change 与 ratio；不设置未经实测的固定提速阈值。
 
 Git 管理的最近一次完整成功快照：
 
 ```text
-benchmarks/impact-medium/results/samples.tsv
-benchmarks/impact-medium/results/summary.tsv
-benchmarks/impact-medium/results/topology.tsv
+benchmarks/impact-medium/results/changed-paths/samples.tsv
+benchmarks/impact-medium/results/changed-paths/summary.tsv
+benchmarks/impact-medium/results/changed-paths/topology.tsv
+benchmarks/impact-medium/results/full/samples.tsv
+benchmarks/impact-medium/results/full/summary.tsv
+benchmarks/impact-medium/results/full/topology.tsv
 ```
 
-- `samples.tsv`：20个正式样本；包含wall、CallGraph、heap、RSS、graph、status与环境identity。
-- `summary.tsv`：每种 algorithm 一行；包含资源 Min/median/max、稳定 topology 和相对 `zero-cfa` ratio。
-- `topology.tsv`：使用`RANKED_CGNODE`、`RELATED_IMETHOD`、`REACHABILITY_PATH`三种record；保存父CGNode、`wala_synthetic`、`sentinel_role`、子榜IMethod、related CGNode count、最多10个deterministic Context example、omitted count，以及path的`path_root_kind`、`path_root_cg_node_identity`和shortest CGNode chain。Multiline source/IR只进入HTML；TSV保存各自status与SHA-256。
+- `samples.tsv`：20 个正式样本；包含 wall、Call Graph、heap、RSS、graph、method-body boundary、status 与环境 identity。
+- `summary.tsv`：每种 algorithm 一行；包含 scope、资源 Min/median/max、稳定 topology、boundary node 计数和相对 `zero-cfa` ratio。
+- `topology.tsv`：除 `RANKED_CGNODE`、`RELATED_IMETHOD`、`REACHABILITY_PATH` 外，使用 `DEPENDENCY_SCOPE` 与 `DEPENDENCY_PATH` 保存 requested/actual scope、fallback、artifact/method policy 计数和全部 changed dependency path evidence。
 
-Suite只有在24个run全部通过semantic verification，且warm-up与五个正式样本的Entrypoint/CGNode/CGEdge完全一致时，才逐文件原子替换tracked TSV。出现`FAILED`或`TOPOLOGY_DRIFT`时，旧tracked snapshot不变；failure HTML、candidate TSV、raw run、topology JSON与`failure.txt`保留在`tmp-files/impact-medium-benchmark/`。
+只有两个 scope 的 48 个 run 全部通过 semantic verification，且各 scope 内 warm-up 与五个正式样本的 Entrypoint、CGNode、CGEdge、artifact policy 和 boundary node 计数完全一致时，才原子替换两组 tracked snapshot。任一 scope 出现 `FAILED` 或 `TOPOLOGY_DRIFT` 时，旧 tracked snapshot 整体不变；两份 failure HTML、candidate TSV、raw run、topology JSON 与 `failure.txt` 保留在 `tmp-files/impact-medium-benchmark/`。
 
 ## Metrics
 
@@ -75,6 +82,7 @@ Suite只有在24个run全部通过semantic verification，且warm-up与五个正
 - 每 100 ms 观察得到的 Peak Heap Used、Peak Heap Committed、Heap Max 与 sample count；TRACE snapshot 仍只在启动和每 10 s 输出，command 关闭前强制 final observation。
 - 每 250 ms 采样的 process-tree peak Resident Set Size（RSS），作为辅助指标。
 - Entrypoint、CGNode、CGEdge、execution status、exit code。
+- real-IR/no-op external artifact、real-IR/no-op/factory method node 和 dangerous transfer 数量。
 - Analyzer SHA-256、Git commit/dirty、OS、architecture、Analyzer Java、target JDK、Maven identity。
 
 全图CGNode/CGEdge totals、排行榜和path均包含WALA fake root/fake world-clinit及其incident edge；sentinel使用typed role和badge显式标识。父榜不合并Context，以精确CGNode为单位，先按related CGNode count降序，再按distinct related IMethod、raw CGEdge与稳定CGNode identity排序。每个父CGNode下的子榜按IMethod聚合，以该IMethod代表的related CGNode count、raw CGEdge和稳定Method identity排序；展开项保留deterministic前10个具体CGNode/Context example与omitted count，从而定位同一Method的Context或points-to膨胀，同时避免单个高膨胀Method令HTML/TSV不可浏览。项目不输出独立points-to set排行榜。
@@ -83,10 +91,12 @@ Suite只有在24个run全部通过semantic verification，且warm-up与五个正
 
 每个 run 必须同时满足：
 
-- Analyzer exit code 为 `0`，Overall status 为 `Completed`。
+- Analyzer exit code 为 `0`；`changed-paths` 为 `Completed with coverage limitations`，`full` 为 `Completed`。
 - 实际 Algorithm 等于请求值；实际 WALA ReflectionOptions 等于 `ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。
-- POM 有 42 个 direct dependencies；Overall 有 9 个 raw changed members。
-- `expected-results.tsv` 中存在该algorithm的已校准candidate/final call chains。
+- requested/actual dependency analysis scope 均等于当前 matrix scope，不允许 fixture fallback。
+- POM 有 42 个 direct dependencies；两个 Module 合计 18 个 raw changed members。
+- `expected-results.tsv` 中存在该 scope/algorithm 的已校准 candidate/final call chains。
+- `changed-paths` 包含三条到 seed 的 path evidence、no-op sibling/downstream、dangerous transfer 和 flow-to-cast factory evidence；`full` 不产生 no-op/factory/boundary evidence。
 - Affected Call Chains 页面包含 Structural Reference Path 与 filtered candidate。
 - Dependency Changes 页面包含 final、filtered、structural badge 与反编译代码 evidence。
 - Overall、Module Index、Affected Call Chains、Dependency Changes 四页均存在。
@@ -106,8 +116,8 @@ benchmarks/impact-medium/scripts/compare-summaries.sh \
 ## Failure entrypoints
 
 - `<run>/logs/stderr.log`：Preflight、CLI、Runtime Metrics 与 pipeline failure。
-- `<run>/logs/verification.txt`：42 dependencies、9 raw changes、`6 / 5` chains、Structural Reference Path、Algorithm/ReflectionOptions failure。
+- `<run>/logs/verification.txt`：42 dependencies、18 raw changes、scope semantic baseline、Structural Reference Path、Algorithm/ReflectionOptions failure。
 - `<run>/logs/metrics.tsv`：即使 run failure 也尽量保留的单样本指标。
-- `<run>/topology.json`：warm-up Schema v3 CGNode topology、sentinel role、declared entrypoint/WALA sentinel reachability path、IMethod子榜、shortest chain、source与IR。
+- `<run>/topology.json`：warm-up Schema v4 CGNode topology、dependency path、body policy、sentinel role、declared entrypoint/WALA sentinel reachability path、IMethod 子榜、shortest chain、source 与 IR。
 - `<suite>-candidate-results/failure.txt`：suite Schema、环境或 topology drift failure。
-- `benchmark-report.html`：成功或失败均更新的用户入口；失败时明确说明 tracked TSV 未发布。
+- `benchmark-report-changed-paths.html`、`benchmark-report-full.html`：成功或失败均更新；失败时明确说明 tracked TSV 未发布。

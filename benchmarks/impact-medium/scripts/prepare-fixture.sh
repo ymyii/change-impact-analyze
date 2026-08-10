@@ -14,6 +14,7 @@ benchmark_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
 artifact_sources="$benchmark_root/fixtures/artifacts"
 application_source="$benchmark_root/fixtures/application/baseline"
 target_overlay="$benchmark_root/fixtures/application/target-overlay"
+reactor_fixture="$benchmark_root/fixtures/reactor"
 project_root="$runtime_fixture_root/project"
 work_root="$runtime_fixture_root/work"
 benchmark_maven_repo=${BENCHMARK_MAVEN_REPO:-${HOME}/.m2/repository}
@@ -72,6 +73,31 @@ install_artifact() {
 EOF
 }
 
+install_artifact_with_dependencies() {
+  group_id=$1
+  artifact_id=$2
+  version=$3
+  source_jar=$4
+  shift 4
+  install_artifact "$group_id" "$artifact_id" "$version" "$source_jar"
+  group_path=$(printf '%s' "$group_id" | tr '.' '/')
+  destination_pom="$benchmark_maven_repo/$group_path/$artifact_id/$version/$artifact_id-$version.pom"
+  {
+    printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>'
+    printf '%s\n' '<project xmlns="http://maven.apache.org/POM/4.0.0">'
+    printf '  <modelVersion>4.0.0</modelVersion>\n'
+    printf '  <groupId>%s</groupId>\n' "$group_id"
+    printf '  <artifactId>%s</artifactId>\n' "$artifact_id"
+    printf '  <version>%s</version>\n' "$version"
+    printf '  <dependencies>\n'
+    while [ "$#" -ge 3 ]; do
+      printf '    <dependency><groupId>%s</groupId><artifactId>%s</artifactId><version>%s</version></dependency>\n' "$1" "$2" "$3"
+      shift 3
+    done
+    printf '  </dependencies>\n</project>\n'
+  } >"$destination_pom"
+}
+
 compile_sources() {
   source_root=$1
   classes_root=$2
@@ -92,7 +118,20 @@ compile_sources() {
 scenario_v1_jar="$work_root/scenario-api-1.0.0.jar"
 scenario_v2_jar="$work_root/scenario-api-2.0.0.jar"
 bridge_jar="$work_root/legacy-impact-bridge-1.0.0.jar"
+downstream_jar="$work_root/seed-downstream-1.0.0.jar"
+path_a_jar="$work_root/path-a-1.0.0.jar"
+path_c_jar="$work_root/path-c-1.0.0.jar"
+path_x_jar="$work_root/path-x-1.0.0.jar"
+path_y_jar="$work_root/path-y-1.0.0.jar"
+path_sibling_jar="$work_root/path-sibling-1.0.0.jar"
+sink_jar="$work_root/external-sink-1.0.0.jar"
+factory_jar="$work_root/external-factory-1.0.0.jar"
+plain_jar="$work_root/external-plain-1.0.0.jar"
 
+compile_sources \
+  "$artifact_sources/seed-downstream" \
+  "$work_root/classes-seed-downstream" \
+  "$downstream_jar"
 compile_sources \
   "$artifact_sources/scenario-api-v1" \
   "$work_root/classes-scenario-v1" \
@@ -107,9 +146,53 @@ compile_sources \
   "$bridge_jar" \
   "$scenario_v1_jar"
 
-install_artifact com.acme.impact scenario-api 1.0.0 "$scenario_v1_jar"
-install_artifact com.acme.impact scenario-api 2.0.0 "$scenario_v2_jar"
+for path_name in path-a path-c path-x path-y path-sibling; do
+  path_variable=$(printf '%s' "$path_name" | tr '-' '_')
+  eval "path_jar=\${${path_variable}_jar}"
+  compile_sources \
+    "$artifact_sources/$path_name" \
+    "$work_root/classes-$path_name" \
+    "$path_jar"
+done
+
+compile_sources \
+  "$artifact_sources/external-sink" \
+  "$work_root/classes-external-sink" \
+  "$sink_jar" \
+  "$scenario_v1_jar"
+compile_sources \
+  "$artifact_sources/external-factory" \
+  "$work_root/classes-external-factory" \
+  "$factory_jar" \
+  "$scenario_v1_jar"
+compile_sources \
+  "$artifact_sources/external-plain" \
+  "$work_root/classes-external-plain" \
+  "$plain_jar"
+
+install_artifact com.acme.impact.downstream seed-downstream 1.0.0 "$downstream_jar"
+install_artifact_with_dependencies com.acme.impact scenario-api 1.0.0 \
+  "$scenario_v1_jar" \
+  com.acme.impact.downstream seed-downstream 1.0.0
+install_artifact_with_dependencies com.acme.impact scenario-api 2.0.0 \
+  "$scenario_v2_jar" \
+  com.acme.impact.downstream seed-downstream 1.0.0
 install_artifact com.acme.impact legacy-impact-bridge 1.0.0 "$bridge_jar"
+install_artifact_with_dependencies com.acme.impact.path path-c 1.0.0 \
+  "$path_c_jar" com.acme.impact scenario-api 1.0.0
+install_artifact_with_dependencies com.acme.impact.path path-a 1.0.0 \
+  "$path_a_jar" com.acme.impact.path path-c 1.0.0 \
+  com.acme.impact.path path-sibling 1.0.0
+install_artifact_with_dependencies com.acme.impact.path path-y 1.0.0 \
+  "$path_y_jar" com.acme.impact scenario-api 1.0.0
+install_artifact_with_dependencies com.acme.impact.path path-x 1.0.0 \
+  "$path_x_jar" com.acme.impact.path path-y 1.0.0
+install_artifact com.acme.impact.path path-sibling 1.0.0 \
+  "$path_sibling_jar"
+install_artifact com.acme.impact.boundary external-sink 1.0.0 "$sink_jar"
+install_artifact com.acme.impact.boundary external-factory 1.0.0 \
+  "$factory_jar"
+install_artifact com.acme.impact.boundary external-plain 1.0.0 "$plain_jar"
 
 vendor_source_root="$work_root/vendor-sources"
 vendor_classes_root="$work_root/vendor-classes"
@@ -118,7 +201,7 @@ vendor_source_list="$work_root/vendor-sources.list"
 mkdir -p "$vendor_source_root" "$vendor_classes_root"
 
 vendor_number=1
-while [ "$vendor_number" -le 40 ]; do
+while [ "$vendor_number" -le 35 ]; do
   vendor_index=$(printf '%02d' "$vendor_number")
   vendor_package_dir="$vendor_source_root/com/acme/benchmark/vendor/lib$vendor_index"
   mkdir -p "$vendor_package_dir"
@@ -133,7 +216,7 @@ find "$vendor_source_root" -type f -name '*.java' -print | LC_ALL=C sort >"$vend
 "$javac_bin" -source 8 -target 8 -d "$vendor_classes_root" "@$vendor_source_list"
 
 vendor_number=1
-while [ "$vendor_number" -le 40 ]; do
+while [ "$vendor_number" -le 35 ]; do
   vendor_index=$(printf '%02d' "$vendor_number")
   vendor_artifact="vendor-lib-$vendor_index"
   vendor_jar="$work_root/$vendor_artifact-1.0.0.jar"
@@ -143,7 +226,14 @@ while [ "$vendor_number" -le 40 ]; do
   vendor_number=$((vendor_number + 1))
 done
 
-cp -R "$application_source/." "$project_root/"
+cp "$reactor_fixture/root-pom.xml" "$project_root/pom.xml"
+mkdir -p "$project_root/application" \
+  "$project_root/reactor-path/src/main/java/com/acme/benchmark/reactor"
+cp -R "$application_source/." "$project_root/application/"
+cp "$reactor_fixture/reactor-path-pom.xml" \
+  "$project_root/reactor-path/pom.xml"
+cp "$reactor_fixture/ReactorPath.java" \
+  "$project_root/reactor-path/src/main/java/com/acme/benchmark/reactor/ReactorPath.java"
 git -C "$project_root" init -q -b main
 git -C "$project_root" config user.name "Impact Benchmark"
 git -C "$project_root" config user.email "impact-benchmark@example.invalid"
@@ -154,9 +244,9 @@ GIT_COMMITTER_DATE='2026-01-01T00:00:00Z' \
 git -C "$project_root" tag impact-baseline
 
 git -C "$project_root" rm -q \
-  src/main/java/com/acme/benchmark/BenchmarkApplication.java \
-  src/main/java/com/acme/benchmark/ImpactFacade.java
-cp -R "$target_overlay/." "$project_root/"
+  application/src/main/java/com/acme/benchmark/BenchmarkApplication.java \
+  application/src/main/java/com/acme/benchmark/ImpactFacade.java
+cp -R "$target_overlay/." "$project_root/application/"
 sed \
   's#<scenario.api.version>1.0.0</scenario.api.version>#<scenario.api.version>2.0.0</scenario.api.version>#' \
   "$project_root/pom.xml" >"$work_root/target-pom.xml"
@@ -172,7 +262,7 @@ dependency_count=$(awk '
   /<\/dependencies>/ { in_dependencies = 0 }
   in_dependencies && /<dependency>/ { count++ }
   END { print count + 0 }
-' "$project_root/pom.xml")
+' "$project_root/application/pom.xml")
 
 if [ "$dependency_count" -ne 42 ]; then
   echo "fixture must contain 42 direct dependencies; found $dependency_count" >&2

@@ -10,7 +10,8 @@ public class ImpactFacade {
             new RemovedFieldUseCase().execute(),
             new FieldDescriptorUseCase().executeNewDescriptor(),
             new FieldDescriptorUseCase().executeOldDescriptor(),
-            new RemovedClassUseCase().execute()
+            new RemovedClassUseCase().execute(),
+            new BoundaryUseCase().exercise()
         };
     }
 }
