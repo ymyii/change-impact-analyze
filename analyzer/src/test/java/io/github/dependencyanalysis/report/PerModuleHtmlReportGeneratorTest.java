@@ -535,6 +535,34 @@ class PerModuleHtmlReportGeneratorTest {
     }
 
     @Test
+    void rendersOneObjectOneCallSiteAlgorithmAndTerminology() {
+        final Path output = temporary.resolve("one-object.html");
+        final AnalysisRunResult run = new AnalysisRunResult(
+                AnalysisMode.REACTOR, AnalysisStatus.SUCCESS, List.of(),
+                List.of(), new AnalysisConcurrency(1, 0, 0, 0),
+                Map.of(), new AnalysisRunConfiguration(
+                        EntrypointSelection.allProjectClasses(),
+                        CallGraphAlgorithm.ONE_OBJECT_ONE_CALL_SITE));
+        final MavenDependencyPluginRuntime plugin =
+                new MavenDependencyPluginRuntimeManager().prepare(
+                        temporary.resolve("config-one-object"),
+                        List.of(), null);
+
+        new PerModuleHtmlReportGenerator().generate(run, List.of(),
+                new PreflightReport(List.of()), maven(), plugin,
+                java(), output);
+
+        assertThat(output).content()
+                .contains("<th>Algorithm</th><td>"
+                        + "1-object-1-call-site</td>")
+                .contains("1-Object + 1-Call-Site")
+                .contains("one receiver allocation site")
+                .contains("one call site")
+                .contains("without smushing")
+                .contains("substantially more time and memory");
+    }
+
+    @Test
     void rendersAccessRemainsValidWithoutAffectedCallChain()
             throws Exception {
         final Path output = temporary.resolve("access-valid.html");

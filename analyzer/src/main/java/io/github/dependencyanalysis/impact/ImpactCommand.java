@@ -112,8 +112,9 @@ public final class ImpactCommand
     @Option(names = "--call-graph-algorithm",
             defaultValue = "rta",
             converter = CallGraphAlgorithmConverter.class,
-            description = "Call Graph algorithm: rta, zero-cfa, or "
-                    + "optimized-0-1-cfa; default: rta.")
+            description = "Call Graph algorithm: rta, zero-cfa, "
+                    + "optimized-0-1-cfa, or 1-object-1-call-site; "
+                    + "default: rta.")
     private CallGraphAlgorithm callGraphAlgorithm;
 
     /** Command-wide WALA ReflectionOptions. */

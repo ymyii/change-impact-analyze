@@ -15,7 +15,10 @@ public enum CallGraphAlgorithm {
     ZERO_CFA("zero-cfa"),
 
     /** Allocation-sensitive 0-1-CFA with bounded smushing. */
-    OPTIMIZED_ZERO_ONE_CFA("optimized-0-1-cfa");
+    OPTIMIZED_ZERO_ONE_CFA("optimized-0-1-cfa"),
+
+    /** One receiver allocation string plus one call string. */
+    ONE_OBJECT_ONE_CALL_SITE("1-object-1-call-site");
 
     /** Stable CLI and evidence identifier. */
     private final String identifier;

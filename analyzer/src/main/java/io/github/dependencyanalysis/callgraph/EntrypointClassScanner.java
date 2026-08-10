@@ -13,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+// Wiki: wiki/features/call-graph-engine.md - Actors / Entrypoints.
 /** Lightweight target/classes index used before expensive module analysis. */
 public final class EntrypointClassScanner {
 
@@ -30,7 +31,7 @@ public final class EntrypointClassScanner {
             return new EntrypointClassIndex(List.of(), 0);
         }
         final Map<String, Path> selectedClasses = new LinkedHashMap<>();
-        final int[] methodCount = new int[1];
+        int methodCount = 0;
         try (var stream = Files.walk(classes)) {
             for (Path file : stream.filter(Files::isRegularFile)
                     .filter(value -> value.toString().endsWith(".class"))
@@ -43,25 +44,44 @@ public final class EntrypointClassScanner {
                         || !selection.matchesInternalName(name)) {
                     continue;
                 }
+                final int[] selfInnerAccess = new int[1];
+                final int[] concreteNonPrivateMethods = new int[1];
+                reader.accept(new ClassVisitor(Opcodes.ASM9) {
+                    @Override
+                    public void visitInnerClass(
+                            final String innerName,
+                            final String outerName,
+                            final String simpleName,
+                            final int access) {
+                        if (name.equals(innerName)) {
+                            selfInnerAccess[0] = access;
+                        }
+                    }
+
+                    @Override
+                    public MethodVisitor visitMethod(
+                            final int access, final String methodName,
+                            final String descriptor, final String signature,
+                            final String[] exceptions) {
+                        if ((access & (Opcodes.ACC_PRIVATE
+                                | Opcodes.ACC_ABSTRACT)) == 0) {
+                            concreteNonPrivateMethods[0]++;
+                        }
+                        return null;
+                    }
+                }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG
+                        | ClassReader.SKIP_FRAMES);
+                if (((reader.getAccess() | selfInnerAccess[0])
+                        & Opcodes.ACC_PRIVATE) != 0) {
+                    continue;
+                }
                 final Path previous = selectedClasses.putIfAbsent(name, file);
                 if (previous != null) {
                     throw new CallGraphException(
                             "Duplicate PROJECT entrypoint class " + name
                                     + ": " + previous + " and " + file);
                 }
-                reader.accept(new ClassVisitor(Opcodes.ASM9) {
-                    @Override
-                    public MethodVisitor visitMethod(
-                            final int access, final String methodName,
-                            final String descriptor, final String signature,
-                            final String[] exceptions) {
-                        if ((access & Opcodes.ACC_ABSTRACT) == 0) {
-                            methodCount[0]++;
-                        }
-                        return null;
-                    }
-                }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG
-                        | ClassReader.SKIP_FRAMES);
+                methodCount += concreteNonPrivateMethods[0];
             }
         } catch (IOException | RuntimeException exception) {
             if (exception instanceof CallGraphException) {
@@ -72,6 +92,6 @@ public final class EntrypointClassScanner {
         }
         return new EntrypointClassIndex(
                 selectedClasses.keySet().stream().sorted().toList(),
-                methodCount[0]);
+                methodCount);
     }
 }

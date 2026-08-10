@@ -47,7 +47,7 @@ code_refs: []
 - Summary: logical coordinate pair 经 repository lease 并行去重 diff；除stable method hash外，默认检测class/method/constructor/field Java 8 JVM access narrowing。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
-- Summary: 每Module由独立strategy构建selected WALA Call Graph；可选Schema v3只读capture保留WALA sentinel的CGNode排行、typed shortest path、source与IR。
+- Summary: 每Module从四种独立strategy选择一张WALA Call Graph；private declaration不成为root；可选Schema v3只读capture保留WALA sentinel的CGNode排行、typed shortest path、source与IR。
 
 ### [JDK Method Models](features/jdk-method-models.md)
 - Summary: 独立`models/jdk`公共engine与`models/jdk8`精确catalog生成conservative WALA Synthetic IR；尚未接入`impact`。
@@ -78,6 +78,6 @@ code_refs: []
 - Summary: Maven Versions/Enforcer 驱动的 Snapshot iteration、Stable release、commit 与双 Git tag。
 
 ### [Impact Benchmark](runbooks/impact-benchmark.md)
-- Summary: 三种algorithm执行3次warm-up与15个交错正式样本，固定输出self-contained HTML及Git管理的samples/summary/topology TSV；failure或topology drift不发布snapshot。
+- Summary: 四种algorithm执行4次warm-up与20个交错正式样本，固定输出self-contained HTML及Git管理的samples/summary/topology TSV；failure或topology drift不发布snapshot。
 
 ## Glossary

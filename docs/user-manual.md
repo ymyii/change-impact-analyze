@@ -137,7 +137,7 @@ dependency-analyzer impact \
   [-f, --format html] \
   [--analysis-target spring-backend] \
   [--analysis-parallelism <count>] \
-  [--call-graph-algorithm <rta|zero-cfa|optimized-0-1-cfa>] \
+  [--call-graph-algorithm <rta|zero-cfa|optimized-0-1-cfa|1-object-1-call-site>] \
   [--wala-reflection-options <WALA-enum-name>] \
   [--entrypoint-include '<class-path-pattern>']... \
   [--entrypoint-exclude '<class-path-pattern>']... \
@@ -152,12 +152,12 @@ dependency-analyzer impact \
 - `--format` 仅接受 `html`；`md` compatibility token 会 fail fast。
 - `--analysis-target` 默认且首版只接受 `spring-backend`。
 - `--analysis-parallelism` 默认 `2`，必须 `>=1`；统一控制 Module analysis、JAR diff 和代码反编译各自的 bounded pool。超过 CPU 数只输出 warning，不静默截断。
-- `--call-graph-algorithm` command-wide选择全部 Module 使用的 WALA算法；默认`rta`，可显式选择`zero-cfa`或`optimized-0-1-cfa`。值大小写不敏感，但不接受`rapid`、`zero`、`zerocfa`等alias，也不执行timeout fallback。RTA直接使用WALA `BasicRTABuilder`，按全局已实例化compatible class求virtual/interface reachability；两种ZeroX算法分别保留class-based和allocation-site precision。
+- `--call-graph-algorithm` command-wide选择全部 Module 使用的 WALA算法；默认`rta`，可显式选择`zero-cfa`、`optimized-0-1-cfa`或`1-object-1-call-site`。值大小写不敏感，但不接受`rapid`、`zero`、`zerocfa`等alias，也不执行timeout fallback。RTA直接使用WALA `BasicRTABuilder`，按全局已实例化compatible class求virtual/interface reachability；`1-object-1-call-site`同时保留一层receiver allocation string与一层call string，使用精确allocation-site和constant-specific identity且不启用smushing，因此通常需要更多时间与内存。
 - `--wala-reflection-options`（alias `--reflection-options`）command-wide选择WALA `AnalysisOptions.ReflectionOptions`，接受原生enum name且大小写不敏感。默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`；可显式使用`FULL`、`NO_FLOW_TO_CASTS`、`STRING_ONLY`、`NONE`等WALA 1.8.0 value。该选项不随algorithm自动改变，也不执行fallback。
 - `--entrypoint-include`/`--entrypoint-exclude` 接受 slash-separated JVM internal class path，例如 `com/icbc/payment/OrderService`；可选 WALA `L` 前缀会在匹配前移除。选项可重复，多个 include 取并集，exclude 优先。
 - 普通 segment 中 `*` 匹配零到多个字符，`?` 匹配一个字符，均不跨越 `/`。最后一个普通 segment 始终是 class segment，允许 `$` 匹配 nested class；前面的 package segment 不允许 `$`。例如 `com/*/A?`、`com/ic?c/*Controller`、`com/icbc/*$Handler`。
 - `**` 只能作为最后一个完整 segment。`com/icbc/**` 匹配该路径下直属及任意深度 package 中的全部 class，`**` 匹配全部 class；`com/**/A`、`com/icbc/A**`、leading/trailing slash、空 segment、`.`、`\\` 与 `:` 均非法。`com/icbc/**` 后不能追加 class pattern；需要限定 class 名时使用确定深度的普通 pattern，例如 `com/*/*Controller`。旧 colon/dot selector 不兼容，参数校验直接 exit `1`。
-- Entrypoint class 只来自当前 Module `target/classes` 的 immutable index，与 classpath precedence 无关。Interface/annotation class 即使包含 concrete default/static method也不进入 index；abstract class保留 non-abstract declared method。命中 class 的全部 non-abstract declared methods成为 entrypoints，不自动加入 inherited method 或 subtype。
+- Entrypoint class 只来自当前 Module `target/classes` 的 immutable index，与 classpath precedence 无关。Interface/annotation和private nested class不进入index；abstract class保留non-private、non-abstract declared method。命中class的public、protected和package-private concrete declared method成为entrypoint，包括static、native和bridge/synthetic method；private method与constructor不成为root。不自动加入inherited method或subtype。Private method仍保留在Analysis Scope中，从non-private root可达时作为普通CGNode参与Impact tracing。
 - 每个 JVM parameter slot仅提供一个 candidate：primitive、array 与 concrete reference使用 declared type；interface/abstract reference使用 Module 内按 declared type共享的 synthetic concrete placeholder。Abstract class的 instance method和 constructor使用 fake receiver；placeholder不连接真实 subtype或implementor，因此可能遗漏 implementation-only impact path。
 - Relevant Module 没有匹配时标记 `SKIPPED_USER_ENTRYPOINT_SCOPE`；所有 relevant Module 都没有匹配时 exit `1`，不替换旧 Report。
 - `--include-change-kinds` 控制 bytecode `ChangePointKind`。
@@ -174,7 +174,7 @@ dependency-analyzer impact \
 | `-f` | `--format` | 仅 `html`；`md` 已移除。 |
 |  | `--analysis-target` | 仅 `spring-backend`。 |
 |  | `--analysis-parallelism` | Module analysis、JAR diff、代码反编译并发数，默认 `2`。 |
-|  | `--call-graph-algorithm` | `rta`（默认）、`zero-cfa`或`optimized-0-1-cfa`；全部 Module 使用同一算法。 |
+|  | `--call-graph-algorithm` | `rta`（默认）、`zero-cfa`、`optimized-0-1-cfa`或`1-object-1-call-site`；全部 Module 使用同一算法。 |
 |  | `--wala-reflection-options` | WALA `ReflectionOptions` enum name；默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。 |
 |  | `--entrypoint-include` | 只选择匹配 slash class path 的 target class declared methods；可重复。 |
 |  | `--entrypoint-exclude` | 从 include/default selection 中排除匹配 slash class path 的 target class；可重复且优先。 |
@@ -557,7 +557,7 @@ Version policy、failure entrypoints 与完整发布步骤见
 
 ## 11. 持续 Impact Benchmark
 
-Repository 内置 Git 管理的中型 `impact` benchmark。它从source生成42个compile-scope external dependencies、带`impact-baseline`/`impact-target` refs的临时Git project。Canonical suite 对`rta`、`zero-cfa`、`optimized-0-1-cfa`各执行1次warm-up topology capture和5次正式样本，共18个独立Java Virtual Machine（JVM）进程；`BENCHMARK_WALA_REFLECTION_OPTIONS`默认并验收为`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。Verifier校验实际Algorithm/ReflectionOptions、9类legacy raw ChangePoint、versioned candidate/final count、Structural Reference Path、过滤候选、反编译代码evidence及四页HTML Report；三种algorithm均锁定`6 / 5`。
+Repository 内置 Git 管理的中型 `impact` benchmark。它从source生成42个compile-scope external dependencies、带`impact-baseline`/`impact-target` refs的临时Git project。Canonical suite 对`rta`、`zero-cfa`、`optimized-0-1-cfa`、`1-object-1-call-site`各执行1次warm-up topology capture和5次正式样本，共24个独立Java Virtual Machine（JVM）进程；`BENCHMARK_WALA_REFLECTION_OPTIONS`默认并验收为`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。Verifier校验实际Algorithm/ReflectionOptions、9类legacy raw ChangePoint、versioned candidate/final count、Structural Reference Path、过滤候选、反编译代码evidence及四页HTML Report；每种algorithm的语义计数由`expected-results.tsv`锁定。
 
 ```sh
 mvn -f plugins/pom.xml clean install
@@ -566,7 +566,7 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
   benchmarks/impact-medium/run-suite.sh
 ```
 
-固定HTML报告输出到`tmp-files/impact-medium-benchmark/benchmark-report.html`，三种algorithm与comparison分别使用一个CSS-only tab。Caller/callee父榜以精确CGNode为单位，每个父节点展示decompiled source、WALA IR，以及按IMethod聚合的Top 10相关节点；generated Method允许仅展示IR。不提供独立points-to set排行榜。最近一次完整成功的15个正式样本、algorithm summary和CGNode topology分别保存到Git管理的`samples.tsv`、`summary.tsv`、`topology.tsv`；任一run失败或发生`TOPOLOGY_DRIFT`时不替换旧snapshot。历史对比使用任意两个`summary.tsv`输出absolute change与ratio，不执行固定threshold或algorithm优劣判定。完整prerequisites、环境变量、measurement contract、成功条件和troubleshooting见[`benchmarks/impact-medium/README.md`](../benchmarks/impact-medium/README.md)。
+固定HTML报告输出到`tmp-files/impact-medium-benchmark/benchmark-report.html`，四种algorithm与comparison分别使用一个CSS-only tab。Caller/callee父榜以精确CGNode为单位，每个父节点展示decompiled source、WALA IR，以及按IMethod聚合的Top 10相关节点；generated Method允许仅展示IR。不提供独立points-to set排行榜。最近一次完整成功的20个正式样本、algorithm summary和CGNode topology分别保存到Git管理的`samples.tsv`、`summary.tsv`、`topology.tsv`；任一run失败或发生`TOPOLOGY_DRIFT`时不替换旧snapshot。历史对比使用任意两个`summary.tsv`输出absolute change与ratio，不执行固定threshold或algorithm优劣判定。完整prerequisites、环境变量、measurement contract、成功条件和troubleshooting见[`benchmarks/impact-medium/README.md`](../benchmarks/impact-medium/README.md)。
 
 ## 12. Third-Party Attribution
 

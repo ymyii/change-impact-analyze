@@ -1,6 +1,6 @@
 # Impact Medium CallGraph Benchmark
 
-本 benchmark 对打包后的 `dependency-analyzer impact` 执行三种 Call Graph algorithm 的可复现对比。Fixture 固定包含 42 个 compile-scope external dependencies 和 9 类 bytecode change；semantic contract 继续由 `expected-results.tsv` 锁定为每种 algorithm `6 / 5` 条 candidate/final call chains。
+本 benchmark 对打包后的 `dependency-analyzer impact` 执行四种 Call Graph algorithm 的可复现对比。Fixture 固定包含 42 个 compile-scope external dependencies 和 9 类 bytecode change；每种algorithm的candidate/final call chains由`expected-results.tsv`锁定。
 
 ## Canonical suite
 
@@ -14,9 +14,9 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 
 可选 positional argument 是 suite label；同名 raw/candidate 目录存在时拒绝覆盖。Suite 固定执行：
 
-- `rta`、`zero-cfa`、`optimized-0-1-cfa` 各 1 次 warm-up，共 3 个独立 Java Virtual Machine（JVM）进程。Warm-up 预热 fixture、Maven 与文件缓存，并通过 `--call-graph-diagnostics-output` 采集 CGNode topology、source 与 IR。
-- 5 个 round，每个 round 各运行三种 algorithm，共 15 个正式样本和 15 个独立 JVM 进程。
-- 正式样本按 round 交错，algorithm 顺序在 `rta → zero-cfa → optimized-0-1-cfa`、`zero-cfa → optimized-0-1-cfa → rta`、`optimized-0-1-cfa → rta → zero-cfa` 之间轮换。
+- `rta`、`zero-cfa`、`optimized-0-1-cfa`、`1-object-1-call-site`各1次warm-up，共4个独立Java Virtual Machine（JVM）进程。Warm-up预热fixture、Maven与文件缓存，并通过`--call-graph-diagnostics-output`采集CGNode topology、source与IR。
+- 5个round，每个round各运行四种algorithm，共20个正式样本和20个独立JVM进程。
+- 正式样本按round交错；algorithm列表在每个round循环左移一位，第5个round回到原始顺序。
 - 正式样本不设置 diagnostics option，不执行 CGNode ranking、IMethod 子榜、shortest path、IR capture 或反编译。
 
 `BENCHMARK_WALA_REFLECTION_OPTIONS` 默认且正式验收要求为 `ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。
@@ -51,7 +51,7 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 tmp-files/impact-medium-benchmark/benchmark-report.html
 ```
 
-HTML 自包含 CSS，不使用 JavaScript 或外部 asset。`rta`、`zero-cfa`、`optimized-0-1-cfa`与comparison各占一个CSS-only tab。每个algorithm tab包含五个正式样本、Min/median/max、Top 10 caller CGNode、Top 10 callee CGNode、每个父CGNode下按IMethod聚合的Top 10相关节点、declared entrypoint与WALA sentinel的deterministic shortest CGNode chain、cycle、decompiled source和WALA IR。Sentinel parent、root与chain step显式展示`FAKE_ROOT`或`FAKE_WORLD_CLINIT`badge。Generated Method没有bytecode source时允许仅展示IR。Comparison以`zero-cfa`为ratio baseline；ratio仅描述数据，不自动判定algorithm优劣。
+HTML 自包含 CSS，不使用 JavaScript 或外部 asset。四种algorithm与comparison各占一个CSS-only tab。每个algorithm tab包含五个正式样本、Min/median/max、Top 10 caller CGNode、Top 10 callee CGNode、每个父CGNode下按IMethod聚合的Top 10相关节点、declared entrypoint与WALA sentinel的deterministic shortest CGNode chain、cycle、decompiled source和WALA IR。Sentinel parent、root与chain step显式展示`FAKE_ROOT`或`FAKE_WORLD_CLINIT`badge。Generated Method没有bytecode source时允许仅展示IR。Comparison以`zero-cfa`为ratio baseline；ratio仅描述数据，不自动判定algorithm优劣。
 
 Git 管理的最近一次完整成功快照：
 
@@ -61,11 +61,11 @@ benchmarks/impact-medium/results/summary.tsv
 benchmarks/impact-medium/results/topology.tsv
 ```
 
-- `samples.tsv`：15 个正式样本；包含 wall、CallGraph、heap、RSS、graph、status 与环境 identity。
+- `samples.tsv`：20个正式样本；包含wall、CallGraph、heap、RSS、graph、status与环境identity。
 - `summary.tsv`：每种 algorithm 一行；包含资源 Min/median/max、稳定 topology 和相对 `zero-cfa` ratio。
 - `topology.tsv`：使用`RANKED_CGNODE`、`RELATED_IMETHOD`、`REACHABILITY_PATH`三种record；保存父CGNode、`wala_synthetic`、`sentinel_role`、子榜IMethod、related CGNode count、最多10个deterministic Context example、omitted count，以及path的`path_root_kind`、`path_root_cg_node_identity`和shortest CGNode chain。Multiline source/IR只进入HTML；TSV保存各自status与SHA-256。
 
-Suite 只有在 18 个 run 全部通过 semantic verification，且 warm-up 与五个正式样本的 Entrypoint/CGNode/CGEdge 完全一致时，才逐文件原子替换 tracked TSV。出现 `FAILED` 或 `TOPOLOGY_DRIFT` 时，旧 tracked snapshot 不变；failure HTML、candidate TSV、raw run、topology JSON 与 `failure.txt` 保留在 `tmp-files/impact-medium-benchmark/`。
+Suite只有在24个run全部通过semantic verification，且warm-up与五个正式样本的Entrypoint/CGNode/CGEdge完全一致时，才逐文件原子替换tracked TSV。出现`FAILED`或`TOPOLOGY_DRIFT`时，旧tracked snapshot不变；failure HTML、candidate TSV、raw run、topology JSON与`failure.txt`保留在`tmp-files/impact-medium-benchmark/`。
 
 ## Metrics
 
@@ -77,7 +77,7 @@ Suite 只有在 18 个 run 全部通过 semantic verification，且 warm-up 与�
 - Entrypoint、CGNode、CGEdge、execution status、exit code。
 - Analyzer SHA-256、Git commit/dirty、OS、architecture、Analyzer Java、target JDK、Maven identity。
 
-全图CGNode/CGEdge totals包含WALA fake root/world-clinit；排行榜排除两个sentinel及其incident edge。父榜不合并Context，以精确CGNode为单位，先按related CGNode count降序，再按distinct related IMethod、raw CGEdge与稳定CGNode identity排序。每个父CGNode下的子榜按IMethod聚合，以该IMethod代表的related CGNode count、raw CGEdge和稳定Method identity排序；展开项保留deterministic前10个具体CGNode/Context example与omitted count，从而定位同一Method的Context或points-to膨胀，同时避免单个高膨胀Method令HTML/TSV不可浏览。项目不输出独立points-to set排行榜。
+全图CGNode/CGEdge totals、排行榜和path均包含WALA fake root/fake world-clinit及其incident edge；sentinel使用typed role和badge显式标识。父榜不合并Context，以精确CGNode为单位，先按related CGNode count降序，再按distinct related IMethod、raw CGEdge与稳定CGNode identity排序。每个父CGNode下的子榜按IMethod聚合，以该IMethod代表的related CGNode count、raw CGEdge和稳定Method identity排序；展开项保留deterministic前10个具体CGNode/Context example与omitted count，从而定位同一Method的Context或points-to膨胀，同时避免单个高膨胀Method令HTML/TSV不可浏览。项目不输出独立points-to set排行榜。
 
 ## Semantic success criteria
 
@@ -86,7 +86,7 @@ Suite 只有在 18 个 run 全部通过 semantic verification，且 warm-up 与�
 - Analyzer exit code 为 `0`，Overall status 为 `Completed`。
 - 实际 Algorithm 等于请求值；实际 WALA ReflectionOptions 等于 `ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。
 - POM 有 42 个 direct dependencies；Overall 有 9 个 raw changed members。
-- `expected-results.tsv` 中该 algorithm 的 candidate/final call chains 为 `6 / 5`。
+- `expected-results.tsv` 中存在该algorithm的已校准candidate/final call chains。
 - Affected Call Chains 页面包含 Structural Reference Path 与 filtered candidate。
 - Dependency Changes 页面包含 final、filtered、structural badge 与反编译代码 evidence。
 - Overall、Module Index、Affected Call Chains、Dependency Changes 四页均存在。

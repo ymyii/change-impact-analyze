@@ -44,7 +44,7 @@ flowchart TD
   Bind --> EntrySelection["immutable target/classes entrypoint class index"]
   EntrySelection --> ModulePool["bounded Module pool; analysis parallelism"]
   ModulePool --> ScopeValidation["scope validation"]
-  ScopeValidation --> Strategy["Factory selects RTA / ZeroCFA / optimized strategy"]
+  ScopeValidation --> Strategy["Factory selects one of four Call Graph strategies"]
   Strategy --> CFA["one per-Module WALA Call Graph + immutable metadata"]
   CFA --> Query["read-only query + typed access resolution"]
   Query --> Coverage["typed limitation reduction"]
@@ -62,8 +62,8 @@ flowchart TD
 ## Architecture Decision Records
 
 - target每个Module只构建一张 selected Call Graph；baseline不compile也不构图，以控制CPU、heap和workspace成本。
-- `--call-graph-algorithm` command-wide选择 `rta`、`zero-cfa` 或 `optimized-0-1-cfa`，默认`rta`；同一次command的全部Module使用一致analysis model，不自动fallback。
-- 三种Call Graph实现通过唯一Factory选择独立strategy。`BasicRTABuilder`与两种`ZeroXCFABuilder`只存在于对应strategy；pipeline依赖immutable request/result与统一metadata shape，不依赖builder capability adapter。
+- `--call-graph-algorithm` command-wide选择 `rta`、`zero-cfa`、`optimized-0-1-cfa`或`1-object-1-call-site`，默认`rta`；同一次command的全部Module使用一致analysis model，不自动fallback。
+- 四种Call Graph实现通过唯一Factory选择独立strategy。`BasicRTABuilder`、两种`ZeroXCFABuilder`与复合`nObjBuilder`/`nCFAContextSelector`只存在于对应strategy；pipeline依赖immutable request/result与统一metadata shape，不依赖builder capability adapter。
 - `--wala-reflection-options`同样command-wide，默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`；实际值穿过pipeline configuration、strategy、Diagnostic与Report，不由algorithm隐式覆盖。
 - Call Graph完成后所有Impact query只读，不允许overlay、第二张graph或whole-scope补扫，确保结果来源单一且可解释。
 - Scope/model/query limitation通过统一`CoverageLimitation` contract单向汇入reducer；固定reason precedence不读取exception message、summary或HTML。
@@ -80,7 +80,7 @@ flowchart TD
 - Reactor root：target reactor 执行一次 `mvn compile`；全部 active、analysis-eligible Module 独立分析。
 - Leaf Module：从所属 reactor root 执行 `-pl <relativePath> -am compile`；只报告当前 Module。
 - 当前 Module classes 为 `PROJECT`；上游 reactor Module 为 `REACTOR_DEPENDENCY`；外部 artifact 为 `DEPENDENCY`；JDK 8 为 `JDK`。
-- Entrypoint class仅由当前 Module `target/classes` index产生；interface/annotation排除，abstract class的 non-abstract declared method保留。Repeatable slash selector可缩小 roots；门禁与 Call Graph构造复用同一个 immutable index，ownership/classpath precedence不参与 root识别。
+- Entrypoint class仅由当前 Module `target/classes` index产生；interface、annotation与private nested class排除，abstract class的non-private、non-abstract declared method保留。Private constructor/method不成为root，但继续保留在scope并可通过普通调用进入graph。Repeatable slash selector可缩小roots；门禁与Call Graph构造复用同一个immutable index，ownership/classpath precedence不参与root识别。
 - 每个 entrypoint JVM parameter slot只使用一个 declared-type candidate；resolved interface/abstract type使用共享 synthetic placeholder，不枚举 concrete subtype或implementor。Selector与 placeholder均不裁剪 scope、CHA、Reflection、model provider或其他 origin reachability，但可能遗漏 implementation-only impact path。
 - 每个 Module 拥有独立 scope、ownership index、CHA、WALA graph 和 cache。不同 Module 不共享可变 WALA 状态。
 
@@ -106,10 +106,10 @@ flowchart TD
 
 ## Analysis Model Boundaries
 
-- Call Graph 是 selected WALA over-approximation：RTA按全局已实例化compatible class求virtual/interface reachability；ZeroCFA按class合并普通allocation并保留constant identity；optimized 0-1-CFA保留allocation-site/constant identity并smush高成本对象。
+- Call Graph 是 selected WALA over-approximation：RTA按全局已实例化compatible class求virtual/interface reachability；ZeroCFA按class合并普通allocation并保留constant identity；optimized 0-1-CFA保留allocation-site/constant identity并smush高成本对象；1-object-1-call-site使用一层receiver allocation string和一层call string，保留精确allocation-site且不smush。
 - Entrypoint fake receiver/parameter只表达 declared interface/abstract type，不探索真实 implementation；因此 implementation-only path可能不可达。
-- Reflection使用command选择的WALA `ReflectionOptions`；默认是bounded `ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。两种ZeroX由各自MethodHandle installer安装WALA extension，RTA installer仅使用reachable caller-local IR/DefUse推导已支持的`findStatic` target；resolution保存operation、caller stable identity、bytecode PC与resolved binary identity。
-- `ServiceLoaderProtocolIndex`由engine在strategy前读取、验证并冻结一次；RTA、ZeroCFA、optimized installer分别安装local checkcast、constant aggregate或allocation-site execution，不共享含algorithm分支的execution state。
+- Reflection使用command选择的WALA `ReflectionOptions`；默认是bounded `ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。三种points-to strategy由各自MethodHandle installer安装WALA extension，RTA installer仅使用reachable caller-local IR/DefUse推导已支持的`findStatic` target；resolution保存operation、caller stable identity、bytecode PC与resolved binary identity。
+- `ServiceLoaderProtocolIndex`由engine在strategy前读取、验证并冻结一次；RTA、ZeroCFA、optimized与1-object-1-call-site installer分别安装local checkcast、constant aggregate或allocation-site execution，不共享含algorithm分支的mutable execution state。
 - ServiceLoader 与注册的 `invokedynamic` 协议在 `makeCallGraph(...)` 前安装 WALA model，参与 points-to/call graph fixed point；构图后不允许 overlay 补图或 whole-scope JAR/classfile 重扫。
 - 非 constant ServiceLoader service type、非法 provider 与 reachable unknown bootstrap 产生 stable limitation，并使 Module `INCONCLUSIVE`。
 - Spring DI/AOP/annotation/XML/config、custom classloader 不完整建模。

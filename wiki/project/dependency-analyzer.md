@@ -32,7 +32,7 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
     desc: "tree pipeline 编排"
   - path: "benchmarks/impact-medium/run-suite.sh"
-    desc: "三种algorithm的canonical benchmark suite与tracked snapshot发布入口"
+    desc: "四种algorithm的canonical benchmark suite与tracked snapshot发布入口"
 ---
 
 # Project: Dependency Analyzer
@@ -50,7 +50,7 @@ Source repository 包含两个独立 Maven reactor：root reactor 只构建 Anal
 - Artifact Path Plugin 以 Java 8 bytecode 发布；执行 Plugin reactor 的 Maven JVM 可以使用 Java 8 以上版本。Analyzer 使用 Java 17 构建和运行；root POM 的 `test.jdk8.home` 提供完整 JDK 8 默认值，Surefire/Failsafe 将其作为 `TEST_JDK8_HOME` 注入 test JVM，其他环境可通过 `-Dtest.jdk8.home=...` 覆盖。
 - Analyzer JAR 将 Maven Dependency Plugin 和 Artifact Path Plugin 统一内嵌为两个独立 Maven repository ZIP；runtime 不安装 loose JAR/POM，也不维护项目自有 checksum/fingerprint。
 - `impact` 以 GraphML 作为唯一 mediation authority；Artifact Path Plugin Schema v2 JSON 只向 command-scoped `IJarRepository` ingestion selected dependency physical binding，后续 domain 只保存 coordinate；`tree` 使用 verbose text 采集完整 dependency occurrence。
-- `impact`只构建target per-Module selected Call Graph；`rta`为默认algorithm，`zero-cfa`与`optimized-0-1-cfa`可显式选择；WALA ReflectionOptions command-wide可配置，默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`；baseline不compile、不构建Call Graph。
+- `impact`只构建target per-Module selected Call Graph；`rta`为默认algorithm，`zero-cfa`、`optimized-0-1-cfa`与`1-object-1-call-site`可显式选择；WALA ReflectionOptions command-wide可配置，默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`；baseline不compile、不构建Call Graph。
 - 两个 subcommand 共享 Maven runtime 和 preflight Schema，但分别组装检查 DAG；pipeline 只消费 preflight decision。
 
 ## Module Map
@@ -65,7 +65,7 @@ Source repository 包含两个独立 Maven reactor：root reactor 只构建 Anal
 - `analyzer/src/test/java/` - unit tests；`analyzer/src/integration-test/java/` - Failsafe integration tests。
 - `plugins/pom.xml` - 独立 Plugin reactor parent/aggregator。
 - `plugins/artifact-path-resolver/` - GAV `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:2.1.0`；Java 8 `resolve-artifact-paths` goal 与 attached `repository` ZIP。
-- `benchmarks/impact-medium/` - 可复现的中型impact fixture、18进程CallGraph suite、HTML报告与Git管理的TSV snapshot。
+- `benchmarks/impact-medium/` - 可复现的中型impact fixture、24进程CallGraph suite、HTML报告与Git管理的TSV snapshot。
 
 ## Technical Stack
 

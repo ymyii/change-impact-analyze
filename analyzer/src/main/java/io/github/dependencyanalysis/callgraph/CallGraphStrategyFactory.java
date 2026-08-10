@@ -17,6 +17,7 @@ final class CallGraphStrategyFactory {
         register(values, new RtaCallGraphStrategy());
         register(values, new ZeroCfaCallGraphStrategy());
         register(values, new OptimizedZeroOneCfaCallGraphStrategy());
+        register(values, new OneObjectOneCallSiteCallGraphStrategy());
         if (values.size() != CallGraphAlgorithm.values().length) {
             throw new IllegalStateException(
                     "Missing Call Graph algorithm strategy");

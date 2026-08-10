@@ -2,6 +2,8 @@ package io.github.dependencyanalysis.callgraph;
 
 import io.github.dependencyanalysis.impact.ModuleAnalysisReason;
 
+import com.ibm.wala.ipa.callgraph.propagation.cfa.ZeroXInstanceKeys;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -22,6 +24,9 @@ class CallGraphAlgorithmTest {
                 CallGraphAlgorithm.ZERO_CFA);
         final CallGraphAlgorithmStrategy optimized = factory.create(
                 CallGraphAlgorithm.OPTIMIZED_ZERO_ONE_CFA);
+        final CallGraphAlgorithmStrategy oneObjectOneCallSite =
+                factory.create(
+                        CallGraphAlgorithm.ONE_OBJECT_ONE_CALL_SITE);
 
         assertThat(rta)
                 .isInstanceOf(RtaCallGraphStrategy.class);
@@ -34,6 +39,10 @@ class CallGraphAlgorithmTest {
                 .isInstanceOf(OptimizedZeroOneCfaCallGraphStrategy.class);
         assertThat(optimized.algorithm())
                 .isEqualTo(CallGraphAlgorithm.OPTIMIZED_ZERO_ONE_CFA);
+        assertThat(oneObjectOneCallSite).isInstanceOf(
+                OneObjectOneCallSiteCallGraphStrategy.class);
+        assertThat(oneObjectOneCallSite.algorithm())
+                .isEqualTo(CallGraphAlgorithm.ONE_OBJECT_ONE_CALL_SITE);
     }
 
     @Test
@@ -46,10 +55,25 @@ class CallGraphAlgorithmTest {
                 .isEqualTo(CallGraphAlgorithm.ZERO_CFA);
         assertThat(CallGraphAlgorithm.parse("Optimized-0-1-CFA"))
                 .isEqualTo(CallGraphAlgorithm.OPTIMIZED_ZERO_ONE_CFA);
+        assertThat(CallGraphAlgorithm.parse("1-OBJECT-1-CALL-SITE"))
+                .isEqualTo(CallGraphAlgorithm.ONE_OBJECT_ONE_CALL_SITE);
         assertThatThrownBy(() -> CallGraphAlgorithm.parse("zerocfa"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining(
-                        "rta, zero-cfa, optimized-0-1-cfa");
+                        "rta, zero-cfa, optimized-0-1-cfa, "
+                                + "1-object-1-call-site");
+    }
+
+    @Test
+    void oneObjectOneCallSiteUsesExactAllocationPolicyWithoutSmushing() {
+        assertThat(OneObjectOneCallSiteCallGraphStrategy.INSTANCE_POLICY)
+                .isEqualTo(ZeroXInstanceKeys.ALLOCATIONS
+                        | ZeroXInstanceKeys.CONSTANT_SPECIFIC);
+        assertThat(OneObjectOneCallSiteCallGraphStrategy.INSTANCE_POLICY
+                & (ZeroXInstanceKeys.SMUSH_MANY
+                | ZeroXInstanceKeys.SMUSH_PRIMITIVE_HOLDERS
+                | ZeroXInstanceKeys.SMUSH_STRINGS
+                | ZeroXInstanceKeys.SMUSH_THROWABLES)).isZero();
     }
 
     @Test

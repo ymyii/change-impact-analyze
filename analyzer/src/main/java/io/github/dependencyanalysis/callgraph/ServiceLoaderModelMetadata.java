@@ -53,6 +53,19 @@ final class ServiceLoaderModelMetadata {
 
     static ServiceLoaderModelMetadata snapshot(
             final CallGraph graph,
+            final OneObjectOneCallSiteServiceLoaderModel model,
+            final List<ModelLimitation> limitations) {
+        final Map<CGNode, String> nodes = new LinkedHashMap<>();
+        for (CGNode node : graph) {
+            if (model.models(node)) {
+                nodes.put(node, model.serviceLabel(node));
+            }
+        }
+        return new ServiceLoaderModelMetadata(nodes, limitations);
+    }
+
+    static ServiceLoaderModelMetadata snapshot(
+            final CallGraph graph,
             final RtaServiceLoaderModel model,
             final List<ModelLimitation> limitations) {
         final Map<CGNode, String> nodes = new LinkedHashMap<>();

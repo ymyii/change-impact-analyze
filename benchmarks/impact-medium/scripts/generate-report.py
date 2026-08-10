@@ -14,7 +14,12 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-ALGORITHMS = ("rta", "zero-cfa", "optimized-0-1-cfa")
+ALGORITHMS = (
+    "rta",
+    "zero-cfa",
+    "optimized-0-1-cfa",
+    "1-object-1-call-site",
+)
 REFLECTION_DEFAULT = "ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD"
 SAMPLE_COLUMNS = (
     "label", "run_kind", "round", "sample", "algorithm",
@@ -118,12 +123,12 @@ def validate(
     by_kind: dict[str, list[dict[str, str]]] = defaultdict(list)
     for row in rows:
         by_kind[row.get("run_kind", "")].append(row)
-    if len(rows) != 18:
-        errors.append(f"应有 18 个独立 CLI 进程，实际 {len(rows)} 个")
-    if len(by_kind["warmup"]) != 3:
-        errors.append(f"应有 3 个 warm-up，实际 {len(by_kind['warmup'])} 个")
-    if len(by_kind["formal"]) != 15:
-        errors.append(f"应有 15 个正式样本，实际 {len(by_kind['formal'])} 个")
+    if len(rows) != 24:
+        errors.append(f"应有 24 个独立 CLI 进程，实际 {len(rows)} 个")
+    if len(by_kind["warmup"]) != 4:
+        errors.append(f"应有 4 个 warm-up，实际 {len(by_kind['warmup'])} 个")
+    if len(by_kind["formal"]) != 20:
+        errors.append(f"应有 20 个正式样本，实际 {len(by_kind['formal'])} 个")
     environment_fields = (
         "wala_reflection_options", "analyzer_sha256", "git_commit",
         "git_dirty", "os", "architecture", "analyzer_java", "jdk", "maven",
@@ -504,8 +509,8 @@ main{max-width:1500px;margin:auto;padding:32px}h1,h2,h3,h4{line-height:1.25}sect
 table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{border:1px solid #dfe5ef;padding:8px 10px;text-align:right;white-space:nowrap}th:first-child,td:first-child{text-align:left}th{background:#eef3fa}code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#101827;color:#e7edf8;padding:14px;border-radius:8px;max-height:640px;overflow:auto}
 .cgnode{border-top:1px solid #dfe5ef;padding:12px 0}.badge{display:inline-block;background:#e8eef9;border-radius:999px;padding:2px 8px;font-size:.75rem}.cycle{background:#ffe0ad;color:#744400}.ok{color:#14733c}.bad,.warning{color:#a12626}.muted{color:#5b667a}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.metric{background:#f7f9fd;padding:12px;border-radius:8px}details{margin:10px 0}summary{cursor:pointer;font-weight:600}
 .tab-control{position:absolute;opacity:0;pointer-events:none}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:24px 0 0}.tabs label{cursor:pointer;border:1px solid #cbd6e6;background:#e8eef9;border-radius:9px 9px 0 0;padding:10px 16px;font-weight:650}.tab-panel{display:none;margin-top:0;border-radius:0 12px 12px 12px}.tab-control:focus+.tabs label{outline:2px solid #4f74b8}.tab-panels{margin-top:0}
-#tab-rta:checked~.tabs label[for="tab-rta"],#tab-zero-cfa:checked~.tabs label[for="tab-zero-cfa"],#tab-optimized-0-1-cfa:checked~.tabs label[for="tab-optimized-0-1-cfa"],#tab-comparison:checked~.tabs label[for="tab-comparison"]{background:#fff;border-bottom-color:#fff;color:#0d4f9b}
-#tab-rta:checked~.tab-panels .panel-rta,#tab-zero-cfa:checked~.tab-panels .panel-zero-cfa,#tab-optimized-0-1-cfa:checked~.tab-panels .panel-optimized-0-1-cfa,#tab-comparison:checked~.tab-panels .panel-comparison{display:block}
+#tab-rta:checked~.tabs label[for="tab-rta"],#tab-zero-cfa:checked~.tabs label[for="tab-zero-cfa"],#tab-optimized-0-1-cfa:checked~.tabs label[for="tab-optimized-0-1-cfa"],#tab-1-object-1-call-site:checked~.tabs label[for="tab-1-object-1-call-site"],#tab-comparison:checked~.tabs label[for="tab-comparison"]{background:#fff;border-bottom-color:#fff;color:#0d4f9b}
+#tab-rta:checked~.tab-panels .panel-rta,#tab-zero-cfa:checked~.tab-panels .panel-zero-cfa,#tab-optimized-0-1-cfa:checked~.tab-panels .panel-optimized-0-1-cfa,#tab-1-object-1-call-site:checked~.tab-panels .panel-1-object-1-call-site,#tab-comparison:checked~.tab-panels .panel-comparison{display:block}
 """
     parts = [
         "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">",
@@ -625,7 +630,7 @@ def main() -> int:
     errors.extend(validate(rows, topologies))
     formal = [row for row in rows if row.get("run_kind") == "formal"]
     summary_rows: list[dict[str, str]] = []
-    if len(formal) == 15 and all(
+    if len(formal) == 20 and all(
             sum(row.get("algorithm") == algorithm for row in formal) == 5
             for algorithm in ALGORITHMS):
         try:

@@ -18,7 +18,7 @@ code_refs:
   - path: "benchmarks/impact-medium/README.md"
     desc: "用户手册、环境变量、Schema 与 failure entrypoint"
   - path: "benchmarks/impact-medium/run-suite.sh"
-    desc: "canonical 3 warm-up + 15 formal suite 与 tracked TSV 原子发布"
+    desc: "canonical 4 warm-up + 20 formal suite 与 tracked TSV 原子发布"
   - path: "benchmarks/impact-medium/run-benchmark.sh"
     desc: "单 JVM fixture preparation、资源采样、impact 执行与校验"
   - path: "benchmarks/impact-medium/scripts/invoke-impact.sh"
@@ -34,9 +34,9 @@ code_refs:
   - path: "benchmarks/impact-medium/expected-results.tsv"
     desc: "versioned per-algorithm candidate/final semantic baseline"
   - path: "benchmarks/impact-medium/results/samples.tsv"
-    desc: "最近一次成功 suite 的 15 个正式样本"
+    desc: "最近一次成功 suite 的 20 个正式样本"
   - path: "benchmarks/impact-medium/results/summary.tsv"
-    desc: "最近一次成功 suite 的三种 algorithm 汇总"
+    desc: "最近一次成功 suite 的四种 algorithm 汇总"
   - path: "benchmarks/impact-medium/results/topology.tsv"
     desc: "最近一次成功warm-up的CGNode父榜、IMethod子榜与reachability path snapshot"
   - path: "benchmarks/impact-medium/tests/test_generate_report.py"
@@ -49,7 +49,7 @@ code_refs:
 
 ## Summary
 
-Canonical suite在同一Analyzer JAR与环境下对`rta`、`zero-cfa`、`optimized-0-1-cfa`分别执行1次warm-up topology capture和5次正式样本，共18个独立Java Virtual Machine（JVM）进程。用户入口是固定的self-contained HTML，三种algorithm与comparison各占一个CSS-only tab；最近一次完整成功的15个正式样本、summary与CGNode topology由Git管理。
+Canonical suite在同一Analyzer JAR与环境下对`rta`、`zero-cfa`、`optimized-0-1-cfa`、`1-object-1-call-site`分别执行1次warm-up topology capture和5次正式样本，共24个独立Java Virtual Machine（JVM）进程。用户入口是固定的self-contained HTML，四种algorithm与comparison各占一个CSS-only tab；最近一次完整成功的20个正式样本、summary与CGNode topology由Git管理。
 
 ## Prerequisites
 
@@ -82,14 +82,14 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 ## Suite Schedule
 
 - Warm-up：每种algorithm一次；设置`--call-graph-diagnostics-output`，预热Maven/fixture/filesystem cache并采集唯一已完成Call Graph的CGNode topology、source与IR。
-- Formal：5个round；每个round三种algorithm各一次。顺序在`rta → zero-cfa → optimized-0-1-cfa`、`zero-cfa → optimized-0-1-cfa → rta`、`optimized-0-1-cfa → rta → zero-cfa`间轮换。
+- Formal：5个round；每个round四种algorithm各一次。Algorithm列表每个round循环左移一位，第5个round回到原始顺序。
 - 每个run启动全新JVM。Formal不设置diagnostics option，因此不执行CGNode ranking、IMethod子榜、shortest path、IR capture或decompilation。
 
 ## Fixture and Semantic Contract
 
 - application POM固定42个compile-scope direct dependencies：40个vendor JAR、`scenario-api`、`legacy-impact-bridge`。
 - `scenario-api:1.0.0 -> 2.0.0`固定产生9类raw change：`CLASS_ADDED`、`CLASS_REMOVED`、`METHOD_ADDED`、`METHOD_REMOVED`、`METHOD_DESCRIPTOR_CHANGED`、`METHOD_BODY_CHANGED`、`FIELD_ADDED`、`FIELD_REMOVED`、`FIELD_DESCRIPTOR_CHANGED`。
-- 三种algorithm在`expected-results.tsv`中均锁定`6 / 5`条candidate/final call chains。
+- 四种algorithm分别在`expected-results.tsv`中锁定已校准的candidate/final call chains。
 - 每个run同时验证Structural Reference Path、filtered candidate、反编译code evidence、四页impact Report、实际algorithm和默认WALA ReflectionOptions。
 
 ## Metrics Contract
@@ -137,7 +137,7 @@ benchmarks/impact-medium/results/topology.tsv
 - `summary.tsv`每个algorithm一行，包含Min/median/max、稳定graph totals、successful sample数及相对`zero-cfa`ratio。
 - `topology.tsv`使用`RANKED_CGNODE`、`RELATED_IMETHOD`、`REACHABILITY_PATH`三种record；path row保存`path_root_kind`、root CGNode identity与包含sentinel标记的shortest path。Multiline source与IR只进入HTML；TSV保存各自status与SHA-256。
 
-18个run和Schema/topology validation全部成功后，suite才原子替换三个canonical TSV。任何failure都保留旧snapshot，只更新failure HTML与tmp candidate。
+24个run和Schema/topology validation全部成功后，suite才原子替换三个canonical TSV。任何failure都保留旧snapshot，只更新failure HTML与tmp candidate。
 
 ## Historical Comparison
 
@@ -147,7 +147,7 @@ benchmarks/impact-medium/scripts/compare-summaries.sh \
   /path/to/candidate-summary.tsv
 ```
 
-输出三种algorithm的median wall、CallGraph、Peak Heap Used、RSS、CGNode、CGEdge的baseline/candidate、absolute change与ratio。不存在固定Wall/RSS threshold，不输出PASS/FAIL，也不推导algorithm优劣。
+输出四种algorithm的median wall、CallGraph、Peak Heap Used、RSS、CGNode、CGEdge的baseline/candidate、absolute change与ratio。不存在固定Wall/RSS threshold，不输出PASS/FAIL，也不推导algorithm优劣。
 
 ## Failure Entrypoints
 

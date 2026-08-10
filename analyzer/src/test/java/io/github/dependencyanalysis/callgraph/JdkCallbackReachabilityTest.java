@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class JdkCallbackReachabilityTest {
 
     /** Keeps each real-JDK graph build bounded. */
-    private static final long GRAPH_TIMEOUT_SECONDS = 90L;
+    private static final long GRAPH_TIMEOUT_SECONDS = 120L;
 
     /** Application fixture owner. */
     private static final String APP = "JdkCallbacks$";
@@ -42,7 +42,7 @@ class JdkCallbackReachabilityTest {
     private Path temporary;
 
     @Test
-    void allAlgorithmsReachCallbacksThroughRealJdkBodiesAndNativeModel()
+    void rtaAndZeroXAlgorithmsReachBroadRealJdkCallbacks()
             throws Exception {
         final Path classes = compileFixture();
         final JavaRuntimeDescriptor runtime = new Jdk8RuntimeProvider()
@@ -82,6 +82,35 @@ class JdkCallbackReachabilityTest {
                         APP + "ThreadTask", "run");
                 assertNativeAccessControllerModel(session, algorithm);
             }
+        }
+    }
+
+    @Test
+    void oneObjectOneCallSiteReachesJdk8PrimordialThreadCallback()
+            throws Exception {
+        final Path classes = compileThreadFixture();
+        final JavaRuntimeDescriptor runtime =
+                MinimalJdk8RuntimeFixture.create(
+                        temporary.resolve("minimal-jdk8"));
+        final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                new ModuleId(new ArtifactCoord(
+                        "test", "jdk-thread", "jar", "1"), Path.of(".")),
+                ModulePresence.BOTH, classes, List.of(), List.of(), List.of(),
+                new ModuleChangeSet(List.of(), List.of()));
+        final EntrypointSelection roots = EntrypointSelection.parse(
+                List.of("PreciseJdkCallback"), List.of());
+
+        try (var repository = TestJarRepositories.empty()) {
+            final ModuleCallGraphSession session =
+                    new ModuleCallGraphEngine(
+                            diagnostics(), runtime, roots,
+                            CallGraphAlgorithm.ONE_OBJECT_ONE_CALL_SITE,
+                            WalaReflectionOptions.parse("NONE"), repository)
+                            .build(unit, GRAPH_TIMEOUT_SECONDS);
+
+            assertRealJdkDispatch(session,
+                    CallGraphAlgorithm.ONE_OBJECT_ONE_CALL_SITE,
+                    "PreciseJdkCallback$Task", "run");
         }
     }
 
@@ -257,6 +286,27 @@ class JdkCallbackReachabilityTest {
                         public void execute(Runnable command) {
                             command.run();
                         }
+                    }
+                }
+                """);
+        final int exit = ToolProvider.getSystemJavaCompiler().run(
+                null, null, null, "--release", "8", "-d",
+                classes.toString(), source.toString());
+        assertThat(exit).isZero();
+        return classes;
+    }
+
+    private Path compileThreadFixture() throws Exception {
+        final Path source = temporary.resolve("PreciseJdkCallback.java");
+        final Path classes = temporary.resolve("precise-classes");
+        Files.createDirectories(classes);
+        Files.writeString(source, """
+                public final class PreciseJdkCallback {
+                    public static void execute() {
+                        new Thread(new Task()).run();
+                    }
+                    static final class Task implements Runnable {
+                        public void run() { }
                     }
                 }
                 """);

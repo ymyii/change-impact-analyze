@@ -4,6 +4,7 @@ import com.ibm.wala.classLoader.BinaryDirectoryTreeModule;
 import com.ibm.wala.classLoader.IClass;
 import com.ibm.wala.classLoader.IMethod;
 import com.ibm.wala.classLoader.JarFileModule;
+import com.ibm.wala.classLoader.ShrikeClass;
 import com.ibm.wala.classLoader.SyntheticClass;
 import com.ibm.wala.ipa.callgraph.AnalysisCacheImpl;
 import com.ibm.wala.ipa.callgraph.AnalysisScope;
@@ -25,6 +26,10 @@ import io.github.dependencyanalysis.impact.StructuralReferenceIndex;
 import io.github.dependencyanalysis.jar.IJarRepository;
 import io.github.dependencyanalysis.jar.JarLease;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
+
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassVisitor;
+import org.objectweb.asm.Opcodes;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -544,8 +549,11 @@ public final class ModuleCallGraphEngine {
                                 + "inconsistently: expected=" + name
                                 + "; actual=" + resolved);
             }
+            if (isPrivateEntrypointType(type)) {
+                continue;
+            }
             for (IMethod method : type.getDeclaredMethods()) {
-                if (!method.isAbstract()) {
+                if (!method.isAbstract() && !method.isPrivate()) {
                     methods.add(method);
                 }
             }
@@ -559,6 +567,33 @@ public final class ModuleCallGraphEngine {
                         new DeclaredTypesEntrypoint(
                                 method, hierarchy, syntheticTypes))
                 .toList();
+    }
+
+    private boolean isPrivateEntrypointType(final IClass type) {
+        if (type.isPrivate()) {
+            return true;
+        }
+        if (!(type instanceof ShrikeClass shrikeClass)) {
+            return false;
+        }
+        final ClassReader reader = new ClassReader(
+                shrikeClass.getReader().getBytes());
+        final boolean[] privateNested = new boolean[1];
+        reader.accept(new ClassVisitor(Opcodes.ASM9) {
+            @Override
+            public void visitInnerClass(
+                    final String name,
+                    final String outerName,
+                    final String innerName,
+                    final int access) {
+                if (reader.getClassName().equals(name)
+                        && (access & Opcodes.ACC_PRIVATE) != 0) {
+                    privateNested[0] = true;
+                }
+            }
+        }, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG
+                | ClassReader.SKIP_FRAMES);
+        return privateNested[0];
     }
 
     private int parameterCandidateCount(

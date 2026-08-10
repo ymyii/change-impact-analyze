@@ -16,6 +16,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Tests the user-declared PROJECT entrypoint boundary. */
 class EntrypointSelectionTest {
 
+    /** Retained roots in the scanner privacy fixture. */
+    private static final int RETAINED_ROOT_COUNT = 4;
+
     /** Temporary class output. */
     @TempDir
     private Path temporary;
@@ -142,6 +145,23 @@ class EntrypointSelectionTest {
                 .hasMessageContaining("Duplicate PROJECT entrypoint class");
     }
 
+    @Test
+    void scannerExcludesPrivateNestedClassesAndPrivateMethods()
+            throws Exception {
+        writeClass("com/acme/Methods", false);
+        writeNestedClass("com/acme/Owner$PrivateNested",
+                Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC);
+        writeNestedClass("com/acme/Owner$VisibleNested",
+                Opcodes.ACC_PROTECTED | Opcodes.ACC_STATIC);
+
+        final EntrypointClassIndex index = new EntrypointClassScanner().scan(
+                temporary, EntrypointSelection.allProjectClasses());
+
+        assertThat(index.selectedClassNames()).containsExactly(
+                "com/acme/Methods", "com/acme/Owner$VisibleNested");
+        assertThat(index.entrypointCount()).isEqualTo(RETAINED_ROOT_COUNT);
+    }
+
     private void writeClass(final String owner, final boolean abstractMethod)
             throws Exception {
         final ClassWriter writer = new ClassWriter(0);
@@ -151,10 +171,30 @@ class EntrypointSelectionTest {
                 "java/lang/Object", null);
         addMethod(writer, "one", Opcodes.ACC_PUBLIC);
         addMethod(writer, "two", Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC);
+        addMethod(writer, "privateInstance", Opcodes.ACC_PRIVATE);
+        addMethod(writer, "privateStatic",
+                Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC);
+        addMethod(writer, "<init>", Opcodes.ACC_PRIVATE);
         if (abstractMethod) {
             writer.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_ABSTRACT,
                     "abstractMethod", "()V", null, null).visitEnd();
         }
+        writer.visitEnd();
+        final Path output = temporary.resolve(owner + ".class");
+        Files.createDirectories(output.getParent());
+        Files.write(output, writer.toByteArray());
+    }
+
+    private void writeNestedClass(
+            final String owner, final int innerAccess) throws Exception {
+        final ClassWriter writer = new ClassWriter(0);
+        writer.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC, owner, null,
+                "java/lang/Object", null);
+        final int separator = owner.lastIndexOf('$');
+        writer.visitInnerClass(owner, owner.substring(0, separator),
+                owner.substring(separator + 1), innerAccess);
+        addMethod(writer, "one", Opcodes.ACC_PUBLIC);
+        addMethod(writer, "two", Opcodes.ACC_SYNTHETIC | Opcodes.ACC_BRIDGE);
         writer.visitEnd();
         final Path output = temporary.resolve(owner + ".class");
         Files.createDirectories(output.getParent());

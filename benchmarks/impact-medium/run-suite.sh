@@ -50,16 +50,17 @@ run_one() {
     "$script_dir/run-benchmark.sh" "$label" || suite_failed=1
 }
 
-# Wiki: wiki/runbooks/impact-benchmark.md - Canonical 3 warm-up + 15 formal suite entrypoint.
-for algorithm in rta zero-cfa optimized-0-1-cfa; do
+# Wiki: wiki/runbooks/impact-benchmark.md - Canonical 4 warm-up + 20 formal suite entrypoint.
+for algorithm in rta zero-cfa optimized-0-1-cfa 1-object-1-call-site; do
   run_one "$algorithm" warmup 0 0 1
 done
 
 for round in 1 2 3 4 5; do
   case "$round" in
-    1|4) order="rta zero-cfa optimized-0-1-cfa" ;;
-    2|5) order="zero-cfa optimized-0-1-cfa rta" ;;
-    3) order="optimized-0-1-cfa rta zero-cfa" ;;
+    1|5) order="rta zero-cfa optimized-0-1-cfa 1-object-1-call-site" ;;
+    2) order="zero-cfa optimized-0-1-cfa 1-object-1-call-site rta" ;;
+    3) order="optimized-0-1-cfa 1-object-1-call-site rta zero-cfa" ;;
+    4) order="1-object-1-call-site rta zero-cfa optimized-0-1-cfa" ;;
   esac
   for algorithm in $order; do
     run_one "$algorithm" formal "$round" "$round" 0

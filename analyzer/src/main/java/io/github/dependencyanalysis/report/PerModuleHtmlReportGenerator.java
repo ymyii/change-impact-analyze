@@ -976,6 +976,14 @@ public final class PerModuleHtmlReportGenerator {
                     + "while merging String, Throwable, primitive-holder, "
                     + "and excessive same-type allocations to reduce "
                     + "analysis cost.");
+            case ONE_OBJECT_ONE_CALL_SITE -> term(
+                    "1-Object + 1-Call-Site",
+                    "The context-sensitive WALA call analysis used here. "
+                    + "It distinguishes one receiver allocation site and "
+                    + "one call site, keeps exact allocation-site and "
+                    + "constant-specific identity without smushing, and "
+                    + "can therefore cost substantially more time and "
+                    + "memory than the other algorithms.");
         };
     }
 

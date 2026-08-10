@@ -12,7 +12,12 @@ import unittest
 from pathlib import Path
 
 
-ALGORITHMS = ("rta", "zero-cfa", "optimized-0-1-cfa")
+ALGORITHMS = (
+    "rta",
+    "zero-cfa",
+    "optimized-0-1-cfa",
+    "1-object-1-call-site",
+)
 REFLECTION_OPTIONS = "ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD"
 SAMPLE_COLUMNS = (
     "label",
@@ -46,6 +51,7 @@ GRAPH_COUNTS = {
     "rta": (12, 120, 240),
     "zero-cfa": (12, 24, 42),
     "optimized-0-1-cfa": (12, 30, 48),
+    "1-object-1-call-site": (12, 36, 60),
 }
 
 
@@ -78,7 +84,7 @@ class GenerateReportTest(unittest.TestCase):
                 encoding="utf-8", newline=""
             ) as stream:
                 samples = list(csv.DictReader(stream, delimiter="\t"))
-            self.assertEqual(15, len(samples))
+            self.assertEqual(20, len(samples))
             self.assertEqual({"formal"}, {row["run_kind"] for row in samples})
 
             with (candidate_dir / "summary.tsv").open(
@@ -94,7 +100,7 @@ class GenerateReportTest(unittest.TestCase):
                 reader = csv.DictReader(stream, delimiter="\t")
                 topology_columns = tuple(reader.fieldnames or ())
                 topology = list(reader)
-            self.assertEqual(18, len(topology))
+            self.assertEqual(24, len(topology))
             self.assertIn("sentinel_role", topology_columns)
             self.assertIn("path_root_kind", topology_columns)
             self.assertIn("path_root_cg_node_identity", topology_columns)
@@ -121,7 +127,7 @@ class GenerateReportTest(unittest.TestCase):
                 and "[FAKE_WORLD_CLINIT]" in row["shortest_path"]
                 for row in path_rows
             ))
-            self.assertEqual(6, len(path_rows))
+            self.assertEqual(8, len(path_rows))
             self.assertEqual(
                 {"DECLARED_ENTRYPOINT", "FAKE_ROOT"},
                 {row["path_root_kind"] for row in path_rows},
@@ -149,7 +155,7 @@ class GenerateReportTest(unittest.TestCase):
                     report,
                 )
                 self.assertIn(f'id="tab-{algorithm}"', report)
-            self.assertEqual(4, report.count('name="report-tab"'))
+            self.assertEqual(5, report.count('name="report-tab"'))
             self.assertIn('id="tab-comparison"', report)
             self.assertIn("Top 10 caller CGNode", report)
             self.assertIn("Top 10 callee CGNode", report)
@@ -164,14 +170,14 @@ class GenerateReportTest(unittest.TestCase):
             self.assertIn("WALA SYNTHETIC", report)
             self.assertIn("10 / 12 CGNode Context examples；omitted 2", report)
             self.assertEqual(
-                6, report.count("Declared entrypoint shortest CGNode chains")
+                8, report.count("Declared entrypoint shortest CGNode chains")
             )
             self.assertEqual(
-                6,
+                8,
                 report.count("<h5>WALA sentinel shortest CGNode chains</h5>"),
             )
             self.assertEqual(
-                3,
+                4,
                 report.count("请查看 WALA sentinel shortest CGNode chains"),
             )
             self.assertNotIn("UNREACHABLE_FROM_DECLARED_ENTRYPOINTS", report)
@@ -190,7 +196,7 @@ class GenerateReportTest(unittest.TestCase):
             self.assertIn(
                 "WALA sentinel shortest CGNode chains", caller_section
             )
-            self.assertEqual(15, report.count("<td>SUCCESS</td>"))
+            self.assertEqual(20, report.count("<td>SUCCESS</td>"))
             self.assertIn("Algorithm comparison", report)
             self.assertIn("Wall / ZeroCFA", report)
             self.assertIn("&lt;danger&gt;&amp;&quot;", report)
@@ -261,7 +267,7 @@ class GenerateReportTest(unittest.TestCase):
 
             self.assertEqual(0, result.returncode, result.stderr)
             rows = list(csv.DictReader(result.stdout.splitlines(), delimiter="\t"))
-            self.assertEqual(18, len(rows))
+            self.assertEqual(24, len(rows))
             self.assertEqual({"0.000000"}, {row["absolute_change"] for row in rows})
             self.assertEqual({"1.000000"}, {row["ratio"] for row in rows})
 
@@ -355,7 +361,7 @@ class GenerateReportTest(unittest.TestCase):
             self._write_topology(warmup, algorithm)
             run_directories.append(warmup)
         for sample in range(1, 6):
-            rotation = sample % len(ALGORITHMS)
+            rotation = (sample - 1) % len(ALGORITHMS)
             order = ALGORITHMS[rotation:] + ALGORITHMS[:rotation]
             for algorithm in order:
                 run = root / f"formal-{sample}-{algorithm}"

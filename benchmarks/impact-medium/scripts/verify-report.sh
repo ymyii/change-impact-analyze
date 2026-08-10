@@ -15,7 +15,7 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 expected_results="$script_dir/../expected-results.tsv"
 
 case "$algorithm" in
-  rta|zero-cfa|optimized-0-1-cfa) ;;
+  rta|zero-cfa|optimized-0-1-cfa|1-object-1-call-site) ;;
   *)
     echo "unsupported call graph algorithm: $algorithm" >&2
     exit 2

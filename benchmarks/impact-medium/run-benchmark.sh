@@ -16,9 +16,9 @@ esac
 : "${BENCHMARK_CALL_GRAPH_ALGORITHM:?BENCHMARK_CALL_GRAPH_ALGORITHM must be explicitly set}"
 
 case "$BENCHMARK_CALL_GRAPH_ALGORITHM" in
-  rta|zero-cfa|optimized-0-1-cfa) ;;
+  rta|zero-cfa|optimized-0-1-cfa|1-object-1-call-site) ;;
   *)
-    echo "BENCHMARK_CALL_GRAPH_ALGORITHM must be rta, zero-cfa, or optimized-0-1-cfa" >&2
+    echo "BENCHMARK_CALL_GRAPH_ALGORITHM must be rta, zero-cfa, optimized-0-1-cfa, or 1-object-1-call-site" >&2
     exit 2
     ;;
 esac

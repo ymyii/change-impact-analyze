@@ -126,8 +126,9 @@ class DependencyAnalyzerCliTest {
                 .contains("--entrypoint-exclude")
                 .contains("--analysis-target");
         assertThat(impactText.toString().replaceAll("\\s+", " "))
-                .contains("Call Graph algorithm: rta, zero-cfa, or "
-                        + "optimized-0-1-cfa; default: rta.");
+                .contains("Call Graph algorithm: rta, zero-cfa, "
+                        + "optimized-0-1-cfa, or 1-object-1-call-site; "
+                        + "default: rta.");
         assertThat(treeText.toString())
                 .contains("-p, --path")
                 .contains("-r, --ref")
@@ -221,6 +222,8 @@ class DependencyAnalyzerCliTest {
                 .newCommandLine(new DependencyAnalyzerCli());
         final CommandLine optimizedCommand = DependencyAnalyzerCli
                 .newCommandLine(new DependencyAnalyzerCli());
+        final CommandLine oneObjectOneCallSiteCommand = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli());
 
         final CommandLine.ParseResult defaultResult =
                 defaultCommand.parseArgs("impact", "--baseline", "HEAD",
@@ -233,6 +236,12 @@ class DependencyAnalyzerCliTest {
                 optimizedCommand.parseArgs("impact", "--baseline", "HEAD",
                         "--output", "report.html",
                         "--call-graph-algorithm", "OPTIMIZED-0-1-CFA");
+        final CommandLine.ParseResult oneObjectOneCallSiteResult =
+                oneObjectOneCallSiteCommand.parseArgs(
+                        "impact", "--baseline", "HEAD",
+                        "--output", "report.html",
+                        "--call-graph-algorithm",
+                        "1-OBJECT-1-CALL-SITE");
 
         assertThat(algorithm(defaultResult))
                 .isEqualTo(CallGraphAlgorithm.RTA);
@@ -240,6 +249,8 @@ class DependencyAnalyzerCliTest {
                 .isEqualTo(CallGraphAlgorithm.ZERO_CFA);
         assertThat(algorithm(optimizedResult))
                 .isEqualTo(CallGraphAlgorithm.OPTIMIZED_ZERO_ONE_CFA);
+        assertThat(algorithm(oneObjectOneCallSiteResult))
+                .isEqualTo(CallGraphAlgorithm.ONE_OBJECT_ONE_CALL_SITE);
     }
 
     @Test
@@ -315,7 +326,8 @@ class DependencyAnalyzerCliTest {
 
         assertThat(code).isEqualTo(1);
         assertThat(errors.toString())
-                .contains("rta, zero-cfa, optimized-0-1-cfa")
+                .contains("rta, zero-cfa, optimized-0-1-cfa, "
+                        + "1-object-1-call-site")
                 .doesNotContain("[preflight]");
     }
 

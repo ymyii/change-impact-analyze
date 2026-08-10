@@ -2,6 +2,9 @@ package io.github.dependencyanalysis.callgraph;
 
 import com.ibm.wala.classLoader.IMethod;
 import com.ibm.wala.ipa.callgraph.CGNode;
+import com.ibm.wala.ipa.callgraph.ContextItem;
+import com.ibm.wala.ipa.callgraph.propagation.cfa.CallStringContextSelector;
+import com.ibm.wala.ipa.callgraph.propagation.cfa.nObjContextSelector;
 import com.ibm.wala.ipa.summaries.BypassSyntheticClass;
 import com.ibm.wala.ssa.IR;
 import com.ibm.wala.ssa.SSAInstruction;
@@ -67,6 +70,9 @@ class WalaFixedPointModelsTest {
 
     /** Unsupported MethodHandle receiver sources in the negative fixture. */
     private static final int UNRESOLVED_HANDLE_SOURCE_COUNT = 3;
+
+    /** Non-private roots in the defensive private-declaration fixture. */
+    private static final int PRIVATE_FILTER_ROOT_COUNT = 3;
 
     /** Custom Java 8 bootstrap descriptor. */
     private static final String BOOTSTRAP_DESCRIPTOR =
@@ -173,6 +179,128 @@ class WalaFixedPointModelsTest {
                     .isInstanceOf(CallGraphException.class)
                     .hasMessageContaining(
                             "Unable to resolve indexed PROJECT entrypoint");
+        }
+    }
+
+    @Test
+    void privateDeclarationsNeverBecomeRootsButRemainReachable()
+            throws Exception {
+        final Path classes = compile("PrivateRoots", """
+                public class PrivateRoots {
+                    private PrivateRoots() { }
+                    public static void entry() {
+                        privateStatic();
+                        new PrivateRoots().privateInstance();
+                    }
+                    private static void privateStatic() { }
+                    private void privateInstance() { }
+                    static class VisibleNested {
+                        void retained() { }
+                    }
+                    private static class HiddenNested {
+                        void hidden() { }
+                    }
+                }
+                """);
+        final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                moduleId(), ModulePresence.BOTH, classes, List.of(),
+                List.of(), List.of(),
+                new ModuleChangeSet(List.of(), List.of()));
+        final EntrypointClassIndex manualIndex = new EntrypointClassIndex(
+                List.of("PrivateRoots", "PrivateRoots$HiddenNested",
+                        "PrivateRoots$VisibleNested"), 100);
+        final JavaRuntimeDescriptor runtime = new Jdk8RuntimeProvider()
+                .probe(Path.of(System.getenv("TEST_JDK8_HOME")));
+
+        try (IJarRepository repository = TestJarRepositories.empty()) {
+            final ModuleCallGraphSession session =
+                    new ModuleCallGraphEngine(
+                            diagnostics(), runtime,
+                            EntrypointSelection.allProjectClasses(),
+                            CallGraphAlgorithm.RTA,
+                            WalaReflectionOptions.parse("NONE"), repository)
+                            .build(unit, manualIndex,
+                                    GRAPH_TIMEOUT_SECONDS);
+
+            final List<String> roots = session.getGraph()
+                    .getEntrypointNodes().stream()
+                    .map(node -> node.getMethod().getReference().toString()
+                            + " methodPrivate="
+                            + node.getMethod().isPrivate()
+                            + " classPrivate="
+                            + node.getMethod().getDeclaringClass().isPrivate())
+                    .sorted().toList();
+            assertThat(session.getEntrypointCount()).as(roots.toString())
+                    .isEqualTo(PRIVATE_FILTER_ROOT_COUNT);
+            assertThat(session.getGraph().getEntrypointNodes())
+                    .allSatisfy(node -> {
+                        assertThat(node.getMethod().isPrivate()).isFalse();
+                        assertThat(node.getMethod().getDeclaringClass()
+                                .isPrivate()).isFalse();
+                        assertThat(owner(node)).doesNotContain("HiddenNested");
+                    });
+            assertThat(hasEdge(session, "PrivateRoots", "entry",
+                    "PrivateRoots", "privateStatic")).isTrue();
+            assertThat(hasEdge(session, "PrivateRoots", "entry",
+                    "PrivateRoots", "privateInstance")).isTrue();
+            assertThat(session.getGraph()).anyMatch(node ->
+                    owner(node).equals("PrivateRoots")
+                            && node.getMethod().getName().toString()
+                            .equals("privateInstance")
+                            && node.getMethod().isPrivate());
+        }
+    }
+
+    @Test
+    void oneObjectOneCallSiteCarriesBothBoundedContexts()
+            throws Exception {
+        final Path classes = compile("ContextPrecision", """
+                public class ContextPrecision {
+                    public void entry() {
+                        callA(new Receiver());
+                        callB(new Receiver());
+                    }
+                    static void callA(Receiver receiver) {
+                        receiver.target();
+                    }
+                    static void callB(Receiver receiver) {
+                        receiver.target();
+                    }
+                    static class Receiver {
+                        void target() { }
+                    }
+                }
+                """);
+
+        try (IJarRepository repository = TestJarRepositories.empty()) {
+            final ModuleCallGraphSession session = build(
+                    classes, repository,
+                    CallGraphAlgorithm.ONE_OBJECT_ONE_CALL_SITE,
+                    WalaReflectionOptions.parse("NONE"));
+            final List<CGNode> contextualTargets = new ArrayList<>();
+            for (CGNode node : session.getGraph()) {
+                if (owner(node).equals("ContextPrecision$Receiver")
+                        && node.getMethod().getName().toString()
+                        .equals("target")
+                        && node.getContext().get(
+                        nObjContextSelector.ALLOCATION_STRING_KEY) != null
+                        && node.getContext().get(
+                        CallStringContextSelector.CALL_STRING) != null) {
+                    contextualTargets.add(node);
+                }
+            }
+            final Set<ContextItem> allocations = new HashSet<>();
+            final Set<ContextItem> calls = new HashSet<>();
+            contextualTargets.forEach(node -> {
+                allocations.add(node.getContext().get(
+                        nObjContextSelector.ALLOCATION_STRING_KEY));
+                calls.add(node.getContext().get(
+                        CallStringContextSelector.CALL_STRING));
+            });
+
+            assertThat(contextualTargets).hasSizeGreaterThanOrEqualTo(2);
+            assertThat(allocations).hasSizeGreaterThanOrEqualTo(2);
+            assertThat(calls).hasSizeGreaterThanOrEqualTo(2);
         }
     }
 
@@ -581,13 +709,21 @@ class WalaFixedPointModelsTest {
                     }
                 }
                 """);
+        final JavaRuntimeDescriptor minimalRuntime =
+                MinimalJdk8RuntimeFixture.create(
+                        temporary.resolve("method-handle-jdk8"));
 
         try (IJarRepository repository = TestJarRepositories.empty()) {
             for (CallGraphAlgorithm algorithm
                     : CallGraphAlgorithm.values()) {
-                final ModuleCallGraphSession session = build(
-                        classes, repository, algorithm,
-                        WalaReflectionOptions.parse("NONE"));
+                final ModuleCallGraphSession session =
+                        algorithm == CallGraphAlgorithm
+                                .ONE_OBJECT_ONE_CALL_SITE
+                        ? build(classes, repository, algorithm,
+                                WalaReflectionOptions.parse("NONE"),
+                                minimalRuntime)
+                        : build(classes, repository, algorithm,
+                                WalaReflectionOptions.parse("NONE"));
                 assertThat(hasPath(session,
                         "RtaMethodHandleApp", "execute",
                         "RtaMethodHandleApp", "target"))
@@ -866,11 +1002,19 @@ class WalaFixedPointModelsTest {
     void reachableUnknownBootstrapIsInconclusive() throws Exception {
         final Path classes = dynamicClass(
                 "UnknownDynamicApp", false);
+        final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                moduleId(), ModulePresence.BOTH, classes, List.of(),
+                List.of(), List.of(),
+                new ModuleChangeSet(List.of(), List.of()));
+        final EntrypointSelection roots = EntrypointSelection.parse(
+                List.of("UnknownDynamicApp"), List.of());
         try (IJarRepository repository = TestJarRepositories.empty()) {
             for (CallGraphAlgorithm algorithm
                     : CallGraphAlgorithm.values()) {
                 final ModuleCallGraphSession session = build(
-                        classes, repository, algorithm,
+                        unit, repository,
+                        InvokeDynamicBootstrapModelRegistry.jdk8Defaults(),
+                        roots, algorithm,
                         WalaReflectionOptions.parse("NONE"));
                 assertThat(session.hasDynamicModelLimitations())
                         .as(algorithm.identifier()).isTrue();
@@ -940,11 +1084,13 @@ class WalaFixedPointModelsTest {
                     moduleId(), ModulePresence.BOTH, classes, List.of(),
                     List.of(), List.of(),
                     new ModuleChangeSet(List.of(), List.of()));
+            final EntrypointSelection roots = EntrypointSelection.parse(
+                    List.of("CustomDynamicApp"), List.of());
             for (CallGraphAlgorithm algorithm
                     : CallGraphAlgorithm.values()) {
                 final ModuleCallGraphSession session = build(
                         unit, repository, registry,
-                        EntrypointSelection.allProjectClasses(), algorithm,
+                        roots, algorithm,
                         WalaReflectionOptions.parse("NONE"));
                 assertThat(session.hasDynamicModelLimitations())
                         .as(algorithm.identifier() + " "
@@ -1005,6 +1151,22 @@ class WalaFixedPointModelsTest {
                 new ModuleChangeSet(List.of(), List.of()));
         final JavaRuntimeDescriptor runtime = new Jdk8RuntimeProvider()
                 .probe(Path.of(System.getenv("TEST_JDK8_HOME")));
+        return new ModuleCallGraphEngine(diagnostics(), runtime,
+                EntrypointSelection.allProjectClasses(), algorithm,
+                reflectionOptions, repository).build(
+                unit, GRAPH_TIMEOUT_SECONDS);
+    }
+
+    private ModuleCallGraphSession build(
+            final Path classes,
+            final IJarRepository repository,
+            final CallGraphAlgorithm algorithm,
+            final WalaReflectionOptions reflectionOptions,
+            final JavaRuntimeDescriptor runtime) throws Exception {
+        final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                moduleId(), ModulePresence.BOTH, classes, List.of(),
+                List.of(), List.of(),
+                new ModuleChangeSet(List.of(), List.of()));
         return new ModuleCallGraphEngine(diagnostics(), runtime,
                 EntrypointSelection.allProjectClasses(), algorithm,
                 reflectionOptions, repository).build(
