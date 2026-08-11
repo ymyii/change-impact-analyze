@@ -4,7 +4,6 @@ import com.ibm.wala.ipa.callgraph.AnalysisOptions;
 import com.ibm.wala.ipa.callgraph.impl.Util;
 import com.ibm.wala.ipa.callgraph.propagation.SSAPropagationCallGraphBuilder;
 import com.ibm.wala.ipa.callgraph.propagation.cfa.ZeroXInstanceKeys;
-import com.ibm.wala.ipa.callgraph.propagation.cfa.nObjBuilder;
 
 import java.util.ArrayList;
 
@@ -31,9 +30,10 @@ final class KObjCallGraphStrategy
         final KObjInvokeDynamicInstaller dynamic =
                 new KObjInvokeDynamicInstaller();
         dynamic.install(options, request.dynamicModels());
-        final SSAPropagationCallGraphBuilder builder = new nObjBuilder(
+        final SSAPropagationCallGraphBuilder builder =
+                new KObjCallGraphBuilder(
                 request.kObjDepth(), request.hierarchy(), options,
-                request.cache(), null, null, INSTANCE_POLICY);
+                request.cache(), INSTANCE_POLICY);
         new KObjMethodHandleInstaller().install(
                 options, builder);
         final KObjServiceLoaderInstaller serviceLoader =

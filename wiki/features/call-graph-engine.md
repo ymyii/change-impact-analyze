@@ -33,6 +33,10 @@ code_refs:
     desc: "allocation-sensitive optimized 0-1-CFA 构建"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/KObjCallGraphStrategy.java"
     desc: "可配置receiver allocation string深度的纯k-object-sensitive构建"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/KObjCallGraphBuilder.java"
+    desc: "复用WALA default selector的k-object builder"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/KObjContextSelector.java"
+    desc: "WALA 1.8.0 n-object语义与ClassFactory Context兼容合并"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/WalaReflectionOptions.java"
     desc: "command-wide WALA ReflectionOptions Value Object"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/EntrypointClassIndex.java"
@@ -129,6 +133,10 @@ code_refs:
     desc: "高精度MethodHandle与Thread callback的最小Java 8 Primordial bytecode"
   - path: "analyzer/src/test/java/io/github/dependencyanalysis/callgraph/WalaFixedPointModelsTest.java"
     desc: "四种algorithm fixed-point、k-object深度、递归收敛与private root关键路径"
+  - path: "analyzer/src/test/java/io/github/dependencyanalysis/callgraph/KObjContextSelectorTest.java"
+    desc: "ClassFactory单一Context、receiver priority与allocation key验证"
+  - path: "analyzer/src/test/java/io/github/dependencyanalysis/callgraph/KObjClassFactoryContextRegressionTest.java"
+    desc: "完整JDK 8 Reflection路径与ClassFactory Context shape门禁"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/ClassSource.java"
     desc: "dependency ArtifactCoord logical source identity"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphTimeoutMonitor.java"
@@ -146,7 +154,8 @@ code_refs:
 - `rta` 是 CLI 默认值；strategy 直接创建 `BasicRTABuilder`，不经过 `ZeroXCFABuilder`，也不伪造 points-to value。
 - `zero-cfa` policy 只启用 `CONSTANT_SPECIFIC`：普通 allocation按 concrete class合并，constant继续保持 identity。
 - `optimized-0-1-cfa` 使用 `ALLOCATIONS | CONSTANT_SPECIFIC | SMUSH_MANY | SMUSH_PRIMITIVE_HOLDERS | SMUSH_STRINGS | SMUSH_THROWABLES`，保持原 allocation-sensitive contract。
-- `k-obj`使用`nObjBuilder(k, ...)`与`ALLOCATIONS | CONSTANT_SPECIFIC`，不启用smushing，也不安装外层`nCFAContextSelector`。instance Context的allocation string最多保留配置的`k`层；普通static调用复用object Context，直接或间接递归最终命中已有Context并收敛。较大的`k`仍可能扩大有限状态空间、内存与耗时。
+- `k-obj`使用基于`ZeroXCFABuilder`的`KObjCallGraphBuilder`与`ALLOCATIONS | CONSTANT_SPECIFIC`，不启用smushing，也不安装外层`nCFAContextSelector`。Analyzer-owned `KObjContextSelector`保持WALA 1.8.0 n-object语义：instance Context的allocation string最多保留配置的`k`层；普通static调用复用object Context，直接或间接递归最终命中已有Context并收敛。较大的`k`仍可能扩大有限状态空间、内存与耗时。
+- WALA 1.8.0的`k-obj`使用Analyzer-side ClassFactory compatibility merge。Builder复用`ZeroXCFABuilder`已创建且包含Reflection selectors的唯一default selector，不额外创建或调用`ClassFactoryContextSelector`。普通调用保持k-object-first；仅当原base为ClassFactory返回合法`JavaTypeContext`时使用base-first，使`RECEIVER`保持`TypeAbstraction`，同时保留k-object Context的`ALLOCATION_STRING_KEY`等非冲突key。每个有效ClassFactory Context只包含一个语义`JavaTypeContext`。
 - 算法在 command 级选择并应用到全部 Module；不存在 per-Module override、timeout fallback或同一 run 混用算法。
 - Dependency analysis scope 在 command 级请求，但 `changed-paths` 的 occurrence graph/path recovery 异常会使单个 Module actual mode fallback 到 `full`。`full` 不安装 dependency body boundary。
 - 四种算法由唯一 Factory 选择独立 strategy。Request/Result 与 model metadata 是 immutable boundary；builder、selector、interpreter、installer与build-time collector都是strategy-local state。`ModuleCallGraphEngine`在strategy选择前只创建一次immutable `ServiceLoaderProtocolIndex`；四套installer分别消费，只共享immutable protocol facts与pure resolver/helper，不共享mutable execution state。
@@ -189,14 +198,15 @@ code_refs:
 
 ## Fixed-point Installation Order
 
-`ModuleCallGraphEngine`完成ownership、raw Structural Reference、scope、CHA与entrypoints后，构造immutable`CallGraphBuildRequest`。`CallGraphStrategyFactory`一次性选择strategy；每个strategy自己创建`AnalysisOptions`，安装selected ReflectionOptions与WALA defaults，然后安装一次JDK model，再安装`invokedynamic`、MethodHandle、ServiceLoader和dependency body boundary，最后只调用一次`makeCallGraph(...)`。fixed point完成后snapshot`JdkModelMetadata`进入single-graph session，仅供内部验收：
+`ModuleCallGraphEngine`完成ownership、raw Structural Reference、scope、CHA与entrypoints后，构造immutable`CallGraphBuildRequest`。`CallGraphStrategyFactory`一次性选择strategy；每个strategy自己创建`AnalysisOptions`，安装selected ReflectionOptions与WALA defaults，然后安装一次JDK model，再安装`invokedynamic`、MethodHandle、ServiceLoader和dependency body boundary。`k-obj`在builder构造时将k-object合并器安装到existing default selector之上；四种strategy最后都只调用一次`makeCallGraph(...)`。fixed point完成后snapshot`JdkModelMetadata`进入single-graph session，仅供内部验收：
 
 ```text
 CallGraphBuildRequest
   → RtaCallGraphStrategy → BasicRTABuilder
   → ZeroCfaCallGraphStrategy → ZeroXCFABuilder(CONSTANT_SPECIFIC)
   → OptimizedZeroOneCfaCallGraphStrategy → ZeroXCFABuilder(ALLOCATIONS + CONSTANT_SPECIFIC + smushing)
-  → KObjCallGraphStrategy → nObjBuilder(k, ALLOCATIONS + CONSTANT_SPECIFIC)
+  → KObjCallGraphStrategy → KObjCallGraphBuilder(ZeroX, ALLOCATIONS + CONSTANT_SPECIFIC)
+    → KObjContextSelector(k, existing default selector) → makeCallGraph
   → CallGraphStrategyResult(CallGraph, immutable StrategyModelMetadata)
 ```
 
@@ -208,7 +218,7 @@ RTA 使用 caller-local `IR`/`DefUse` 解析 `Lookup.findStatic*` 到 `invokeExa
 
 1. 建立 winner-only ownership、structural metadata、WALA scope与CHA。
 2. 从 immutable PROJECT class index生成 declared-type entrypoints。
-3. Factory选择独立strategy，安装selected ReflectionOptions、default selectors/bypass、selected JDK Method Model、`invokedynamic`、MethodHandle与ServiceLoader model；`changed-paths`再安装共享dependency body boundary decorator。
+3. Factory选择独立strategy，安装selected ReflectionOptions、default selectors/bypass、selected JDK Method Model、`invokedynamic`、MethodHandle与ServiceLoader model；`k-obj` builder在构造时复用唯一default selector并安装兼容n-object合并器；`changed-paths`再安装共享dependency body boundary decorator。
 4. 单线程求解 selected RTA/points-to 与 Call Graph fixed point；timeout仅通过 cooperative monitor取消，失败使用 typed `CallGraphFailureKind.TIMEOUT`。
 5. 将 graph、IR cache、ownership和immutable model metadata封装为只读 query session。
 
@@ -294,6 +304,7 @@ Factory summary使用真实 resolved callee owner、method与descriptor，生成
 - Given Stream/Optional、Collection/Map、AbstractExecutorService/CompletableFuture或Thread callback；WhenRTA与两种ZeroX algorithm使用完整target JDK 8构图；Thenapplication callback存在来自non-native、non-synthetic且具有IR的JDK dispatch predecessor。`k-obj`使用最小Java 8 Primordial `Thread.run()` bytecode独立验证同一真实dispatch contract。callback测试使用`ReflectionOptions.NONE`隔离无关Reflection状态空间；默认ReflectionOptions由独立CLI与benchmark门禁验证。
 - Given直接static递归或相互static递归；When分别以`k=1`、`k=2`构图；Then在短cooperative timeout内完成，保留self-loop/cycle edge，且所有Context均不提供`CALL_STRING`。
 - Given嵌套receiver allocation；When分别以`k=1`、`k=2`构图；Then目标Context的allocation string最大长度分别为1和2，ServiceLoader等自定义selector不截断或嵌套该Context。
+- Given完整JDK 8、`k-obj`、`k=1`、默认ReflectionOptions与`jdk8` model，且entrypoint通过`Method.invoke`到达`Class.forName`；When检查完整或cooperative timeout时的partial Call Graph；Then每个现存有效ClassFactory Context恰好包含一个语义`JavaTypeContext`且`RECEIVER`为`TypeAbstraction`，`Method.invoke`仍保留`ConstantKey<IMethod>` receiver，entrypoint到两个Reflection API的路径存在，且allocation string最大深度为1。
 - Given已完成Call Graph包含WALA fake root或fake world-clinit；When启用benchmark topology capture；Then sentinel node及incident edge参与CGNode ranking、IMethod子榜、SCC与shortest chain，chain step使用typed `sentinelRole`标记，且不输出declared-entrypoint unreachable状态。
 - Given `AccessController.doPrivileged(PrivilegedAction)`；When target JDK 8构图；Then callback通过WALA内置`SummarizedMethod` native model可达。JDK 8该API本身是native，不能宣称经过真实JDK bytecode body。
 - Given `changed-paths` 与路径外 external sink/factory/plain；When四种 algorithm 构图；Then sink产生dangerous transfer、factory cast materializes included type、plain call只产生no-op；Module因前两者为`INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY`。
@@ -302,6 +313,7 @@ Factory summary使用真实 resolved callee owner、method与descriptor，生成
 ### Non-Functional
 
 - Given任意 Module进入构图；When选择 `rta`；Then实际 builder为 `BasicRTABuilder`且不注入 points-to value；When选择 `zero-cfa`；Then policy恰为 `CONSTANT_SPECIFIC`；When选择 `optimized-0-1-cfa`；Then `ALLOCATIONS`、`CONSTANT_SPECIFIC`与四类 smushing policy作为固定组合启用；When选择`k-obj`；Thenpolicy恰为`ALLOCATIONS | CONSTANT_SPECIFIC`，allocation string最多为配置深度且Context不存在`CALL_STRING`，不启用smushing。
+- Given`k-obj` ClassFactory compatibility merge；Whenproduction构造builder；Then复用唯一existing default selector且不显式创建`ClassFactoryContextSelector`或`UnionContextSelector`；Context shape门禁验证单一`JavaTypeContext`引用、`Context.isA()`、`Context.get()`与runtime `instanceof`，不根据格式化字符串猜测类型。
 - Given Module analysis开始；When执行 builder与query；Then Module内保持单线程，Module间并发边界不变。
 - Given fixed point完成；When进入Impact query；Then不执行 overlay、whole-scope重扫或第二张 target Call Graph。
 - Given版本、scope、selector与环境相同；When重复执行分析；Then输出保持 deterministic。
@@ -312,4 +324,5 @@ Factory summary使用真实 resolved callee owner、method与descriptor，生成
 - timeout不发布 partial graph；Module按 `FAILED_CALL_GRAPH_TIMEOUT`处理，其他 Module继续。
 - 零 PROJECT entrypoint、scope unreadable或CHA/Call Graph failure属于 blocking Module结果。
 - class-based merging或smushing可能增加 conservative edge与candidate path；只有后续 `PROVEN_EQUIVALENT` SSA结果允许删除候选路径。
+- `ClassFactoryContextSelector`在类名无法解析时可能不产生`JavaTypeContext`，兼容合并器此时保持WALA原n-object顺序；因此仅检查异常消失不足以证明兼容性，真实Call Graph中ClassFactory `JavaTypeContext`的malformed和duplicate计数必须为0且有效Context计数必须大于0。
 - WALA 1.8.0 `BasicRTABuilder`的`TypeBasedHeapModel`不提供metadata-object `InstanceKey`，且其`Class.newInstance` interpreter不枚举summary内constructor callsite。因此RTA即使选择包含`APPLICATION_GET_METHOD`的ReflectionOptions，也可能保留`Class.forName`/Reflection API node而无法闭合constructor或`Method.invoke`业务target。ZeroX保留metadata constant，但在完整target JDK 8 scope启用`Method.invoke`可能显著扩大fixed point。项目不用post-build补边或fake metadata value绕过该边界。
