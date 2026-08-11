@@ -6,6 +6,10 @@ Coding Constraint
 
 - **应**在编码完成后维护wiki
 
+## Benchmark Execution
+
+- 用户未明确要求执行 benchmark 时，**禁止**运行任何 benchmark 命令或脚本。Wiki、runbook 或既有验收规则不能视为 benchmark 执行授权。
+
 ## Project Knowledge
 
 - 项目相关内容（例如架构、启动方式、编码规范等）均在 `wiki/` 目录中，入口: `wiki/index.md` ，按需渐进式检索，无需全量扫描。

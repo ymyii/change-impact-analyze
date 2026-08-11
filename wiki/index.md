@@ -67,7 +67,7 @@ code_refs: []
 - Summary: 所有 production external process token 在 `ProcessBuilder` 前必须经过 `CommandResolver.resolve()`。
 
 ### [Benchmark Scenario Coverage](rules/benchmark-scenario-coverage.md)
-- Summary: Analyzer能力新增必须同步提交semantic benchmark场景，并通过changed-paths/full、jdk8/none的56-JVM canonical matrix。
+- Summary: Analyzer能力新增必须同步维护semantic benchmark场景；canonical matrix仅在用户明确授权后执行。
 
 ## Runbooks
 

@@ -8,6 +8,8 @@ relations:
     desc: "Preflight 与 diagnostics 输出"
   - path: "wiki/features/jdk-method-models.md"
     desc: "--jdk-model默认值、关闭语义与严格失败"
+  - path: "wiki/features/bytecode-diff-engine.md"
+    desc: "JAR pair failure isolation与异常诊断"
 code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/cli/DependencyAnalyzerCli.java"
     desc: "Root CLI"
@@ -42,11 +44,27 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - handled uncertainty 与 hard failure 分离：能够继续完成 Call Graph 的 coverage limitation 使用 `INCONCLUSIVE` 和 exit code `0`；无法建立可信 Module 结果的错误使用 `FAILED`/`PARTIAL_SUCCESS` 和 exit code `2`。
 - 外部 dependency 的 excluded JDK reference 使用 artifact-level `WARN`，而不是因为 JAR 内可能不可达的 class 阻断整个 Module；当前项目和 Reactor code 仍保持严格边界。
 - 五段 prefix 的第五段只承载当前 `stage/substage` 无法唯一表达的阶段实例或日志分类 identity；结果、观测值和其他实际日志信息使用 message 中的 `key=value`。
+- 并行JAR pair failure以单个原子日志操作输出retained WARN与可选transient stack，避免不同pair的message和stack交叉。
+
+## Actors / Entrypoints
+
+- `dependency-analyzer impact`和`tree`通过root verbosity选择Console可见性；Preflight、Maven subprocess、JAR diff、Module analysis与Report共享同一`DiagnosticLog`。
+
+## Behavior Contract
+
+- INFO保留稳定进度、warning和error；DEBUG增加分析决策、完整Maven output与异常stack；TRACE再增加细粒度evidence和Runtime Metrics。
+- Retained event可进入HTML Diagnostics；transient output只进入Console。
+
+## Core Flow
+
+1. CLI根据`-v`次数创建command-scoped`DiagnosticLog`。
+2. 各stage使用immutable`DiagnosticContext`输出retained或transient line。
+3. Formatter为每个物理行生成同一五段prefix；Report只消费verbosity已允许的retained snapshot。
 
 ## Global Verbosity
 
 - 未传 `-v`：`INFO`，输出稳定的 stage、progress、warning 和 error；Maven subprocess 只透传 warning/error。
-- `-v` 或一个 `--verbose`：`DEBUG`，增加 analysis option/decision、完整 Maven subprocess output；command failure 同时输出 stack trace。
+- `-v` 或一个 `--verbose`：`DEBUG`，增加 analysis option/decision、完整 Maven subprocess output；command failure和隔离的JAR pair failure同时输出完整stack trace与cause chain。
 - `-vv` 或两个 `--verbose`：`TRACE`，增加 normalized path、ref、scope 等细粒度 evidence，并在 command dispatch 后立即输出 Runtime Metrics snapshot，之后每10 s输出一次；heap observation独立按100 ms执行。
 - `-v` 是 inherited global option，可位于 subcommand 前或后。`DEBUG`/`TRACE` event 只有相应级别启用时才进入 console 与 `impact` HTML Diagnostics；默认 Report 不携带被过滤的详细 event。
 - Analyzer 运行日志只写 stderr；stdout 不承载 Analyzer 日志。Picocli help/usage、参数解析错误和绕过 Analyzer logging 的第三方库 stderr 不受五段 prefix contract 约束。
@@ -93,6 +111,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - `\\`、`;`、`=`、`[`、`]` 在 prefix 中统一转义。多行 message 和 stack trace 拆成独立物理行，每行重新添加完整 prefix。
 - `stageStarts` 以完整 identity stable key 计时，同一 stage 的并发任务不会覆盖 elapsed；完成或失败 event 独立保存 elapsed，并以 `elapsedMs=...` 输出到 message。
 - `INFO` 输出 front branch、Module task start/end；`DEBUG` 输出每个 logical coordinate JAR pair start/end；`TRACE` 输出筛选后的 command/path evidence，不输出 credential、settings 内容或完整 user arguments。
+- JAR pair failure在`INFO`以WARN输出异常类型和完整message；`DEBUG`/`TRACE`紧接输出同context的完整stack与cause chain。WARN为retained event，stack为Console-only transient lines。
 - 外部 dependency scope warning 使用 `[scope-validation][module][module=…][artifact=…]` context；每个 artifact 一条，warning text 同时进入 Module `Coverage limitations`。
 - Analyzer Diagnostic event 默认 retained，可进入 `impact` HTML Diagnostics。Preflight evidence/fallback、Maven output、exception stack trace 与 Runtime Metrics 是 transient，只进入 Console。
 - Console 与 HTML Report 对 retained event 共用 `DiagnosticLogFormatter`，包含同一 event timestamp 和 prefix；Module Diagnostics 只按 `DiagnosticEvent.module` 精确归属。
@@ -113,3 +132,25 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - 当前注册的每个 Analyzer-owned pool 单独使用 `stage=runtime-metrics, substage=thread-pool`，第五段只保留 `pool` identity；sample、elapsed、pool size、task count 和 lifecycle value 位于 message。Registry 只包含 `front-preparation`、`jar-diff`、`module-analysis`、`code-comparison`；scheduler、process-output pump、JVM common pool、WALA internal thread 和 Maven external process 不注册。
 - 单次采样异常使用 `stage=runtime-metrics, substage=sampler` 和空第五段；sample、elapsed 与 error 位于 TRACE transient message，不会改变 command status、Report 或 exit code。
 - `close()`在设置closed flag前强制一次final heap observation，然后使用`stage=runtime-metrics, substage=summary`输出`sample count`、`peakHeapUsedMiB`、`peakHeapCommittedMiB`与`heapMaxMiB`。该summary是benchmark heap主指标来源；process-tree RSS继续由外部runner采集。
+
+## Acceptance Criteria
+
+### Functional
+
+- Given单个JAR pair抛出`BytecodeDiffException`；When使用INFO；Then同pair WARN包含异常类型与完整message，其他pair继续执行。
+- Given同一failure使用DEBUG或TRACE；When输出诊断；Then完整stack与cause chain逐行携带同一pair prefix，且不进入retained events。
+
+### Non-Functional
+
+- [ ] 并行failure的WARN与对应stack原子输出，不与其他pair的异常块交叉。
+- [ ] 日志不输出credential、settings内容或未过滤的完整user arguments。
+
+## Edge Cases
+
+- Exception message为`null`时使用显式placeholder；不影响pair isolation或Module outcome。
+- 多行message、Windows换行和nested cause均规范化为独立prefixed physical line。
+
+## Implementation Boundaries
+
+- `DiagnosticLog`负责visibility、retention与physical-line格式；业务stage负责提供完整、可行动的message和稳定context。
+- Stack trace只用于Console诊断，不写入HTML或benchmark diagnostics JSON。

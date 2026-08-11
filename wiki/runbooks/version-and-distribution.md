@@ -33,7 +33,7 @@ code_refs:
 
 本 runbook 使用 Maven 自身的 Versions、Enforcer、Install、Assembly、Shade、Surefire 与 Failsafe 能力完成 version iteration 和 release。Repository 不提供自有 version/release script，也不维护 version contract 或 fingerprint ledger。
 
-当前release线：Analyzer`2.0.0`、Dependency Evidence Plugin`3.0.0`、公共JDK engine与JDK 8 model`0.1.0-SNAPSHOT`。四者独立使用Semantic Versioning（SemVer）。
+当前开发线：Analyzer`2.0.1-SNAPSHOT`；当前Stable release为Analyzer`2.0.0`、Dependency Evidence Plugin`3.0.0`，公共JDK engine与JDK 8 model为`0.1.0-SNAPSHOT`。四者独立使用Semantic Versioning（SemVer）。
 
 ## Prerequisites
 

@@ -122,6 +122,35 @@ class DiagnosticLogTest {
     }
 
     @Test
+    void warnExceptionRetainsOnlyWarningAndEmitsDebugCauseChain() {
+        final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        final DiagnosticLog log = log(bytes, LogVerbosity.DEBUG,
+                new AtomicLong());
+        final DiagnosticContext context = DiagnosticContext.of(
+                "jar-diff", "pair");
+        final IllegalStateException cause = new IllegalStateException(
+                "root cause");
+        final RuntimeException failure = new RuntimeException(
+                "comparison failed", cause);
+
+        log.warnException(context, "complete warning", failure);
+
+        assertThat(bytes.toString(StandardCharsets.UTF_8))
+                .contains("[WARN][jar-diff][pair][-] complete warning")
+                .contains("[DEBUG][jar-diff][pair][-] "
+                        + "java.lang.RuntimeException: comparison failed")
+                .contains("Caused by: java.lang.IllegalStateException: "
+                        + "root cause");
+        assertThat(log.getEvents()).singleElement()
+                .satisfies(event -> {
+                    assertThat(event.getLevel()).isEqualTo(
+                            DiagnosticLevel.WARN);
+                    assertThat(event.getMessage()).isEqualTo(
+                            "complete warning");
+                });
+    }
+
+    @Test
     void contextPreservesAttributeInsertionOrder() {
         final DiagnosticContext context = DiagnosticContext.of(
                 "analysis", "module")

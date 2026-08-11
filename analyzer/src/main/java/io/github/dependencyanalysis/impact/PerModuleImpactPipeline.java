@@ -6,7 +6,6 @@ import io.github.dependencyanalysis.build.ModuleBuildOutput;
 import io.github.dependencyanalysis.bytecode.BytecodeDiffEngine;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
-import io.github.dependencyanalysis.bytecode.MemberDescriptors;
 import io.github.dependencyanalysis.callgraph.CallGraphException;
 import io.github.dependencyanalysis.callgraph.CallGraphFailureKind;
 import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
@@ -710,8 +709,7 @@ final class PerModuleImpactPipeline {
                         .computeIfAbsent(key.getModuleId().coordinateKey(),
                                 ignored -> new ArrayList<>());
                 for (ChangePoint point : points) {
-                    target.add(new BoundChangePoint(key,
-                            rebind(point, key.getNewArtifact())));
+                    target.add(new BoundChangePoint(key, point));
                 }
             }
         }
@@ -748,22 +746,10 @@ final class PerModuleImpactPipeline {
                     + points.size());
             return new PairDiff(key, points, null);
         } catch (Exception exception) {
-            diagnostics.warn(context, "JAR comparison failed: "
-                    + exception.getClass().getSimpleName());
             return new PairDiff(key, List.of(),
-                    exception.getClass().getSimpleName() + ": "
-                            + exception.getMessage());
+                    JarDiffFailureDiagnostic.emit(
+                            diagnostics, context, exception));
         }
-    }
-
-    private ChangePoint rebind(
-            final ChangePoint point,
-            final ArtifactCoord artifact) {
-        return ChangePoint.withDescriptors(artifact, point.getKind(),
-                point.getOwner(), point.getName(),
-                new MemberDescriptors(point.getOldDescriptor(),
-                        point.getNewDescriptor()),
-                point.getOldHash(), point.getNewHash());
     }
 
     private List<ModuleAnalysisUnit> units(

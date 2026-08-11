@@ -132,7 +132,7 @@ java -jar target/dependency-analyzer.jar tree --help
 - Analyzer integration tests 覆盖空格/中文 cache path、scope-conflict missing `test` binary，以及 Maven 成功/失败后 source repository 无 evidence 中间文件。
 - 最新 duplicate class precedence tests、report tests 与 `PackagedJarCliIT` 全部通过。
 - Root/两个 subcommand help 列出当前 option；CLI `--version` 与 Maven build metadata 一致。
-- Analyzer能力新增或行为扩展时，必须同步新增/更新benchmark fixture、verification与expected baseline，并执行`JAVA8_HOME=/absolute/path/to/jdk8 benchmarks/impact-medium/run-scope-matrix.sh`；56个JVM、16组scope/model/algorithm semantic baseline和两份HTML Report全部成功后才完成任务。Performance snapshot只发布48个默认`jdk8` run中的20个formal sample/每scope。
+- Analyzer能力新增或行为扩展时，必须同步新增/更新benchmark fixture、verification与expected baseline。只有用户明确要求执行benchmark时才运行`JAVA8_HOME=/absolute/path/to/jdk8 benchmarks/impact-medium/run-scope-matrix.sh`；获得授权后，56个JVM、16组scope/model/algorithm semantic baseline和两份HTML Report必须全部成功。Performance snapshot只发布48个默认`jdk8` run中的20个formal sample/每scope。
 
 ## Failure Entrypoints
 

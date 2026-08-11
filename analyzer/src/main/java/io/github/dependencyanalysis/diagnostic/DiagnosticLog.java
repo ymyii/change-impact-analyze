@@ -330,6 +330,23 @@ public final class DiagnosticLog {
         emitLines(context, DiagnosticLevel.DEBUG, buffer.toString(), false);
     }
 
+    /**
+     * Emits one retained WARN followed atomically by a transient DEBUG
+     * stack trace when DEBUG verbosity is enabled.
+     *
+     * @param context context
+     * @param message complete warning message
+     * @param failure failure with cause chain
+     */
+    public synchronized void warnException(
+            final DiagnosticContext context,
+            final String message,
+            final Throwable failure) {
+        Objects.requireNonNull(failure, "failure");
+        warn(context, message);
+        transientException(context, failure);
+    }
+
     /** @return immutable retained event snapshot */
     public synchronized List<DiagnosticEvent> getEvents() {
         return List.copyOf(events);

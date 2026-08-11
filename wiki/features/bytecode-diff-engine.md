@@ -6,6 +6,8 @@ relations:
     desc: "resolved artifact ingestion 与 coordinate repository"
   - path: "wiki/features/impact-tracing.md"
     desc: "BoundChangePoint 与 deferred SSA filtering"
+  - path: "wiki/features/cli-preflight-diagnostics.md"
+    desc: "JAR pair failure message、stack trace 与 retained/transient 边界"
   - path: "wiki/runbooks/impact-benchmark.md"
     desc: "固定 9 类 raw ChangePoint 的持续 benchmark fixture"
 code_refs:
@@ -23,6 +25,10 @@ code_refs:
     desc: "不可表示非 narrowing 状态的 old/new access Value Object"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/BoundChangePoint.java"
     desc: "Module 与 dependency upgrade provenance"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
+    desc: "logical pair去重、parallel diff与Module binding"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/JarDiffFailureDiagnostic.java"
+    desc: "隔离的 JAR pair failure message 与 stack trace 输出"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/MethodBodyDecompiler.java"
     desc: "path-related exact member/class Vineflower decompilation"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/UnifiedDiffGenerator.java"
@@ -33,7 +39,7 @@ code_refs:
 
 ## Summary
 
-对唯一 logical `(oldCoordinate,newCoordinate)` pair 通过 `IJarRepository` 执行一次 ASM bytecode diff，再将 raw ChangePoint 重新绑定到各 Module 的 `DependencyUpgradeKey`。除结构、descriptor 与 method body 外，index保留 normalized `JvmAccess`，并检测 Java 8 pre-existing bytecode 的 class/method/constructor/field access narrowing。Pool 大小使用 `--analysis-parallelism`，再按 task 数计算 actual workers；merge 与排序 deterministic。physical path 不进入 domain key。
+对唯一 logical `(oldCoordinate,newCoordinate)` pair 通过 `IJarRepository` 执行一次 ASM bytecode diff，生成的 immutable ChangePoint 由各 Module 的 `BoundChangePoint` 共享，不复制或改写。除结构、descriptor 与 method body 外，index保留 normalized `JvmAccess`，并检测 Java 8 pre-existing bytecode 的 class/method/constructor/field access narrowing。Pool 大小使用 `--analysis-parallelism`，再按 task 数计算 actual workers；merge 与排序 deterministic。physical path 不进入 domain key。
 
 ## Design Decisions
 
@@ -41,6 +47,7 @@ code_refs:
 - `JvmAccess`只包含 `PUBLIC`、`PROTECTED`、`PACKAGE_PRIVATE`、`PRIVATE`；其他 modifier不混入 visibility。
 - `AccessTransition`必须是 strict narrowing。三个 access kind必须携带该 Value Object，其他 kind禁止携带，避免成对 nullable old/new access。
 - Descriptor变化只保留既有 `*_DESCRIPTOR_CHANGED`，不猜测不同 descriptor 是同一 member；body与access同时变化时保留两个独立 ChangePoint。
+- Module binding只增加`DependencyUpgradeKey` provenance；`BoundChangePoint`要求ChangePoint artifact等于upgrade target artifact，不通过对象重建改变diff identity。
 
 ## Actors / Entrypoints
 
@@ -51,12 +58,13 @@ code_refs:
 
 - 相同输入JAR与include集合产生稳定排序、相同identity的ChangePoint。
 - Access narrowing只比较相同binary identity，且只描述target access相对baseline的strict narrowing。
+- 同一coordinate pair被多个Module引用时共享同一ChangePoint实例，descriptor、hash与`AccessTransition`保持不变。
 
 ## Core Flow
 
 1. 通过command-scoped repository lease读取old/new JAR并建立class/member index。
 2. 比较class存在性、actual class access、method/field identity、descriptor、member access与method body hash。
-3. 创建validated ChangePoint，按stable key排序并绑定回各Module。
+3. 创建validated immutable ChangePoint，按stable key排序并通过`BoundChangePoint`附加各Module的upgrade provenance。
 
 ## Stable Method Hash
 
@@ -86,6 +94,7 @@ code_refs:
 
 - Corrupt JAR/class 抛出 `BytecodeDiffException`。
 - 单个 pair failure 不取消其他 JAR diff task；关联 Module 记录 `INCONCLUSIVE_BYTECODE_DIFF`。
+- Pair failure的WARN固定包含异常类型与完整message；`-v`/`-vv`再输出带同一pair context的完整stack trace和cause chain。WARN进入Report diagnostics，stack trace只进入Console。
 - Pair failure 且无其他可分析 ChangePoint 时不构建 Call Graph，但仍生成 Module detail page。
 - Raw bytecode diff 不对全部 changed method 构建 SSA；semantic filtering 延迟到 candidate path 之后。
 - 反编译同样延迟到 candidate/Structural path 完成后，只处理 Report 相关 member；pool 使用 `--analysis-parallelism`，每个 Vineflower task 内固定单线程。
@@ -97,6 +106,7 @@ code_refs:
 - Jump、switch、try/catch、bootstrap-only、`ConstantDynamic`、typed constant 变化可检出。
 - Line/debug-only 变化不产生 body ChangePoint。
 - 同一 logical coordinate pair 只 diff 一次；结果可绑定多个 Module。
+- Given access narrowing ChangePoint被同一pair的多个Module共享；When绑定Module provenance；Then保持同一对象与完整`AccessTransition`，artifact不一致时立即fail fast。
 - Parallel/sequential fixture 的 ChangePoint 集合和排序一致。
 - Given相同binary identity发生strict visibility narrowing；When执行 diff；Then生成对应默认启用的 access ChangePoint并保留old/new access。
 - Given descriptor变化、access expansion或非法modifier组合；When执行diff/构造domain object；Then不猜测access narrowing或立即fail fast。

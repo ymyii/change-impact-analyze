@@ -4,7 +4,8 @@ import io.github.dependencyanalysis.bytecode.ChangePoint;
 
 import java.util.Objects;
 
-/** ChangePoint rebound to one module-specific dependency resolution. */
+// Wiki: wiki/features/bytecode-diff-engine.md - Immutable Module binding
+/** Binds one immutable ChangePoint to Module-specific upgrade provenance. */
 public final class BoundChangePoint {
 
     /** Dependency resolution identity. */
@@ -24,6 +25,13 @@ public final class BoundChangePoint {
             final ChangePoint point) {
         dependencyUpgradeKey = Objects.requireNonNull(key, "key");
         changePoint = Objects.requireNonNull(point, "changePoint");
+        if (!dependencyUpgradeKey.getNewArtifact().equals(
+                changePoint.getArtifact())) {
+            throw new IllegalArgumentException(
+                    "ChangePoint artifact must equal target artifact: point="
+                            + changePoint.getArtifact() + ", target="
+                            + dependencyUpgradeKey.getNewArtifact());
+        }
     }
 
     /** @return dependency upgrade identity */
