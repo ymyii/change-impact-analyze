@@ -56,7 +56,7 @@ Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer
 - Artifact Path Plugin 以 Java 8 bytecode 发布；执行 Plugin reactor 的 Maven JVM 可以使用 Java 8 以上版本。Analyzer 使用 Java 17 构建和运行；root POM 的 `test.jdk8.home` 提供完整 JDK 8 默认值，Surefire/Failsafe 将其作为 `TEST_JDK8_HOME` 注入 test JVM，其他环境可通过 `-Dtest.jdk8.home=...` 覆盖。
 - Analyzer JAR 将 Maven Dependency Plugin 和 Artifact Path Plugin 统一内嵌为两个独立 Maven repository ZIP；runtime 不安装 loose JAR/POM，也不维护项目自有 checksum/fingerprint。
 - `impact` 以 GraphML 作为唯一 mediation authority；Artifact Path Plugin Schema v2 JSON 只向 command-scoped `IJarRepository` ingestion selected dependency physical binding，后续 domain 只保存 coordinate；`tree` 使用 verbose text 采集完整 dependency occurrence。
-- `impact`只构建target per-Module selected Call Graph；`rta`为默认algorithm，`zero-cfa`、`optimized-0-1-cfa`与`1-object-1-call-site`可显式选择；WALA ReflectionOptions command-wide可配置，默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`；baseline不compile、不构建Call Graph。
+- `impact`只构建target per-Module selected Call Graph；`rta`为默认algorithm，`zero-cfa`、`optimized-0-1-cfa`与可配置深度的`k-obj`可显式选择；WALA ReflectionOptions command-wide可配置，默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`；baseline不compile、不构建Call Graph。
 - `impact`与兼容engine constructor默认`jdk8` Method Model；`--jdk-model none`保留真实JDK bytecode语义。Analyzer通过`dependency-analyzer-jdk8-models`传递引入公共engine，并将class/catalog打入uber JAR。
 - 两个 subcommand 共享 Maven runtime 和 preflight Schema，但分别组装检查 DAG；pipeline 只消费 preflight decision。
 

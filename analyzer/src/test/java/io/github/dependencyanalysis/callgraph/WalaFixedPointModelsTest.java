@@ -4,6 +4,7 @@ import com.ibm.wala.classLoader.IMethod;
 import com.ibm.wala.ipa.callgraph.CGNode;
 import com.ibm.wala.ipa.callgraph.ContextItem;
 import com.ibm.wala.ipa.callgraph.propagation.cfa.CallStringContextSelector;
+import com.ibm.wala.ipa.callgraph.propagation.cfa.AllocationString;
 import com.ibm.wala.ipa.callgraph.propagation.cfa.nObjContextSelector;
 import com.ibm.wala.ipa.summaries.BypassSyntheticClass;
 import com.ibm.wala.ssa.IR;
@@ -256,19 +257,17 @@ class WalaFixedPointModelsTest {
     }
 
     @Test
-    void oneObjectOneCallSiteCarriesBothBoundedContexts()
+    void kObjUsesConfiguredAllocationDepthWithoutCallStrings()
             throws Exception {
-        final Path classes = compile("ContextPrecision", """
-                public class ContextPrecision {
+        final Path classes = compile("KObjPrecision", """
+                public class KObjPrecision {
                     public void entry() {
-                        callA(new Receiver());
-                        callB(new Receiver());
+                        new Factory().create().target();
                     }
-                    static void callA(Receiver receiver) {
-                        receiver.target();
-                    }
-                    static void callB(Receiver receiver) {
-                        receiver.target();
+                    static class Factory {
+                        Receiver create() {
+                            return new Receiver();
+                        }
                     }
                     static class Receiver {
                         void target() { }
@@ -277,35 +276,76 @@ class WalaFixedPointModelsTest {
                 """);
 
         try (IJarRepository repository = TestJarRepositories.empty()) {
-            final ModuleCallGraphSession session = build(
-                    classes, repository,
-                    CallGraphAlgorithm.ONE_OBJECT_ONE_CALL_SITE,
-                    WalaReflectionOptions.parse("NONE"));
-            final List<CGNode> contextualTargets = new ArrayList<>();
-            for (CGNode node : session.getGraph()) {
-                if (owner(node).equals("ContextPrecision$Receiver")
-                        && node.getMethod().getName().toString()
-                        .equals("target")
-                        && node.getContext().get(
-                        nObjContextSelector.ALLOCATION_STRING_KEY) != null
-                        && node.getContext().get(
-                        CallStringContextSelector.CALL_STRING) != null) {
-                    contextualTargets.add(node);
-                }
-            }
-            final Set<ContextItem> allocations = new HashSet<>();
-            final Set<ContextItem> calls = new HashSet<>();
-            contextualTargets.forEach(node -> {
-                allocations.add(node.getContext().get(
-                        nObjContextSelector.ALLOCATION_STRING_KEY));
-                calls.add(node.getContext().get(
-                        CallStringContextSelector.CALL_STRING));
-            });
-
-            assertThat(contextualTargets).hasSizeGreaterThanOrEqualTo(2);
-            assertThat(allocations).hasSizeGreaterThanOrEqualTo(2);
-            assertThat(calls).hasSizeGreaterThanOrEqualTo(2);
+            assertKObjDepth(classes, repository, 1);
+            assertKObjDepth(classes, repository, 2);
         }
+    }
+
+    @Test
+    void kObjConvergesForDirectAndMutualStaticRecursion()
+            throws Exception {
+        final Path classes = compile("RecursiveContexts", """
+                public class RecursiveContexts {
+                    public int entry(int value) {
+                        return direct(value) + left(value);
+                    }
+                    private static int direct(int value) {
+                        return value <= 0 ? 0 : direct(value - 1);
+                    }
+                    private static int left(int value) {
+                        return value <= 0 ? 0 : right(value - 1);
+                    }
+                    private static int right(int value) {
+                        return value <= 0 ? 0 : left(value - 1);
+                    }
+                }
+                """);
+
+        try (IJarRepository repository = TestJarRepositories.empty()) {
+            for (int depth : List.of(1, 2)) {
+                final ModuleCallGraphSession session = build(
+                        classes, repository, CallGraphAlgorithm.K_OBJ,
+                        depth, WalaReflectionOptions.parse("NONE"), 5L);
+                assertThat(hasSelfEdge(session, "RecursiveContexts",
+                        "direct")).isTrue();
+                assertThat(hasEdge(session, "RecursiveContexts", "left",
+                        "RecursiveContexts", "right")).isTrue();
+                assertThat(hasEdge(session, "RecursiveContexts", "right",
+                        "RecursiveContexts", "left")).isTrue();
+                assertThat(session.getGraph()).allSatisfy(node ->
+                        assertThat(node.getContext().get(
+                                CallStringContextSelector.CALL_STRING))
+                                .isNull());
+            }
+        }
+    }
+
+    private void assertKObjDepth(
+            final Path classes,
+            final IJarRepository repository,
+            final int depth) throws Exception {
+        final ModuleCallGraphSession session = build(
+                classes, repository, CallGraphAlgorithm.K_OBJ, depth,
+                WalaReflectionOptions.parse("NONE"),
+                GRAPH_TIMEOUT_SECONDS);
+        final List<AllocationString> allocations = new ArrayList<>();
+        for (CGNode node : session.getGraph()) {
+            if (owner(node).equals("KObjPrecision$Receiver")
+                    && node.getMethod().getName().toString()
+                    .equals("target")) {
+                final ContextItem allocation = node.getContext().get(
+                        nObjContextSelector.ALLOCATION_STRING_KEY);
+                if (allocation instanceof AllocationString value) {
+                    allocations.add(value);
+                }
+                assertThat(node.getContext().get(
+                        CallStringContextSelector.CALL_STRING)).isNull();
+            }
+        }
+        assertThat(allocations).isNotEmpty();
+        assertThat(allocations.stream().mapToInt(
+                value -> value.allocationSites().length).max())
+                .hasValue(depth);
     }
 
     @Test
@@ -404,9 +444,12 @@ class WalaFixedPointModelsTest {
         try (IJarRepository repository = TestJarRepositories.empty()) {
             for (CallGraphAlgorithm algorithm
                     : CallGraphAlgorithm.values()) {
+                final int depth = algorithm == CallGraphAlgorithm.K_OBJ
+                        ? 2 : CallGraphAlgorithm.defaultKObjDepth();
                 final ModuleCallGraphSession session = build(
-                        classes, repository, algorithm,
-                        WalaReflectionOptions.parse("NONE"));
+                        classes, repository, algorithm, depth,
+                        WalaReflectionOptions.parse("NONE"),
+                        GRAPH_TIMEOUT_SECONDS);
                 if (algorithm == CallGraphAlgorithm.RTA) {
                     assertThat(session.hasServiceLoaderLimitations())
                             .isTrue();
@@ -433,8 +476,26 @@ class WalaFixedPointModelsTest {
                                         .isEqualTo("ServiceApp$Provider");
                                 assertThat(target.getMethod().isInit())
                                         .isTrue();
-                            });
+                    });
                 });
+                if (algorithm == CallGraphAlgorithm.K_OBJ) {
+                    assertThat(session.getGraph())
+                            .filteredOn(node -> "ServiceApp$Provider"
+                                    .equals(owner(node))
+                                    && node.getMethod().isInit())
+                            .anySatisfy(node -> {
+                                final ContextItem value = node.getContext()
+                                        .get(nObjContextSelector
+                                                .ALLOCATION_STRING_KEY);
+                                assertThat(value)
+                                        .isInstanceOf(AllocationString.class);
+                                assertThat(((AllocationString) value)
+                                        .allocationSites()).hasSize(2);
+                                assertThat(node.getContext().get(
+                                        CallStringContextSelector.CALL_STRING))
+                                        .isNull();
+                            });
+                }
             }
         }
     }
@@ -727,7 +788,7 @@ class WalaFixedPointModelsTest {
                     : CallGraphAlgorithm.values()) {
                 final ModuleCallGraphSession session =
                         algorithm == CallGraphAlgorithm
-                                .ONE_OBJECT_ONE_CALL_SITE
+                                .K_OBJ
                         ? build(classes, repository, algorithm,
                                 WalaReflectionOptions.parse("NONE"),
                                 minimalRuntime)
@@ -1154,6 +1215,18 @@ class WalaFixedPointModelsTest {
             final IJarRepository repository,
             final CallGraphAlgorithm algorithm,
             final WalaReflectionOptions reflectionOptions) throws Exception {
+        return build(classes, repository, algorithm,
+                CallGraphAlgorithm.defaultKObjDepth(), reflectionOptions,
+                GRAPH_TIMEOUT_SECONDS);
+    }
+
+    private ModuleCallGraphSession build(
+            final Path classes,
+            final IJarRepository repository,
+            final CallGraphAlgorithm algorithm,
+            final int kObjDepth,
+            final WalaReflectionOptions reflectionOptions,
+            final long timeoutSeconds) throws Exception {
         final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
                 moduleId(), ModulePresence.BOTH, classes, List.of(),
                 List.of(), List.of(),
@@ -1161,9 +1234,11 @@ class WalaFixedPointModelsTest {
         final JavaRuntimeDescriptor runtime = new Jdk8RuntimeProvider()
                 .probe(Path.of(System.getenv("TEST_JDK8_HOME")));
         return new ModuleCallGraphEngine(diagnostics(), runtime,
-                EntrypointSelection.allProjectClasses(), algorithm,
-                reflectionOptions, JdkModelSelection.NONE, repository).build(
-                unit, GRAPH_TIMEOUT_SECONDS);
+                EntrypointSelection.allProjectClasses(),
+                new CallGraphConfiguration(algorithm, kObjDepth,
+                        reflectionOptions),
+                JdkModelSelection.NONE, repository).build(
+                unit, timeoutSeconds);
     }
 
     private ModuleCallGraphSession build(
@@ -1400,6 +1475,21 @@ class WalaFixedPointModelsTest {
                         callee.getMethod().getName().toString())) {
                     return true;
                 }
+            }
+        }
+        return false;
+    }
+
+    private boolean hasSelfEdge(
+            final ModuleCallGraphSession session,
+            final String nodeOwner,
+            final String nodeName) {
+        for (CGNode node : session.getGraph()) {
+            if (nodeOwner.equals(owner(node))
+                    && nodeName.equals(
+                    node.getMethod().getName().toString())
+                    && successors(session, node).contains(node)) {
+                return true;
             }
         }
         return false;

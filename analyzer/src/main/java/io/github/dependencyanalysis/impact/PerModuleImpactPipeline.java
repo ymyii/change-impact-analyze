@@ -10,6 +10,7 @@ import io.github.dependencyanalysis.bytecode.MemberDescriptors;
 import io.github.dependencyanalysis.callgraph.CallGraphException;
 import io.github.dependencyanalysis.callgraph.CallGraphFailureKind;
 import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
+import io.github.dependencyanalysis.callgraph.CallGraphConfiguration;
 import io.github.dependencyanalysis.callgraph.EntrypointClassIndex;
 import io.github.dependencyanalysis.callgraph.EntrypointClassScanner;
 import io.github.dependencyanalysis.callgraph.EntrypointSelection;
@@ -99,6 +100,9 @@ final class PerModuleImpactPipeline {
     /** Command-wide Call Graph algorithm. */
     private final CallGraphAlgorithm callGraphAlgorithm;
 
+    /** Command-wide k-object receiver allocation-string depth. */
+    private final int kObjDepth;
+
     /** Command-wide WALA ReflectionOptions. */
     private final WalaReflectionOptions reflectionOptions;
 
@@ -152,6 +156,8 @@ final class PerModuleImpactPipeline {
                 options.entrypointSelection(), "entrypointSelection");
         callGraphAlgorithm = Objects.requireNonNull(
                 options.callGraphAlgorithm(), "callGraphAlgorithm");
+        kObjDepth = CallGraphAlgorithm.requireValidKObjDepth(
+                options.kObjDepth());
         reflectionOptions = Objects.requireNonNull(
                 options.reflectionOptions(), "reflectionOptions");
         dependencyAnalysisScope = Objects.requireNonNull(
@@ -260,8 +266,8 @@ final class PerModuleImpactPipeline {
             new CallGraphDiagnosticsExporter(
                     diagnostics, javaRuntime, repository()).write(
                     callGraphDiagnosticsOutput, callGraphAlgorithm,
-                    reflectionOptions, dependencyAnalysisScope, jdkModel,
-                    codeEvidence.modules());
+                    kObjDepth, reflectionOptions, dependencyAnalysisScope,
+                    jdkModel, codeEvidence.modules());
         }
         return new AnalysisRunResult(targetScope.getMode(),
                 overallStatus(codeEvidence.modules()), changes,
@@ -271,6 +277,7 @@ final class PerModuleImpactPipeline {
                 codeEvidence.actualWorkers()), elapsed,
                 new AnalysisRunConfiguration(
                         entrypointSelection, callGraphAlgorithm,
+                        kObjDepth,
                         reflectionOptions, dependencyAnalysisScope,
                         jdkModel));
         } finally {
@@ -967,8 +974,10 @@ final class PerModuleImpactPipeline {
             stageStart = System.currentTimeMillis();
             final ModuleCallGraphSession session =
                     new ModuleCallGraphEngine(diagnostics, javaRuntime,
-                            entrypointSelection, callGraphAlgorithm,
-                            reflectionOptions, jdkModel, repository())
+                            entrypointSelection, new CallGraphConfiguration(
+                            callGraphAlgorithm, kObjDepth, reflectionOptions),
+                            jdkModel,
+                            repository())
                             .build(unit, entrypointIndex,
                                     callGraphTimeoutSeconds,
                                     callGraphDiagnosticsOutput != null);

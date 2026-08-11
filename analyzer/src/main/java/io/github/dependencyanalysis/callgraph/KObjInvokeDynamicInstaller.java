@@ -4,8 +4,8 @@ import com.ibm.wala.ipa.callgraph.AnalysisOptions;
 
 import java.util.List;
 
-/** 1-object-1-call-site invokedynamic installation and metadata state. */
-final class OneObjectOneCallSiteInvokeDynamicInstaller {
+/** k-object-sensitive invokedynamic installation and metadata state. */
+final class KObjInvokeDynamicInstaller {
 
     /** Per-build typed evidence state. */
     private final InvokeDynamicModelState state =
@@ -14,7 +14,7 @@ final class OneObjectOneCallSiteInvokeDynamicInstaller {
     void install(
             final AnalysisOptions options,
             final InvokeDynamicBootstrapModelRegistry models) {
-        options.setSelector(new OneObjectOneCallSiteInvokeDynamicTargetSelector(
+        options.setSelector(new KObjInvokeDynamicTargetSelector(
                 options.getMethodTargetSelector(), models, state));
     }
 

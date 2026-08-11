@@ -17,6 +17,8 @@ import io.github.dependencyanalysis.impact.AnalysisRunConfiguration;
 import io.github.dependencyanalysis.impact.AnalysisStatus;
 import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.EntrypointSelection;
+import io.github.dependencyanalysis.callgraph.JdkModelSelection;
+import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
 import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.EdgeKind;
@@ -44,6 +46,7 @@ import io.github.dependencyanalysis.impact.ModulePresence;
 import io.github.dependencyanalysis.impact.BoundChangePoint;
 import io.github.dependencyanalysis.impact.ChangePointDisposition;
 import io.github.dependencyanalysis.impact.DependencyUpgradeKey;
+import io.github.dependencyanalysis.impact.DependencyAnalysisScopeMode;
 import io.github.dependencyanalysis.impact.JarDiffFailure;
 import io.github.dependencyanalysis.preflight.PreflightReport;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
@@ -538,14 +541,17 @@ class PerModuleHtmlReportGeneratorTest {
     }
 
     @Test
-    void rendersOneObjectOneCallSiteAlgorithmAndTerminology() {
-        final Path output = temporary.resolve("one-object.html");
+    void rendersKObjAlgorithmDepthAndTerminology() {
+        final Path output = temporary.resolve("k-obj.html");
         final AnalysisRunResult run = new AnalysisRunResult(
                 AnalysisMode.REACTOR, AnalysisStatus.SUCCESS, List.of(),
                 List.of(), new AnalysisConcurrency(1, 0, 0, 0),
                 Map.of(), new AnalysisRunConfiguration(
                         EntrypointSelection.allProjectClasses(),
-                        CallGraphAlgorithm.ONE_OBJECT_ONE_CALL_SITE));
+                        CallGraphAlgorithm.K_OBJ, 2,
+                        WalaReflectionOptions.defaultOptions(),
+                        DependencyAnalysisScopeMode.defaultMode(),
+                        JdkModelSelection.defaultSelection()));
         final MavenDependencyPluginRuntime plugin =
                 new MavenDependencyPluginRuntimeManager().prepare(
                         temporary.resolve("config-one-object"),
@@ -556,11 +562,10 @@ class PerModuleHtmlReportGeneratorTest {
                 java(), output);
 
         assertThat(output).content()
-                .contains("<th>Algorithm</th><td>"
-                        + "1-object-1-call-site</td>")
-                .contains("1-Object + 1-Call-Site")
-                .contains("one receiver allocation site")
-                .contains("one call site")
+                .contains("<th>Algorithm</th><td>k-obj</td>")
+                .contains("<th>k-object depth</th><td>2</td>")
+                .contains("k-Object")
+                .contains("configured number of receiver allocation sites")
                 .contains("without smushing")
                 .contains("substantially more time and memory");
     }

@@ -120,10 +120,10 @@ java -jar target/dependency-analyzer.jar tree --help
 - Plugin reactor 输出 `0 Checkstyle violations`，tests 全部通过，Plugin class major 不超过 `52`。
 - Plugin repository ZIP 只有 Maven layout 下当前 version 的 JAR 与 consumer POM，不包含项目生成的 checksum sidecar。
 - Analyzer `mvn clean verify` 的 Surefire 与 Failsafe tests 全部通过且 `Skipped: 0`。
-- 真实 JDK 8 test 完成 JDK probe、WALA scope、CHA、默认 RTA 与显式三种points-to strategy，不因缺少环境变量跳过。RTA与两种ZeroX strategy以完整target JDK 8共同验证Stream/Optional、Collection/Map、Executor/CompletableFuture与Thread dispatch；`1-object-1-call-site`以最小Java 8 Primordial `Thread.run()` bytecode验证focused callback dispatch。`AccessController.doPrivileged`按JDK 8 native边界单独验证WALA内置native model。
+- 真实 JDK 8 test 完成 JDK probe、WALA scope、CHA、默认 RTA 与显式三种points-to strategy，不因缺少环境变量跳过。RTA与两种ZeroX strategy以完整target JDK 8共同验证Stream/Optional、Collection/Map、Executor/CompletableFuture与Thread dispatch；`k-obj`以最小Java 8 Primordial `Thread.run()` bytecode验证focused callback dispatch。`AccessController.doPrivileged`按JDK 8 native边界单独验证WALA内置native model。
 - CLI/config/report tests确认默认WALA ReflectionOptions为`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`，并可显式选择WALA原生enum value。
 - CLI/config/report tests确认默认JDK Method Model为`jdk8`，可显式选择`none`；四种algorithm各安装一次model，完整JDK 8 metadata为384/384/0且fixture hit非零。真实JDK callback regression显式使用`none`。
-- 四种algorithm共同通过constant ServiceLoader、capturing `altMetafactory`与MethodHandle target path regression；RTA MethodHandle path必须经过stable application bridge summary。高精度MethodHandle case使用最小Java 8 Primordial bytecode隔离完整JDK call-string扩张。1-object-1-call-site precision fixture同时读取`ALLOCATION_STRING_KEY`和`CALL_STRING`，并区分不同receiver allocation site与call site。
+- 四种algorithm共同通过constant ServiceLoader、capturing `altMetafactory`与MethodHandle target path regression；RTA MethodHandle path必须经过stable application bridge summary。高精度MethodHandle case使用最小Java 8 Primordial bytecode隔离完整JDK状态空间。`k-obj` precision fixture验证`k=1/2`的`ALLOCATION_STRING_KEY`长度并断言不存在`CALL_STRING`；直接与相互static递归同样在短timeout内收敛并保留cycle edge。
 - Entrypoint tests覆盖private nested class、constructor、static/instance method过滤；公开root调用的private method仍作为普通CGNode存在。
 - `target/dependency-analyzer.jar` 存在，manifest `Main-Class` 为 `io.github.dependencyanalysis.cli.DependencyAnalyzerCli`。
 - Analyzer JAR包含公共`JdkModels.class`、`Jdk8Models.class`和`jdk8-models.tsv`；help包含`--jdk-model`。

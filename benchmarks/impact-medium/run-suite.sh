@@ -71,23 +71,23 @@ run_one() {
 }
 
 # One scope: 4 warm-up + 20 formal + 4 none control JVM processes.
-for algorithm in rta zero-cfa optimized-0-1-cfa 1-object-1-call-site; do
+for algorithm in rta zero-cfa optimized-0-1-cfa k-obj; do
   run_one "$algorithm" warmup 0 0 1 jdk8
 done
 
 for round in 1 2 3 4 5; do
   case "$round" in
-    1|5) order="rta zero-cfa optimized-0-1-cfa 1-object-1-call-site" ;;
-    2) order="zero-cfa optimized-0-1-cfa 1-object-1-call-site rta" ;;
-    3) order="optimized-0-1-cfa 1-object-1-call-site rta zero-cfa" ;;
-    4) order="1-object-1-call-site rta zero-cfa optimized-0-1-cfa" ;;
+    1|5) order="rta zero-cfa optimized-0-1-cfa k-obj" ;;
+    2) order="zero-cfa optimized-0-1-cfa k-obj rta" ;;
+    3) order="optimized-0-1-cfa k-obj rta zero-cfa" ;;
+    4) order="k-obj rta zero-cfa optimized-0-1-cfa" ;;
   esac
   for algorithm in $order; do
     run_one "$algorithm" formal "$round" "$round" 0 jdk8
   done
 done
 
-for algorithm in rta zero-cfa optimized-0-1-cfa 1-object-1-call-site; do
+for algorithm in rta zero-cfa optimized-0-1-cfa k-obj; do
   run_one "$algorithm" control 0 0 0 none
 done
 

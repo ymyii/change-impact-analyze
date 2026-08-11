@@ -53,7 +53,7 @@ final class ServiceLoaderModelMetadata {
 
     static ServiceLoaderModelMetadata snapshot(
             final CallGraph graph,
-            final OneObjectOneCallSiteServiceLoaderModel model,
+            final KObjServiceLoaderModel model,
             final List<ModelLimitation> limitations) {
         final Map<CGNode, String> nodes = new LinkedHashMap<>();
         for (CGNode node : graph) {

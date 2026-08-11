@@ -18,12 +18,12 @@ ALGORITHMS = (
     "rta",
     "zero-cfa",
     "optimized-0-1-cfa",
-    "1-object-1-call-site",
+    "k-obj",
 )
 REFLECTION_DEFAULT = "ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD"
 SAMPLE_COLUMNS = (
     "label", "run_kind", "round", "sample", "dependency_analysis_scope",
-    "algorithm", "jdk_model",
+    "algorithm", "k_obj_depth", "jdk_model",
     "wala_reflection_options", "total_wall_seconds",
     "call_graph_seconds", "peak_heap_used_mib",
     "peak_heap_committed_mib", "heap_max_mib", "heap_sample_count",
@@ -36,7 +36,7 @@ SAMPLE_COLUMNS = (
     "jdk", "maven",
 )
 SUMMARY_COLUMNS = (
-    "dependency_analysis_scope", "algorithm", "jdk_model",
+    "dependency_analysis_scope", "algorithm", "k_obj_depth", "jdk_model",
     "wala_reflection_options", "samples",
     "min_total_wall_seconds", "median_total_wall_seconds",
     "max_total_wall_seconds", "min_call_graph_seconds",
@@ -56,7 +56,8 @@ SUMMARY_COLUMNS = (
     "edge_vs_zero_cfa",
 )
 TOPOLOGY_COLUMNS = (
-    "algorithm", "jdk_model", "wala_reflection_options", "module", "direction",
+    "algorithm", "k_obj_depth", "jdk_model", "wala_reflection_options",
+    "module", "direction",
     "record_type", "rank", "cg_node_id", "cg_node_identity", "context",
     "wala_synthetic", "sentinel_role", "method_identity", "owner", "name",
     "descriptor", "origin",
@@ -111,7 +112,7 @@ def load_topology(run_directory: Path) -> dict[str, Any]:
     path = run_directory / "topology.json"
     with path.open(encoding="utf-8") as stream:
         value = json.load(stream)
-    if value.get("schemaVersion") != 5:
+    if value.get("schemaVersion") != 6:
         raise ValueError(f"unsupported topology schema: {path}")
     return value
 
@@ -182,6 +183,12 @@ def validate(
                 f"{row.get('label')} 未使用默认 ReflectionOptions: "
                 f"{row.get('wala_reflection_options')}"
             )
+        expected_depth = "1" if row.get("algorithm") == "k-obj" else ""
+        if row.get("k_obj_depth") != expected_depth:
+            errors.append(
+                f"{row.get('label')} k_obj_depth={row.get('k_obj_depth')}，"
+                f"应为 {expected_depth or '空'}"
+            )
         for field in NUMERIC_SAMPLE_FIELDS:
             try:
                 number(row, field)
@@ -212,6 +219,9 @@ def validate(
             continue
         if topology.get("algorithm") != algorithm:
             errors.append(f"{algorithm} topology algorithm 不匹配")
+        expected_depth = 1 if algorithm == "k-obj" else None
+        if topology.get("kObjDepth") != expected_depth:
+            errors.append(f"{algorithm} topology kObjDepth 不匹配")
         if topology.get("reflectionOptions") != REFLECTION_DEFAULT:
             errors.append(f"{algorithm} topology ReflectionOptions 不匹配")
         if topology.get("jdkModel") != "jdk8":
@@ -297,6 +307,7 @@ def summaries(formal: list[dict[str, str]], scope: str) -> list[dict[str, str]]:
         values: dict[str, Any] = {
             "dependency_analysis_scope": scope,
             "algorithm": algorithm,
+            "k_obj_depth": rows[0]["k_obj_depth"],
             "jdk_model": rows[0]["jdk_model"],
             "wala_reflection_options": rows[0]["wala_reflection_options"],
             "samples": len(rows),
@@ -352,6 +363,10 @@ def topology_rows(topologies: dict[str, dict[str, Any]]) -> list[dict[str, str]]
         for module in topology.get("modules", []):
             scope_values = {
                 "algorithm": algorithm,
+                "k_obj_depth": (
+                    str(topology["kObjDepth"])
+                    if topology.get("kObjDepth") is not None else ""
+                ),
                 "jdk_model": topology["jdkModel"],
                 "wala_reflection_options": topology["reflectionOptions"],
                 "module": module["module"],
@@ -397,6 +412,10 @@ def topology_rows(topologies: dict[str, dict[str, Any]]) -> list[dict[str, str]]
                     ir = value["ir"]
                     common = {
                         "algorithm": algorithm,
+                        "k_obj_depth": (
+                            str(topology["kObjDepth"])
+                            if topology.get("kObjDepth") is not None else ""
+                        ),
                         "jdk_model": topology["jdkModel"],
                         "wala_reflection_options": topology["reflectionOptions"],
                         "module": module["module"],
@@ -638,8 +657,8 @@ main{max-width:1500px;margin:auto;padding:32px}h1,h2,h3,h4{line-height:1.25}sect
 table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{border:1px solid #dfe5ef;padding:8px 10px;text-align:right;white-space:nowrap}th:first-child,td:first-child{text-align:left}th{background:#eef3fa}code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#101827;color:#e7edf8;padding:14px;border-radius:8px;max-height:640px;overflow:auto}
 .cgnode{border-top:1px solid #dfe5ef;padding:12px 0}.badge{display:inline-block;background:#e8eef9;border-radius:999px;padding:2px 8px;font-size:.75rem}.cycle{background:#ffe0ad;color:#744400}.ok{color:#14733c}.bad,.warning{color:#a12626}.muted{color:#5b667a}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.metric{background:#f7f9fd;padding:12px;border-radius:8px}details{margin:10px 0}summary{cursor:pointer;font-weight:600}
 .tab-control{position:absolute;opacity:0;pointer-events:none}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:24px 0 0}.tabs label{cursor:pointer;border:1px solid #cbd6e6;background:#e8eef9;border-radius:9px 9px 0 0;padding:10px 16px;font-weight:650}.tab-panel{display:none;margin-top:0;border-radius:0 12px 12px 12px}.tab-control:focus+.tabs label{outline:2px solid #4f74b8}.tab-panels{margin-top:0}
-#tab-rta:checked~.tabs label[for="tab-rta"],#tab-zero-cfa:checked~.tabs label[for="tab-zero-cfa"],#tab-optimized-0-1-cfa:checked~.tabs label[for="tab-optimized-0-1-cfa"],#tab-1-object-1-call-site:checked~.tabs label[for="tab-1-object-1-call-site"],#tab-comparison:checked~.tabs label[for="tab-comparison"]{background:#fff;border-bottom-color:#fff;color:#0d4f9b}
-#tab-rta:checked~.tab-panels .panel-rta,#tab-zero-cfa:checked~.tab-panels .panel-zero-cfa,#tab-optimized-0-1-cfa:checked~.tab-panels .panel-optimized-0-1-cfa,#tab-1-object-1-call-site:checked~.tab-panels .panel-1-object-1-call-site,#tab-comparison:checked~.tab-panels .panel-comparison{display:block}
+#tab-rta:checked~.tabs label[for="tab-rta"],#tab-zero-cfa:checked~.tabs label[for="tab-zero-cfa"],#tab-optimized-0-1-cfa:checked~.tabs label[for="tab-optimized-0-1-cfa"],#tab-k-obj:checked~.tabs label[for="tab-k-obj"],#tab-comparison:checked~.tabs label[for="tab-comparison"]{background:#fff;border-bottom-color:#fff;color:#0d4f9b}
+#tab-rta:checked~.tab-panels .panel-rta,#tab-zero-cfa:checked~.tab-panels .panel-zero-cfa,#tab-optimized-0-1-cfa:checked~.tab-panels .panel-optimized-0-1-cfa,#tab-k-obj:checked~.tab-panels .panel-k-obj,#tab-comparison:checked~.tab-panels .panel-comparison{display:block}
 """
     parts = [
         "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">",

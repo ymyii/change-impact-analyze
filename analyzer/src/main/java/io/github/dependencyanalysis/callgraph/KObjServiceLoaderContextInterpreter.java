@@ -19,18 +19,18 @@ import java.util.Iterator;
 import java.util.Map;
 
 /** Strategy-owned ServiceLoader execution and IR cache. */
-final class OneObjectOneCallSiteServiceLoaderContextInterpreter
+final class KObjServiceLoaderContextInterpreter
         implements SSAContextInterpreter {
 
     /** Pure summary IR creation. */
-    private final OneObjectOneCallSiteServiceLoaderSummaryIrFactory factory;
+    private final KObjServiceLoaderSummaryIrFactory factory;
 
     /** Strategy-local generated IR cache. */
     private final Map<CGNode, IR> irs = new HashMap<>();
 
-    OneObjectOneCallSiteServiceLoaderContextInterpreter(
-            final OneObjectOneCallSiteServiceLoaderModel model) {
-        factory = new OneObjectOneCallSiteServiceLoaderSummaryIrFactory(model);
+    KObjServiceLoaderContextInterpreter(
+            final KObjServiceLoaderModel model) {
+        factory = new KObjServiceLoaderSummaryIrFactory(model);
     }
 
     @Override

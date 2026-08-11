@@ -28,34 +28,34 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
-/** Allocation-sensitive 1-object-1-call-site ServiceLoader installation. */
-final class OneObjectOneCallSiteServiceLoaderInstaller {
+/** Allocation-sensitive k-object ServiceLoader installation. */
+final class KObjServiceLoaderInstaller {
 
     /** Per-build model state. */
-    private final OneObjectOneCallSiteServiceLoaderModel model;
+    private final KObjServiceLoaderModel model;
 
     /** Immutable provider facts used by the strategy selector. */
     private final ServiceLoaderProtocolIndex protocolIndex;
 
-    /** OneObjectOneCallSite-local Context execution. */
-    private OneObjectOneCallSiteContextSelector selector;
+    /** k-object-local Context execution. */
+    private KObjContextSelector selector;
 
-    /** OneObjectOneCallSite-local summary execution. */
-    private OneObjectOneCallSiteServiceLoaderContextInterpreter interpreter;
+    /** k-object-local summary execution. */
+    private KObjServiceLoaderContextInterpreter interpreter;
 
-    OneObjectOneCallSiteServiceLoaderInstaller(
+    KObjServiceLoaderInstaller(
             final ServiceLoaderProtocolIndex index,
             final IClassHierarchy hierarchy) {
         protocolIndex = Objects.requireNonNull(index, "index");
-        model = new OneObjectOneCallSiteServiceLoaderModel(
+        model = new KObjServiceLoaderModel(
                 protocolIndex, hierarchy);
     }
 
     void install(final SSAPropagationCallGraphBuilder builder) {
-        selector = new OneObjectOneCallSiteContextSelector(
+        selector = new KObjContextSelector(
                 builder.getContextSelector(), protocolIndex);
         interpreter =
-                new OneObjectOneCallSiteServiceLoaderContextInterpreter(
+                new KObjServiceLoaderContextInterpreter(
                         model);
         builder.setContextSelector(selector);
         builder.setContextInterpreter(
@@ -78,25 +78,25 @@ final class OneObjectOneCallSiteServiceLoaderInstaller {
                 graph, model, limitations());
     }
 
-    /** OneObjectOneCallSite allocation-site contract propagation. */
-    private static final class OneObjectOneCallSiteContextSelector
+    /** k-object allocation-site contract propagation. */
+    private static final class KObjContextSelector
             implements ContextSelector {
 
         /** First call parameter or receiver. */
         private static final IntSet FIRST_PARAMETER =
                 IntSetUtil.make(new int[]{0});
 
-        /** Previously installed one-object-one-call-site selector. */
+        /** Previously installed k-object-sensitive selector. */
         private final ContextSelector base;
 
         /** Pure provider-contract decision helper. */
         private final ServiceLoaderContractResolver contracts;
 
-        /** OneObjectOneCallSite-local fixed-point limitations. */
+        /** k-object-local fixed-point limitations. */
         private final Set<ModelLimitation> limitations =
                 new LinkedHashSet<>();
 
-        OneObjectOneCallSiteContextSelector(
+        KObjContextSelector(
                 final ContextSelector next,
                 final ServiceLoaderProtocolIndex index) {
             base = Objects.requireNonNull(next, "next");
@@ -126,7 +126,7 @@ final class OneObjectOneCallSiteServiceLoaderInstaller {
                         contracts.load(constantServiceType(actualParameters),
                                 location, true);
                 resolution.limitation().ifPresent(limitations::add);
-                return new OneObjectOneCallSiteServiceContext(safeBase,
+                return new KObjServiceContext(safeBase,
                         resolution.serviceType(), loaderIdentity(
                         caller, site, callee, actualParameters));
             }
@@ -134,15 +134,15 @@ final class OneObjectOneCallSiteServiceLoaderInstaller {
                     callee.getReference())) {
                 return delegated;
             }
-            final OneObjectOneCallSiteServiceContext allocation =
+            final KObjServiceContext allocation =
                     allocationContext(actualParameters);
             final ServiceLoaderContractResolution resolution =
                     contracts.iterator(allocation == null ? null
                             : allocation.serviceType(), null, location);
             resolution.limitation().ifPresent(limitations::add);
-            return new OneObjectOneCallSiteServiceContext(safeBase,
+            return new KObjServiceContext(safeBase,
                     resolution.serviceType(), allocation == null
-                    ? new OneObjectOneCallSiteLoadSiteIdentity(
+                    ? new KObjLoadSiteIdentity(
                             caller.getMethod().getReference().toString(),
                             site.getProgramCounter(), "iterator")
                     : allocation.loaderIdentity());
@@ -179,13 +179,13 @@ final class OneObjectOneCallSiteServiceLoaderInstaller {
             return key.getValue() instanceof TypeReference type ? type : null;
         }
 
-        private OneObjectOneCallSiteServiceContext allocationContext(
+        private KObjServiceContext allocationContext(
                 final InstanceKey[] parameters) {
             if (parameters == null || parameters.length == 0
                     || !(parameters[0]
                     instanceof AllocationSiteInNode allocation)
                     || !(allocation.getNode().getContext()
-                    instanceof OneObjectOneCallSiteServiceContext context)) {
+                    instanceof KObjServiceContext context)) {
                 return null;
             }
             return context;
@@ -201,7 +201,7 @@ final class OneObjectOneCallSiteServiceLoaderInstaller {
                     && parameters.length > 1 && parameters[1] != null) {
                 return parameters[1];
             }
-            return new OneObjectOneCallSiteLoadSiteIdentity(
+            return new KObjLoadSiteIdentity(
                     caller.getMethod().getReference().toString(),
                     site.getProgramCounter(), callee.getName().toString());
         }
@@ -212,14 +212,14 @@ final class OneObjectOneCallSiteServiceLoaderInstaller {
     }
 
     /** Strategy-owned service Context. */
-    private static final class OneObjectOneCallSiteServiceContext
+    private static final class KObjServiceContext
             implements Context {
 
         /** Exact service identity key. */
         private static final ContextKey SERVICE_KEY = new ContextKey() {
             @Override
             public String toString() {
-                return "ONE_OBJECT_ONE_CALL_SITE_SERVICE_LOADER_TYPE";
+                return "K_OBJ_SERVICE_LOADER_TYPE";
             }
         };
 
@@ -227,11 +227,11 @@ final class OneObjectOneCallSiteServiceLoaderInstaller {
         private static final ContextKey LOADER_KEY = new ContextKey() {
             @Override
             public String toString() {
-                return "ONE_OBJECT_ONE_CALL_SITE_SERVICE_LOADER_IDENTITY";
+                return "K_OBJ_SERVICE_LOADER_IDENTITY";
             }
         };
 
-        /** Previously selected one-object-one-call-site Context. */
+        /** Previously selected k-object Context. */
         private final Context base;
 
         /** Exact or explicit unknown service. */
@@ -240,7 +240,7 @@ final class OneObjectOneCallSiteServiceLoaderInstaller {
         /** Explicit loader or stable load site. */
         private final ContextItem loaderIdentity;
 
-        OneObjectOneCallSiteServiceContext(
+        KObjServiceContext(
                 final Context next,
                 final TypeReference service,
                 final ContextItem identity) {
@@ -252,9 +252,9 @@ final class OneObjectOneCallSiteServiceLoaderInstaller {
         @Override
         public ContextItem get(final ContextKey name) {
             if (SERVICE_KEY.equals(name)
-                    || OneObjectOneCallSiteServiceLoaderModel.SERVICE_TYPE_KEY
+                    || KObjServiceLoaderModel.SERVICE_TYPE_KEY
                     .equals(name)) {
-                return OneObjectOneCallSiteServiceLoaderModel.serviceTypeItem(
+                return KObjServiceLoaderModel.serviceTypeItem(
                         serviceType);
             }
             return LOADER_KEY.equals(name)
@@ -271,7 +271,7 @@ final class OneObjectOneCallSiteServiceLoaderInstaller {
 
         @Override
         public boolean equals(final Object other) {
-            return other instanceof OneObjectOneCallSiteServiceContext that
+            return other instanceof KObjServiceContext that
                     && base.equals(that.base)
                     && serviceType.equals(that.serviceType)
                     && loaderIdentity.equals(that.loaderIdentity);
@@ -284,7 +284,7 @@ final class OneObjectOneCallSiteServiceLoaderInstaller {
 
         @Override
         public String toString() {
-            return "one-object-one-call-site-service-loader:"
+            return "k-obj-service-loader:"
                     + serviceType + ":" + loaderIdentity + ":" + base;
         }
     }
@@ -294,7 +294,7 @@ final class OneObjectOneCallSiteServiceLoaderInstaller {
      * @param bytecodePc call-site PC
      * @param operation ServiceLoader operation
      */
-    private record OneObjectOneCallSiteLoadSiteIdentity(
+    private record KObjLoadSiteIdentity(
             String callerMethod,
             int bytecodePc,
             String operation) implements ContextItem {

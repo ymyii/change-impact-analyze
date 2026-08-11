@@ -137,7 +137,8 @@ dependency-analyzer impact \
   [-f, --format html] \
   [--analysis-target spring-backend] \
   [--analysis-parallelism <count>] \
-  [--call-graph-algorithm <rta|zero-cfa|optimized-0-1-cfa|1-object-1-call-site>] \
+  [--call-graph-algorithm <rta|zero-cfa|optimized-0-1-cfa|k-obj>] \
+  [--k-obj-depth <positive-integer>] \
   [--jdk-model <jdk8|none>] \
   [--wala-reflection-options <WALA-enum-name>] \
   [--entrypoint-include '<class-path-pattern>']... \
@@ -153,7 +154,8 @@ dependency-analyzer impact \
 - `--format` 仅接受 `html`；`md` compatibility token 会 fail fast。
 - `--analysis-target` 默认且首版只接受 `spring-backend`。
 - `--analysis-parallelism` 默认 `2`，必须 `>=1`；统一控制 Module analysis、JAR diff 和代码反编译各自的 bounded pool。超过 CPU 数只输出 warning，不静默截断。
-- `--call-graph-algorithm` command-wide选择全部 Module 使用的 WALA算法；默认`rta`，可显式选择`zero-cfa`、`optimized-0-1-cfa`或`1-object-1-call-site`。值大小写不敏感，但不接受`rapid`、`zero`、`zerocfa`等alias，也不执行timeout fallback。RTA直接使用WALA `BasicRTABuilder`，按全局已实例化compatible class求virtual/interface reachability；`1-object-1-call-site`同时保留一层receiver allocation string与一层call string，使用精确allocation-site和constant-specific identity且不启用smushing，因此通常需要更多时间与内存。
+- `--call-graph-algorithm` command-wide选择全部 Module 使用的 WALA算法；默认`rta`，可显式选择`zero-cfa`、`optimized-0-1-cfa`或`k-obj`。值大小写不敏感，但不接受alias，也不执行timeout fallback。旧`1-object-1-call-site`标识已删除并直接拒绝。RTA直接使用WALA `BasicRTABuilder`，按全局已实例化compatible class求virtual/interface reachability；`k-obj`使用WALA `nObjBuilder(k, …)`，保留最多`k`层receiver allocation string、精确allocation-site和constant-specific identity，不启用smushing，也不叠加call-string Context。
+- `--k-obj-depth`只可与`--call-graph-algorithm k-obj`同时使用；必须为正整数，默认`1`，不设置人为上限。普通static调用复用object Context，递归在固定`k`的有限Context空间内收敛；较大的`k`仍可能显著增加CGNode、CGEdge、内存与耗时。
 - `--jdk-model` command-wide选择全部 Module 使用的 JDK Method Model。默认`jdk8`，通过JDK 8 catalog为精确public contract安装conservative WALA Synthetic IR；`none`完全跳过catalog读取与selector安装，恢复直接分析真实JDK bytecode的行为。值大小写不敏感，只接受精确标识符`jdk8`或`none`，不接受alias。
 - `--wala-reflection-options`（alias `--reflection-options`）command-wide选择WALA `AnalysisOptions.ReflectionOptions`，接受原生enum name且大小写不敏感。默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`；可显式使用`FULL`、`NO_FLOW_TO_CASTS`、`STRING_ONLY`、`NONE`等WALA 1.8.0 value。该选项不随algorithm自动改变，也不执行fallback。
 - `--entrypoint-include`/`--entrypoint-exclude` 接受 slash-separated JVM internal class path，例如 `com/icbc/payment/OrderService`；可选 WALA `L` 前缀会在匹配前移除。选项可重复，多个 include 取并集，exclude 优先。
@@ -177,7 +179,8 @@ dependency-analyzer impact \
 | `-f` | `--format` | 仅 `html`；`md` 已移除。 |
 |  | `--analysis-target` | 仅 `spring-backend`。 |
 |  | `--analysis-parallelism` | Module analysis、JAR diff、代码反编译并发数，默认 `2`。 |
-|  | `--call-graph-algorithm` | `rta`（默认）、`zero-cfa`、`optimized-0-1-cfa`或`1-object-1-call-site`；全部 Module 使用同一算法。 |
+|  | `--call-graph-algorithm` | `rta`（默认）、`zero-cfa`、`optimized-0-1-cfa`或`k-obj`；全部 Module 使用同一算法。 |
+|  | `--k-obj-depth` | `k-obj`的receiver allocation string深度，正整数，默认`1`；其他算法禁止使用。 |
 |  | `--jdk-model` | `jdk8`（默认）或`none`；全部 Module 使用同一选择。 |
 |  | `--wala-reflection-options` | WALA `ReflectionOptions` enum name；默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。 |
 |  | `--entrypoint-include` | 只选择匹配 slash class path 的 target class declared methods；可重复。 |
@@ -508,7 +511,7 @@ Exit code：
 
 ### Call Graph 长时间运行
 
-RTA、ZeroCFA与optimized 0-1-CFA的graph规模取决于application/JDK reachability与selected ReflectionOptions。默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`是RTA的bounded policy；显式`FULL`可能显著增加WALA 1.8.0 fixed-point时间与heap。ReflectionOptions只选择WALA原生Reflection实现，不承诺三种builder产生相同target set：WALA 1.8.0 Basic RTA不提供Reflection metadata-object `InstanceKey`，`Class.newInstance`/`Method.invoke`业务target可能无法闭合；本项目不会通过fake value或构图后补边绕过该边界。WALA monitor只提供cooperative timeout/cancel，不创建后台scheduler，也不输出progress event。默认无timeout；设置正数`--call-graph-timeout-seconds`后，仅超时Module fail，其他Module继续并发布partial Report，不自动切换algorithm或ReflectionOptions。需要观察资源时使用`-vv`：command-scoped Runtime Metrics每10秒输出heap和Analyzer-owned thread pool状态；它不代表WALA internal progress。
+RTA、ZeroCFA、optimized 0-1-CFA与k-object-sensitive graph规模取决于application/JDK reachability、selected ReflectionOptions和`k`。固定`k`下`k-obj`的allocation string有界，static递归不会形成无限Context嵌套；较大的`k`仍可能造成有限状态空间爆炸、内存升高或timeout。默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`是RTA的bounded policy；显式`FULL`可能显著增加WALA 1.8.0 fixed-point时间与heap。ReflectionOptions只选择WALA原生Reflection实现，不承诺不同builder产生相同target set：WALA 1.8.0 Basic RTA不提供Reflection metadata-object `InstanceKey`，`Class.newInstance`/`Method.invoke`业务target可能无法闭合；本项目不会通过fake value或构图后补边绕过该边界。WALA monitor只提供cooperative timeout/cancel，不创建后台scheduler，也不输出progress event。默认无timeout；设置正数`--call-graph-timeout-seconds`后，仅超时Module fail，其他Module继续并发布partial Report，不自动切换algorithm或ReflectionOptions。需要观察资源时使用`-vv`：command-scoped Runtime Metrics每10秒输出heap和Analyzer-owned thread pool状态；它不代表WALA internal progress。
 
 ### JDK Method Model 安装失败
 
@@ -579,7 +582,7 @@ Version policy、failure entrypoints 与完整发布步骤见
 
 ## 11. 持续 Impact Benchmark
 
-Repository 内置 Git 管理的中型 `impact` benchmark。它从source生成42个compile-scope external dependencies、带`impact-baseline`/`impact-target` refs的临时Git project。Canonical matrix 对两个dependency scope与四种algorithm执行48个默认`jdk8` JVM（每个scope各1次warm-up topology capture和5次正式样本），并为每个scope/algorithm增加1个`none` semantic control，共56个独立Java Virtual Machine（JVM）进程；`BENCHMARK_WALA_REFLECTION_OPTIONS`默认并验收为`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。Verifier校验实际Algorithm/ReflectionOptions/JDK Method Model、默认`jdk8`经lazy`Stream.map` private `Function` callback到changed dependency的call chain、9类legacy raw ChangePoint、按scope/model/algorithm锁定的candidate/final count、Structural Reference Path、过滤候选、反编译代码evidence及四页HTML Report。`none`仅按algorithm验收真实JDK bytecode semantic baseline；Performance Report与Git snapshot只发布默认`jdk8`正式样本。
+Repository 内置 Git 管理的中型 `impact` benchmark。它从source生成42个compile-scope external dependencies、带`impact-baseline`/`impact-target` refs的临时Git project。Canonical matrix 对两个dependency scope与四种algorithm执行48个默认`jdk8` JVM（每个scope各1次warm-up topology capture和5次正式样本），并为每个scope/algorithm增加1个`none` semantic control，共56个独立Java Virtual Machine（JVM）进程；`k-obj`固定验收默认深度`1`，`k=2`由集成测试覆盖。Verifier校验实际Algorithm、k-object depth、ReflectionOptions、JDK Method Model、private static递归到changed dependency的call chain、默认`jdk8`经lazy`Stream.map` private `Function` callback到changed dependency的call chain、9类legacy raw ChangePoint、按scope/model/algorithm/depth锁定的candidate/final count、Structural Reference Path、过滤候选、反编译代码evidence及四页HTML Report。`none`仅按algorithm验收真实JDK bytecode semantic baseline；Performance Report与Git snapshot只发布默认`jdk8`正式样本。
 
 ```sh
 mvn -f models/jdk/pom.xml clean install

@@ -24,9 +24,9 @@ class CallGraphAlgorithmTest {
                 CallGraphAlgorithm.ZERO_CFA);
         final CallGraphAlgorithmStrategy optimized = factory.create(
                 CallGraphAlgorithm.OPTIMIZED_ZERO_ONE_CFA);
-        final CallGraphAlgorithmStrategy oneObjectOneCallSite =
+        final CallGraphAlgorithmStrategy kObj =
                 factory.create(
-                        CallGraphAlgorithm.ONE_OBJECT_ONE_CALL_SITE);
+                        CallGraphAlgorithm.K_OBJ);
 
         assertThat(rta)
                 .isInstanceOf(RtaCallGraphStrategy.class);
@@ -39,10 +39,8 @@ class CallGraphAlgorithmTest {
                 .isInstanceOf(OptimizedZeroOneCfaCallGraphStrategy.class);
         assertThat(optimized.algorithm())
                 .isEqualTo(CallGraphAlgorithm.OPTIMIZED_ZERO_ONE_CFA);
-        assertThat(oneObjectOneCallSite).isInstanceOf(
-                OneObjectOneCallSiteCallGraphStrategy.class);
-        assertThat(oneObjectOneCallSite.algorithm())
-                .isEqualTo(CallGraphAlgorithm.ONE_OBJECT_ONE_CALL_SITE);
+        assertThat(kObj).isInstanceOf(KObjCallGraphStrategy.class);
+        assertThat(kObj.algorithm()).isEqualTo(CallGraphAlgorithm.K_OBJ);
     }
 
     @Test
@@ -55,13 +53,16 @@ class CallGraphAlgorithmTest {
                 .isEqualTo(CallGraphAlgorithm.ZERO_CFA);
         assertThat(CallGraphAlgorithm.parse("Optimized-0-1-CFA"))
                 .isEqualTo(CallGraphAlgorithm.OPTIMIZED_ZERO_ONE_CFA);
-        assertThat(CallGraphAlgorithm.parse("1-OBJECT-1-CALL-SITE"))
-                .isEqualTo(CallGraphAlgorithm.ONE_OBJECT_ONE_CALL_SITE);
+        assertThat(CallGraphAlgorithm.parse("K-OBJ"))
+                .isEqualTo(CallGraphAlgorithm.K_OBJ);
+        assertThatThrownBy(() -> CallGraphAlgorithm.parse(
+                "1-object-1-call-site"))
+                .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> CallGraphAlgorithm.parse("zerocfa"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining(
                         "rta, zero-cfa, optimized-0-1-cfa, "
-                                + "1-object-1-call-site");
+                                + "k-obj");
     }
 
     @Test
@@ -82,15 +83,25 @@ class CallGraphAlgorithmTest {
     }
 
     @Test
-    void oneObjectOneCallSiteUsesExactAllocationPolicyWithoutSmushing() {
-        assertThat(OneObjectOneCallSiteCallGraphStrategy.INSTANCE_POLICY)
+    void kObjUsesExactAllocationPolicyWithoutSmushing() {
+        assertThat(KObjCallGraphStrategy.INSTANCE_POLICY)
                 .isEqualTo(ZeroXInstanceKeys.ALLOCATIONS
                         | ZeroXInstanceKeys.CONSTANT_SPECIFIC);
-        assertThat(OneObjectOneCallSiteCallGraphStrategy.INSTANCE_POLICY
+        assertThat(KObjCallGraphStrategy.INSTANCE_POLICY
                 & (ZeroXInstanceKeys.SMUSH_MANY
                 | ZeroXInstanceKeys.SMUSH_PRIMITIVE_HOLDERS
                 | ZeroXInstanceKeys.SMUSH_STRINGS
                 | ZeroXInstanceKeys.SMUSH_THROWABLES)).isZero();
+    }
+
+    @Test
+    void kObjDepthMustBePositive() {
+        assertThat(CallGraphAlgorithm.defaultKObjDepth()).isEqualTo(1);
+        assertThat(CallGraphAlgorithm.requireValidKObjDepth(2)).isEqualTo(2);
+        assertThatThrownBy(() ->
+                CallGraphAlgorithm.requireValidKObjDepth(0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("--k-obj-depth must be >= 1");
     }
 
     @Test

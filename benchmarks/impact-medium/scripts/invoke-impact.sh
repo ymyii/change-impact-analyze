@@ -16,7 +16,7 @@ set -eu
 : "${BENCHMARK_CAPTURE_TOPOLOGY:?BENCHMARK_CAPTURE_TOPOLOGY is required}"
 
 case "$BENCHMARK_CALL_GRAPH_ALGORITHM" in
-  rta|zero-cfa|optimized-0-1-cfa|1-object-1-call-site) ;;
+  rta|zero-cfa|optimized-0-1-cfa|k-obj) ;;
   *)
     echo "unsupported call graph algorithm: $BENCHMARK_CALL_GRAPH_ALGORITHM" >&2
     exit 2

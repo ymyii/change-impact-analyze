@@ -13,13 +13,13 @@ import com.ibm.wala.types.TypeReference;
 import java.util.Objects;
 
 /** Creates strategy-owned ServiceLoader return-flow summaries. */
-final class OneObjectOneCallSiteServiceLoaderSummaryIrFactory {
+final class KObjServiceLoaderSummaryIrFactory {
 
     /** Strategy-owned synthetic iterator model. */
-    private final OneObjectOneCallSiteServiceLoaderModel model;
+    private final KObjServiceLoaderModel model;
 
-    OneObjectOneCallSiteServiceLoaderSummaryIrFactory(
-            final OneObjectOneCallSiteServiceLoaderModel value) {
+    KObjServiceLoaderSummaryIrFactory(
+            final KObjServiceLoaderModel value) {
         model = Objects.requireNonNull(value, "value");
     }
 

@@ -17,7 +17,7 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 expected_results="$script_dir/../expected-results.tsv"
 
 case "$algorithm" in
-  rta|zero-cfa|optimized-0-1-cfa|1-object-1-call-site) ;;
+  rta|zero-cfa|optimized-0-1-cfa|k-obj) ;;
   *)
     echo "unsupported call graph algorithm: $algorithm" >&2
     exit 2
@@ -96,6 +96,13 @@ grep -q '<th>Raw changed members</th><td>18</td>' "$report" \
   || fail "raw changed member count is not 18"
 grep -F -q "<th>Algorithm</th><td>$algorithm</td>" "$report" \
   || fail "Call Graph algorithm does not match requested $algorithm"
+if [ "$algorithm" = k-obj ]; then
+  grep -F -q '<th>k-object depth</th><td>1</td>' "$report" \
+    || fail "canonical k-obj depth is not 1"
+else
+  ! grep -F -q '<th>k-object depth</th>' "$report" \
+    || fail "non-k-obj report unexpectedly exposes k-object depth"
+fi
 grep -F -q "<th>WALA ReflectionOptions</th><td>$reflection_options</td>" "$report" \
   || fail "WALA ReflectionOptions does not match requested $reflection_options"
 grep -F -q "<th>Requested dependency scope</th><td>$dependency_scope</td>" "$report" \
@@ -110,6 +117,8 @@ if [ "$jdk_model" = jdk8 ]; then
   grep -q 'bodyChanged' "$module_dir"/*-impact.html \
     || fail "JDK model fixture changed dependency call is missing"
 fi
+grep -q 'RecursiveCallUseCase' "$module_dir"/*-impact.html \
+  || fail "recursive call impact chain is missing"
 grep -q 'Structural reference chains' "$module_dir"/*-impact.html \
   || fail "structural reference chain is missing"
 grep -q 'View candidate chains filtered as equivalent' "$module_dir"/*-impact.html \
@@ -149,7 +158,8 @@ grep -q 'Structural impact' $changes_pages \
 
 [ -f "$expected_results" ] || fail "missing expected results: $expected_results"
 expected=$(awk -F '\t' -v requested_scope="$dependency_scope" -v requested_model="$jdk_model" -v requested_algorithm="$algorithm" '
-  $0 !~ /^#/ && NF == 5 && $1 == requested_scope && $2 == requested_model && $3 == requested_algorithm { print $4 "\t" $5; found++ }
+  BEGIN { requested_depth = requested_algorithm == "k-obj" ? "1" : "" }
+  $0 !~ /^#/ && NF == 6 && $1 == requested_scope && $2 == requested_model && $3 == requested_algorithm && $4 == requested_depth { print $5 "\t" $6; found++ }
   END { if (found > 1) exit 2 }
 ' "$expected_results") || fail "duplicate expected result for $jdk_model/$algorithm"
 

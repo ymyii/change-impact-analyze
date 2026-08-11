@@ -21,6 +21,7 @@ import java.util.Objects;
  * @param jdkModel command-wide JDK Method Model selection
  * @param reflectionOptions command-wide WALA ReflectionOptions
  * @param dependencyBoundary external method-body boundary model
+ * @param kObjDepth receiver allocation-string depth for k-obj
  * @param monitor cooperative fixed-point monitor
  */
 record CallGraphBuildRequest(
@@ -33,6 +34,7 @@ record CallGraphBuildRequest(
         JdkModelSelection jdkModel,
         WalaReflectionOptions reflectionOptions,
         DependencyBodyBoundary dependencyBoundary,
+        int kObjDepth,
         IProgressMonitor monitor) {
 
     CallGraphBuildRequest {
@@ -46,6 +48,7 @@ record CallGraphBuildRequest(
         Objects.requireNonNull(jdkModel, "jdkModel");
         Objects.requireNonNull(reflectionOptions, "reflectionOptions");
         Objects.requireNonNull(dependencyBoundary, "dependencyBoundary");
+        kObjDepth = CallGraphAlgorithm.requireValidKObjDepth(kObjDepth);
         Objects.requireNonNull(monitor, "monitor");
     }
 
@@ -75,6 +78,7 @@ record CallGraphBuildRequest(
         this(analysisScope, classHierarchy, projectEntrypoints, analysisCache,
                 services, invokedynamicModels,
                 JdkModelSelection.defaultSelection(), reflection, boundary,
+                CallGraphAlgorithm.defaultKObjDepth(),
                 progressMonitor);
     }
 }

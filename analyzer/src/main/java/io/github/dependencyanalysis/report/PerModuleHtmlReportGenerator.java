@@ -262,6 +262,9 @@ public final class PerModuleHtmlReportGenerator {
         body.append("<details><summary>Technical details</summary><table>")
                 .append(row("Algorithm",
                         run.getCallGraphAlgorithm().identifier()))
+                .append(run.getCallGraphAlgorithm()
+                        == CallGraphAlgorithm.K_OBJ
+                        ? row("k-object depth", run.getKObjDepth()) : "")
                 .append(row("WALA ReflectionOptions",
                         run.getReflectionOptions().identifier()))
                 .append(row("JDK method model",
@@ -1122,11 +1125,11 @@ public final class PerModuleHtmlReportGenerator {
                     + "while merging String, Throwable, primitive-holder, "
                     + "and excessive same-type allocations to reduce "
                     + "analysis cost.");
-            case ONE_OBJECT_ONE_CALL_SITE -> term(
-                    "1-Object + 1-Call-Site",
+            case K_OBJ -> term(
+                    "k-Object",
                     "The context-sensitive WALA call analysis used here. "
-                    + "It distinguishes one receiver allocation site and "
-                    + "one call site, keeps exact allocation-site and "
+                    + "It distinguishes a configured number of receiver "
+                    + "allocation sites, keeps exact allocation-site and "
                     + "constant-specific identity without smushing, and "
                     + "can therefore cost substantially more time and "
                     + "memory than the other algorithms.");

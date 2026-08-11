@@ -14,7 +14,7 @@ code_refs:
   - path: "benchmarks/impact-medium/scripts/verify-report.sh"
     desc: "scope-aware semantic verification gate"
   - path: "benchmarks/impact-medium/expected-results.tsv"
-    desc: "scope + JDK model + Call Graph algorithm semantic baseline"
+    desc: "scope + JDK model + Call Graph algorithm + k-object depth semantic baseline"
 ---
 
 # Rule: Benchmark Scenario Coverage
@@ -33,6 +33,7 @@ code_refs:
 - 单纯内部 refactor 且无可观察行为变化时可以不新增场景，但必须通过现有 benchmark regression。
 - `changed-paths` 是当前默认 dependency analysis scope；`full` 是对应的完整分析对照。Canonical matrix 必须显式传入两种 scope，不能依赖 CLI 默认值。
 - `jdk8`是当前默认JDK Method Model；canonical warm-up/formal必须省略`--jdk-model`以验证默认值，每个scope/algorithm另执行一次显式`none` semantic control。Control不进入performance snapshot。
+- `k-obj` canonical run必须省略`--k-obj-depth`以验证默认`1`；`k=2`由集成测试覆盖，不增加canonical JVM数量。
 
 ## Applicability
 
@@ -53,7 +54,7 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 
 - 56个run全部成功。
 - 两种 scope 内 warm-up 与 formal topology 稳定。
-- 16组scope/model/algorithm semantic baseline全部通过；默认`jdk8`必须包含`Stream.map` private`Function` callback到changed dependency的fixture路径，`none`按algorithm验收真实JDK bytecode baseline。
+- 16组scope/model/algorithm/depth semantic baseline全部通过；所有组合必须包含private static递归到changed dependency的路径；默认`jdk8`还必须包含`Stream.map` private`Function` callback路径，`none`按algorithm验收真实JDK bytecode baseline。
 - `benchmark-report-changed-paths.html` 与 `benchmark-report-full.html` 均成功生成。
 - 两组 tracked snapshot 通过同一个 matrix transaction 原子发布；任一 scope 失败时旧 snapshot 全部保留。
 
@@ -61,7 +62,7 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 
 - `benchmarks/impact-medium/run-scope-matrix.sh` - canonical 能力覆盖入口。
 - `benchmarks/impact-medium/scripts/verify-report.sh` - semantic result、path topology 和 boundary evidence 验收。
-- `benchmarks/impact-medium/expected-results.tsv` - `dependency_analysis_scope + jdk_model + call_graph_algorithm` baseline。
+- `benchmarks/impact-medium/expected-results.tsv` - `dependency_analysis_scope + jdk_model + call_graph_algorithm + k_obj_depth` baseline。
 
 ## Non-Goals
 

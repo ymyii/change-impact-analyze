@@ -24,10 +24,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class CallGraphDiagnosticsExporterTest {
 
     /** Expected diagnostics JSON Schema version. */
-    private static final int EXPECTED_SCHEMA_VERSION = 5;
+    private static final int EXPECTED_SCHEMA_VERSION = 6;
 
     @Test
-    void writesSchemaV5ConfigurationAndTypedSentinelPath() throws Exception {
+    void writesSchemaV6ConfigurationAndTypedSentinelPath() throws Exception {
         final CallGraphNodeIdentity fakeRoot = node(
                 0, "com.ibm.wala.FakeRoot", "fakeRootMethod",
                 CallGraphNodeSentinelRole.FAKE_ROOT);
@@ -49,6 +49,7 @@ class CallGraphDiagnosticsExporterTest {
             json.writeStartObject();
             CallGraphDiagnosticsExporter.writeConfiguration(
                     json, CallGraphAlgorithm.RTA,
+                    CallGraphAlgorithm.defaultKObjDepth(),
                     WalaReflectionOptions.defaultOptions(),
                     DependencyAnalysisScopeMode.CHANGED_PATHS,
                     JdkModelSelection.JDK8);
@@ -59,7 +60,8 @@ class CallGraphDiagnosticsExporterTest {
         assertThat(CallGraphDiagnosticsExporter.SCHEMA_VERSION)
                 .isEqualTo(EXPECTED_SCHEMA_VERSION);
         assertThat(output.toString())
-                .contains("\"schemaVersion\":5")
+                .contains("\"schemaVersion\":6")
+                .contains("\"kObjDepth\":null")
                 .contains("\"jdkModel\":\"jdk8\"")
                 .contains("\"reachabilityPaths\"")
                 .contains("\"rootKind\":\"FAKE_ROOT\"")
@@ -70,6 +72,25 @@ class CallGraphDiagnosticsExporterTest {
                         "UNREACHABLE_FROM_DECLARED_ENTRYPOINTS",
                         "availableTarget", "unavailableTarget",
                         "hitTarget");
+    }
+
+    @Test
+    void writesKObjDepthForKObjConfiguration() throws Exception {
+        final StringWriter output = new StringWriter();
+
+        try (JsonGenerator json = new JsonFactory().createGenerator(output)) {
+            json.writeStartObject();
+            CallGraphDiagnosticsExporter.writeConfiguration(
+                    json, CallGraphAlgorithm.K_OBJ, 2,
+                    WalaReflectionOptions.defaultOptions(),
+                    DependencyAnalysisScopeMode.CHANGED_PATHS,
+                    JdkModelSelection.JDK8);
+            json.writeEndObject();
+        }
+
+        assertThat(output.toString())
+                .contains("\"algorithm\":\"k-obj\"")
+                .contains("\"kObjDepth\":2");
     }
 
     private CallGraphNodeIdentity node(

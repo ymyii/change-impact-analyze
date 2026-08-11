@@ -17,8 +17,11 @@ public enum CallGraphAlgorithm {
     /** Allocation-sensitive 0-1-CFA with bounded smushing. */
     OPTIMIZED_ZERO_ONE_CFA("optimized-0-1-cfa"),
 
-    /** One receiver allocation string plus one call string. */
-    ONE_OBJECT_ONE_CALL_SITE("1-object-1-call-site");
+    /** Configurable receiver allocation-string sensitivity. */
+    K_OBJ("k-obj");
+
+    /** Default receiver allocation-string depth for k-object sensitivity. */
+    private static final int DEFAULT_K_OBJ_DEPTH = 1;
 
     /** Stable CLI and evidence identifier. */
     private final String identifier;
@@ -30,6 +33,25 @@ public enum CallGraphAlgorithm {
     /** @return command default algorithm */
     public static CallGraphAlgorithm defaultAlgorithm() {
         return RTA;
+    }
+
+    /** @return default k-object receiver allocation-string depth */
+    public static int defaultKObjDepth() {
+        return DEFAULT_K_OBJ_DEPTH;
+    }
+
+    /**
+     * Validates one k-object receiver allocation-string depth.
+     *
+     * @param depth requested depth
+     * @return validated depth
+     */
+    public static int requireValidKObjDepth(final int depth) {
+        if (depth < 1) {
+            throw new IllegalArgumentException(
+                    "--k-obj-depth must be >= 1");
+        }
+        return depth;
     }
 
     /**

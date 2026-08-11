@@ -113,13 +113,13 @@ class JdkCallbackReachabilityTest {
             final ModuleCallGraphSession session =
                     new ModuleCallGraphEngine(
                             diagnostics(), runtime, roots,
-                            CallGraphAlgorithm.ONE_OBJECT_ONE_CALL_SITE,
+                            CallGraphAlgorithm.K_OBJ,
                             WalaReflectionOptions.parse("NONE"),
                             JdkModelSelection.NONE, repository)
                             .build(unit, GRAPH_TIMEOUT_SECONDS);
 
             assertRealJdkDispatch(session,
-                    CallGraphAlgorithm.ONE_OBJECT_ONE_CALL_SITE,
+                    CallGraphAlgorithm.K_OBJ,
                     "PreciseJdkCallback$Task", "run");
         }
     }

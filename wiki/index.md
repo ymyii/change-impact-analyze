@@ -47,7 +47,7 @@ code_refs: []
 - Summary: logical coordinate pair 经 repository lease 并行去重 diff；除stable method hash外，默认检测class/method/constructor/field Java 8 JVM access narrowing。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
-- Summary: 每Module构建一张WALA Call Graph；默认安装`jdk8` model并使用changed-paths body boundary，支持`none`真实JDK bytecode对照与Schema v5 diagnostics。
+- Summary: 每Module构建一张WALA Call Graph；支持可配置纯`k-obj`、默认`jdk8` model、changed-paths body boundary、`none`对照与Schema v6 diagnostics。
 
 ### [JDK Method Models](features/jdk-method-models.md)
 - Summary: 独立`models/jdk`公共engine与`models/jdk8`精确catalog已默认接入`impact`四种algorithm；CLI可显式选择`none`且安装严格失败。

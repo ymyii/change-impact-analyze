@@ -4,29 +4,22 @@ import com.ibm.wala.ipa.callgraph.AnalysisOptions;
 import com.ibm.wala.ipa.callgraph.impl.Util;
 import com.ibm.wala.ipa.callgraph.propagation.SSAPropagationCallGraphBuilder;
 import com.ibm.wala.ipa.callgraph.propagation.cfa.ZeroXInstanceKeys;
-import com.ibm.wala.ipa.callgraph.propagation.cfa.nCFAContextSelector;
 import com.ibm.wala.ipa.callgraph.propagation.cfa.nObjBuilder;
 
 import java.util.ArrayList;
 
 // Wiki: wiki/features/call-graph-engine.md - Fixed-point Installation Order.
-/** One receiver allocation string plus one call string strategy. */
-final class OneObjectOneCallSiteCallGraphStrategy
+/** Configurable receiver allocation-string-sensitive strategy. */
+final class KObjCallGraphStrategy
         implements CallGraphAlgorithmStrategy {
 
     /** Exact allocation sites and constant-specific keys; no smushing. */
     static final int INSTANCE_POLICY = ZeroXInstanceKeys.ALLOCATIONS
             | ZeroXInstanceKeys.CONSTANT_SPECIFIC;
 
-    /** Receiver allocation-string depth. */
-    private static final int OBJECT_CONTEXT_DEPTH = 1;
-
-    /** Call-string depth. */
-    private static final int CALL_SITE_CONTEXT_DEPTH = 1;
-
     @Override
     public CallGraphAlgorithm algorithm() {
-        return CallGraphAlgorithm.ONE_OBJECT_ONE_CALL_SITE;
+        return CallGraphAlgorithm.K_OBJ;
     }
 
     @Override
@@ -35,18 +28,16 @@ final class OneObjectOneCallSiteCallGraphStrategy
         final AnalysisOptions options = options(request);
         final JdkModelInstallation jdkModel = JdkModelInstallation.install(
                 request.jdkModel(), options, request.hierarchy());
-        final OneObjectOneCallSiteInvokeDynamicInstaller dynamic =
-                new OneObjectOneCallSiteInvokeDynamicInstaller();
+        final KObjInvokeDynamicInstaller dynamic =
+                new KObjInvokeDynamicInstaller();
         dynamic.install(options, request.dynamicModels());
         final SSAPropagationCallGraphBuilder builder = new nObjBuilder(
-                OBJECT_CONTEXT_DEPTH, request.hierarchy(), options,
+                request.kObjDepth(), request.hierarchy(), options,
                 request.cache(), null, null, INSTANCE_POLICY);
-        builder.setContextSelector(new nCFAContextSelector(
-                CALL_SITE_CONTEXT_DEPTH, builder.getContextSelector()));
-        new OneObjectOneCallSiteMethodHandleInstaller().install(
+        new KObjMethodHandleInstaller().install(
                 options, builder);
-        final OneObjectOneCallSiteServiceLoaderInstaller serviceLoader =
-                new OneObjectOneCallSiteServiceLoaderInstaller(
+        final KObjServiceLoaderInstaller serviceLoader =
+                new KObjServiceLoaderInstaller(
                         request.serviceLoaderIndex(), request.hierarchy());
         serviceLoader.install(builder);
         request.dependencyBoundary().install(builder);

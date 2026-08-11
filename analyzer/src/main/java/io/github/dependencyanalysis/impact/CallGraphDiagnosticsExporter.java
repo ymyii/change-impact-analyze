@@ -39,7 +39,7 @@ import java.util.UUID;
 final class CallGraphDiagnosticsExporter {
 
     /** Diagnostics JSON Schema version. */
-    static final int SCHEMA_VERSION = 5;
+    static final int SCHEMA_VERSION = 6;
 
     /** SHA-256 algorithm name. */
     private static final String SHA_256 = "SHA-256";
@@ -77,6 +77,7 @@ final class CallGraphDiagnosticsExporter {
      *
      * @param output destination JSON
      * @param algorithm Call Graph algorithm
+     * @param kObjDepth k-object receiver allocation-string depth
      * @param reflectionOptions WALA ReflectionOptions
      * @param dependencyScope requested dependency method-body scope
      * @param jdkModel JDK Method Model selection
@@ -86,6 +87,7 @@ final class CallGraphDiagnosticsExporter {
     void write(
             final Path output,
             final CallGraphAlgorithm algorithm,
+            final int kObjDepth,
             final WalaReflectionOptions reflectionOptions,
             final DependencyAnalysisScopeMode dependencyScope,
             final JdkModelSelection jdkModel,
@@ -98,7 +100,7 @@ final class CallGraphDiagnosticsExporter {
             try (JsonGenerator json = JSON_FACTORY.createGenerator(
                     Files.newBufferedWriter(temporary,
                             StandardCharsets.UTF_8))) {
-                writeDocument(json, algorithm, reflectionOptions,
+                writeDocument(json, algorithm, kObjDepth, reflectionOptions,
                         dependencyScope, jdkModel, modules);
             }
             move(temporary, destination);
@@ -110,13 +112,14 @@ final class CallGraphDiagnosticsExporter {
     private void writeDocument(
             final JsonGenerator json,
             final CallGraphAlgorithm algorithm,
+            final int kObjDepth,
             final WalaReflectionOptions reflectionOptions,
             final DependencyAnalysisScopeMode dependencyScope,
             final JdkModelSelection jdkModel,
             final List<ModuleAnalysisResult> modules) throws IOException {
         json.useDefaultPrettyPrinter();
         json.writeStartObject();
-        writeConfiguration(json, algorithm, reflectionOptions,
+        writeConfiguration(json, algorithm, kObjDepth, reflectionOptions,
                 dependencyScope, jdkModel);
         json.writeStringField("jdk", javaRuntime.getVersion());
         json.writeArrayFieldStart("modules");
@@ -135,11 +138,18 @@ final class CallGraphDiagnosticsExporter {
     static void writeConfiguration(
             final JsonGenerator json,
             final CallGraphAlgorithm algorithm,
+            final int kObjDepth,
             final WalaReflectionOptions reflectionOptions,
             final DependencyAnalysisScopeMode dependencyScope,
             final JdkModelSelection jdkModel) throws IOException {
         json.writeNumberField("schemaVersion", SCHEMA_VERSION);
         json.writeStringField("algorithm", algorithm.identifier());
+        if (algorithm == CallGraphAlgorithm.K_OBJ) {
+            json.writeNumberField("kObjDepth",
+                    CallGraphAlgorithm.requireValidKObjDepth(kObjDepth));
+        } else {
+            json.writeNullField("kObjDepth");
+        }
         json.writeStringField("reflectionOptions",
                 reflectionOptions.identifier());
         json.writeStringField("jdkModel", jdkModel.identifier());

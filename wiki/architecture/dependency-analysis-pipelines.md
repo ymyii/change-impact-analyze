@@ -80,11 +80,11 @@ flowchart TD
 ## Architecture Decision Records
 
 - target每个Module只构建一张 selected Call Graph；baseline不compile也不构图，以控制CPU、heap和workspace成本。
-- `--call-graph-algorithm` command-wide选择 `rta`、`zero-cfa`、`optimized-0-1-cfa`或`1-object-1-call-site`，默认`rta`；同一次command的全部Module使用一致analysis model，不自动fallback。
+- `--call-graph-algorithm` command-wide选择 `rta`、`zero-cfa`、`optimized-0-1-cfa`或`k-obj`，默认`rta`；同一次command的全部Module使用一致analysis model，不自动fallback。`--k-obj-depth`只对`k-obj`合法，默认`1`且必须为正整数。
 - `--jdk-model` command-wide选择`jdk8`或`none`，默认`jdk8`；同一次command的全部Module一致。`jdk8`安装失败、Synthetic loader不支持或catalog不完整时Module失败，不fallback；`none`跳过catalog和selector。
 - `--dependency-analysis-scope` command-wide 选择 `changed-paths` 或 `full`，默认 `changed-paths`。Requested mode 与 per-Module actual mode 分开保存；occurrence graph 无法稳定恢复全部路径时，仅该 Module 自动 fallback 到 `full` 并记录 typed reason。
 - `changed-paths` 不删除 artifact：全部 target external JAR、resource、reactor classes 和 JDK 仍进入 scope/CHA/ownership/model resolution。Optimization 只影响 resolved external `IMethod` 的 IR policy。
-- 四种Call Graph实现通过唯一Factory选择独立strategy。`BasicRTABuilder`、两种`ZeroXCFABuilder`与复合`nObjBuilder`/`nCFAContextSelector`只存在于对应strategy；pipeline依赖immutable request/result与统一metadata shape，不依赖builder capability adapter。
+- 四种Call Graph实现通过唯一Factory选择独立strategy。`BasicRTABuilder`、两种`ZeroXCFABuilder`与纯`nObjBuilder(k, …)`只存在于对应strategy；pipeline依赖immutable request/result与统一metadata shape，不依赖builder capability adapter。
 - `--wala-reflection-options`同样command-wide，默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`；实际值穿过pipeline configuration、strategy、Diagnostic与Report，不由algorithm隐式覆盖。
 - Call Graph完成后所有Impact query只读，不允许overlay、第二张graph或whole-scope补扫，确保结果来源单一且可解释。
 - Scope/model/query limitation通过统一`CoverageLimitation` contract单向汇入reducer；固定reason precedence不读取exception message、summary或HTML。
@@ -95,7 +95,7 @@ flowchart TD
 - Baseline/target dependency collection先分别产出`ModuleDependencyEvidence`。普通GraphML决定selected projection与winner；verbose occurrence映射到winner后只保留topology；JSON binding收敛在同一Module evidence。
 - Dependency diff和JAR diff完成后，ChangePoint按Module绑定。每个Module使用target evidence的normalized occurrence graph从所有matching winner seed沿全部parent edge反向恢复到Module root；路径、多occurrence和多seed取并集，禁止沿seed child edge扩展。
 - 每个Module依次执行path planning、scope validation、selected strategy build、read-only query与typed coverage reduction；strategy在WALA defaults后安装selected JDK model，fixed point后snapshot single-graph metadata。全局随后串行执行SSA equivalence，再并行生成code evidence。
-- Analysis result、Overall Report与optional diagnostics JSON只携带`jdk8`/`none` selection；internal catalog/hit snapshot不跨入用户输出。diagnostics JSON为Schema v5。
+- Analysis result、Overall Report与optional diagnostics JSON携带algorithm及`jdk8`/`none` selection；仅`k-obj`携带实际深度。internal catalog/hit snapshot不跨入用户输出。diagnostics JSON为Schema v6。
 - Overall与Module pages全部写入staging成功后，原子替换command-owned Report。
 
 ## Module Contract
@@ -135,13 +135,13 @@ flowchart TD
 
 ## Analysis Model Boundaries
 
-- Call Graph 是 selected WALA over-approximation：RTA按全局已实例化compatible class求virtual/interface reachability；ZeroCFA按class合并普通allocation并保留constant identity；optimized 0-1-CFA保留allocation-site/constant identity并smush高成本对象；1-object-1-call-site使用一层receiver allocation string和一层call string，保留精确allocation-site且不smush。
+- Call Graph 是 selected WALA over-approximation：RTA按全局已实例化compatible class求virtual/interface reachability；ZeroCFA按class合并普通allocation并保留constant identity；optimized 0-1-CFA保留allocation-site/constant identity并smush高成本对象；`k-obj`保留最多`k`层receiver allocation string与精确allocation-site，不叠加call string且不smush。
 - `changed-paths` 中路径外 external method 默认 summary 不包含内部 call、field read/write、callback、exception或thread行为。它保留 caller 到 resolved callee 的 edge，并按 return type返回正常默认值。
 - 当 invoke reference result 在同一 caller IR 中仅经 bounded direct/phi/pi flow 到达 concrete、可解析且处于真实 IR scope 的 `checkcast` target 时，factory summary 分配该类型并返回，不显式调用 constructor。该近似产生 typed evidence 和 `INCONCLUSIVE`。
 - Reachable no-op callee 收到可证明为 changed class 实例的 receiver、argument、array 或 varargs 元素时记录 dangerous transfer；只声明为 `Object` 且无法恢复实际类型时不猜测。
 - Entrypoint fake receiver/parameter只表达 declared interface/abstract type，不探索真实 implementation；因此 implementation-only path可能不可达。
 - Reflection使用command选择的WALA `ReflectionOptions`；默认是bounded `ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。三种points-to strategy由各自MethodHandle installer安装WALA extension，RTA installer仅使用reachable caller-local IR/DefUse推导已支持的`findStatic` target；resolution保存operation、caller stable identity、bytecode PC与resolved binary identity。
-- `ServiceLoaderProtocolIndex`由engine在strategy前读取、验证并冻结一次；RTA、ZeroCFA、optimized与1-object-1-call-site installer分别安装local checkcast、constant aggregate或allocation-site execution，不共享含algorithm分支的mutable execution state。
+- `ServiceLoaderProtocolIndex`由engine在strategy前读取、验证并冻结一次；RTA、ZeroCFA、optimized与`k-obj` installer分别安装local checkcast、constant aggregate或allocation-site execution，不共享含algorithm分支的mutable execution state。`k-obj` ServiceLoader Context保留WALA提供的任意合法深度allocation string。
 - ServiceLoader 与注册的 `invokedynamic` 协议在 `makeCallGraph(...)` 前安装 WALA model，参与 points-to/call graph fixed point；构图后不允许 overlay 补图或 whole-scope JAR/classfile 重扫。
 - 非 constant ServiceLoader service type、非法 provider 与 reachable unknown bootstrap 产生 stable limitation，并使 Module `INCONCLUSIVE`。
 - Spring DI/AOP/annotation/XML/config、custom classloader 不完整建模。

@@ -25,13 +25,13 @@ import java.util.Objects;
 import java.util.Set;
 
 /** Strategy-owned ServiceLoader synthetic execution. */
-final class OneObjectOneCallSiteServiceLoaderModel {
+final class KObjServiceLoaderModel {
 
     /** Service identity visible through WALA Context wrappers. */
     static final ContextKey SERVICE_TYPE_KEY = new ContextKey() {
         @Override
         public String toString() {
-            return "ONE_OBJECT_ONE_CALL_SITE_SERVICE_LOADER_MODELED_TYPE";
+            return "K_OBJ_SERVICE_LOADER_MODELED_TYPE";
         }
     };
 
@@ -41,7 +41,7 @@ final class OneObjectOneCallSiteServiceLoaderModel {
     /** Resource/declaration validation limitations. */
     private final List<ModelLimitation> limitations;
 
-    OneObjectOneCallSiteServiceLoaderModel(
+    KObjServiceLoaderModel(
             final ServiceLoaderProtocolIndex index,
             final IClassHierarchy hierarchy) {
         Objects.requireNonNull(index, "index");
@@ -64,7 +64,7 @@ final class OneObjectOneCallSiteServiceLoaderModel {
         final ProviderIteratorClass iterator = iterators.get(service);
         if (iterator == null) {
             throw new IllegalStateException(
-                    "Missing 1-object-1-call-site ServiceLoader iterator: "
+                    "Missing k-obj ServiceLoader iterator: "
                             + service);
         }
         return iterator.getReference();

@@ -12,6 +12,7 @@ import java.util.Objects;
  *
  * @param entrypointSelection user-selected PROJECT entrypoint boundary
  * @param callGraphAlgorithm command-wide Call Graph algorithm
+ * @param kObjDepth command-wide k-object receiver allocation-string depth
  * @param reflectionOptions command-wide WALA ReflectionOptions
  * @param dependencyAnalysisScope requested dependency method-body scope
  * @param jdkModel command-wide JDK Method Model selection
@@ -19,6 +20,7 @@ import java.util.Objects;
 public record AnalysisRunConfiguration(
         EntrypointSelection entrypointSelection,
         CallGraphAlgorithm callGraphAlgorithm,
+        int kObjDepth,
         WalaReflectionOptions reflectionOptions,
         DependencyAnalysisScopeMode dependencyAnalysisScope,
         JdkModelSelection jdkModel) {
@@ -27,6 +29,7 @@ public record AnalysisRunConfiguration(
     public AnalysisRunConfiguration {
         Objects.requireNonNull(entrypointSelection, "entrypointSelection");
         Objects.requireNonNull(callGraphAlgorithm, "callGraphAlgorithm");
+        kObjDepth = CallGraphAlgorithm.requireValidKObjDepth(kObjDepth);
         Objects.requireNonNull(reflectionOptions, "reflectionOptions");
         Objects.requireNonNull(dependencyAnalysisScope,
                 "dependencyAnalysisScope");
@@ -38,8 +41,20 @@ public record AnalysisRunConfiguration(
             final EntrypointSelection selection,
             final CallGraphAlgorithm algorithm,
             final WalaReflectionOptions reflection,
+            final DependencyAnalysisScopeMode dependencyScope,
+            final JdkModelSelection selectedJdkModel) {
+        this(selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
+                reflection, dependencyScope, selectedJdkModel);
+    }
+
+    /** Compatibility constructor using default k depth and JDK model. */
+    public AnalysisRunConfiguration(
+            final EntrypointSelection selection,
+            final CallGraphAlgorithm algorithm,
+            final WalaReflectionOptions reflection,
             final DependencyAnalysisScopeMode dependencyScope) {
-        this(selection, algorithm, reflection, dependencyScope,
+        this(selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
+                reflection, dependencyScope,
                 JdkModelSelection.defaultSelection());
     }
 
@@ -52,7 +67,7 @@ public record AnalysisRunConfiguration(
     public AnalysisRunConfiguration(
             final EntrypointSelection selection,
             final CallGraphAlgorithm algorithm) {
-        this(selection, algorithm,
+        this(selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
                 WalaReflectionOptions.defaultOptions(),
                 DependencyAnalysisScopeMode.defaultMode(),
                 JdkModelSelection.defaultSelection());
@@ -63,7 +78,8 @@ public record AnalysisRunConfiguration(
             final EntrypointSelection selection,
             final CallGraphAlgorithm algorithm,
             final WalaReflectionOptions reflection) {
-        this(selection, algorithm, reflection,
+        this(selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
+                reflection,
                 DependencyAnalysisScopeMode.defaultMode(),
                 JdkModelSelection.defaultSelection());
     }

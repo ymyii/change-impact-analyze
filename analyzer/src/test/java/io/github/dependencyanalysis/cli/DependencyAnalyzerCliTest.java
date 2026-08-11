@@ -122,6 +122,7 @@ class DependencyAnalyzerCliTest {
                 .contains("-k, --include-change-kinds")
                 .contains("--analysis-parallelism")
                 .contains("--call-graph-algorithm")
+                .contains("--k-obj-depth")
                 .contains("--jdk-model")
                 .contains("--dependency-analysis-scope")
                 .contains("--call-graph-diagnostics-output")
@@ -131,7 +132,7 @@ class DependencyAnalyzerCliTest {
                 .contains("--analysis-target");
         assertThat(impactText.toString().replaceAll("\\s+", " "))
                 .contains("Call Graph algorithm: rta, zero-cfa, "
-                        + "optimized-0-1-cfa, or 1-object-1-call-site; "
+                        + "optimized-0-1-cfa, or k-obj; "
                         + "default: rta.");
         assertThat(treeText.toString())
                 .contains("-p, --path")
@@ -226,7 +227,7 @@ class DependencyAnalyzerCliTest {
                 .newCommandLine(new DependencyAnalyzerCli());
         final CommandLine optimizedCommand = DependencyAnalyzerCli
                 .newCommandLine(new DependencyAnalyzerCli());
-        final CommandLine oneObjectOneCallSiteCommand = DependencyAnalyzerCli
+        final CommandLine kObjCommand = DependencyAnalyzerCli
                 .newCommandLine(new DependencyAnalyzerCli());
 
         final CommandLine.ParseResult defaultResult =
@@ -240,12 +241,12 @@ class DependencyAnalyzerCliTest {
                 optimizedCommand.parseArgs("impact", "--baseline", "HEAD",
                         "--output", "report.html",
                         "--call-graph-algorithm", "OPTIMIZED-0-1-CFA");
-        final CommandLine.ParseResult oneObjectOneCallSiteResult =
-                oneObjectOneCallSiteCommand.parseArgs(
+        final CommandLine.ParseResult kObjResult =
+                kObjCommand.parseArgs(
                         "impact", "--baseline", "HEAD",
                         "--output", "report.html",
                         "--call-graph-algorithm",
-                        "1-OBJECT-1-CALL-SITE");
+                        "K-OBJ", "--k-obj-depth", "2");
 
         assertThat(algorithm(defaultResult))
                 .isEqualTo(CallGraphAlgorithm.RTA);
@@ -253,8 +254,29 @@ class DependencyAnalyzerCliTest {
                 .isEqualTo(CallGraphAlgorithm.ZERO_CFA);
         assertThat(algorithm(optimizedResult))
                 .isEqualTo(CallGraphAlgorithm.OPTIMIZED_ZERO_ONE_CFA);
-        assertThat(algorithm(oneObjectOneCallSiteResult))
-                .isEqualTo(CallGraphAlgorithm.ONE_OBJECT_ONE_CALL_SITE);
+        assertThat(algorithm(kObjResult))
+                .isEqualTo(CallGraphAlgorithm.K_OBJ);
+        assertThat(kObjDepth(defaultResult)).isNull();
+        assertThat(kObjDepth(kObjResult)).isEqualTo(2);
+    }
+
+    @Test
+    void invalidOrIrrelevantKObjDepthIsRejected() {
+        final int zero = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli())
+                .execute("impact", "--baseline", "HEAD",
+                        "--output", "report.html",
+                        "--call-graph-algorithm", "k-obj",
+                        "--k-obj-depth", "0");
+        final int irrelevant = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli())
+                .execute("impact", "--baseline", "HEAD",
+                        "--output", "report.html",
+                        "--call-graph-algorithm", "rta",
+                        "--k-obj-depth", "2");
+
+        assertThat(zero).isEqualTo(1);
+        assertThat(irrelevant).isEqualTo(1);
     }
 
     @Test
@@ -367,12 +389,12 @@ class DependencyAnalyzerCliTest {
 
         final int code = command.execute("impact", "--baseline", "HEAD",
                 "--output", "report.html", "--call-graph-algorithm",
-                "zerocfa");
+                "1-object-1-call-site");
 
         assertThat(code).isEqualTo(1);
         assertThat(errors.toString())
                 .contains("rta, zero-cfa, optimized-0-1-cfa, "
-                        + "1-object-1-call-site")
+                        + "k-obj")
                 .doesNotContain("[preflight]");
     }
 
@@ -420,6 +442,11 @@ class DependencyAnalyzerCliTest {
             final CommandLine.ParseResult result) {
         return result.subcommand().commandSpec()
                 .findOption("--call-graph-algorithm").getValue();
+    }
+
+    private Integer kObjDepth(final CommandLine.ParseResult result) {
+        return result.subcommand().commandSpec()
+                .findOption("--k-obj-depth").getValue();
     }
 
     private WalaReflectionOptions reflectionOptions(

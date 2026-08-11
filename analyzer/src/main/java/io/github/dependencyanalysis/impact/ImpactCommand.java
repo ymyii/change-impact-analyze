@@ -115,9 +115,15 @@ public final class ImpactCommand
             defaultValue = "rta",
             converter = CallGraphAlgorithmConverter.class,
             description = "Call Graph algorithm: rta, zero-cfa, "
-                    + "optimized-0-1-cfa, or 1-object-1-call-site; "
+                    + "optimized-0-1-cfa, or k-obj; "
                     + "default: rta.")
     private CallGraphAlgorithm callGraphAlgorithm;
+
+    /** Optional command-wide k-object receiver allocation-string depth. */
+    @Option(names = "--k-obj-depth",
+            description = "Positive receiver allocation-string depth for "
+                    + "k-obj; default: 1.")
+    private Integer kObjDepth;
 
     /** Command-wide JDK Method Model selection. */
     @Option(names = "--jdk-model",
@@ -196,6 +202,10 @@ public final class ImpactCommand
                     "--analysis-parallelism must be >= 1");
             return 1;
         }
+        final Integer selectedKObjDepth = selectedKObjDepth(diagnostics);
+        if (selectedKObjDepth == null) {
+            return 1;
+        }
         final EntrypointSelection entrypointSelection;
         try {
             entrypointSelection = EntrypointSelection.parse(
@@ -240,6 +250,8 @@ public final class ImpactCommand
                         + "; callGraphDiagnosticsOutput="
                         + (normalizedDiagnostics == null ? "DISABLED"
                         : normalizedDiagnostics)
+                        + (callGraphAlgorithm == CallGraphAlgorithm.K_OBJ
+                        ? "; kObjDepth=" + selectedKObjDepth : "")
                         + "; jdkModel=" + jdkModel.identifier());
         try (PreflightContext context =
                      new PreflightContext()) {
@@ -281,6 +293,7 @@ public final class ImpactCommand
                                     normalizedDiagnostics),
                             entrypointSelection,
                             callGraphAlgorithm,
+                            selectedKObjDepth,
                             reflectionOptions,
                             dependencyAnalysisScope,
                             jdkModel,
@@ -320,6 +333,23 @@ public final class ImpactCommand
             diagnostics.transientException(
                     DiagnosticContext.stage("pipeline"), exception);
             return 2;
+        }
+    }
+
+    private Integer selectedKObjDepth(final DiagnosticLog diagnostics) {
+        if (kObjDepth != null
+                && callGraphAlgorithm != CallGraphAlgorithm.K_OBJ) {
+            diagnostics.error("preflight", "--k-obj-depth is valid only "
+                    + "with --call-graph-algorithm k-obj");
+            return null;
+        }
+        final int selected = kObjDepth == null
+                ? CallGraphAlgorithm.defaultKObjDepth() : kObjDepth;
+        try {
+            return CallGraphAlgorithm.requireValidKObjDepth(selected);
+        } catch (IllegalArgumentException exception) {
+            diagnostics.error("preflight", exception.getMessage());
+            return null;
         }
     }
 

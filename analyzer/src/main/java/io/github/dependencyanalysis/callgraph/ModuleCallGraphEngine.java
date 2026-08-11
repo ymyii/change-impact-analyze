@@ -58,6 +58,9 @@ public final class ModuleCallGraphEngine {
     /** Command-wide Call Graph algorithm. */
     private final CallGraphAlgorithm algorithm;
 
+    /** Command-wide k-object receiver allocation-string depth. */
+    private final int kObjDepth;
+
     /** Command-wide WALA ReflectionOptions. */
     private final WalaReflectionOptions reflectionOptions;
 
@@ -188,6 +191,27 @@ public final class ModuleCallGraphEngine {
     }
 
     /**
+     * Creates an engine with composed graph and JDK model policies.
+     *
+     * @param collector diagnostics
+     * @param runtime target JDK runtime
+     * @param selection entrypoint class selection
+     * @param graphConfiguration algorithm configuration
+     * @param selectedJdkModel JDK Method Model selection
+     * @param repository dependency repository
+     */
+    public ModuleCallGraphEngine(
+            final DiagnosticLog collector,
+            final JavaRuntimeDescriptor runtime,
+            final EntrypointSelection selection,
+            final CallGraphConfiguration graphConfiguration,
+            final JdkModelSelection selectedJdkModel,
+            final IJarRepository repository) {
+        this(collector, runtime, selection, graphConfiguration, repository,
+                CallGraphModelConfiguration.withJdkModel(selectedJdkModel));
+    }
+
+    /**
      * Creates an engine with an explicit invokedynamic model registry.
      *
      * @param collector diagnostics
@@ -271,13 +295,37 @@ public final class ModuleCallGraphEngine {
             final WalaReflectionOptions selectedReflectionOptions,
             final IJarRepository repository,
             final CallGraphModelConfiguration modelConfiguration) {
+        this(collector, runtime, selection,
+                CallGraphConfiguration.withDefaultKObjDepth(
+                        selectedAlgorithm, selectedReflectionOptions),
+                repository, modelConfiguration);
+    }
+
+    /**
+     * Creates an engine with composed graph and model configuration.
+     *
+     * @param collector diagnostics
+     * @param runtime target JDK runtime
+     * @param selection entrypoint class selection
+     * @param graphConfiguration algorithm configuration
+     * @param repository dependency repository
+     * @param modelConfiguration JDK and invokedynamic models
+     */
+    public ModuleCallGraphEngine(
+            final DiagnosticLog collector,
+            final JavaRuntimeDescriptor runtime,
+            final EntrypointSelection selection,
+            final CallGraphConfiguration graphConfiguration,
+            final IJarRepository repository,
+            final CallGraphModelConfiguration modelConfiguration) {
         diagnostics = Objects.requireNonNull(collector, "collector");
         javaRuntime = Objects.requireNonNull(runtime, "runtime");
         entrypointSelection = Objects.requireNonNull(selection, "selection");
-        algorithm = Objects.requireNonNull(
-                selectedAlgorithm, "selectedAlgorithm");
-        reflectionOptions = Objects.requireNonNull(
-                selectedReflectionOptions, "selectedReflectionOptions");
+        final CallGraphConfiguration graph = Objects.requireNonNull(
+                graphConfiguration, "graphConfiguration");
+        algorithm = graph.algorithm();
+        kObjDepth = graph.kObjDepth();
+        reflectionOptions = graph.reflectionOptions();
         Objects.requireNonNull(modelConfiguration, "modelConfiguration");
         jdkModel = Objects.requireNonNull(
                 modelConfiguration.jdkModel(), "jdkModel");
@@ -377,6 +425,7 @@ public final class ModuleCallGraphEngine {
                                 serviceLoaderIndex, dynamicModels,
                                 jdkModel, reflectionOptions,
                                 dependencyBoundary,
+                                kObjDepth,
                                 monitor));
             } catch (Exception exception) {
                 if (monitor.isTimedOut()) {
@@ -401,7 +450,10 @@ public final class ModuleCallGraphEngine {
                     ? new CallGraphTopologyAnalyzer().analyze(
                             graph, type -> originOf(ownership, type)) : null;
             diagnostics.info(context, "algorithm="
-                    + algorithm.identifier() + "; reflectionOptions="
+                    + algorithm.identifier()
+                    + (algorithm == CallGraphAlgorithm.K_OBJ
+                    ? "; kObjDepth=" + kObjDepth : "")
+                    + "; reflectionOptions="
                     + reflectionOptions.identifier() + "; jdkModel="
                     + jdkModel.identifier() + "; nodes="
                     + stats.methodCount() + "; edges="

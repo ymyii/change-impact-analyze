@@ -13,7 +13,7 @@ ALGORITHMS = (
     "rta",
     "zero-cfa",
     "optimized-0-1-cfa",
-    "1-object-1-call-site",
+    "k-obj",
 )
 METRICS = (
     ("median_total_wall_seconds", "Median wall (s)"),

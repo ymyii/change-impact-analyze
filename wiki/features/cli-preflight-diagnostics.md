@@ -58,7 +58,8 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - `--path <path>`：reactor root 或 leaf Module。
 - `--analysis-target spring-backend`：默认且唯一 target。
 - `--analysis-parallelism <N>`：默认 `2`，必须 `>=1`；统一控制 Module analysis、JAR diff、反编译 pool，不按 CPU 数静默截断，超过 CPU 输出 warning。
-- `--call-graph-algorithm <rta|zero-cfa|optimized-0-1-cfa|1-object-1-call-site>`：默认`rta`，command-wide应用到全部Module；大小写不敏感，不接受alias或自动fallback。
+- `--call-graph-algorithm <rta|zero-cfa|optimized-0-1-cfa|k-obj>`：默认`rta`，command-wide应用到全部Module；大小写不敏感，不接受alias或自动fallback；旧`1-object-1-call-site`标识直接拒绝。
+- `--k-obj-depth <正整数>`：只可与`k-obj`同时使用，默认`1`，不设置人为上限；零值、负值及与其他算法组合均在Preflight前作为参数错误返回。
 - `--jdk-model <jdk8|none>`：默认`jdk8`，command-wide应用到全部Module；大小写不敏感，只接受精确标识符。`none`跳过JDK model catalog与selector，保留真实JDK bytecode分析。非法值由Picocli在Preflight前以exit code`1`拒绝。
 - `--wala-reflection-options <enum-name>`：默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`，接受WALA `ReflectionOptions` enum name；`--reflection-options`为alias。
 - `--entrypoint-include '<class-path-pattern>'` 与 `--entrypoint-exclude ...`：可重复；直接匹配 slash-separated JVM internal class path，include 取并集，exclude 优先。普通 segment支持 `*`、`?`；`**` 只能作为最后一个完整 segment。Colon/dot旧语法、leading/trailing slash、空 segment与嵌入式 `**` 在 CLI validation阶段 exit `1`。
@@ -95,7 +96,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - 外部 dependency scope warning 使用 `[scope-validation][module][module=…][artifact=…]` context；每个 artifact 一条，warning text 同时进入 Module `Coverage limitations`。
 - Analyzer Diagnostic event 默认 retained，可进入 `impact` HTML Diagnostics。Preflight evidence/fallback、Maven output、exception stack trace 与 Runtime Metrics 是 transient，只进入 Console。
 - Console 与 HTML Report 对 retained event 共用 `DiagnosticLogFormatter`，包含同一 event timestamp 和 prefix；Module Diagnostics 只按 `DiagnosticEvent.module` 精确归属。
-- Call Graph completion message包含`jdkModel=jdk8|none`。Console、HTML与Schema v5 diagnostics JSON只展示selection，不展示model available/hit count或target列表。
+- Call Graph completion message包含`jdkModel=jdk8|none`，并仅在`k-obj`时包含实际`kObjDepth`。HTML遵循同一条件展示；Schema v6 diagnostics JSON在`k-obj`时输出正整数`kObjDepth`，其他算法输出`null`。用户输出不展示model available/hit count或target列表。
 
 示例：
 

@@ -1,6 +1,6 @@
 # Impact Medium CallGraph Benchmark
 
-本 benchmark 对打包后的 `dependency-analyzer impact` 执行四种 Call Graph algorithm、两种 dependency analysis scope 和`jdk8`/`none` JDK Method Model semantic control。Fixture 固定包含42个direct dependencies、9类bytecode change，以及经`Stream.map` private `Function` callback调用changed dependency的model路径；target 以direct `scenario-api:2.0.0`作为winner，同时两条transitive path继续请求`1.0.0`，用于覆盖Maven mediation loser path；每个scope/model/algorithm的candidate/final call chains由`expected-results.tsv`锁定。
+本 benchmark 对打包后的 `dependency-analyzer impact` 执行四种 Call Graph algorithm、两种 dependency analysis scope 和`jdk8`/`none` JDK Method Model semantic control。Fixture 固定包含42个direct dependencies、9类bytecode change、private static递归调用changed dependency的路径，以及经`Stream.map` private `Function` callback调用changed dependency的model路径；target 以direct `scenario-api:2.0.0`作为winner，同时两条transitive path继续请求`1.0.0`，用于覆盖Maven mediation loser path；每个scope/model/algorithm/depth的candidate/final call chains由`expected-results.tsv`锁定。
 
 ## Canonical suite
 
@@ -14,7 +14,7 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 
 可选 positional argument 是 matrix label；同名 raw/candidate 目录存在时拒绝覆盖。Matrix 显式执行 `changed-paths` 与 `full`，每个 scope 固定执行：
 
-- `rta`、`zero-cfa`、`optimized-0-1-cfa`、`1-object-1-call-site`各1次warm-up，共4个独立Java Virtual Machine（JVM）进程。Warm-up预热fixture、Maven与文件缓存，并通过`--call-graph-diagnostics-output`采集CGNode topology、source与IR。
+- `rta`、`zero-cfa`、`optimized-0-1-cfa`、`k-obj`各1次warm-up，共4个独立Java Virtual Machine（JVM）进程。Warm-up预热fixture、Maven与文件缓存，并通过`--call-graph-diagnostics-output`采集CGNode topology、source与IR。Canonical `k-obj`省略`--k-obj-depth`以验收默认`1`；`k=2`由集成测试覆盖。
 - 5个round，每个round各运行四种algorithm，共20个正式样本和20个独立JVM进程。
 - 每种algorithm额外执行1个`--jdk-model none` semantic control，共4个独立JVM进程；warm-up和正式样本省略该option以验收默认`jdk8`。
 - 正式样本按round交错；algorithm列表在每个round循环左移一位，第5个round回到原始顺序。
@@ -70,9 +70,9 @@ benchmarks/impact-medium/results/full/summary.tsv
 benchmarks/impact-medium/results/full/topology.tsv
 ```
 
-- `samples.tsv`：20个默认`jdk8`正式样本；包含model、wall、Call Graph、heap、RSS、graph、method-body boundary、status与环境identity。
-- `summary.tsv`：每种algorithm一行；包含scope、model、资源Min/median/max、稳定topology、boundary node计数和相对`zero-cfa` ratio。
-- `topology.tsv`：只发布默认`jdk8` warm-up；除`RANKED_CGNODE`、`RELATED_IMETHOD`、`REACHABILITY_PATH`外，使用`DEPENDENCY_SCOPE`与`DEPENDENCY_PATH`保存model、requested/actual scope、fallback、artifact/method policy计数和全部changed dependency path evidence。
+- `samples.tsv`：20个默认`jdk8`正式样本；包含`k_obj_depth`、model、wall、Call Graph、heap、RSS、graph、method-body boundary、status与环境identity。`k-obj`深度为`1`，其他算法为空。
+- `summary.tsv`：每种algorithm一行；包含scope、`k_obj_depth`、model、资源Min/median/max、稳定topology、boundary node计数和相对`zero-cfa` ratio。
+- `topology.tsv`：只发布默认`jdk8` warm-up；除`RANKED_CGNODE`、`RELATED_IMETHOD`、`REACHABILITY_PATH`外，使用`DEPENDENCY_SCOPE`与`DEPENDENCY_PATH`保存`k_obj_depth`、model、requested/actual scope、fallback、artifact/method policy计数和全部changed dependency path evidence。
 
 只有两个scope的56个run全部通过semantic verification，且各scope内默认`jdk8` warm-up与五个正式样本的Entrypoint、CGNode、CGEdge、artifact policy和boundary node计数完全一致时，才原子替换两组tracked snapshot。`none` control只参加语义验收，不进入performance Report或tracked snapshot。任一scope出现`FAILED`或`TOPOLOGY_DRIFT`时，旧tracked snapshot整体不变；两份failure HTML、candidate TSV、raw run、topology JSON与`failure.txt`保留在`tmp-files/impact-medium-benchmark/`。
 
@@ -98,7 +98,8 @@ benchmarks/impact-medium/results/full/topology.tsv
 - Overall `JDK method model`等于请求值；默认run为`jdk8`，control为`none`。
 - requested/actual dependency analysis scope 均等于当前 matrix scope，不允许 fixture fallback。
 - POM 有 42 个 direct dependencies；两个 Module 合计 18 个 raw changed members。
-- `expected-results.tsv`中存在该scope/model/algorithm的已校准candidate/final call chains。
+- `expected-results.tsv`中存在该scope/model/algorithm/depth的已校准candidate/final call chains。
+- Affected Call Chains包含`RecursiveCallUseCase.execute → RecursiveCallUseCase.recurse → ScenarioApi.bodyChanged`递归路径。
 - 默认`jdk8`的Affected Call Chains包含`JdkModelUseCase → JdkModelUseCase$ChangedMapper.apply → ScenarioApi.bodyChanged`路径；`none`按algorithm锁定真实JDK bytecode语义下的candidate/final baseline。
 - `changed-paths` 包含三条到 seed 的 path evidence、no-op sibling/downstream、dangerous transfer 和 flow-to-cast factory evidence；`full` 不产生 no-op/factory/boundary evidence。
 - Affected Call Chains 页面包含 Structural Reference Path 与 filtered candidate。
@@ -122,6 +123,6 @@ benchmarks/impact-medium/scripts/compare-summaries.sh \
 - `<run>/logs/stderr.log`：Preflight、CLI、Runtime Metrics 与 pipeline failure。
 - `<run>/logs/verification.txt`：42 dependencies、18 raw changes、scope semantic baseline、Structural Reference Path、Algorithm/ReflectionOptions failure。
 - `<run>/logs/metrics.tsv`：即使 run failure 也尽量保留的单样本指标。
-- `<run>/topology.json`：默认`jdk8` warm-up Schema v5 CGNode topology、model selection、dependency path、body policy、sentinel role、declared entrypoint/WALA sentinel reachability path、IMethod子榜、shortest chain、source与IR。
+- `<run>/topology.json`：默认`jdk8` warm-up Schema v6 CGNode topology、`kObjDepth`、model selection、dependency path、body policy、sentinel role、declared entrypoint/WALA sentinel reachability path、IMethod子榜、shortest chain、source与IR。
 - `<suite>-candidate-results/failure.txt`：suite Schema、环境或 topology drift failure。
 - `benchmark-report-changed-paths.html`、`benchmark-report-full.html`：成功或失败均更新；失败时明确说明 tracked TSV 未发布。

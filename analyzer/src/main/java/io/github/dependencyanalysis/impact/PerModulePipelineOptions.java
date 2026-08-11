@@ -16,6 +16,7 @@ import java.nio.file.Path;
  * @param outputPaths command temporary and optional diagnostics paths
  * @param entrypointSelection user-selected PROJECT entrypoint boundary
  * @param callGraphAlgorithm command-wide Call Graph algorithm
+ * @param kObjDepth command-wide k-object receiver allocation-string depth
  * @param reflectionOptions command-wide WALA ReflectionOptions
  * @param dependencyAnalysisScope dependency method-body scope
  * @param jdkModel command-wide JDK Method Model selection
@@ -27,10 +28,27 @@ record PerModulePipelineOptions(
         PipelineOutputPaths outputPaths,
         EntrypointSelection entrypointSelection,
         CallGraphAlgorithm callGraphAlgorithm,
+        int kObjDepth,
         WalaReflectionOptions reflectionOptions,
         DependencyAnalysisScopeMode dependencyAnalysisScope,
         JdkModelSelection jdkModel,
         ManagedExecutorRegistry executors) {
+
+    /** Compatibility constructor using the default k-object depth. */
+    PerModulePipelineOptions(
+            final long timeoutSeconds,
+            final int parallelism,
+            final PipelineOutputPaths paths,
+            final EntrypointSelection selection,
+            final CallGraphAlgorithm algorithm,
+            final WalaReflectionOptions reflection,
+            final DependencyAnalysisScopeMode dependencyScope,
+            final JdkModelSelection selectedJdkModel,
+            final ManagedExecutorRegistry executorRegistry) {
+        this(timeoutSeconds, parallelism, paths, selection, algorithm,
+                CallGraphAlgorithm.defaultKObjDepth(), reflection,
+                dependencyScope, selectedJdkModel, executorRegistry);
+    }
 
     /** Compatibility constructor using the default JDK model. */
     PerModulePipelineOptions(
@@ -43,7 +61,8 @@ record PerModulePipelineOptions(
             final DependencyAnalysisScopeMode dependencyScope,
             final ManagedExecutorRegistry executorRegistry) {
         this(timeoutSeconds, parallelism, paths, selection, algorithm,
-                reflection, dependencyScope,
+                CallGraphAlgorithm.defaultKObjDepth(), reflection,
+                dependencyScope,
                 JdkModelSelection.defaultSelection(), executorRegistry);
     }
 
@@ -57,7 +76,8 @@ record PerModulePipelineOptions(
             final ManagedExecutorRegistry executorRegistry) {
         this(timeoutSeconds, parallelism,
                 new PipelineOutputPaths(tempDirectory, null),
-                selection, algorithm, reflection,
+                selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
+                reflection,
                 DependencyAnalysisScopeMode.defaultMode(),
                 JdkModelSelection.defaultSelection(), executorRegistry);
     }
@@ -71,7 +91,7 @@ record PerModulePipelineOptions(
             final ManagedExecutorRegistry executorRegistry) {
         this(timeoutSeconds, parallelism,
                 new PipelineOutputPaths(tempDirectory, null),
-                selection, algorithm,
+                selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
                 WalaReflectionOptions.defaultOptions(),
                 DependencyAnalysisScopeMode.defaultMode(),
                 JdkModelSelection.defaultSelection(), executorRegistry);

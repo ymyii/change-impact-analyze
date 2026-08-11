@@ -8,8 +8,8 @@ import com.ibm.wala.ipa.callgraph.MethodTargetSelector;
 
 import java.util.Objects;
 
-/** 1-object-1-call-site-specific invokedynamic execution Decorator. */
-final class OneObjectOneCallSiteInvokeDynamicTargetSelector
+/** k-object-sensitive invokedynamic execution Decorator. */
+final class KObjInvokeDynamicTargetSelector
         implements MethodTargetSelector {
 
     /** Previously installed WALA selector. */
@@ -21,7 +21,7 @@ final class OneObjectOneCallSiteInvokeDynamicTargetSelector
     /** Strategy-local build metadata. */
     private final InvokeDynamicModelState state;
 
-    OneObjectOneCallSiteInvokeDynamicTargetSelector(
+    KObjInvokeDynamicTargetSelector(
             final MethodTargetSelector delegate,
             final InvokeDynamicBootstrapModelRegistry models,
             final InvokeDynamicModelState modelState) {

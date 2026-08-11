@@ -16,7 +16,7 @@ ALGORITHMS = (
     "rta",
     "zero-cfa",
     "optimized-0-1-cfa",
-    "1-object-1-call-site",
+    "k-obj",
 )
 REFLECTION_OPTIONS = "ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD"
 SAMPLE_COLUMNS = (
@@ -26,6 +26,7 @@ SAMPLE_COLUMNS = (
     "sample",
     "dependency_analysis_scope",
     "algorithm",
+    "k_obj_depth",
     "jdk_model",
     "wala_reflection_options",
     "total_wall_seconds",
@@ -59,7 +60,7 @@ GRAPH_COUNTS = {
     "rta": (12, 120, 240),
     "zero-cfa": (12, 24, 42),
     "optimized-0-1-cfa": (12, 30, 48),
-    "1-object-1-call-site": (12, 36, 60),
+    "k-obj": (12, 36, 60),
 }
 
 
@@ -97,6 +98,16 @@ class GenerateReportTest(unittest.TestCase):
             self.assertEqual(20, len(samples))
             self.assertEqual({"formal"}, {row["run_kind"] for row in samples})
             self.assertEqual({"jdk8"}, {row["jdk_model"] for row in samples})
+            self.assertEqual(
+                {"1"},
+                {row["k_obj_depth"] for row in samples
+                 if row["algorithm"] == "k-obj"},
+            )
+            self.assertEqual(
+                {""},
+                {row["k_obj_depth"] for row in samples
+                 if row["algorithm"] != "k-obj"},
+            )
 
             with (candidate_dir / "summary.tsv").open(
                 encoding="utf-8", newline=""
@@ -104,6 +115,7 @@ class GenerateReportTest(unittest.TestCase):
                 summaries = list(csv.DictReader(stream, delimiter="\t"))
             self.assertEqual(list(ALGORITHMS), [row["algorithm"] for row in summaries])
             self.assertEqual({"jdk8"}, {row["jdk_model"] for row in summaries})
+            self.assertEqual("1", summaries[-1]["k_obj_depth"])
             self.assertEqual({"5"}, {row["successful_samples"] for row in summaries})
 
             with (candidate_dir / "topology.tsv").open(
@@ -115,6 +127,9 @@ class GenerateReportTest(unittest.TestCase):
             self.assertEqual(32, len(topology))
             self.assertIn("sentinel_role", topology_columns)
             self.assertEqual({"jdk8"}, {row["jdk_model"] for row in topology})
+            self.assertEqual(
+                {"", "1"}, {row["k_obj_depth"] for row in topology}
+            )
             self.assertIn("path_root_kind", topology_columns)
             self.assertIn("path_root_cg_node_identity", topology_columns)
             self.assertNotIn("entrypoint_cg_node_identity", topology_columns)
@@ -251,13 +266,13 @@ class GenerateReportTest(unittest.TestCase):
             for name, expected in tracked_snapshots.items():
                 self.assertEqual(expected, (tracked_dir / name).read_bytes())
 
-    def test_schema_v4_is_rejected(self) -> None:
+    def test_schema_v5_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             run_directories = self._write_suite(root / "runs")
             topology_path = run_directories[0] / "topology.json"
             topology = json.loads(topology_path.read_text(encoding="utf-8"))
-            topology["schemaVersion"] = 4
+            topology["schemaVersion"] = 5
             topology_path.write_text(json.dumps(topology), encoding="utf-8")
 
             result = self._generate(
@@ -481,6 +496,7 @@ class GenerateReportTest(unittest.TestCase):
             "sample": str(sample),
             "dependency_analysis_scope": scope,
             "algorithm": algorithm,
+            "k_obj_depth": "1" if algorithm == "k-obj" else "",
             "jdk_model": jdk_model,
             "wala_reflection_options": REFLECTION_OPTIONS,
             "total_wall_seconds": f"{4 + algorithm_offset + sample / 10:.3f}",
@@ -559,8 +575,9 @@ class GenerateReportTest(unittest.TestCase):
             "topCallers", False,
         )
         topology = {
-            "schemaVersion": 5,
+            "schemaVersion": 6,
             "algorithm": algorithm,
+            "kObjDepth": 1 if algorithm == "k-obj" else None,
             "jdkModel": "jdk8",
             "reflectionOptions": REFLECTION_OPTIONS,
             "requestedDependencyAnalysisScope": scope,

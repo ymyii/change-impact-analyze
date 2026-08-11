@@ -39,6 +39,9 @@ public final class AnalysisRunResult {
     /** Command-wide Call Graph algorithm. */
     private final CallGraphAlgorithm callGraphAlgorithm;
 
+    /** Command-wide k-object receiver allocation-string depth. */
+    private final int kObjDepth;
+
     /** Command-wide WALA ReflectionOptions. */
     private final WalaReflectionOptions reflectionOptions;
 
@@ -108,6 +111,7 @@ public final class AnalysisRunResult {
                 settings.entrypointSelection(), "entrypointSelection");
         callGraphAlgorithm = java.util.Objects.requireNonNull(
                 settings.callGraphAlgorithm(), "callGraphAlgorithm");
+        kObjDepth = settings.kObjDepth();
         reflectionOptions = java.util.Objects.requireNonNull(
                 settings.reflectionOptions(), "reflectionOptions");
         dependencyAnalysisScope = java.util.Objects.requireNonNull(
@@ -175,6 +179,11 @@ public final class AnalysisRunResult {
     /** @return command-wide Call Graph algorithm */
     public CallGraphAlgorithm getCallGraphAlgorithm() {
         return callGraphAlgorithm;
+    }
+
+    /** @return command-wide k-object receiver allocation-string depth */
+    public int getKObjDepth() {
+        return kObjDepth;
     }
 
     /** @return command-wide WALA ReflectionOptions */
