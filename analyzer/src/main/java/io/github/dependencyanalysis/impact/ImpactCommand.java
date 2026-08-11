@@ -7,6 +7,8 @@ import io.github.dependencyanalysis.callgraph
 import io.github.dependencyanalysis.callgraph
         .EntrypointSelection;
 import io.github.dependencyanalysis.callgraph
+        .JdkModelSelection;
+import io.github.dependencyanalysis.callgraph
         .WalaReflectionOptions;
 import io.github.dependencyanalysis.cli
         .DependencyAnalyzerCli;
@@ -116,6 +118,14 @@ public final class ImpactCommand
                     + "optimized-0-1-cfa, or 1-object-1-call-site; "
                     + "default: rta.")
     private CallGraphAlgorithm callGraphAlgorithm;
+
+    /** Command-wide JDK Method Model selection. */
+    @Option(names = "--jdk-model",
+            defaultValue = "jdk8",
+            converter = JdkModelSelectionConverter.class,
+            description = "JDK Method Model: jdk8 or none; "
+                    + "default: jdk8.")
+    private JdkModelSelection jdkModel;
 
     /** Command-wide WALA ReflectionOptions. */
     @Option(names = {"--wala-reflection-options", "--reflection-options"},
@@ -229,7 +239,8 @@ public final class ImpactCommand
                                 .toAbsolutePath().normalize()
                         + "; callGraphDiagnosticsOutput="
                         + (normalizedDiagnostics == null ? "DISABLED"
-                        : normalizedDiagnostics));
+                        : normalizedDiagnostics)
+                        + "; jdkModel=" + jdkModel.identifier());
         try (PreflightContext context =
                      new PreflightContext()) {
             final PreflightReport report =
@@ -272,6 +283,7 @@ public final class ImpactCommand
                             callGraphAlgorithm,
                             reflectionOptions,
                             dependencyAnalysisScope,
+                            jdkModel,
                             metrics.executors())).run(
                     context.get(
                             ImpactPreflightService

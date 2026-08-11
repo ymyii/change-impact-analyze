@@ -28,6 +28,8 @@ final class RtaCallGraphStrategy implements CallGraphAlgorithmStrategy {
         Util.addDefaultSelectors(options, request.hierarchy());
         Util.addDefaultBypassLogic(options, Util.class.getClassLoader(),
                 request.hierarchy());
+        final JdkModelInstallation jdkModel = JdkModelInstallation.install(
+                request.jdkModel(), options, request.hierarchy());
         final RtaInvokeDynamicInstaller dynamic =
                 new RtaInvokeDynamicInstaller();
         dynamic.install(options, request.dynamicModels());
@@ -73,6 +75,7 @@ final class RtaCallGraphStrategy implements CallGraphAlgorithmStrategy {
                 new StrategyModelMetadata(
                         new DynamicCallEvidenceIndex(evidence),
                         limitations,
-                        serviceLoader.metadata(graph)));
+                        serviceLoader.metadata(graph),
+                        jdkModel.snapshot()));
     }
 }

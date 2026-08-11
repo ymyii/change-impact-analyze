@@ -30,6 +30,7 @@
       <version>1.0.0</version>
     </dependency>
     <dependency><groupId>com.acme.impact.path</groupId><artifactId>path-x</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.impact</groupId><artifactId>scenario-api</artifactId><version>${scenario.api.version}</version></dependency>
     <dependency><groupId>com.acme.impact.boundary</groupId><artifactId>external-sink</artifactId><version>1.0.0</version></dependency>
     <dependency><groupId>com.acme.impact.boundary</groupId><artifactId>external-factory</artifactId><version>1.0.0</version></dependency>
     <dependency><groupId>com.acme.impact.boundary</groupId><artifactId>external-plain</artifactId><version>1.0.0</version></dependency>
@@ -68,7 +69,6 @@
     <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-32</artifactId><version>1.0.0</version></dependency>
     <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-33</artifactId><version>1.0.0</version></dependency>
     <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-34</artifactId><version>1.0.0</version></dependency>
-    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-35</artifactId><version>1.0.0</version></dependency>
   </dependencies>
 
   <build>

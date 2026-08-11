@@ -1,15 +1,14 @@
 package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
+import io.github.dependencyanalysis.dependency.ModuleDependencyEvidence;
 import io.github.dependencyanalysis.dependency.ModuleDependencyOccurrenceGraph;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -23,14 +22,11 @@ public final class ModuleChangedPathSelection {
     /** Actual mode after fallback. */
     private final DependencyAnalysisScopeMode actualMode;
 
-    /** Matching changed dependency occurrences. */
-    private final List<ModuleDependencyOccurrenceGraph.Occurrence> seeds;
-
-    /** Selected path occurrence identities. */
-    private final Set<String> selectedOccurrenceIds;
-
     /** Selected logical external artifact sources. */
     private final Set<ArtifactCoord> selectedArtifacts;
+
+    /** All selected target bindings allowed by this policy. */
+    private final Set<ArtifactCoord> availableArtifacts;
 
     /** All complete path evidence, including duplicate logical artifacts. */
     private final List<DependencyPathEvidence> paths;
@@ -41,16 +37,14 @@ public final class ModuleChangedPathSelection {
     private ModuleChangedPathSelection(
             final DependencyAnalysisScopeMode requested,
             final DependencyAnalysisScopeMode actual,
-            final List<ModuleDependencyOccurrenceGraph.Occurrence> seedNodes,
-            final Set<String> occurrences,
+            final Set<ArtifactCoord> available,
             final Set<ArtifactCoord> artifacts,
             final List<DependencyPathEvidence> pathEvidence,
             final String fallback) {
         requestedMode = Objects.requireNonNull(requested, "requested");
         actualMode = Objects.requireNonNull(actual, "actual");
-        seeds = List.copyOf(seedNodes);
-        selectedOccurrenceIds = Collections.unmodifiableSet(
-                new LinkedHashSet<>(occurrences));
+        availableArtifacts = Collections.unmodifiableSet(
+                new LinkedHashSet<>(available));
         selectedArtifacts = Collections.unmodifiableSet(
                 new LinkedHashSet<>(artifacts));
         paths = List.copyOf(pathEvidence);
@@ -60,25 +54,29 @@ public final class ModuleChangedPathSelection {
     /**
      * Plans real-IR external artifacts from the occurrence graph.
      *
-     * @param graph target Module graph
+     * @param evidence target merged dependency evidence
      * @param changedArtifacts target artifacts that produced ChangePoints
      * @param requested requested mode
      * @return immutable selection or full fallback
      */
     public static ModuleChangedPathSelection plan(
-            final ModuleDependencyOccurrenceGraph graph,
+            final ModuleDependencyEvidence evidence,
             final Set<ArtifactCoord> changedArtifacts,
             final DependencyAnalysisScopeMode requested) {
-        Objects.requireNonNull(graph, "graph");
+        Objects.requireNonNull(evidence, "evidence");
         Objects.requireNonNull(changedArtifacts, "changedArtifacts");
         Objects.requireNonNull(requested, "requested");
+        final ModuleDependencyOccurrenceGraph graph =
+                evidence.getOccurrenceGraph();
+        final Set<ArtifactCoord> available = new LinkedHashSet<>(
+                evidence.getArtifactCoordinates());
         if (requested == DependencyAnalysisScopeMode.FULL) {
-            return full(graph, requested, "");
+            return full(available, requested, "");
         }
         final ModuleDependencyOccurrenceGraph.Validation validation =
                 graph.validate();
         if (!validation.valid()) {
-            return full(graph, requested, validation.reason());
+            return full(available, requested, validation.reason());
         }
         final List<ModuleDependencyOccurrenceGraph.Occurrence> seeds =
                 changedArtifacts.stream()
@@ -89,7 +87,7 @@ public final class ModuleChangedPathSelection {
                         .toList();
         for (ArtifactCoord artifact : changedArtifacts) {
             if (graph.occurrencesOf(artifact).isEmpty()) {
-                return full(graph, requested,
+                return full(available, requested,
                         "CHANGED_DEPENDENCY_SEED_MISSING:" + artifact);
             }
         }
@@ -99,26 +97,31 @@ public final class ModuleChangedPathSelection {
             reversePaths(graph, seed, seed, new ArrayList<>(),
                     new LinkedHashSet<>(), paths);
             if (paths.size() == before) {
-                return full(graph, requested,
+                return full(available, requested,
                         "CHANGED_DEPENDENCY_SEED_UNREACHABLE:"
                                 + seed.artifact());
             }
         }
         paths.sort(Comparator.comparing(DependencyPathEvidence::stablePath)
                 .thenComparing(value -> value.seed().toString()));
-        final Set<String> selectedIds = new LinkedHashSet<>();
         final Set<ArtifactCoord> selected = new LinkedHashSet<>();
         for (DependencyPathEvidence path : paths) {
             for (ModuleDependencyOccurrenceGraph.Occurrence node
                     : path.occurrences()) {
-                selectedIds.add(node.id());
-                if (!node.reactor()) {
+                if (!node.reactor() && !node.moduleRoot()) {
+                    if (!available.contains(node.artifact())) {
+                        throw new IllegalStateException(
+                                "Normalized path artifact has no selected "
+                                        + "binding: module="
+                                        + evidence.getModule()
+                                        + "; artifact=" + node.artifact());
+                    }
                     selected.add(node.artifact());
                 }
             }
         }
-        return new ModuleChangedPathSelection(requested, requested, seeds,
-                selectedIds, selected, paths, "");
+        return new ModuleChangedPathSelection(requested, requested,
+                available, selected, paths, "");
     }
 
     private static void reversePaths(
@@ -148,23 +151,12 @@ public final class ModuleChangedPathSelection {
     }
 
     private static ModuleChangedPathSelection full(
-            final ModuleDependencyOccurrenceGraph graph,
+            final Set<ArtifactCoord> artifacts,
             final DependencyAnalysisScopeMode requested,
             final String reason) {
-        final Set<String> ids = new LinkedHashSet<>();
-        final Set<ArtifactCoord> artifacts = new LinkedHashSet<>();
-        for (ModuleDependencyOccurrenceGraph.Occurrence node
-                : graph.occurrences()) {
-            if (!node.moduleRoot()) {
-                ids.add(node.id());
-                if (!node.reactor()) {
-                    artifacts.add(node.artifact());
-                }
-            }
-        }
         return new ModuleChangedPathSelection(requested,
-                DependencyAnalysisScopeMode.FULL, List.of(), ids,
-                artifacts, List.of(), reason);
+                DependencyAnalysisScopeMode.FULL, artifacts, artifacts,
+                List.of(), reason);
     }
 
     /**
@@ -175,27 +167,7 @@ public final class ModuleChangedPathSelection {
      */
     public static ModuleChangedPathSelection fullArtifacts(
             final List<ArtifactCoord> artifacts) {
-        final ArtifactCoord module = new ArtifactCoord(
-                "synthetic", "module", "pom", "0");
-        final List<ModuleDependencyOccurrenceGraph.Occurrence> nodes =
-                new ArrayList<>();
-        final List<ModuleDependencyOccurrenceGraph.Edge> edges =
-                new ArrayList<>();
-        nodes.add(new ModuleDependencyOccurrenceGraph.Occurrence(
-                "module", module, null, true, false));
-        int index = 0;
-        for (ArtifactCoord artifact : artifacts) {
-            final String id = "artifact-" + index++;
-            nodes.add(new ModuleDependencyOccurrenceGraph.Occurrence(
-                    id, artifact,
-                    io.github.dependencyanalysis.dependency.DependencyScope
-                            .COMPILE,
-                    false, false));
-            edges.add(new ModuleDependencyOccurrenceGraph.Edge(
-                    "module", id));
-        }
-        return full(new ModuleDependencyOccurrenceGraph(
-                "module", nodes, edges),
+        return full(new LinkedHashSet<>(artifacts),
                 DependencyAnalysisScopeMode.FULL, "");
     }
 
@@ -207,16 +179,6 @@ public final class ModuleChangedPathSelection {
     /** @return actual scope */
     public DependencyAnalysisScopeMode actualMode() {
         return actualMode;
-    }
-
-    /** @return matching seed occurrences */
-    public List<ModuleDependencyOccurrenceGraph.Occurrence> seeds() {
-        return seeds;
-    }
-
-    /** @return selected occurrence identities */
-    public Set<String> selectedOccurrenceIds() {
-        return selectedOccurrenceIds;
     }
 
     /** @return logical external artifacts that retain real IR */
@@ -241,24 +203,15 @@ public final class ModuleChangedPathSelection {
      */
     public DependencyMethodBodyPolicy policyFor(
             final ArtifactCoord artifact) {
+        if (!availableArtifacts.contains(artifact)) {
+            throw new IllegalArgumentException(
+                    "Artifact is not a selected target binding: "
+                            + artifact);
+        }
         return actualMode == DependencyAnalysisScopeMode.FULL
                 || selectedArtifacts.contains(artifact)
                 ? DependencyMethodBodyPolicy.REAL_IR
                 : DependencyMethodBodyPolicy.NO_OP;
     }
 
-    /** @return path evidence grouped by changed artifact */
-    public Map<ArtifactCoord, List<DependencyPathEvidence>> pathsBySeed() {
-        final Map<ArtifactCoord, List<DependencyPathEvidence>> result =
-                new LinkedHashMap<>();
-        for (DependencyPathEvidence path : paths) {
-            result.computeIfAbsent(path.seed(), ignored -> new ArrayList<>())
-                    .add(path);
-        }
-        final Map<ArtifactCoord, List<DependencyPathEvidence>> immutable =
-                new LinkedHashMap<>();
-        result.forEach((key, value) -> immutable.put(key,
-                List.copyOf(value)));
-        return Collections.unmodifiableMap(immutable);
-    }
 }

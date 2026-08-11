@@ -3,7 +3,7 @@ title: "Maven Runtime"
 type: feature
 relations:
   - path: "wiki/project/dependency-analyzer.md"
-    desc: "产品 runtime、双 reactor 和 config dir 约定"
+    desc: "产品 runtime、独立 reactor 和 config dir 约定"
   - path: "wiki/architecture/dependency-analysis-pipelines.md"
     desc: "两个 subcommand 共享 runtime descriptor"
   - path: "wiki/features/cli-preflight-diagnostics.md"

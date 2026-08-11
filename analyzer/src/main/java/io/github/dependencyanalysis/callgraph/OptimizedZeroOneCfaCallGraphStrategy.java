@@ -30,6 +30,8 @@ final class OptimizedZeroOneCfaCallGraphStrategy
     public CallGraphStrategyResult build(final CallGraphBuildRequest request)
             throws Exception {
         final AnalysisOptions options = options(request);
+        final JdkModelInstallation jdkModel = JdkModelInstallation.install(
+                request.jdkModel(), options, request.hierarchy());
         final OptimizedInvokeDynamicInstaller dynamic =
                 new OptimizedInvokeDynamicInstaller();
         dynamic.install(options, request.dynamicModels());
@@ -49,7 +51,8 @@ final class OptimizedZeroOneCfaCallGraphStrategy
         limitations.addAll(serviceLoader.limitations());
         return new CallGraphStrategyResult(graph,
                 new StrategyModelMetadata(dynamic.evidence(),
-                        limitations, serviceLoader.metadata(graph)));
+                        limitations, serviceLoader.metadata(graph),
+                        jdkModel.snapshot()));
     }
 
     private AnalysisOptions options(final CallGraphBuildRequest request) {

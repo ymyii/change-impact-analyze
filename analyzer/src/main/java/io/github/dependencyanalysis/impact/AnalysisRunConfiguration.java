@@ -2,6 +2,7 @@ package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.EntrypointSelection;
+import io.github.dependencyanalysis.callgraph.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
 
 import java.util.Objects;
@@ -13,12 +14,14 @@ import java.util.Objects;
  * @param callGraphAlgorithm command-wide Call Graph algorithm
  * @param reflectionOptions command-wide WALA ReflectionOptions
  * @param dependencyAnalysisScope requested dependency method-body scope
+ * @param jdkModel command-wide JDK Method Model selection
  */
 public record AnalysisRunConfiguration(
         EntrypointSelection entrypointSelection,
         CallGraphAlgorithm callGraphAlgorithm,
         WalaReflectionOptions reflectionOptions,
-        DependencyAnalysisScopeMode dependencyAnalysisScope) {
+        DependencyAnalysisScopeMode dependencyAnalysisScope,
+        JdkModelSelection jdkModel) {
 
     /** Validates command-wide configuration. */
     public AnalysisRunConfiguration {
@@ -27,6 +30,17 @@ public record AnalysisRunConfiguration(
         Objects.requireNonNull(reflectionOptions, "reflectionOptions");
         Objects.requireNonNull(dependencyAnalysisScope,
                 "dependencyAnalysisScope");
+        Objects.requireNonNull(jdkModel, "jdkModel");
+    }
+
+    /** Compatibility constructor using the default JDK model. */
+    public AnalysisRunConfiguration(
+            final EntrypointSelection selection,
+            final CallGraphAlgorithm algorithm,
+            final WalaReflectionOptions reflection,
+            final DependencyAnalysisScopeMode dependencyScope) {
+        this(selection, algorithm, reflection, dependencyScope,
+                JdkModelSelection.defaultSelection());
     }
 
     /**
@@ -40,7 +54,8 @@ public record AnalysisRunConfiguration(
             final CallGraphAlgorithm algorithm) {
         this(selection, algorithm,
                 WalaReflectionOptions.defaultOptions(),
-                DependencyAnalysisScopeMode.defaultMode());
+                DependencyAnalysisScopeMode.defaultMode(),
+                JdkModelSelection.defaultSelection());
     }
 
     /** Compatibility constructor using the default dependency scope. */
@@ -49,6 +64,7 @@ public record AnalysisRunConfiguration(
             final CallGraphAlgorithm algorithm,
             final WalaReflectionOptions reflection) {
         this(selection, algorithm, reflection,
-                DependencyAnalysisScopeMode.defaultMode());
+                DependencyAnalysisScopeMode.defaultMode(),
+                JdkModelSelection.defaultSelection());
     }
 }

@@ -18,12 +18,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -251,20 +247,26 @@ public final class DependencyAnalyzer {
                 workspacePath, jsonName);
         try {
             requireSuccessful(occurrenceExecution, graphmlName, null, true);
-            if (graphmlFiles.isEmpty() || jsonFiles.isEmpty()) {
+            if (graphmlFiles.isEmpty() || bindingGraphmlFiles.isEmpty()
+                    || jsonFiles.isEmpty()) {
                 throw new DependencyAnalysisException(
                         "Missing dependency evidence: graphml="
-                                + graphmlFiles.size() + "; json="
+                                + graphmlFiles.size() + "; bindingGraphml="
+                                + bindingGraphmlFiles.size() + "; json="
                                 + jsonFiles.size());
             }
-            final List<ModuleDependencyTree> trees =
+            final List<ModuleDependencyTree> occurrenceTrees =
                     parseTrees(graphmlFiles);
+            final List<ModuleDependencyTree> selectedTrees =
+                    parseTrees(bindingGraphmlFiles);
             final List<ResolvedArtifactManifest> manifests =
                     parseManifests(jsonFiles);
-            final Map<Path, List<ResolvedArtifact>> artifacts =
-                    pairAndValidate(trees, manifests);
-            finish(trees.size());
-            return new DependencyAnalysisResult(trees, artifacts);
+            final List<ModuleDependencyEvidence> modules =
+                    ModuleDependencyEvidenceMerger.merge(
+                            selectedTrees, occurrenceTrees, manifests,
+                            reactorModules);
+            finish(modules.size());
+            return new DependencyAnalysisResult(modules);
         } finally {
             deleteFiles(graphmlFiles);
             deleteFiles(bindingGraphmlFiles);
@@ -373,105 +375,6 @@ public final class DependencyAnalyzer {
             manifests.add(ResolvedArtifactJsonParser.parse(json));
         }
         return List.copyOf(manifests);
-    }
-
-    private Map<Path, List<ResolvedArtifact>> pairAndValidate(
-            final List<ModuleDependencyTree> trees,
-            final List<ResolvedArtifactManifest> manifests)
-            throws DependencyAnalysisException {
-        final Map<Path, ModuleDependencyTree> treeByDirectory =
-                new LinkedHashMap<>();
-        for (ModuleDependencyTree tree : trees) {
-            final Path directory = canonicalDirectory(
-                    tree.getModulePath());
-            if (treeByDirectory.put(directory, tree) != null) {
-                throw new DependencyAnalysisException(
-                        "Duplicate GraphML module directory: " + directory);
-            }
-        }
-        final Map<Path, ResolvedArtifactManifest> manifestByDirectory =
-                new LinkedHashMap<>();
-        for (ResolvedArtifactManifest manifest : manifests) {
-            if (manifestByDirectory.put(manifest.getDirectory(),
-                    manifest) != null) {
-                throw new DependencyAnalysisException(
-                        "Duplicate JSON module directory: "
-                                + manifest.getDirectory());
-            }
-        }
-        if (!treeByDirectory.keySet().equals(
-                manifestByDirectory.keySet())) {
-            throw new DependencyAnalysisException(
-                    "GraphML and JSON module sets differ: graphml="
-                            + treeByDirectory.keySet() + "; json="
-                            + manifestByDirectory.keySet());
-        }
-
-        final Set<ArtifactCoord> reactorCoordinates =
-                new LinkedHashSet<>();
-        for (ModuleDependencyTree tree : trees) {
-            reactorCoordinates.add(tree.getModule());
-        }
-        final Map<Path, List<ResolvedArtifact>> result =
-                new LinkedHashMap<>();
-        for (Map.Entry<Path, ModuleDependencyTree> entry
-                : treeByDirectory.entrySet()) {
-            final ModuleDependencyTree tree = entry.getValue();
-            final ResolvedArtifactManifest manifest =
-                    manifestByDirectory.get(entry.getKey());
-            validateBindings(tree, manifest, reactorCoordinates);
-            result.put(entry.getKey(), manifest.getArtifacts());
-        }
-        return Collections.unmodifiableMap(
-                new LinkedHashMap<>(result));
-    }
-
-    private void validateBindings(
-            final ModuleDependencyTree tree,
-            final ResolvedArtifactManifest manifest,
-            final Set<ArtifactCoord> reactorCoordinates)
-            throws DependencyAnalysisException {
-        final Set<String> expected = new LinkedHashSet<>();
-        collectExternalBindings(tree.getDependencies(),
-                reactorCoordinates, expected);
-        final Set<String> actual = new LinkedHashSet<>();
-        for (ResolvedArtifact artifact : manifest.getArtifacts()) {
-            actual.add(artifact.bindingKey());
-        }
-        if (!expected.equals(actual)) {
-            final Set<String> missing = new LinkedHashSet<>(expected);
-            missing.removeAll(actual);
-            final Set<String> unexpected = new LinkedHashSet<>(actual);
-            unexpected.removeAll(expected);
-            throw new DependencyAnalysisException(
-                    "GraphML and JSON external dependencies differ: module="
-                            + tree.getModule() + "; missing=" + missing
-                            + "; unexpected=" + unexpected);
-        }
-    }
-
-    private void collectExternalBindings(
-            final List<DependencyNode> nodes,
-            final Set<ArtifactCoord> reactorCoordinates,
-            final Set<String> bindings) {
-        for (DependencyNode node : nodes) {
-            if (!reactorCoordinates.contains(node.getArtifact())) {
-                bindings.add(node.getArtifact().toString());
-            }
-            collectExternalBindings(node.getChildren(),
-                    reactorCoordinates, bindings);
-        }
-    }
-
-    private Path canonicalDirectory(final Path directory)
-            throws DependencyAnalysisException {
-        try {
-            return directory.toRealPath();
-        } catch (IOException exception) {
-            throw new DependencyAnalysisException(
-                    "Module directory is unavailable: " + directory,
-                    exception);
-        }
     }
 
     private List<Path> findNamedFiles(

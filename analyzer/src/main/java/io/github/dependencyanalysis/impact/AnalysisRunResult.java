@@ -3,6 +3,7 @@ package io.github.dependencyanalysis.impact;
 import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.EntrypointSelection;
+import io.github.dependencyanalysis.callgraph.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
 
 import java.util.ArrayList;
@@ -43,6 +44,9 @@ public final class AnalysisRunResult {
 
     /** Requested dependency method-body scope. */
     private final DependencyAnalysisScopeMode dependencyAnalysisScope;
+
+    /** Command-wide JDK Method Model selection. */
+    private final JdkModelSelection jdkModel;
 
     /**
      * Creates a completed run result.
@@ -109,6 +113,8 @@ public final class AnalysisRunResult {
         dependencyAnalysisScope = java.util.Objects.requireNonNull(
                 settings.dependencyAnalysisScope(),
                 "dependencyAnalysisScope");
+        jdkModel = java.util.Objects.requireNonNull(
+                settings.jdkModel(), "jdkModel");
     }
 
     /** @return analysis mode */
@@ -179,6 +185,11 @@ public final class AnalysisRunResult {
     /** @return requested dependency method-body scope */
     public DependencyAnalysisScopeMode getDependencyAnalysisScope() {
         return dependencyAnalysisScope;
+    }
+
+    /** @return command-wide JDK Method Model selection */
+    public JdkModelSelection getJdkModel() {
+        return jdkModel;
     }
 
     /** @return stage elapsed metrics */

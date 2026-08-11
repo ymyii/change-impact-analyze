@@ -26,6 +26,7 @@ SAMPLE_COLUMNS = (
     "sample",
     "dependency_analysis_scope",
     "algorithm",
+    "jdk_model",
     "wala_reflection_options",
     "total_wall_seconds",
     "call_graph_seconds",
@@ -95,12 +96,14 @@ class GenerateReportTest(unittest.TestCase):
                 samples = list(csv.DictReader(stream, delimiter="\t"))
             self.assertEqual(20, len(samples))
             self.assertEqual({"formal"}, {row["run_kind"] for row in samples})
+            self.assertEqual({"jdk8"}, {row["jdk_model"] for row in samples})
 
             with (candidate_dir / "summary.tsv").open(
                 encoding="utf-8", newline=""
             ) as stream:
                 summaries = list(csv.DictReader(stream, delimiter="\t"))
             self.assertEqual(list(ALGORITHMS), [row["algorithm"] for row in summaries])
+            self.assertEqual({"jdk8"}, {row["jdk_model"] for row in summaries})
             self.assertEqual({"5"}, {row["successful_samples"] for row in summaries})
 
             with (candidate_dir / "topology.tsv").open(
@@ -111,6 +114,7 @@ class GenerateReportTest(unittest.TestCase):
                 topology = list(reader)
             self.assertEqual(32, len(topology))
             self.assertIn("sentinel_role", topology_columns)
+            self.assertEqual({"jdk8"}, {row["jdk_model"] for row in topology})
             self.assertIn("path_root_kind", topology_columns)
             self.assertIn("path_root_cg_node_identity", topology_columns)
             self.assertNotIn("entrypoint_cg_node_identity", topology_columns)
@@ -247,13 +251,13 @@ class GenerateReportTest(unittest.TestCase):
             for name, expected in tracked_snapshots.items():
                 self.assertEqual(expected, (tracked_dir / name).read_bytes())
 
-    def test_schema_v2_is_rejected(self) -> None:
+    def test_schema_v4_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             run_directories = self._write_suite(root / "runs")
             topology_path = run_directories[0] / "topology.json"
             topology = json.loads(topology_path.read_text(encoding="utf-8"))
-            topology["schemaVersion"] = 2
+            topology["schemaVersion"] = 4
             topology_path.write_text(json.dumps(topology), encoding="utf-8")
 
             result = self._generate(
@@ -444,6 +448,13 @@ class GenerateReportTest(unittest.TestCase):
                 self._write_metrics(run, algorithm, "formal", sample, sample,
                                     drift, scope)
                 run_directories.append(run)
+        for algorithm in ALGORITHMS:
+            control = root / f"control-{algorithm}"
+            self._write_metrics(
+                control, algorithm, "control", 0, 0,
+                scope=scope, jdk_model="none",
+            )
+            run_directories.append(control)
         return run_directories
 
     def _write_metrics(
@@ -455,6 +466,7 @@ class GenerateReportTest(unittest.TestCase):
         sample: int,
         drift: bool = False,
         scope: str = "changed-paths",
+        jdk_model: str = "jdk8",
     ) -> None:
         logs = run_directory / "logs"
         logs.mkdir(parents=True, exist_ok=True)
@@ -469,6 +481,7 @@ class GenerateReportTest(unittest.TestCase):
             "sample": str(sample),
             "dependency_analysis_scope": scope,
             "algorithm": algorithm,
+            "jdk_model": jdk_model,
             "wala_reflection_options": REFLECTION_OPTIONS,
             "total_wall_seconds": f"{4 + algorithm_offset + sample / 10:.3f}",
             "call_graph_seconds": f"{1 + algorithm_offset + sample / 100:.3f}",
@@ -546,8 +559,9 @@ class GenerateReportTest(unittest.TestCase):
             "topCallers", False,
         )
         topology = {
-            "schemaVersion": 4,
+            "schemaVersion": 5,
             "algorithm": algorithm,
+            "jdkModel": "jdk8",
             "reflectionOptions": REFLECTION_OPTIONS,
             "requestedDependencyAnalysisScope": scope,
             "jdk": "1.8-test",

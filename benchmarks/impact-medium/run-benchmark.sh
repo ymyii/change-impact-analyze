@@ -15,6 +15,7 @@ esac
 : "${JAVA8_HOME:?JAVA8_HOME must point to a complete JDK 8}"
 : "${BENCHMARK_CALL_GRAPH_ALGORITHM:?BENCHMARK_CALL_GRAPH_ALGORITHM must be explicitly set}"
 : "${BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE:?BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE must be explicitly set}"
+: "${BENCHMARK_JDK_MODEL:?BENCHMARK_JDK_MODEL must be explicitly set}"
 
 case "$BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE" in
   changed-paths|full) ;;
@@ -28,6 +29,14 @@ case "$BENCHMARK_CALL_GRAPH_ALGORITHM" in
   rta|zero-cfa|optimized-0-1-cfa|1-object-1-call-site) ;;
   *)
     echo "BENCHMARK_CALL_GRAPH_ALGORITHM must be rta, zero-cfa, optimized-0-1-cfa, or 1-object-1-call-site" >&2
+    exit 2
+    ;;
+esac
+
+case "$BENCHMARK_JDK_MODEL" in
+  jdk8|none) ;;
+  *)
+    echo "BENCHMARK_JDK_MODEL must be jdk8 or none" >&2
     exit 2
     ;;
 esac
@@ -61,9 +70,9 @@ esac
 
 BENCHMARK_RUN_KIND=${BENCHMARK_RUN_KIND:-formal}
 case "$BENCHMARK_RUN_KIND" in
-  warmup|formal) ;;
+  warmup|formal|control) ;;
   *)
-    echo "BENCHMARK_RUN_KIND must be warmup or formal" >&2
+    echo "BENCHMARK_RUN_KIND must be warmup, formal, or control" >&2
     exit 2
     ;;
 esac
@@ -108,7 +117,7 @@ mkdir -p "$logs_root" "$reports_root" "$BENCHMARK_CONFIG_DIR"
 export ANALYZER_JAR ANALYZER_JAVA MAVEN_BIN JAVA8_HOME
 export BENCHMARK_MAVEN_REPO BENCHMARK_PROJECT BENCHMARK_CONFIG_DIR BENCHMARK_REPORT
 export BENCHMARK_CALL_GRAPH_ALGORITHM BENCHMARK_WALA_REFLECTION_OPTIONS
-export BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE
+export BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE BENCHMARK_JDK_MODEL
 export BENCHMARK_CALIBRATION BENCHMARK_CAPTURE_TOPOLOGY BENCHMARK_DIAGNOSTICS
 
 # Wiki: wiki/runbooks/impact-benchmark.md - Stable benchmark preparation, measurement, and verification entrypoint.
@@ -135,6 +144,7 @@ maven_identity=$("$MAVEN_BIN" --version 2>&1 | sed -n '1p' | tr '\t' ' ')
 cat >"$logs_root/run-metadata.txt" <<EOF
 label=$label
 algorithm=$BENCHMARK_CALL_GRAPH_ALGORITHM
+jdk_model=$BENCHMARK_JDK_MODEL
 dependency_analysis_scope=$BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE
 wala_reflection_options=$BENCHMARK_WALA_REFLECTION_OPTIONS
 calibration=$BENCHMARK_CALIBRATION
@@ -235,6 +245,7 @@ verification_result=0
   "$BENCHMARK_CALL_GRAPH_ALGORITHM" \
   "$BENCHMARK_WALA_REFLECTION_OPTIONS" \
   "$BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE" \
+  "$BENCHMARK_JDK_MODEL" \
   >"$logs_root/verification.txt" \
   2>&1 || verification_result=$?
 
@@ -303,11 +314,12 @@ if [ "$analysis_result" -eq 0 ] && [ "$verification_result" -eq 0 ]; then
   status=SUCCESS
 fi
 
-printf 'label\trun_kind\tround\tsample\tdependency_analysis_scope\talgorithm\twala_reflection_options\ttotal_wall_seconds\tcall_graph_seconds\tpeak_heap_used_mib\tpeak_heap_committed_mib\theap_max_mib\theap_sample_count\tprocess_tree_peak_rss_kib\tentrypoint_count\tcg_node_count\tcg_edge_count\treal_external_artifact_count\tno_op_external_artifact_count\treal_external_method_node_count\tno_op_method_node_count\tfactory_method_node_count\tdangerous_transfer_count\tstatus\texit_code\tanalyzer_sha256\tgit_commit\tgit_dirty\tos\tarchitecture\tanalyzer_java\tjdk\tmaven\n' >"$logs_root/metrics.tsv"
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+printf 'label\trun_kind\tround\tsample\tdependency_analysis_scope\talgorithm\tjdk_model\twala_reflection_options\ttotal_wall_seconds\tcall_graph_seconds\tpeak_heap_used_mib\tpeak_heap_committed_mib\theap_max_mib\theap_sample_count\tprocess_tree_peak_rss_kib\tentrypoint_count\tcg_node_count\tcg_edge_count\treal_external_artifact_count\tno_op_external_artifact_count\treal_external_method_node_count\tno_op_method_node_count\tfactory_method_node_count\tdangerous_transfer_count\tstatus\texit_code\tanalyzer_sha256\tgit_commit\tgit_dirty\tos\tarchitecture\tanalyzer_java\tjdk\tmaven\n' >"$logs_root/metrics.tsv"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
   "$label" "$BENCHMARK_RUN_KIND" "$BENCHMARK_ROUND" "$BENCHMARK_SAMPLE" \
   "$BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE" \
-  "$BENCHMARK_CALL_GRAPH_ALGORITHM" "$BENCHMARK_WALA_REFLECTION_OPTIONS" \
+  "$BENCHMARK_CALL_GRAPH_ALGORITHM" "$BENCHMARK_JDK_MODEL" \
+  "$BENCHMARK_WALA_REFLECTION_OPTIONS" \
   "$wall_seconds" "$call_graph_seconds" "$peak_heap_used_mib" \
   "$peak_heap_committed_mib" "$heap_max_mib" "$heap_samples" \
   "$peak_rss_kib" "$entrypoints" "$nodes" "$edges" \

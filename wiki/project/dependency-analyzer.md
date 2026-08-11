@@ -9,18 +9,24 @@ relations:
   - path: "wiki/rules/process-command-resolution.md"
     desc: "外部命令执行的跨平台约束"
   - path: "wiki/rules/release-versioning.md"
-    desc: "两个 Maven reactor 的独立 SemVer 与 Git tag 约束"
+    desc: "四个独立artifact的SemVer与Git tag约束"
   - path: "wiki/runbooks/build-test-package.md"
     desc: "构建、测试、打包和本地验证操作"
   - path: "wiki/runbooks/version-and-distribution.md"
     desc: "Maven-native version iteration 与 release 操作"
   - path: "wiki/runbooks/impact-benchmark.md"
     desc: "打包后 impact 的持续性能与场景完整性验证"
+  - path: "wiki/features/jdk-method-models.md"
+    desc: "Analyzer内嵌的公共engine与JDK 8 model artifact"
 code_refs:
   - path: "pom.xml"
     desc: "Analyzer parent/aggregator、SemVer 和 release profile"
   - path: "analyzer/pom.xml"
-    desc: "Java 17 Analyzer、测试、repository ZIP copy 与 uber JAR 配置"
+    desc: "Java 17 Analyzer、JDK 8 model dependency、repository ZIP copy与uber JAR配置"
+  - path: "models/jdk/pom.xml"
+    desc: "独立公共JDK model engine reactor"
+  - path: "models/jdk8/pom.xml"
+    desc: "独立JDK 8 catalog/façade reactor"
   - path: "plugins/pom.xml"
     desc: "独立 Plugin parent/aggregator、Java 8 与 release profile"
   - path: "plugins/artifact-path-resolver/pom.xml"
@@ -32,7 +38,7 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
     desc: "tree pipeline 编排"
   - path: "benchmarks/impact-medium/run-suite.sh"
-    desc: "四种algorithm的canonical benchmark suite与tracked snapshot发布入口"
+    desc: "单scope四种algorithm、jdk8/none benchmark suite"
 ---
 
 # Project: Dependency Analyzer
@@ -41,7 +47,7 @@ code_refs:
 
 Dependency Analyzer 是 Java 17 + Maven + picocli CLI。`impact` 使用显式完整 JDK 8 比较 dependency 升级前后的 bytecode 与业务调用影响；`tree` 扫描 Git repository 内的 Maven reactor，生成 repository 级 offline HTML dependency tree report。
 
-Source repository 包含两个独立 Maven reactor：root reactor 只构建 Analyzer，`plugins/pom.xml` reactor 只构建内置 Maven Plugin。两者通过 Maven local repository 交付，不建立同一 reactor 内的 module dependency。
+Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer，`plugins/pom.xml`只聚合内置Maven Plugin，`models/jdk/pom.xml`与`models/jdk8/pom.xml`分别构建公共engine和JDK 8 catalog/façade。独立artifact通过Maven local repository按dependency顺序交付，不加入root`<modules>`。
 
 ## Design Decisions
 
@@ -51,6 +57,7 @@ Source repository 包含两个独立 Maven reactor：root reactor 只构建 Anal
 - Analyzer JAR 将 Maven Dependency Plugin 和 Artifact Path Plugin 统一内嵌为两个独立 Maven repository ZIP；runtime 不安装 loose JAR/POM，也不维护项目自有 checksum/fingerprint。
 - `impact` 以 GraphML 作为唯一 mediation authority；Artifact Path Plugin Schema v2 JSON 只向 command-scoped `IJarRepository` ingestion selected dependency physical binding，后续 domain 只保存 coordinate；`tree` 使用 verbose text 采集完整 dependency occurrence。
 - `impact`只构建target per-Module selected Call Graph；`rta`为默认algorithm，`zero-cfa`、`optimized-0-1-cfa`与`1-object-1-call-site`可显式选择；WALA ReflectionOptions command-wide可配置，默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`；baseline不compile、不构建Call Graph。
+- `impact`与兼容engine constructor默认`jdk8` Method Model；`--jdk-model none`保留真实JDK bytecode语义。Analyzer通过`dependency-analyzer-jdk8-models`传递引入公共engine，并将class/catalog打入uber JAR。
 - 两个 subcommand 共享 Maven runtime 和 preflight Schema，但分别组装检查 DAG；pipeline 只消费 preflight decision。
 
 ## Module Map
@@ -65,7 +72,9 @@ Source repository 包含两个独立 Maven reactor：root reactor 只构建 Anal
 - `analyzer/src/test/java/` - unit tests；`analyzer/src/integration-test/java/` - Failsafe integration tests。
 - `plugins/pom.xml` - 独立 Plugin reactor parent/aggregator。
 - `plugins/artifact-path-resolver/` - GAV `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:2.1.0`；Java 8 `resolve-artifact-paths` goal 与 attached `repository` ZIP。
-- `benchmarks/impact-medium/` - 可复现的中型impact fixture、24进程CallGraph suite、HTML报告与Git管理的TSV snapshot。
+- `models/jdk/` - GAV`io.github.dependencyanalysis:dependency-analyzer-jdk-models:0.1.0-SNAPSHOT`；公共Synthetic IR engine/API。
+- `models/jdk8/` - GAV`io.github.dependencyanalysis:dependency-analyzer-jdk8-models:0.1.0-SNAPSHOT`；384-target catalog与安装façade。
+- `benchmarks/impact-medium/` - 可复现的中型impact fixture、每scope 28进程CallGraph suite、HTML报告与Git管理的默认`jdk8` TSV snapshot。
 
 ## Technical Stack
 
@@ -84,7 +93,7 @@ Source repository 包含两个独立 Maven reactor：root reactor 只构建 Anal
 
 ## Repository Conventions
 
-- Plugin source 变化后，先执行 Plugin reactor `clean install`，再执行 Analyzer reactor；不得依赖旧 local Snapshot。
+- Analyzer build前按公共model、JDK 8 model、Plugin顺序执行独立reactor`clean install`；任一source变化后不得依赖旧local Snapshot。
 - 所有外部 process token 都先经过 `CommandResolver.resolve()`，并使用 `ProcessBuilder`，不经过 shell 拼接。
 - 用户 Maven argument 必须逐 token 传入，禁止覆盖工具控制的 POM、module selection、output、verbose 和 token 参数。
 - `tmp-files/` 仅用于临时产物，不提交 Git。

@@ -4,6 +4,8 @@ type: architecture
 relations:
   - path: "wiki/features/call-graph-engine.md"
     desc: "impact 的 command-wide algorithm 与 per-Module Call Graph 阶段"
+  - path: "wiki/features/jdk-method-models.md"
+    desc: "command-wide model selection与per-graph严格安装边界"
   - path: "wiki/features/impact-tracing.md"
     desc: "ChangePoint、Impact Path、Structural Reference Path、SSA 与代码 evidence"
   - path: "wiki/features/dependency-tree-extraction.md"
@@ -21,10 +23,18 @@ code_refs:
     desc: "REACTOR/SINGLE_MODULE 识别"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleChangedPathSelection.java"
     desc: "全部到达变更 dependency 的 occurrence path 并集与 full fallback"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/ModuleDependencyEvidence.java"
+    desc: "per-Module dependency consumer 的唯一 merged evidence"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/DependencyBodyBoundary.java"
     desc: "四种 algorithm 共享的 external method-body policy"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphAlgorithmStrategy.java"
     desc: "Call Graph algorithm execution boundary"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/JdkModelSelection.java"
+    desc: "command-wide jdk8/none policy"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/JdkModelInstallation.java"
+    desc: "WALA defaults之后的single-graph model installation"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphBuildRequest.java"
+    desc: "strategy input中的model selection"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleCoverageReducer.java"
     desc: "typed coverage limitation precedence"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
@@ -35,7 +45,7 @@ code_refs:
 
 ## Summary
 
-Root CLI 分发 `impact` 与 `tree`。`impact` 面向 Maven、Spring backend、JDK 8：只编译 target，只构建 target per-Module Call Graph；baseline 仅提供 dependency tree、old artifact coordinate、old bytecode 和按需 old SSA。默认 `changed-paths` 从 target occurrence graph 恢复全部 `Module direct dependency -> changed dependency` 路径并集，只裁剪路径外 external method body；所有 classes、resources 与 JAR 仍进入 AnalysisScope 和 Class Hierarchy Analysis（CHA）。`tree` 保持独立 repository/reactor HTML pipeline。
+Root CLI 分发 `impact` 与 `tree`。`impact` 面向 Maven、Spring backend、JDK 8：只编译 target，只构建 target per-Module Call Graph；baseline 仅提供 merged dependency evidence、old artifact coordinate、old bytecode 和按需 old SSA。默认 `changed-paths` 从 target winner-normalized occurrence graph 恢复全部 `Module direct dependency -> changed dependency` 路径并集，只裁剪路径外 external method body；所有 classes、resources 与 selected JAR 仍进入 AnalysisScope 和 Class Hierarchy Analysis（CHA）。`tree` 保持独立 repository/reactor HTML pipeline及conflict report。
 
 ## Architecture Diagram
 
@@ -44,14 +54,15 @@ flowchart TD
   Scope["REACTOR / SINGLE_MODULE planning"] --> Plugin["prepare embedded tree + Artifact Path Plugins"]
   Plugin --> Front
   Front["parallel: baseline dependency + target compile"] --> TargetDep["target dependency"]
-  TargetDep --> DepDiff["dependency diff + coordinate repository"]
+  TargetDep --> Merge["ordinary winner + verbose topology + JSON binding merge"]
+  Merge --> DepDiff["selected dependency diff + coordinate repository"]
   DepDiff --> JarDiff["deduplicated parallel coordinate-pair JAR diff"]
   JarDiff --> Bind["BoundChangePoint per Module"]
   Bind --> PathPlan["all reverse paths to changed dependency; union or full fallback"]
   PathPlan --> EntrySelection["immutable target/classes entrypoint class index"]
   EntrySelection --> ModulePool["bounded Module pool; analysis parallelism"]
   ModulePool --> ScopeValidation["scope validation"]
-  ScopeValidation --> Strategy["Factory selects strategy + dependency body policy"]
+  ScopeValidation --> Strategy["Factory selects strategy + JDK model + dependency body policy"]
   Strategy --> CFA["one per-Module WALA Call Graph + immutable metadata"]
   CFA --> Query["read-only query + typed access resolution"]
   Query --> Coverage["typed limitation reduction"]
@@ -70,6 +81,7 @@ flowchart TD
 
 - target每个Module只构建一张 selected Call Graph；baseline不compile也不构图，以控制CPU、heap和workspace成本。
 - `--call-graph-algorithm` command-wide选择 `rta`、`zero-cfa`、`optimized-0-1-cfa`或`1-object-1-call-site`，默认`rta`；同一次command的全部Module使用一致analysis model，不自动fallback。
+- `--jdk-model` command-wide选择`jdk8`或`none`，默认`jdk8`；同一次command的全部Module一致。`jdk8`安装失败、Synthetic loader不支持或catalog不完整时Module失败，不fallback；`none`跳过catalog和selector。
 - `--dependency-analysis-scope` command-wide 选择 `changed-paths` 或 `full`，默认 `changed-paths`。Requested mode 与 per-Module actual mode 分开保存；occurrence graph 无法稳定恢复全部路径时，仅该 Module 自动 fallback 到 `full` 并记录 typed reason。
 - `changed-paths` 不删除 artifact：全部 target external JAR、resource、reactor classes 和 JDK 仍进入 scope/CHA/ownership/model resolution。Optimization 只影响 resolved external `IMethod` 的 IR policy。
 - 四种Call Graph实现通过唯一Factory选择独立strategy。`BasicRTABuilder`、两种`ZeroXCFABuilder`与复合`nObjBuilder`/`nCFAContextSelector`只存在于对应strategy；pipeline依赖immutable request/result与统一metadata shape，不依赖builder capability adapter。
@@ -80,8 +92,10 @@ flowchart TD
 ## Runtime Flow
 
 - Root CLI完成preflight与scope planning后，front preparation并行收集baseline dependency并编译target。
-- Target dependency、dependency diff和JAR diff完成后，ChangePoint按Module绑定。每个 Module 使用 target occurrence graph 从所有 matching seed 沿全部 parent edge 反向恢复到 Module root；路径、多 occurrence 和多 seed 取并集，禁止沿 seed child edge扩展。
-- 每个Module依次执行path planning、scope validation、selected strategy build、read-only query与typed coverage reduction；全局随后串行执行SSA equivalence，再并行生成code evidence。
+- Baseline/target dependency collection先分别产出`ModuleDependencyEvidence`。普通GraphML决定selected projection与winner；verbose occurrence映射到winner后只保留topology；JSON binding收敛在同一Module evidence。
+- Dependency diff和JAR diff完成后，ChangePoint按Module绑定。每个Module使用target evidence的normalized occurrence graph从所有matching winner seed沿全部parent edge反向恢复到Module root；路径、多occurrence和多seed取并集，禁止沿seed child edge扩展。
+- 每个Module依次执行path planning、scope validation、selected strategy build、read-only query与typed coverage reduction；strategy在WALA defaults后安装selected JDK model，fixed point后snapshot single-graph metadata。全局随后串行执行SSA equivalence，再并行生成code evidence。
+- Analysis result、Overall Report与optional diagnostics JSON只携带`jdk8`/`none` selection；internal catalog/hit snapshot不跨入用户输出。diagnostics JSON为Schema v5。
 - Overall与Module pages全部写入staging成功后，原子替换command-owned Report。
 
 ## Module Contract
@@ -92,7 +106,8 @@ flowchart TD
 - Entrypoint class仅由当前 Module `target/classes` index产生；interface、annotation与private nested class排除，abstract class的non-private、non-abstract declared method保留。Private constructor/method不成为root，但继续保留在scope并可通过普通调用进入graph。Repeatable slash selector可缩小roots；门禁与Call Graph构造复用同一个immutable index，ownership/classpath precedence不参与root识别。
 - 每个 entrypoint JVM parameter slot只使用一个 declared-type candidate；resolved interface/abstract type使用共享 synthetic placeholder，不枚举 concrete subtype或implementor。Selector与 placeholder均不裁剪 scope、CHA、Reflection、model provider或其他 origin reachability，但可能遗漏 implementation-only impact path。
 - 每个 Module 拥有独立 scope、ownership index、CHA、WALA graph 和 cache。不同 Module 不共享可变 WALA 状态。
-- Scope planning 必须读取保留 occurrence identity 与 multi-parent edge 的 `ModuleDependencyOccurrenceGraph`。First-wins flattened tree 继续服务 coordinate projection，但禁止用它反推到达 seed 的路径。
+- Scope planning 必须读取 `ModuleDependencyEvidence` 内保留 occurrence identity 与 multi-parent edge 的 winner-normalized `ModuleDependencyOccurrenceGraph`。Dependency diff、classpath order与reactor closure只读取同一evidence的selected projection；raw普通/verbose tree均不可被downstream访问。
+- `ModuleDependencyInputs` 由baseline/target evidence统一创建。Target/baseline artifact list与path policy不能分别注入；`FULL`、fallback、`REAL_IR`与`NO_OP`只允许引用target evidence内的selected bindings。
 - `PROJECT`、`REACTOR_DEPENDENCY`、JDK、SYNTHETIC 与 selected external artifact 始终使用真实 IR/现有 model。Unselected external artifact 的 resolved method 使用 no-op 或 caller/call-site-specific flow-to-cast factory IR；policy 依据 resolved declaring class logical source，不依据 call-site declared owner。
 
 ## Concurrency Contract
@@ -100,7 +115,7 @@ flowchart TD
 - baseline dependency 与 target build 两个 Maven process 并行；任一失败时取消另一 process tree。
 - 两者 join 后才运行 target dependency；同一 target workspace 不并发执行两个 Maven process。
 - Baseline/target dependency 使用同一内嵌 Plugin runtime、settings overlay，并在各自单个 Maven process/session 中执行 fully-qualified `tree` 与 `resolve-artifact-paths` goal；target compile 不使用 overlay。
-- GraphML 是 `impact` 唯一的 mediation authority；Artifact Path Plugin 不执行第二次 collection，JSON 只为 command-scoped `IJarRepository` 提供初始化 binding。非 `system` binding 来自 Resolver result，`system` binding 来自 effective `MavenProject.systemPath`。Repository 构建后以 `ArtifactCoord` 为唯一 key，业务对象不保留 dependency JAR path。Analyzer 按 Module baseDirectory/coordinates 配对并验证 external dependency set 完全一致。Reactor dependency 不发起 artifact resolution，target 阶段映射到 `target/classes`。
+- 普通GraphML是`impact`唯一mediation与classpath authority；Artifact Path Plugin不执行第二次collection，verbose GraphML只贡献topology，JSON只为同一`ModuleDependencyEvidence`提供Module-local selected binding。非`system` binding来自Resolver result，`system` binding来自effective `MavenProject.systemPath`。Repository构建后以`ArtifactCoord`为唯一key，业务对象不保留dependency JAR path。Merge按Module canonical directory/root/selected coordinate验证三份evidence完全一致。只有普通GraphML选中的reactor coordinate映射到`target/classes`；verbose omitted reactor occurrence不扩张reactor closure。
 - `--analysis-parallelism` 默认 `2`，分别控制 Module analysis、JAR diff 和 decompile bounded pool；各阶段再按 task 数计算 actual workers。超过 CPU 只 warning。
 - JAR diff 按 logical old/new coordinate pair 去重；code comparison 按 coordinate pair/member 去重并跨 Module 复用。physical path 只存在于 repository 内部和短生命周期 `JarLease`。
 - 每个 Module 内 WALA build/query 单线程；Module 之间并行。
@@ -113,6 +128,7 @@ flowchart TD
 - JAR pair failure：关联 Module 为 `INCONCLUSIVE_BYTECODE_DIFF`；其他 pair 继续。
 - Module failure：其他 Module 继续；生成 `PARTIAL_SUCCESS` 或 all-failed `FAILED` HTML Report。
 - `changed-paths` graph validation、seed matching 或完整 path recovery 失败：该 Module actual mode 为 `full`，继续分析并在 Report 展示 fallback reason。
+- 普通/verbose GraphML或JSON的Module、root、winner、selected binding不一致：dependency preparation fail-fast，不进入Module fallback。
 - dangerous transfer、flow-to-cast factory 或其他明确 typed body-boundary limitation：Module 为 `INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY`；普通 no-op external call 不单独降级。
 - `SUCCESS`/`INCONCLUSIVE` exit `0`；`PARTIAL_SUCCESS`/`FAILED` exit `2`；参数或 Preflight failure exit `1`。
 - Report 使用 staging，先写每个非-skip Module 的 Module Index、Affected Call Chains、Dependency Changes，再写 Overall Index，最后替换 command-owned output。

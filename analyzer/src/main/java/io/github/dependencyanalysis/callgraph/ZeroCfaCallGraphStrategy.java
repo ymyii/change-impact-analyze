@@ -21,6 +21,8 @@ final class ZeroCfaCallGraphStrategy implements CallGraphAlgorithmStrategy {
     public CallGraphStrategyResult build(final CallGraphBuildRequest request)
             throws Exception {
         final AnalysisOptions options = options(request);
+        final JdkModelInstallation jdkModel = JdkModelInstallation.install(
+                request.jdkModel(), options, request.hierarchy());
         final ZeroCfaInvokeDynamicInstaller dynamic =
                 new ZeroCfaInvokeDynamicInstaller();
         dynamic.install(options, request.dynamicModels());
@@ -41,7 +43,8 @@ final class ZeroCfaCallGraphStrategy implements CallGraphAlgorithmStrategy {
         limitations.addAll(serviceLoader.limitations());
         return new CallGraphStrategyResult(graph,
                 new StrategyModelMetadata(dynamic.evidence(),
-                        limitations, serviceLoader.metadata(graph)));
+                        limitations, serviceLoader.metadata(graph),
+                        jdkModel.snapshot()));
     }
 
     private AnalysisOptions options(final CallGraphBuildRequest request) {

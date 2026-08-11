@@ -14,7 +14,7 @@ code_refs:
   - path: "benchmarks/impact-medium/scripts/verify-report.sh"
     desc: "scope-aware semantic verification gate"
   - path: "benchmarks/impact-medium/expected-results.tsv"
-    desc: "scope + Call Graph algorithm semantic baseline"
+    desc: "scope + JDK model + Call Graph algorithm semantic baseline"
 ---
 
 # Rule: Benchmark Scenario Coverage
@@ -32,6 +32,7 @@ code_refs:
 - `impact-medium` canonical benchmark 的任一 scope、algorithm、topology、semantic baseline、HTML Report 或 snapshot publication gate 失败时，能力新增任务不得标记完成。
 - 单纯内部 refactor 且无可观察行为变化时可以不新增场景，但必须通过现有 benchmark regression。
 - `changed-paths` 是当前默认 dependency analysis scope；`full` 是对应的完整分析对照。Canonical matrix 必须显式传入两种 scope，不能依赖 CLI 默认值。
+- `jdk8`是当前默认JDK Method Model；canonical warm-up/formal必须省略`--jdk-model`以验证默认值，每个scope/algorithm另执行一次显式`none` semantic control。Control不进入performance snapshot。
 
 ## Applicability
 
@@ -46,13 +47,13 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
   benchmarks/impact-medium/run-scope-matrix.sh
 ```
 
-该入口执行四种 Call Graph algorithm、两种 dependency analysis scope，共 8 组 semantic baseline。每种 scope 包含 4 次 warm-up 和 20 次 formal run，双 scope 共 48 个独立 Java Virtual Machine（JVM）进程。
+该入口执行四种Call Graph algorithm、两种dependency analysis scope与两种JDK Method Model selection，共16组semantic baseline。每种scope包含4次默认`jdk8` warm-up、20次默认`jdk8` formal run与4次`none` control，双scope共56个独立Java Virtual Machine（JVM）进程。
 
 ## Completion Gate
 
-- 48 个 run 全部成功。
+- 56个run全部成功。
 - 两种 scope 内 warm-up 与 formal topology 稳定。
-- 8 组 semantic baseline 全部通过。
+- 16组scope/model/algorithm semantic baseline全部通过；默认`jdk8`必须包含`Stream.map` private`Function` callback到changed dependency的fixture路径，`none`按algorithm验收真实JDK bytecode baseline。
 - `benchmark-report-changed-paths.html` 与 `benchmark-report-full.html` 均成功生成。
 - 两组 tracked snapshot 通过同一个 matrix transaction 原子发布；任一 scope 失败时旧 snapshot 全部保留。
 
@@ -60,7 +61,7 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 
 - `benchmarks/impact-medium/run-scope-matrix.sh` - canonical 能力覆盖入口。
 - `benchmarks/impact-medium/scripts/verify-report.sh` - semantic result、path topology 和 boundary evidence 验收。
-- `benchmarks/impact-medium/expected-results.tsv` - `dependency_analysis_scope + call_graph_algorithm` baseline。
+- `benchmarks/impact-medium/expected-results.tsv` - `dependency_analysis_scope + jdk_model + call_graph_algorithm` baseline。
 
 ## Non-Goals
 

@@ -5,7 +5,10 @@ import com.ibm.wala.ipa.callgraph.CGNode;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
+import io.github.dependencyanalysis.dependency.DependencyEvidenceFixtures;
+import io.github.dependencyanalysis.dependency.DependencyNode;
 import io.github.dependencyanalysis.dependency.DependencyScope;
+import io.github.dependencyanalysis.dependency.ModuleDependencyEvidence;
 import io.github.dependencyanalysis.dependency.ModuleDependencyOccurrenceGraph;
 import io.github.dependencyanalysis.dependency.ResolvedArtifact;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
@@ -15,7 +18,6 @@ import io.github.dependencyanalysis.impact.DependencyAnalysisScopeMode;
 import io.github.dependencyanalysis.impact.DependencyUpgradeKey;
 import io.github.dependencyanalysis.impact.ModuleAnalysisUnit;
 import io.github.dependencyanalysis.impact.ModuleChangeSet;
-import io.github.dependencyanalysis.impact.ModuleChangedPathSelection;
 import io.github.dependencyanalysis.impact.ModuleDependencyInputs;
 import io.github.dependencyanalysis.impact.ModuleId;
 import io.github.dependencyanalysis.impact.ModulePresence;
@@ -240,18 +242,30 @@ class DependencyBodyBoundaryTest {
                         "api/ChangedValue", "changed", "()V",
                         "old", "new"));
         final ModuleDependencyOccurrenceGraph graph = graph(module);
-        final ModuleChangedPathSelection selection =
-                ModuleChangedPathSelection.plan(graph, Set.of(api), mode);
+        final List<ArtifactCoord> artifacts =
+                List.of(api, sink, factory, plain);
+        final List<DependencyNode> dependencies = artifacts.stream()
+                .map(value -> new DependencyNode(value,
+                        DependencyScope.COMPILE, List.of()))
+                .toList();
+        final ModuleDependencyEvidence evidence =
+                DependencyEvidenceFixtures.evidence(
+                        fixture.projectClasses().getParent(),
+                        module.getCoordinate(), dependencies, graph,
+                        List.of(), fixture.jars().entrySet().stream()
+                        .map(value -> new ResolvedArtifact(
+                                value.getKey(), value.getValue())).toList());
         final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(module,
                 ModulePresence.BOTH, fixture.projectClasses(), List.of(),
-                new ModuleDependencyInputs(List.of(api, sink, factory, plain),
-                        List.of(), selection),
+                ModuleDependencyInputs.fromEvidence(evidence, null,
+                        Set.of(api), mode),
                 new ModuleChangeSet(List.of(point), List.of()));
         final JavaRuntimeDescriptor runtime = new Jdk8RuntimeProvider()
                 .probe(Path.of(System.getenv("TEST_JDK8_HOME")));
         return new ModuleCallGraphEngine(diagnostics(), runtime,
                 EntrypointSelection.parse(List.of("app/App"), List.of()),
-                algorithm, WalaReflectionOptions.parse("NONE"), repository)
+                algorithm, WalaReflectionOptions.parse("NONE"),
+                JdkModelSelection.NONE, repository)
                 .build(unit, TIMEOUT_SECONDS);
     }
 

@@ -193,11 +193,10 @@ class DependencyAnalyzerIT {
             assertThat(item.getPath()).isAbsolute();
             assertThat(item.getPath()).exists();
         });
-        result.getTrees().stream()
-                .filter(tree -> tree.getModule().getArtifactId()
+        result.getModules().stream()
+                .filter(evidence -> evidence.getModule().getArtifactId()
                         .startsWith("mod-"))
-                .forEach(tree -> assertThat(result.artifactsFor(
-                        tree.getModulePath()))
+                .forEach(evidence -> assertThat(evidence.getArtifacts())
                         .extracting(item -> item.getArtifact()
                                 .getArtifactId())
                         .containsExactly("slf4j-api"));
@@ -319,6 +318,15 @@ class DependencyAnalyzerIT {
                 .filteredOn(item -> item.getArtifactId().equals("selected"))
                 .extracting(ArtifactCoord::getVersion)
                 .containsExactly("1");
+        assertThat(result.getModules()).singleElement()
+                .satisfies(evidence -> assertThat(
+                        evidence.getOccurrenceGraph().occurrences())
+                        .filteredOn(value -> value.artifact()
+                                .getArtifactId().equals("selected"))
+                        .hasSizeGreaterThanOrEqualTo(2)
+                        .allSatisfy(value -> assertThat(
+                                value.artifact().getVersion())
+                                .isEqualTo("1")));
         assertThat(localRepository.resolve(
                 "fixture/repo/selected/1/selected-1.jar"))
                 .isRegularFile();

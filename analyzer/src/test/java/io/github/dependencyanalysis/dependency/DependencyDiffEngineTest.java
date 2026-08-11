@@ -59,9 +59,9 @@ class DependencyDiffEngineTest {
                 mod("g", "m");
         final ArtifactCoord dep =
                 art("g", "dep", "1.0");
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 base = List.of();
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 tgt = List.of(tree(mod,
                         node(dep,
                                 DependencyScope.COMPILE)));
@@ -87,11 +87,11 @@ class DependencyDiffEngineTest {
                 mod("g", "m");
         final ArtifactCoord dep =
                 art("g", "dep", "1.0");
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 base = List.of(tree(mod,
                         node(dep,
                                 DependencyScope.COMPILE)));
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 tgt = List.of();
         final List<DependencyChange> res =
                 engine.diff(base, tgt);
@@ -114,11 +114,11 @@ class DependencyDiffEngineTest {
                 art("g", "dep", "1.0");
         final ArtifactCoord newDep =
                 art("g", "dep", "2.0");
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 base = List.of(tree(mod,
                         node(oldDep,
                                 DependencyScope.COMPILE)));
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 tgt = List.of(tree(mod,
                         node(newDep,
                                 DependencyScope.RUNTIME)));
@@ -145,11 +145,11 @@ class DependencyDiffEngineTest {
                 mod("g", "m");
         final ArtifactCoord dep =
                 art("g", "dep", "1.0");
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 base = List.of(tree(mod,
                         node(dep,
                                 DependencyScope.COMPILE)));
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 tgt = List.of(tree(mod,
                         node(dep,
                                 DependencyScope.COMPILE)));
@@ -162,9 +162,9 @@ class DependencyDiffEngineTest {
     void scopeOnlyChangeReturnsEmpty() {
         final ArtifactCoord mod = mod("g", "m");
         final ArtifactCoord dep = art("g", "dep", "1.0");
-        final List<ModuleDependencyTree> base = List.of(tree(mod,
+        final List<ModuleDependencyEvidence> base = List.of(tree(mod,
                 node(dep, DependencyScope.COMPILE)));
-        final List<ModuleDependencyTree> target = List.of(tree(mod,
+        final List<ModuleDependencyEvidence> target = List.of(tree(mod,
                 node(dep, DependencyScope.PROVIDED)));
 
         final List<DependencyChange> result = engine.diff(base, target);
@@ -186,14 +186,11 @@ class DependencyDiffEngineTest {
                         DependencyScope.COMPILE,
                         List.of(node(child,
                                 DependencyScope.RUNTIME)));
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 base = List.of();
-        final List<ModuleDependencyTree>
-                tgt = List.of(
-                        new ModuleDependencyTree(
-                                mod,
-                                Paths.get("/m"),
-                                List.of(pNode)));
+        final List<ModuleDependencyEvidence>
+                tgt = List.of(DependencyEvidenceFixtures.selected(
+                        Paths.get("/m"), mod, List.of(pNode)));
         final List<DependencyChange> res =
                 engine.diff(base, tgt);
         assertThat(res).hasSize(2);
@@ -215,12 +212,12 @@ class DependencyDiffEngineTest {
                 art("g", "d1", "1.0");
         final ArtifactCoord dep2 =
                 art("g", "d2", "1.0");
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 base = List.of(
                         tree(mod1,
                                 node(dep1,
                                         DependencyScope.COMPILE)));
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 tgt = List.of(
                         tree(mod2,
                                 node(dep2,
@@ -243,9 +240,9 @@ class DependencyDiffEngineTest {
                 mod("g", "new-mod");
         final ArtifactCoord dep =
                 art("g", "dep", "1.0");
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 base = List.of();
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 tgt = List.of(tree(mod,
                         node(dep,
                                 DependencyScope.COMPILE)));
@@ -264,11 +261,11 @@ class DependencyDiffEngineTest {
                 mod("g", "old-mod");
         final ArtifactCoord dep =
                 art("g", "dep", "1.0");
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 base = List.of(tree(mod,
                         node(dep,
                                 DependencyScope.COMPILE)));
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 tgt = List.of();
         final List<DependencyChange> res =
                 engine.diff(base, tgt);
@@ -285,9 +282,9 @@ class DependencyDiffEngineTest {
                 mod("g", "m");
         final ArtifactCoord dep =
                 art("g", "dep", "1.0");
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 base = List.of();
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 tgt = List.of(tree(mod,
                         node(dep,
                                 DependencyScope.PROVIDED)));
@@ -309,7 +306,7 @@ class DependencyDiffEngineTest {
                 art("z", "z", "1.0");
         final ArtifactCoord depA =
                 art("a", "a", "1.0");
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 base = List.of(
                         tree(modA,
                                 node(depZ,
@@ -317,7 +314,7 @@ class DependencyDiffEngineTest {
                         tree(modB,
                                 node(depA,
                                         DependencyScope.COMPILE)));
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 tgt = List.of();
         final List<DependencyChange> res =
                 engine.diff(base, tgt);
@@ -351,9 +348,9 @@ class DependencyDiffEngineTest {
                         "2.0");
         final ArtifactCoord dep =
                 art("g", "d", "1.0");
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 base = List.of();
-        final List<ModuleDependencyTree>
+        final List<ModuleDependencyEvidence>
                 tgt = List.of(tree(mod,
                         node(dep,
                                 DependencyScope.COMPILE)));
@@ -429,22 +426,20 @@ class DependencyDiffEngineTest {
     }
 
     /**
-     * Builds a ModuleDependencyTree
+     * Builds selected Module dependency evidence.
      * with one top-level node.
      *
      * @param mod module coordinate
      * @param dep top-level dependency
      * @return module tree
      */
-    private static ModuleDependencyTree
+    private static ModuleDependencyEvidence
             tree(
                     final ArtifactCoord mod,
                     final DependencyNode
                             dep) {
-        return new ModuleDependencyTree(
-                mod,
-                Paths.get("/ws"),
-                new ArrayList<>(
-                        List.of(dep)));
+        return DependencyEvidenceFixtures.selected(
+                Paths.get("/ws"), mod,
+                new ArrayList<>(List.of(dep)));
     }
 }

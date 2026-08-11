@@ -34,9 +34,9 @@ public final class DependencyDiffEngine {
      * @return sorted immutable changes
      */
     public List<DependencyChange> diff(
-            final List<ModuleDependencyTree>
+            final List<ModuleDependencyEvidence>
                     baseline,
-            final List<ModuleDependencyTree>
+            final List<ModuleDependencyEvidence>
                     target) {
         Objects.requireNonNull(
                 baseline, "baseline");
@@ -48,18 +48,18 @@ public final class DependencyDiffEngine {
         }
         final List<DependencyChange>
                 result = new ArrayList<>();
-        final Map<String, ModuleDependencyTree>
+        final Map<String, ModuleDependencyEvidence>
                 baseMap = indexByModule(baseline);
-        final Map<String, ModuleDependencyTree>
+        final Map<String, ModuleDependencyEvidence>
                 targetMap = indexByModule(target);
         final Set<String> allKeys =
                 new LinkedHashSet<>();
         allKeys.addAll(baseMap.keySet());
         allKeys.addAll(targetMap.keySet());
         for (final String modKey : allKeys) {
-            final ModuleDependencyTree bTree =
+            final ModuleDependencyEvidence bTree =
                     baseMap.get(modKey);
-            final ModuleDependencyTree tTree =
+            final ModuleDependencyEvidence tTree =
                     targetMap.get(modKey);
             diffModule(bTree, tTree, result);
         }
@@ -75,13 +75,13 @@ public final class DependencyDiffEngine {
      * @param trees module trees
      * @return map by module diff key
      */
-    private Map<String, ModuleDependencyTree>
+    private Map<String, ModuleDependencyEvidence>
             indexByModule(
-                    final List<ModuleDependencyTree>
+                    final List<ModuleDependencyEvidence>
                             trees) {
-        final Map<String, ModuleDependencyTree>
+        final Map<String, ModuleDependencyEvidence>
                 map = new LinkedHashMap<>();
-        for (final ModuleDependencyTree t
+        for (final ModuleDependencyEvidence t
                 : trees) {
             map.put(
                     t.getModule().diffKey(),
@@ -98,8 +98,8 @@ public final class DependencyDiffEngine {
      * @param out change collector
      */
     private void diffModule(
-            final ModuleDependencyTree base,
-            final ModuleDependencyTree tgt,
+            final ModuleDependencyEvidence base,
+            final ModuleDependencyEvidence tgt,
             final List<DependencyChange>
                     out) {
         if (base == null) {

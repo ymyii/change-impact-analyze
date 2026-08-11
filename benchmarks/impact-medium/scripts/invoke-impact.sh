@@ -10,6 +10,7 @@ set -eu
 : "${BENCHMARK_PROJECT:?BENCHMARK_PROJECT is required}"
 : "${BENCHMARK_REPORT:?BENCHMARK_REPORT is required}"
 : "${BENCHMARK_CALL_GRAPH_ALGORITHM:?BENCHMARK_CALL_GRAPH_ALGORITHM is required}"
+: "${BENCHMARK_JDK_MODEL:?BENCHMARK_JDK_MODEL is required}"
 : "${BENCHMARK_WALA_REFLECTION_OPTIONS:?BENCHMARK_WALA_REFLECTION_OPTIONS is required}"
 : "${BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE:?BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE is required}"
 : "${BENCHMARK_CAPTURE_TOPOLOGY:?BENCHMARK_CAPTURE_TOPOLOGY is required}"
@@ -18,6 +19,14 @@ case "$BENCHMARK_CALL_GRAPH_ALGORITHM" in
   rta|zero-cfa|optimized-0-1-cfa|1-object-1-call-site) ;;
   *)
     echo "unsupported call graph algorithm: $BENCHMARK_CALL_GRAPH_ALGORITHM" >&2
+    exit 2
+    ;;
+esac
+
+case "$BENCHMARK_JDK_MODEL" in
+  jdk8|none) ;;
+  *)
+    echo "unsupported JDK model: $BENCHMARK_JDK_MODEL" >&2
     exit 2
     ;;
 esac
@@ -41,6 +50,11 @@ set -- \
   --dependency-analysis-scope "$BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE" \
   --include-change-kinds CLASS_ADDED,CLASS_REMOVED,METHOD_ADDED,METHOD_REMOVED,METHOD_DESCRIPTOR_CHANGED,METHOD_BODY_CHANGED,FIELD_ADDED,FIELD_REMOVED,FIELD_DESCRIPTOR_CHANGED \
   --call-graph-timeout-seconds 120
+
+# jdk8 intentionally exercises the CLI default; none is the semantic control.
+if [ "$BENCHMARK_JDK_MODEL" = none ]; then
+  set -- "$@" --jdk-model none
+fi
 
 if [ "$BENCHMARK_CAPTURE_TOPOLOGY" = 1 ]; then
   : "${BENCHMARK_DIAGNOSTICS:?BENCHMARK_DIAGNOSTICS is required when topology capture is enabled}"

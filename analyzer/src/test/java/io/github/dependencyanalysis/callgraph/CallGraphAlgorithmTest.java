@@ -65,6 +65,23 @@ class CallGraphAlgorithmTest {
     }
 
     @Test
+    void jdkModelDefaultsAndParsesOnlyStableIdentifiers() {
+        assertThat(JdkModelSelection.defaultSelection())
+                .isEqualTo(JdkModelSelection.JDK8);
+        assertThat(JdkModelSelection.parse("JDK8"))
+                .isEqualTo(JdkModelSelection.JDK8);
+        assertThat(JdkModelSelection.parse("NONE"))
+                .isEqualTo(JdkModelSelection.NONE);
+        assertThatThrownBy(() -> JdkModelSelection.parse("auto"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("jdk8, none");
+        assertThatThrownBy(() -> JdkModelSelection.parse("jdk-8"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> JdkModelSelection.parse(" jdk8"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void oneObjectOneCallSiteUsesExactAllocationPolicyWithoutSmushing() {
         assertThat(OneObjectOneCallSiteCallGraphStrategy.INSTANCE_POLICY)
                 .isEqualTo(ZeroXInstanceKeys.ALLOCATIONS

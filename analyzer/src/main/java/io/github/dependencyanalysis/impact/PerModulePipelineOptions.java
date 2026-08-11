@@ -2,6 +2,7 @@ package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.EntrypointSelection;
+import io.github.dependencyanalysis.callgraph.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
 import io.github.dependencyanalysis.metrics.ManagedExecutorRegistry;
 
@@ -17,6 +18,7 @@ import java.nio.file.Path;
  * @param callGraphAlgorithm command-wide Call Graph algorithm
  * @param reflectionOptions command-wide WALA ReflectionOptions
  * @param dependencyAnalysisScope dependency method-body scope
+ * @param jdkModel command-wide JDK Method Model selection
  * @param executors Analyzer-owned pool registry
  */
 record PerModulePipelineOptions(
@@ -27,7 +29,23 @@ record PerModulePipelineOptions(
         CallGraphAlgorithm callGraphAlgorithm,
         WalaReflectionOptions reflectionOptions,
         DependencyAnalysisScopeMode dependencyAnalysisScope,
+        JdkModelSelection jdkModel,
         ManagedExecutorRegistry executors) {
+
+    /** Compatibility constructor using the default JDK model. */
+    PerModulePipelineOptions(
+            final long timeoutSeconds,
+            final int parallelism,
+            final PipelineOutputPaths paths,
+            final EntrypointSelection selection,
+            final CallGraphAlgorithm algorithm,
+            final WalaReflectionOptions reflection,
+            final DependencyAnalysisScopeMode dependencyScope,
+            final ManagedExecutorRegistry executorRegistry) {
+        this(timeoutSeconds, parallelism, paths, selection, algorithm,
+                reflection, dependencyScope,
+                JdkModelSelection.defaultSelection(), executorRegistry);
+    }
 
     PerModulePipelineOptions(
             final long timeoutSeconds,
@@ -40,7 +58,8 @@ record PerModulePipelineOptions(
         this(timeoutSeconds, parallelism,
                 new PipelineOutputPaths(tempDirectory, null),
                 selection, algorithm, reflection,
-                DependencyAnalysisScopeMode.defaultMode(), executorRegistry);
+                DependencyAnalysisScopeMode.defaultMode(),
+                JdkModelSelection.defaultSelection(), executorRegistry);
     }
 
     PerModulePipelineOptions(
@@ -54,7 +73,8 @@ record PerModulePipelineOptions(
                 new PipelineOutputPaths(tempDirectory, null),
                 selection, algorithm,
                 WalaReflectionOptions.defaultOptions(),
-                DependencyAnalysisScopeMode.defaultMode(), executorRegistry);
+                DependencyAnalysisScopeMode.defaultMode(),
+                JdkModelSelection.defaultSelection(), executorRegistry);
     }
 
     /** @return command temporary directory */

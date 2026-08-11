@@ -38,6 +38,7 @@ Analyzer、Artifact Path Plugin、公共JDK model engine与JDK 8 model使用四�
 - Analyzer version位于root`revision`；Artifact Path Plugin version位于`plugins/pom.xml`的`revision`。
 - 公共JDK engine version位于`models/jdk/pom.xml`的`project.version`。
 - JDK 8 model version位于`models/jdk8/pom.xml`的`project.version`；其公共engine dependency version位于`jdk-models.version`。
+- Analyzer消费的JDK 8 model dependency version位于root`jdk8-models.version`；默认与release profile均以SemVer gate验证。
 - JDK 8 model构建前必须先安装coordinate匹配的公共engine；公共Snapshot source变化后必须重新`clean install`。
 - 每个独立artifact的`release` profile只接受Stable SemVer并拒绝Snapshot dependency；默认profile接受Stable与Snapshot。
 - 可被其他reactor消费的model POM必须flatten，不得要求consumer解析repository root parent或`${revision}`。
@@ -61,10 +62,10 @@ Analyzer、Artifact Path Plugin、公共JDK model engine与JDK 8 model使用四�
 默认SemVer、Java和JDK 8文件约束由Maven Enforcer在`validate`阶段执行。Stable release按dependency顺序执行：
 
 ```sh
+mvn -f models/jdk/pom.xml -Prelease clean install
+mvn -f models/jdk8/pom.xml -Prelease clean install
 mvn -f plugins/pom.xml -Prelease clean install
 mvn -Prelease clean verify
-mvn -f models/jdk/pom.xml -Prelease clean install
-mvn -f models/jdk8/pom.xml -Prelease clean verify
 ```
 
 JDK 8路径通过`-Dtest.jdk8.home=/absolute/path/to/jdk8`覆盖。发布model前检查`target/flattened-pom.xml`已解析parent、`${revision}`和dependency version。
@@ -82,7 +83,7 @@ git show jdk8-models-vX.Y.Z
 
 ## Reference Files
 
-- `pom.xml` - Analyzer SemVer、Artifact Path Plugin dependency version与release gate。
+- `pom.xml` - Analyzer SemVer、Artifact Path Plugin/JDK 8 model dependency version与release gate。
 - `plugins/pom.xml` - Plugin SemVer、Java 8 compile target与release gate。
 - `models/jdk/pom.xml` - 公共JDK engine SemVer、consumer POM与release gate。
 - `models/jdk8/pom.xml` - JDK 8 model SemVer、公共engine dependency与release gate。

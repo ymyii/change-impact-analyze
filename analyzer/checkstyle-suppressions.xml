@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<!DOCTYPE suppressions PUBLIC
+        "-//Checkstyle//DTD SuppressionFilter Configuration 1.2//EN"
+        "https://checkstyle.org/dtds/suppressions_1_2.dtd">
+<suppressions>
+    <!-- Exact legacy record constructor signatures exceed Sun's limit. -->
+    <suppress checks="ParameterNumber"
+              files="[/\\]CallGraphBuildRequest\.java$"/>
+    <suppress checks="ParameterNumber"
+              files="[/\\]PerModulePipelineOptions\.java$"/>
+</suppressions>

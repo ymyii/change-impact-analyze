@@ -13,6 +13,7 @@
     <dependency>
       <groupId>com.acme.impact</groupId>
       <artifactId>scenario-api</artifactId>
+      <version>${scenario.api.version}</version>
     </dependency>
   </dependencies>
 </project>

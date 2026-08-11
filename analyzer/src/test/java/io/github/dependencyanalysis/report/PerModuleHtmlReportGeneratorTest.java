@@ -499,6 +499,9 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("<th>Algorithm</th><td>rta</td>")
                 .contains("<th>WALA ReflectionOptions</th><td>"
                         + "ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD</td>")
+                .contains("<th>JDK method model</th><td>jdk8</td>")
+                .doesNotContain("availableTarget", "unavailableTarget",
+                        "hitTarget")
                 .contains("RTA")
                 .contains("global set of instantiated compatible classes")
                 .contains("does not track allocation-site or value "

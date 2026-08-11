@@ -1,6 +1,7 @@
 package io.github.dependencyanalysis.cli;
 
 import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
+import io.github.dependencyanalysis.callgraph.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
 import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis.impact.DependencyAnalysisScopeMode;
@@ -121,6 +122,7 @@ class DependencyAnalyzerCliTest {
                 .contains("-k, --include-change-kinds")
                 .contains("--analysis-parallelism")
                 .contains("--call-graph-algorithm")
+                .contains("--jdk-model")
                 .contains("--dependency-analysis-scope")
                 .contains("--call-graph-diagnostics-output")
                 .contains("--wala-reflection-options")
@@ -285,6 +287,26 @@ class DependencyAnalyzerCliTest {
     }
 
     @Test
+    void jdkModelDefaultsToJdk8AndParsesNoneCaseInsensitively() {
+        final CommandLine defaultCommand = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli());
+        final CommandLine noneCommand = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli());
+
+        final CommandLine.ParseResult defaultResult =
+                defaultCommand.parseArgs("impact", "--baseline", "HEAD",
+                        "--output", "report.html");
+        final CommandLine.ParseResult noneResult = noneCommand.parseArgs(
+                "impact", "--baseline", "HEAD",
+                "--output", "report.html", "--jdk-model", "NONE");
+
+        assertThat(jdkModel(defaultResult)).isEqualTo(
+                JdkModelSelection.JDK8);
+        assertThat(jdkModel(noneResult)).isEqualTo(
+                JdkModelSelection.NONE);
+    }
+
+    @Test
     void dependencyAnalysisScopeDefaultsToChangedPathsAndParsesFull() {
         final CommandLine defaultCommand = DependencyAnalyzerCli
                 .newCommandLine(new DependencyAnalyzerCli());
@@ -355,6 +377,22 @@ class DependencyAnalyzerCliTest {
     }
 
     @Test
+    void unknownJdkModelIsRejectedBeforePreflight() {
+        final CommandLine command = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli());
+        final StringWriter errors = new StringWriter();
+        command.setErr(new PrintWriter(errors));
+
+        final int code = command.execute("impact", "--baseline", "HEAD",
+                "--output", "report.html", "--jdk-model", "auto");
+
+        assertThat(code).isEqualTo(1);
+        assertThat(errors.toString())
+                .contains("jdk8, none")
+                .doesNotContain("[preflight]");
+    }
+
+    @Test
     void repeatedVerboseFlagSelectsLogLevel() {
         final DependencyAnalyzerCli defaultRoot =
                 new DependencyAnalyzerCli();
@@ -388,6 +426,12 @@ class DependencyAnalyzerCliTest {
             final CommandLine.ParseResult result) {
         return result.subcommand().commandSpec().findOption(
                 "--wala-reflection-options").getValue();
+    }
+
+    private JdkModelSelection jdkModel(
+            final CommandLine.ParseResult result) {
+        return result.subcommand().commandSpec()
+                .findOption("--jdk-model").getValue();
     }
 
     private DependencyAnalysisScopeMode dependencyScope(

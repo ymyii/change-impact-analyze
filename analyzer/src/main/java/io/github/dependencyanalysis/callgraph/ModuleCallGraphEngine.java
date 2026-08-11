@@ -61,6 +61,9 @@ public final class ModuleCallGraphEngine {
     /** Command-wide WALA ReflectionOptions. */
     private final WalaReflectionOptions reflectionOptions;
 
+    /** Command-wide JDK Method Model selection. */
+    private final JdkModelSelection jdkModel;
+
     /** Command-scoped dependency repository. */
     private final IJarRepository jarRepository;
 
@@ -155,8 +158,33 @@ public final class ModuleCallGraphEngine {
             final WalaReflectionOptions selectedReflectionOptions,
             final IJarRepository repository) {
         this(collector, runtime, selection, selectedAlgorithm,
+                selectedReflectionOptions,
+                JdkModelSelection.defaultSelection(), repository);
+    }
+
+    /**
+     * Creates an engine with all user-selectable graph policies.
+     *
+     * @param collector diagnostics
+     * @param runtime target JDK runtime
+     * @param selection entrypoint class selection
+     * @param selectedAlgorithm Call Graph algorithm
+     * @param selectedReflectionOptions WALA ReflectionOptions
+     * @param selectedJdkModel JDK Method Model selection
+     * @param repository dependency repository
+     */
+    public ModuleCallGraphEngine(
+            final DiagnosticLog collector,
+            final JavaRuntimeDescriptor runtime,
+            final EntrypointSelection selection,
+            final CallGraphAlgorithm selectedAlgorithm,
+            final WalaReflectionOptions selectedReflectionOptions,
+            final JdkModelSelection selectedJdkModel,
+            final IJarRepository repository) {
+        this(collector, runtime, selection, selectedAlgorithm,
                 selectedReflectionOptions, repository,
-                InvokeDynamicBootstrapModelRegistry.jdk8Defaults());
+                CallGraphModelConfiguration.withJdkModel(
+                        selectedJdkModel));
     }
 
     /**
@@ -218,6 +246,31 @@ public final class ModuleCallGraphEngine {
             final WalaReflectionOptions selectedReflectionOptions,
             final IJarRepository repository,
             final InvokeDynamicBootstrapModelRegistry models) {
+        this(collector, runtime, selection, selectedAlgorithm,
+                selectedReflectionOptions, repository,
+                new CallGraphModelConfiguration(
+                        JdkModelSelection.defaultSelection(), models));
+    }
+
+    /**
+     * Creates an engine with composed Call Graph model configuration.
+     *
+     * @param collector diagnostics
+     * @param runtime target JDK runtime
+     * @param selection entrypoint class selection
+     * @param selectedAlgorithm Call Graph algorithm
+     * @param selectedReflectionOptions WALA ReflectionOptions
+     * @param repository dependency repository
+     * @param modelConfiguration JDK and invokedynamic models
+     */
+    public ModuleCallGraphEngine(
+            final DiagnosticLog collector,
+            final JavaRuntimeDescriptor runtime,
+            final EntrypointSelection selection,
+            final CallGraphAlgorithm selectedAlgorithm,
+            final WalaReflectionOptions selectedReflectionOptions,
+            final IJarRepository repository,
+            final CallGraphModelConfiguration modelConfiguration) {
         diagnostics = Objects.requireNonNull(collector, "collector");
         javaRuntime = Objects.requireNonNull(runtime, "runtime");
         entrypointSelection = Objects.requireNonNull(selection, "selection");
@@ -225,8 +278,12 @@ public final class ModuleCallGraphEngine {
                 selectedAlgorithm, "selectedAlgorithm");
         reflectionOptions = Objects.requireNonNull(
                 selectedReflectionOptions, "selectedReflectionOptions");
+        Objects.requireNonNull(modelConfiguration, "modelConfiguration");
+        jdkModel = Objects.requireNonNull(
+                modelConfiguration.jdkModel(), "jdkModel");
         jarRepository = Objects.requireNonNull(repository, "repository");
-        dynamicModels = Objects.requireNonNull(models, "models");
+        dynamicModels = Objects.requireNonNull(
+                modelConfiguration.dynamicModels(), "dynamicModels");
     }
 
     /**
@@ -318,7 +375,8 @@ public final class ModuleCallGraphEngine {
                         .build(new CallGraphBuildRequest(
                                 scope, hierarchy, entrypoints, cache,
                                 serviceLoaderIndex, dynamicModels,
-                                reflectionOptions, dependencyBoundary,
+                                jdkModel, reflectionOptions,
+                                dependencyBoundary,
                                 monitor));
             } catch (Exception exception) {
                 if (monitor.isTimedOut()) {
@@ -344,7 +402,8 @@ public final class ModuleCallGraphEngine {
                             graph, type -> originOf(ownership, type)) : null;
             diagnostics.info(context, "algorithm="
                     + algorithm.identifier() + "; reflectionOptions="
-                    + reflectionOptions.identifier() + "; nodes="
+                    + reflectionOptions.identifier() + "; jdkModel="
+                    + jdkModel.identifier() + "; nodes="
                     + stats.methodCount() + "; edges="
                     + stats.edgeCount() + "; entrypoints="
                     + entrypoints.size());

@@ -1,11 +1,15 @@
 package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
+import io.github.dependencyanalysis.dependency.DependencyEvidenceFixtures;
+import io.github.dependencyanalysis.dependency.DependencyNode;
 import io.github.dependencyanalysis.dependency.DependencyScope;
+import io.github.dependencyanalysis.dependency.ModuleDependencyEvidence;
 import io.github.dependencyanalysis.dependency.ModuleDependencyOccurrenceGraph;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -21,7 +25,7 @@ class ModuleChangedPathSelectionTest {
 
         final ModuleChangedPathSelection selection =
                 ModuleChangedPathSelection.plan(
-                        fixture.graph(), Set.of(fixture.seed()),
+                        fixture.evidence(), Set.of(fixture.seed()),
                         DependencyAnalysisScopeMode.CHANGED_PATHS);
 
         assertThat(selection.actualMode()).isEqualTo(
@@ -47,14 +51,12 @@ class ModuleChangedPathSelectionTest {
 
         final ModuleChangedPathSelection selection =
                 ModuleChangedPathSelection.plan(
-                        fixture.graph(), Set.of(fixture.seed()),
+                        fixture.evidence(), Set.of(fixture.seed()),
                         DependencyAnalysisScopeMode.CHANGED_PATHS);
 
-        assertThat(selection.seeds()).hasSize(1);
-        assertThat(selection.pathsBySeed().get(fixture.seed())).hasSize(2);
-        assertThat(selection.selectedOccurrenceIds())
-                .contains("a", "c", "e", "x", "y")
-                .doesNotContain("d", "g");
+        assertThat(selection.paths()).hasSize(2)
+                .allSatisfy(path -> assertThat(path.seed())
+                        .isEqualTo(fixture.seed()));
     }
 
     @Test
@@ -70,7 +72,9 @@ class ModuleChangedPathSelectionTest {
                         edge("reactor", "seed")));
 
         final ModuleChangedPathSelection selection =
-                ModuleChangedPathSelection.plan(graph, Set.of(seed),
+                ModuleChangedPathSelection.plan(evidence(module, graph,
+                                List.of(seed), List.of(reactor.diffKey())),
+                        Set.of(seed),
                         DependencyAnalysisScopeMode.CHANGED_PATHS);
 
         assertThat(selection.paths()).singleElement().satisfies(path ->
@@ -85,7 +89,7 @@ class ModuleChangedPathSelectionTest {
         final GraphFixture fixture = fixture();
         final ModuleChangedPathSelection missing =
                 ModuleChangedPathSelection.plan(
-                        fixture.graph(), Set.of(coord("missing")),
+                        fixture.evidence(), Set.of(coord("missing")),
                         DependencyAnalysisScopeMode.CHANGED_PATHS);
         assertThat(missing.actualMode()).isEqualTo(
                 DependencyAnalysisScopeMode.FULL);
@@ -99,13 +103,17 @@ class ModuleChangedPathSelectionTest {
         final ModuleDependencyOccurrenceGraph cyclic = graph(nodes,
                 List.of(edge("root", "a"), edge("a", "root")));
         final ModuleChangedPathSelection invalid =
-                ModuleChangedPathSelection.plan(cyclic,
+                ModuleChangedPathSelection.plan(evidence(
+                                coord("application"), cyclic,
+                                List.of(coord("a")), List.of()),
                         Set.of(coord("a")),
                         DependencyAnalysisScopeMode.CHANGED_PATHS);
         assertThat(invalid.actualMode()).isEqualTo(
                 DependencyAnalysisScopeMode.FULL);
         assertThat(invalid.fallbackReason()).contains(
                 "DEPENDENCY_GRAPH_CYCLE");
+        assertThat(invalid.selectedArtifacts())
+                .containsExactly(coord("a"));
     }
 
     @Test
@@ -114,7 +122,7 @@ class ModuleChangedPathSelectionTest {
 
         final ModuleChangedPathSelection selection =
                 ModuleChangedPathSelection.plan(
-                        fixture.graph(), Set.of(fixture.seed()),
+                        fixture.evidence(), Set.of(fixture.seed()),
                         DependencyAnalysisScopeMode.FULL);
 
         assertThat(selection.actualMode()).isEqualTo(
@@ -141,7 +149,28 @@ class ModuleChangedPathSelectionTest {
                 edge("root", "a"), edge("a", "c"), edge("c", "e"),
                 edge("a", "d"), edge("e", "g"), edge("root", "x"),
                 edge("x", "y"), edge("y", "e"));
-        return new GraphFixture(graph(nodes, edges), seed);
+        final ModuleDependencyOccurrenceGraph graph = graph(nodes, edges);
+        final List<ArtifactCoord> artifacts = nodes.stream()
+                .filter(value -> !value.moduleRoot() && !value.reactor())
+                .map(ModuleDependencyOccurrenceGraph.Occurrence::artifact)
+                .distinct().toList();
+        return new GraphFixture(evidence(coord("application"), graph,
+                artifacts, List.of()), seed);
+    }
+
+    private ModuleDependencyEvidence evidence(
+            final ArtifactCoord module,
+            final ModuleDependencyOccurrenceGraph graph,
+            final List<ArtifactCoord> artifacts,
+            final List<String> reactorKeys) {
+        final List<DependencyNode> dependencies = artifacts.stream()
+                .map(value -> new DependencyNode(value,
+                        DependencyScope.COMPILE, List.of()))
+                .toList();
+        return DependencyEvidenceFixtures.evidence(Path.of("/module"),
+                module, dependencies, graph, reactorKeys,
+                DependencyEvidenceFixtures.bindings(
+                        Path.of("/bindings"), artifacts));
     }
 
     private ModuleDependencyOccurrenceGraph graph(
@@ -170,11 +199,11 @@ class ModuleChangedPathSelectionTest {
     }
 
     /**
-     * @param graph occurrence graph
+     * @param evidence merged dependency evidence
      * @param seed changed artifact
      */
     private record GraphFixture(
-            ModuleDependencyOccurrenceGraph graph,
+            ModuleDependencyEvidence evidence,
             ArtifactCoord seed) {
     }
 }

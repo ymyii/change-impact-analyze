@@ -10,7 +10,7 @@ code_refs: []
 ## Project
 
 ### [Dependency Analyzer](project/dependency-analyzer.md)
-- Summary: 两个独立 Maven reactor；Java 17 Analyzer + Java 8 内置 Plugin；`impact` 分析显式 JDK 8 target，`tree` 生成 repository 级 report。
+- Summary: 四个独立Maven reactor；Java 17 Analyzer内嵌Java 8 Plugin与JDK 8 Method Model；`impact`分析显式JDK 8 target，`tree`生成repository级report。
 
 ## Architecture
 
@@ -47,10 +47,10 @@ code_refs: []
 - Summary: logical coordinate pair 经 repository lease 并行去重 diff；除stable method hash外，默认检测class/method/constructor/field Java 8 JVM access narrowing。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
-- Summary: 每 Module 构建一张 WALA Call Graph；默认 changed-paths 仅让到达变更 dependency 的路径使用真实 IR，其他 external method 使用 no-op/factory boundary。
+- Summary: 每Module构建一张WALA Call Graph；默认安装`jdk8` model并使用changed-paths body boundary，支持`none`真实JDK bytecode对照与Schema v5 diagnostics。
 
 ### [JDK Method Models](features/jdk-method-models.md)
-- Summary: 独立`models/jdk`公共engine与`models/jdk8`精确catalog生成conservative WALA Synthetic IR；尚未接入`impact`。
+- Summary: 独立`models/jdk`公共engine与`models/jdk8`精确catalog已默认接入`impact`四种algorithm；CLI可显式选择`none`且安装严格失败。
 
 ### [Impact Tracing](features/impact-tracing.md)
 - Summary: 构图后 read-only 解析 call/structural/access reference，并结合 dangerous transfer、factory evidence 与 deterministic reverse BFS 生成结果。
@@ -67,20 +67,20 @@ code_refs: []
 - Summary: 所有 production external process token 在 `ProcessBuilder` 前必须经过 `CommandResolver.resolve()`。
 
 ### [Benchmark Scenario Coverage](rules/benchmark-scenario-coverage.md)
-- Summary: Analyzer 能力新增必须同步提交 semantic benchmark 场景，并通过 changed-paths/full 48-JVM canonical matrix。
+- Summary: Analyzer能力新增必须同步提交semantic benchmark场景，并通过changed-paths/full、jdk8/none的56-JVM canonical matrix。
 
 ## Runbooks
 
 ### [Build, Test, Package](runbooks/build-test-package.md)
-- Summary: 双 reactor bootstrap、完整 JDK 8 gate、unit/integration tests、两个 repository ZIP、uber JAR 和 CLI smoke。
+- Summary: 公共model、JDK 8 model、Plugin与Analyzer四reactor顺序bootstrap；完整JDK 8 gate、uber JAR和CLI smoke。
 
 ### [JDK Models Build and Test](runbooks/jdk-models-build-test.md)
 - Summary: 公共JDK engine与JDK 8 model的顺序构建、exact catalog/fixed-point/Packaging验收、metrics与failure entrypoint。
 
 ### [Version and Distribution](runbooks/version-and-distribution.md)
-- Summary: Maven Versions/Enforcer 驱动的 Snapshot iteration、Stable release、commit 与双 Git tag。
+- Summary: Maven Versions/Enforcer驱动四个独立artifact的Snapshot iteration、Stable release、commit与component Git tag。
 
 ### [Impact Benchmark](runbooks/impact-benchmark.md)
-- Summary: changed-paths/full 各执行4次warm-up与20个正式样本，输出两份HTML及两组snapshot；48个JVM和8组semantic baseline全部通过后原子发布。
+- Summary: changed-paths/full各执行24个默认`jdk8` run与4个`none` control；56个JVM和16组semantic baseline通过后原子发布默认model snapshot。
 
 ## Glossary

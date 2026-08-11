@@ -24,6 +24,10 @@
     <dependencies>
         <dependency>
             <groupId>io.github.dependencyanalysis</groupId>
+            <artifactId>dependency-analyzer-jdk8-models</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.dependencyanalysis</groupId>
             <artifactId>dependency-analyzer-artifact-path-maven-plugin</artifactId>
             <version>${artifact-path-plugin.version}</version>
             <type>zip</type>
@@ -229,6 +233,8 @@
                         </goals>
                         <configuration>
                             <configLocation>sun_checks.xml</configLocation>
+                            <suppressionsLocation>${project.basedir}/checkstyle-suppressions.xml</suppressionsLocation>
+                            <suppressionsFileExpression>org.checkstyle.sun.suppressionfilter.config</suppressionsFileExpression>
                             <consoleOutput>true</consoleOutput>
                             <failsOnError>true</failsOnError>
                             <violationSeverity>warning</violationSeverity>

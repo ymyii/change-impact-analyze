@@ -12,6 +12,7 @@ import io.github.dependencyanalysis.callgraph.CallGraphNodeReachabilityPath;
 import io.github.dependencyanalysis.callgraph.CallGraphRankedNode;
 import io.github.dependencyanalysis.callgraph.CallGraphRelatedMethod;
 import io.github.dependencyanalysis.callgraph.CallGraphTopologySnapshot;
+import io.github.dependencyanalysis.callgraph.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
 import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
@@ -38,7 +39,7 @@ import java.util.UUID;
 final class CallGraphDiagnosticsExporter {
 
     /** Diagnostics JSON Schema version. */
-    static final int SCHEMA_VERSION = 4;
+    static final int SCHEMA_VERSION = 5;
 
     /** SHA-256 algorithm name. */
     private static final String SHA_256 = "SHA-256";
@@ -78,6 +79,7 @@ final class CallGraphDiagnosticsExporter {
      * @param algorithm Call Graph algorithm
      * @param reflectionOptions WALA ReflectionOptions
      * @param dependencyScope requested dependency method-body scope
+     * @param jdkModel JDK Method Model selection
      * @param modules module analysis results
      * @throws IOException on publication failure
      */
@@ -86,6 +88,7 @@ final class CallGraphDiagnosticsExporter {
             final CallGraphAlgorithm algorithm,
             final WalaReflectionOptions reflectionOptions,
             final DependencyAnalysisScopeMode dependencyScope,
+            final JdkModelSelection jdkModel,
             final List<ModuleAnalysisResult> modules) throws IOException {
         final Path destination = output.toAbsolutePath().normalize();
         Files.createDirectories(destination.getParent());
@@ -96,7 +99,7 @@ final class CallGraphDiagnosticsExporter {
                     Files.newBufferedWriter(temporary,
                             StandardCharsets.UTF_8))) {
                 writeDocument(json, algorithm, reflectionOptions,
-                        dependencyScope, modules);
+                        dependencyScope, jdkModel, modules);
             }
             move(temporary, destination);
         } finally {
@@ -109,15 +112,12 @@ final class CallGraphDiagnosticsExporter {
             final CallGraphAlgorithm algorithm,
             final WalaReflectionOptions reflectionOptions,
             final DependencyAnalysisScopeMode dependencyScope,
+            final JdkModelSelection jdkModel,
             final List<ModuleAnalysisResult> modules) throws IOException {
         json.useDefaultPrettyPrinter();
         json.writeStartObject();
-        json.writeNumberField("schemaVersion", SCHEMA_VERSION);
-        json.writeStringField("algorithm", algorithm.identifier());
-        json.writeStringField("reflectionOptions",
-                reflectionOptions.identifier());
-        json.writeStringField("requestedDependencyAnalysisScope",
-                dependencyScope.identifier());
+        writeConfiguration(json, algorithm, reflectionOptions,
+                dependencyScope, jdkModel);
         json.writeStringField("jdk", javaRuntime.getVersion());
         json.writeArrayFieldStart("modules");
         for (ModuleAnalysisResult module : modules) {
@@ -130,6 +130,21 @@ final class CallGraphDiagnosticsExporter {
         }
         json.writeEndArray();
         json.writeEndObject();
+    }
+
+    static void writeConfiguration(
+            final JsonGenerator json,
+            final CallGraphAlgorithm algorithm,
+            final WalaReflectionOptions reflectionOptions,
+            final DependencyAnalysisScopeMode dependencyScope,
+            final JdkModelSelection jdkModel) throws IOException {
+        json.writeNumberField("schemaVersion", SCHEMA_VERSION);
+        json.writeStringField("algorithm", algorithm.identifier());
+        json.writeStringField("reflectionOptions",
+                reflectionOptions.identifier());
+        json.writeStringField("jdkModel", jdkModel.identifier());
+        json.writeStringField("requestedDependencyAnalysisScope",
+                dependencyScope.identifier());
     }
 
     private void writeModule(

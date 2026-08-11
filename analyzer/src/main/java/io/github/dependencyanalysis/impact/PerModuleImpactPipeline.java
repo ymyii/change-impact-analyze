@@ -18,6 +18,7 @@ import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
 import io.github.dependencyanalysis.callgraph.ModuleScopeValidator;
 import io.github.dependencyanalysis.callgraph.ScopeValidationResult;
 import io.github.dependencyanalysis.callgraph.ScopeValidationWarning;
+import io.github.dependencyanalysis.callgraph.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
 import io.github.dependencyanalysis.callgraph.ScopeValidationException;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
@@ -26,8 +27,7 @@ import io.github.dependencyanalysis.dependency.DependencyAnalysisResult;
 import io.github.dependencyanalysis.dependency.DependencyAnalyzer;
 import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.dependency.DependencyDiffEngine;
-import io.github.dependencyanalysis.dependency.DependencyNode;
-import io.github.dependencyanalysis.dependency.ModuleDependencyTree;
+import io.github.dependencyanalysis.dependency.ModuleDependencyEvidence;
 import io.github.dependencyanalysis.dependency.ResolvedArtifact;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
@@ -105,6 +105,9 @@ final class PerModuleImpactPipeline {
     /** Requested dependency method-body scope. */
     private final DependencyAnalysisScopeMode dependencyAnalysisScope;
 
+    /** Command-wide JDK Method Model selection. */
+    private final JdkModelSelection jdkModel;
+
     /** Command temporary directory. */
     private final Path temporaryDirectory;
 
@@ -154,6 +157,7 @@ final class PerModuleImpactPipeline {
         dependencyAnalysisScope = Objects.requireNonNull(
                 options.dependencyAnalysisScope(),
                 "dependencyAnalysisScope");
+        jdkModel = Objects.requireNonNull(options.jdkModel(), "jdkModel");
     }
 
     /**
@@ -198,37 +202,23 @@ final class PerModuleImpactPipeline {
                 repositoryInputs,
                 warning -> diagnostics.warn("jar-repository", warning))) {
             jarRepository = repository;
-        final List<ModuleDependencyTree> baselineTrees = selectedTrees(
-                front.baselineDependencies().getTrees(), baselineScope);
-        final List<ModuleDependencyTree> targetTrees = selectedTrees(
-                targetDependencies.getTrees(), targetScope);
-        final Set<String> reactorKeys = new LinkedHashSet<>();
-        baselineScope.getAllModules().forEach(module ->
-                reactorKeys.add(module.coordinateKey()));
-        targetScope.getAllModules().forEach(module ->
-                reactorKeys.add(module.coordinateKey()));
+        final List<ModuleDependencyEvidence> baselineEvidence =
+                selectedEvidence(front.baselineDependencies().getModules(),
+                        baselineScope);
+        final List<ModuleDependencyEvidence> targetEvidence =
+                selectedEvidence(targetDependencies.getModules(),
+                        targetScope);
         final List<DependencyChange> changes =
                 new DependencyDiffEngine().diff(
-                        externalTrees(baselineTrees, reactorKeys),
-                        externalTrees(targetTrees, reactorKeys));
+                        baselineEvidence, targetEvidence);
         final long diffStart = System.currentTimeMillis();
         final BindingResult bindings = bindAndDiff(changes,
-                baselineScope, targetScope,
-                front.baselineDependencies(), targetDependencies,
-                baselineTrees, targetTrees);
+                targetScope, baselineEvidence, targetEvidence);
         elapsed.put("jar-diff", System.currentTimeMillis() - diffStart);
-        final Map<String, List<ArtifactCoord>> baselineArtifactsByModule =
-                externalArtifactsByModule(
-                        front.baselineDependencies(), baselineTrees,
-                        baselineScope);
-        final Map<String, List<ArtifactCoord>> targetArtifactsByModule =
-                externalArtifactsByModule(
-                        targetDependencies, targetTrees, targetScope);
         final List<ModuleAnalysisUnit> units = units(
                 new PreparedAnalysis(baselineScope, targetScope,
-                        front.targetBuild(), baselineArtifactsByModule,
-                        targetArtifactsByModule,
-                        baselineTrees, targetTrees),
+                        front.targetBuild(), baselineEvidence,
+                        targetEvidence),
                 bindings, changes);
         final EntrypointPreparation entrypoints = prepareEntrypoints(
                 units, bindings.failedModules());
@@ -270,7 +260,7 @@ final class PerModuleImpactPipeline {
             new CallGraphDiagnosticsExporter(
                     diagnostics, javaRuntime, repository()).write(
                     callGraphDiagnosticsOutput, callGraphAlgorithm,
-                    reflectionOptions, dependencyAnalysisScope,
+                    reflectionOptions, dependencyAnalysisScope, jdkModel,
                     codeEvidence.modules());
         }
         return new AnalysisRunResult(targetScope.getMode(),
@@ -281,7 +271,8 @@ final class PerModuleImpactPipeline {
                 codeEvidence.actualWorkers()), elapsed,
                 new AnalysisRunConfiguration(
                         entrypointSelection, callGraphAlgorithm,
-                        reflectionOptions, dependencyAnalysisScope));
+                        reflectionOptions, dependencyAnalysisScope,
+                        jdkModel));
         } finally {
             jarRepository = null;
         }
@@ -587,59 +578,32 @@ final class PerModuleImpactPipeline {
                 .build();
     }
 
-    private List<ModuleDependencyTree> selectedTrees(
-            final List<ModuleDependencyTree> trees,
+    private List<ModuleDependencyEvidence> selectedEvidence(
+            final List<ModuleDependencyEvidence> evidence,
             final ReactorAnalysisScope scope) {
         final Set<String> keys = scope.getModules().stream()
                 .map(ModuleId::coordinateKey)
                 .collect(java.util.stream.Collectors.toSet());
-        return trees.stream()
-                .filter(tree -> keys.contains(tree.getModule().diffKey()))
-                .sorted(Comparator.comparing(tree ->
-                        tree.getModule().diffKey()))
+        return evidence.stream()
+                .filter(value -> keys.contains(
+                        value.getModule().diffKey()))
+                .sorted(Comparator.comparing(value ->
+                        value.getModule().diffKey()))
                 .toList();
-    }
-
-    private List<ModuleDependencyTree> externalTrees(
-            final List<ModuleDependencyTree> trees,
-            final Set<String> reactorKeys) {
-        return trees.stream().map(tree -> new ModuleDependencyTree(
-                        tree.getModule(), tree.getModulePath(),
-                        externalNodes(tree.getDependencies(), reactorKeys)))
-                .toList();
-    }
-
-    private List<DependencyNode> externalNodes(
-            final List<DependencyNode> nodes,
-            final Set<String> reactorKeys) {
-        final List<DependencyNode> result = new ArrayList<>();
-        for (DependencyNode node : nodes) {
-            final List<DependencyNode> children = externalNodes(
-                    node.getChildren(), reactorKeys);
-            if (reactorKeys.contains(node.getArtifact().diffKey())) {
-                result.addAll(children);
-            } else {
-                result.add(new DependencyNode(node.getArtifact(),
-                        node.getScope(), children));
-            }
-        }
-        return List.copyOf(result);
     }
 
     private BindingResult bindAndDiff(
             final List<DependencyChange> changes,
-            final ReactorAnalysisScope baselineScope,
             final ReactorAnalysisScope targetScope,
-            final DependencyAnalysisResult baselineDependencies,
-            final DependencyAnalysisResult targetDependencies,
-            final List<ModuleDependencyTree> baselineTrees,
-            final List<ModuleDependencyTree> targetTrees) throws Exception {
+            final List<ModuleDependencyEvidence> baselineEvidence,
+            final List<ModuleDependencyEvidence> targetEvidence)
+            throws Exception {
         final Map<String, ModuleId> targetModules = moduleMap(
                 targetScope.getModules());
-        final Map<String, ModuleDependencyTree> baselineTreeMap =
-                treeMap(baselineTrees);
-        final Map<String, ModuleDependencyTree> targetTreeMap =
-                treeMap(targetTrees);
+        final Map<String, ModuleDependencyEvidence> baselineEvidenceMap =
+                evidenceMap(baselineEvidence);
+        final Map<String, ModuleDependencyEvidence> targetEvidenceMap =
+                evidenceMap(targetEvidence);
         final Map<String, List<DependencyUpgradeKey>> groups =
                 new LinkedHashMap<>();
         for (DependencyChange change : changes) {
@@ -654,16 +618,17 @@ final class PerModuleImpactPipeline {
             if (module == null) {
                 continue;
             }
-            final ModuleDependencyTree baselineTree =
-                    baselineTreeMap.get(moduleKey);
-            final ModuleDependencyTree targetTree =
-                    targetTreeMap.get(moduleKey);
-            ArtifactPathBindingResolver.require(
-                    "baseline", baselineDependencies, baselineTree,
-                    change.getOldArtifact(), change.getModule());
-            ArtifactPathBindingResolver.require(
-                    "target", targetDependencies, targetTree,
-                    change.getNewArtifact(), change.getModule());
+            final ModuleDependencyEvidence baseline =
+                    baselineEvidenceMap.get(moduleKey);
+            final ModuleDependencyEvidence target =
+                    targetEvidenceMap.get(moduleKey);
+            if (baseline == null || target == null) {
+                throw new IllegalStateException(
+                        "Merged dependency evidence is missing: module="
+                                + change.getModule());
+            }
+            baseline.requireArtifact("baseline", change.getOldArtifact());
+            target.requireArtifact("target", change.getNewArtifact());
             final DependencyUpgradeKey key = new DependencyUpgradeKey(
                     module, change.getScope(), change.getOldArtifact(),
                     change.getNewArtifact());
@@ -798,14 +763,10 @@ final class PerModuleImpactPipeline {
         final ReactorAnalysisScope baselineScope = prepared.baselineScope();
         final ReactorAnalysisScope targetScope = prepared.targetScope();
         final BuildResult build = prepared.targetBuild();
-        final Map<String, List<ArtifactCoord>> baselineArtifactsByModule =
-                prepared.baselineArtifactsByModule();
-        final Map<String, List<ArtifactCoord>> targetArtifactsByModule =
-                prepared.targetArtifactsByModule();
-        final List<ModuleDependencyTree> baselineTrees =
-                prepared.baselineTrees();
-        final List<ModuleDependencyTree> targetTrees =
-                prepared.targetTrees();
+        final List<ModuleDependencyEvidence> baselineEvidence =
+                prepared.baselineEvidence();
+        final List<ModuleDependencyEvidence> targetEvidence =
+                prepared.targetEvidence();
         final Map<String, ModuleId> baselineModules = moduleMap(
                 baselineScope.getModules());
         final Map<String, ModuleId> targetModules = moduleMap(
@@ -813,10 +774,10 @@ final class PerModuleImpactPipeline {
         final Set<String> allKeys = new LinkedHashSet<>();
         allKeys.addAll(baselineModules.keySet());
         allKeys.addAll(targetModules.keySet());
-        final Map<String, ModuleDependencyTree> baselineTreeMap =
-                treeMap(baselineTrees);
-        final Map<String, ModuleDependencyTree> targetTreeMap =
-                treeMap(targetTrees);
+        final Map<String, ModuleDependencyEvidence> baselineEvidenceMap =
+                evidenceMap(baselineEvidence);
+        final Map<String, ModuleDependencyEvidence> targetEvidenceMap =
+                evidenceMap(targetEvidence);
         final Map<String, ModuleBuildOutput> outputs = outputMap(
                 build.getOutputs(), targetScope);
         final Map<String, List<DependencyChange>> changesByModule =
@@ -830,15 +791,13 @@ final class PerModuleImpactPipeline {
                     ? targetScope.getReactorRoot().resolve(
                     identity.getRelativePath()).resolve("target/classes")
                     : classesPath(target, targetScope, outputs);
-            final ModuleDependencyTree targetTree = targetTreeMap.get(key);
-            final ModuleDependencyTree baselineTree = baselineTreeMap.get(key);
-            final List<Path> reactorClasses = targetTree == null
-                    ? List.of() : reactorClasses(targetTree,
+            final ModuleDependencyEvidence targetDependencies =
+                    targetEvidenceMap.get(key);
+            final ModuleDependencyEvidence baselineDependencies =
+                    baselineEvidenceMap.get(key);
+            final List<Path> reactorClasses = targetDependencies == null
+                    ? List.of() : reactorClasses(targetDependencies,
                     targetScope, outputs, key);
-            final List<ArtifactCoord> targetArtifacts =
-                    targetArtifactsByModule.getOrDefault(key, List.of());
-            final List<ArtifactCoord> baselineArtifacts =
-                    baselineArtifactsByModule.getOrDefault(key, List.of());
             final ModulePresence presence = target == null
                     ? ModulePresence.BASELINE_ONLY
                     : baseline == null ? ModulePresence.TARGET_ONLY
@@ -849,16 +808,11 @@ final class PerModuleImpactPipeline {
                             key, List.of()),
                     bindings.failuresByModule().getOrDefault(
                             key, List.of()));
-            final ModuleChangedPathSelection pathSelection = targetTree == null
-                    ? ModuleChangedPathSelection.fullArtifacts(
-                    targetArtifacts)
-                    : ModuleChangedPathSelection.plan(
-                    targetTree.getOccurrenceGraph(),
-                    changedArtifacts(changeSet.changePoints()),
-                    dependencyAnalysisScope);
             result.add(new ModuleAnalysisUnit(identity, presence, classes,
-                    reactorClasses, new ModuleDependencyInputs(
-                    targetArtifacts, baselineArtifacts, pathSelection),
+                    reactorClasses, ModuleDependencyInputs.fromEvidence(
+                    targetDependencies, baselineDependencies,
+                    changedArtifacts(changeSet.changePoints()),
+                    dependencyAnalysisScope),
                     changeSet));
         }
         result.sort(Comparator.comparing(unit ->
@@ -1014,7 +968,7 @@ final class PerModuleImpactPipeline {
             final ModuleCallGraphSession session =
                     new ModuleCallGraphEngine(diagnostics, javaRuntime,
                             entrypointSelection, callGraphAlgorithm,
-                            reflectionOptions, repository())
+                            reflectionOptions, jdkModel, repository())
                             .build(unit, entrypointIndex,
                                     callGraphTimeoutSeconds,
                                     callGraphDiagnosticsOutput != null);
@@ -1177,12 +1131,12 @@ final class PerModuleImpactPipeline {
         return result;
     }
 
-    private Map<String, ModuleDependencyTree> treeMap(
-            final List<ModuleDependencyTree> trees) {
-        final Map<String, ModuleDependencyTree> result =
+    private Map<String, ModuleDependencyEvidence> evidenceMap(
+            final List<ModuleDependencyEvidence> evidence) {
+        final Map<String, ModuleDependencyEvidence> result =
                 new LinkedHashMap<>();
-        trees.forEach(tree -> result.put(
-                tree.getModule().diffKey(), tree));
+        evidence.forEach(value -> result.put(
+                value.getModule().diffKey(), value));
         return result;
     }
 
@@ -1211,48 +1165,20 @@ final class PerModuleImpactPipeline {
     }
 
     private List<Path> reactorClasses(
-            final ModuleDependencyTree tree,
+            final ModuleDependencyEvidence evidence,
             final ReactorAnalysisScope scope,
             final Map<String, ModuleBuildOutput> outputs,
             final String currentKey) {
         final Map<String, ModuleId> modules = moduleMap(
                 scope.getAllModules());
-        final Set<String> reactor = scope.getReactorCoordinates().stream()
-                .map(ArtifactCoord::diffKey)
-                .collect(java.util.stream.Collectors.toSet());
-        final Set<String> closure = new LinkedHashSet<>();
-        tree.getOccurrenceGraph().occurrences().stream()
-                .filter(value -> !value.moduleRoot())
-                .map(value -> value.artifact().diffKey())
-                .filter(reactor::contains)
-                .forEach(closure::add);
+        final Set<String> closure = new LinkedHashSet<>(
+                ModuleClasspathOrder.reactorKeys(evidence));
         closure.remove(currentKey);
         return closure.stream()
                 .map(modules::get)
                 .filter(Objects::nonNull)
                 .map(module -> classesPath(module, scope, outputs))
                 .toList();
-    }
-
-    private List<ArtifactCoord> externalArtifacts(
-            final DependencyAnalysisResult analysis,
-            final ModuleDependencyTree tree,
-            final ReactorAnalysisScope scope) {
-        return ModuleClasspathOrder.externalArtifacts(
-                analysis, tree, scope.getReactorCoordinates());
-    }
-
-    private Map<String, List<ArtifactCoord>> externalArtifactsByModule(
-            final DependencyAnalysisResult analysis,
-            final List<ModuleDependencyTree> trees,
-            final ReactorAnalysisScope scope) {
-        final Map<String, List<ArtifactCoord>> result =
-                new LinkedHashMap<>();
-        for (ModuleDependencyTree tree : trees) {
-            result.put(tree.getModule().diffKey(),
-                    externalArtifacts(analysis, tree, scope));
-        }
-        return Map.copyOf(result);
     }
 
     private boolean isAdded(final ChangePointKind kind) {
@@ -1387,18 +1313,14 @@ final class PerModuleImpactPipeline {
      * @param baselineScope baseline reactor scope
      * @param targetScope target reactor scope
      * @param targetBuild target build
-     * @param baselineArtifactsByModule baseline logical classpath
-     * @param targetArtifactsByModule target logical classpath
-     * @param baselineTrees selected baseline trees
-     * @param targetTrees selected target trees
+     * @param baselineEvidence selected baseline dependency evidence
+     * @param targetEvidence selected target dependency evidence
      */
     private record PreparedAnalysis(
             ReactorAnalysisScope baselineScope,
             ReactorAnalysisScope targetScope,
             BuildResult targetBuild,
-            Map<String, List<ArtifactCoord>> baselineArtifactsByModule,
-            Map<String, List<ArtifactCoord>> targetArtifactsByModule,
-            List<ModuleDependencyTree> baselineTrees,
-            List<ModuleDependencyTree> targetTrees) {
+            List<ModuleDependencyEvidence> baselineEvidence,
+            List<ModuleDependencyEvidence> targetEvidence) {
     }
 }

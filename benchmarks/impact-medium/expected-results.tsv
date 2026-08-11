@@ -1,10 +1,18 @@
-# dependency_analysis_scope	algorithm	candidate_call_chains	final_call_chains
-# Lock a scope/algorithm pair only after manual review. This file is never modified by run scripts.
-changed-paths	rta	4	1
-changed-paths	zero-cfa	4	1
-changed-paths	optimized-0-1-cfa	4	1
-changed-paths	1-object-1-call-site	4	1
-full	rta	8	5
-full	zero-cfa	8	5
-full	optimized-0-1-cfa	8	5
-full	1-object-1-call-site	8	5
+# dependency_analysis_scope	jdk_model	algorithm	candidate_call_chains	final_call_chains
+# Lock a scope/model/algorithm tuple only after manual review. This file is never modified by run scripts.
+changed-paths	jdk8	rta	7	1
+changed-paths	jdk8	zero-cfa	7	1
+changed-paths	jdk8	optimized-0-1-cfa	7	1
+changed-paths	jdk8	1-object-1-call-site	7	1
+changed-paths	none	rta	6	1
+changed-paths	none	zero-cfa	4	1
+changed-paths	none	optimized-0-1-cfa	4	1
+changed-paths	none	1-object-1-call-site	4	1
+full	jdk8	rta	11	5
+full	jdk8	zero-cfa	11	5
+full	jdk8	optimized-0-1-cfa	11	5
+full	jdk8	1-object-1-call-site	11	5
+full	none	rta	10	5
+full	none	zero-cfa	8	5
+full	none	optimized-0-1-cfa	8	5
+full	none	1-object-1-call-site	8	5

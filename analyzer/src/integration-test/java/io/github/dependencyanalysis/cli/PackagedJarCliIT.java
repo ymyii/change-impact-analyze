@@ -126,6 +126,12 @@ class PackagedJarCliIT {
                     "org/jetbrains/java/decompiler/api/"
                             + "Decompiler.class"))
                     .isNotNull();
+            assertThat(jar.getEntry("io/github/dependencyanalysis/models/"
+                    + "jdk/JdkModels.class")).isNotNull();
+            assertThat(jar.getEntry("io/github/dependencyanalysis/models/"
+                    + "jdk8/Jdk8Models.class")).isNotNull();
+            assertThat(jar.getEntry("io/github/dependencyanalysis/models/"
+                    + "jdk8/jdk8-models.tsv")).isNotNull();
             assertThat(jar.getEntry("maven/artifact-path-plugin/"
                     + "dependency-analyzer-artifact-path-"
                     + "maven-plugin-1.0.0.jar")).isNull();
@@ -162,6 +168,7 @@ class PackagedJarCliIT {
                 .contains("-o, --output")
                 .contains("-f, --format")
                 .contains("-k, --include-change-kinds")
+                .contains("--jdk-model")
                 .contains("--call-graph-timeout-seconds");
         assertThat(treeHelp.exitCode).isZero();
         assertThat(treeHelp.output)
@@ -268,6 +275,7 @@ class PackagedJarCliIT {
                 .contains("Artifact Path Plugin implementation=graphml-v2");
         assertThat(impactReport).content()
                 .contains("Impact Analysis Report")
+                .contains("<th>JDK method model</th><td>jdk8</td>")
                 .contains("Preflight")
                 .contains("impact.java-runtime");
     }

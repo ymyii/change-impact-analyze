@@ -9,7 +9,10 @@ import io.github.dependencyanalysis.callgraph.CallGraphNodePathStep;
 import io.github.dependencyanalysis.callgraph.CallGraphNodeReachabilityPath;
 import io.github.dependencyanalysis.callgraph.CallGraphNodeSentinelRole;
 import io.github.dependencyanalysis.callgraph.CallGraphPathRootKind;
+import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
+import io.github.dependencyanalysis.callgraph.JdkModelSelection;
+import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
 
 import org.junit.jupiter.api.Test;
 
@@ -21,10 +24,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class CallGraphDiagnosticsExporterTest {
 
     /** Expected diagnostics JSON Schema version. */
-    private static final int EXPECTED_SCHEMA_VERSION = 4;
+    private static final int EXPECTED_SCHEMA_VERSION = 5;
 
     @Test
-    void writesSchemaV4TypedSentinelReachabilityPath() throws Exception {
+    void writesSchemaV5ConfigurationAndTypedSentinelPath() throws Exception {
         final CallGraphNodeIdentity fakeRoot = node(
                 0, "com.ibm.wala.FakeRoot", "fakeRootMethod",
                 CallGraphNodeSentinelRole.FAKE_ROOT);
@@ -44,8 +47,11 @@ class CallGraphDiagnosticsExporterTest {
 
         try (JsonGenerator json = new JsonFactory().createGenerator(output)) {
             json.writeStartObject();
-            json.writeNumberField("schemaVersion",
-                    CallGraphDiagnosticsExporter.SCHEMA_VERSION);
+            CallGraphDiagnosticsExporter.writeConfiguration(
+                    json, CallGraphAlgorithm.RTA,
+                    WalaReflectionOptions.defaultOptions(),
+                    DependencyAnalysisScopeMode.CHANGED_PATHS,
+                    JdkModelSelection.JDK8);
             CallGraphDiagnosticsExporter.writePaths(json, List.of(path));
             json.writeEndObject();
         }
@@ -53,13 +59,17 @@ class CallGraphDiagnosticsExporterTest {
         assertThat(CallGraphDiagnosticsExporter.SCHEMA_VERSION)
                 .isEqualTo(EXPECTED_SCHEMA_VERSION);
         assertThat(output.toString())
+                .contains("\"schemaVersion\":5")
+                .contains("\"jdkModel\":\"jdk8\"")
                 .contains("\"reachabilityPaths\"")
                 .contains("\"rootKind\":\"FAKE_ROOT\"")
                 .contains("\"sentinelRole\":\"FAKE_ROOT\"")
                 .contains("\"sentinelRole\":\"FAKE_WORLD_CLINIT\"")
                 .contains("\"sentinelRole\":\"NONE\"")
                 .doesNotContain("entrypointPaths", "pathStatus",
-                        "UNREACHABLE_FROM_DECLARED_ENTRYPOINTS");
+                        "UNREACHABLE_FROM_DECLARED_ENTRYPOINTS",
+                        "availableTarget", "unavailableTarget",
+                        "hitTarget");
     }
 
     private CallGraphNodeIdentity node(

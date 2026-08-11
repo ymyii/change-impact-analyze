@@ -170,7 +170,10 @@ class WalaFixedPointModelsTest {
         try (IJarRepository repository = TestJarRepositories.empty()) {
             final ModuleCallGraphEngine engine = new ModuleCallGraphEngine(
                     diagnostics(), runtime,
-                    EntrypointSelection.allProjectClasses(), repository);
+                    EntrypointSelection.allProjectClasses(),
+                    CallGraphAlgorithm.defaultAlgorithm(),
+                    WalaReflectionOptions.defaultOptions(),
+                    JdkModelSelection.NONE, repository);
 
             assertThatThrownBy(() -> engine.build(unit,
                     new EntrypointClassIndex(
@@ -218,7 +221,8 @@ class WalaFixedPointModelsTest {
                             diagnostics(), runtime,
                             EntrypointSelection.allProjectClasses(),
                             CallGraphAlgorithm.RTA,
-                            WalaReflectionOptions.parse("NONE"), repository)
+                            WalaReflectionOptions.parse("NONE"),
+                            JdkModelSelection.NONE, repository)
                             .build(unit, manualIndex,
                                     GRAPH_TIMEOUT_SECONDS);
 
@@ -322,12 +326,17 @@ class WalaFixedPointModelsTest {
             try (IJarRepository repository = TestJarRepositories.empty()) {
                 new ModuleCallGraphEngine(collector, runtime,
                         EntrypointSelection.allProjectClasses(), algorithm,
-                        repository).build(unit, GRAPH_TIMEOUT_SECONDS);
+                        WalaReflectionOptions.defaultOptions(),
+                        JdkModelSelection.NONE, repository)
+                        .build(unit, GRAPH_TIMEOUT_SECONDS);
             }
             assertThat(collector.getEvents())
                     .anySatisfy(event -> assertThat(event.getMessage())
                             .startsWith("algorithm="
-                                    + algorithm.identifier() + ";"));
+                                    + algorithm.identifier() + ";")
+                            .contains("jdkModel=none")
+                            .doesNotContain("availableTarget",
+                                    "unavailableTarget", "hitTarget"));
         }
     }
 
@@ -1153,7 +1162,7 @@ class WalaFixedPointModelsTest {
                 .probe(Path.of(System.getenv("TEST_JDK8_HOME")));
         return new ModuleCallGraphEngine(diagnostics(), runtime,
                 EntrypointSelection.allProjectClasses(), algorithm,
-                reflectionOptions, repository).build(
+                reflectionOptions, JdkModelSelection.NONE, repository).build(
                 unit, GRAPH_TIMEOUT_SECONDS);
     }
 
@@ -1169,7 +1178,7 @@ class WalaFixedPointModelsTest {
                 new ModuleChangeSet(List.of(), List.of()));
         return new ModuleCallGraphEngine(diagnostics(), runtime,
                 EntrypointSelection.allProjectClasses(), algorithm,
-                reflectionOptions, repository).build(
+                reflectionOptions, JdkModelSelection.NONE, repository).build(
                 unit, GRAPH_TIMEOUT_SECONDS);
     }
 
@@ -1208,7 +1217,7 @@ class WalaFixedPointModelsTest {
                 .probe(Path.of(System.getenv("TEST_JDK8_HOME")));
         return new ModuleCallGraphEngine(diagnostics(), runtime,
                 EntrypointSelection.allProjectClasses(), algorithm,
-                reflectionOptions, repository).build(
+                reflectionOptions, JdkModelSelection.NONE, repository).build(
                 unit, GRAPH_TIMEOUT_SECONDS);
     }
 
@@ -1267,7 +1276,9 @@ class WalaFixedPointModelsTest {
         final JavaRuntimeDescriptor runtime = new Jdk8RuntimeProvider()
                 .probe(Path.of(System.getenv("TEST_JDK8_HOME")));
         return new ModuleCallGraphEngine(diagnostics(), runtime,
-                selection, algorithm, reflectionOptions, repository, registry)
+                selection, algorithm, reflectionOptions, repository,
+                new CallGraphModelConfiguration(
+                        JdkModelSelection.NONE, registry))
                 .build(unit, GRAPH_TIMEOUT_SECONDS);
     }
 

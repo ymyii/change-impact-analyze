@@ -6,7 +6,13 @@ relations:
     desc: "公共 engine、JDK 8 catalog、保守语义与 acceptance contract"
   - path: "wiki/rules/release-versioning.md"
     desc: "两个 model artifact 的独立 SemVer 与 Stable release gate"
+  - path: "wiki/runbooks/build-test-package.md"
+    desc: "model bootstrap后的Analyzer packaging与impact integration gate"
 code_refs:
+  - path: "pom.xml"
+    desc: "Analyzer消费的jdk8-models.version与SemVer gate"
+  - path: "analyzer/pom.xml"
+    desc: "JDK 8 façade dependency与uber JAR packaging"
   - path: "models/jdk/pom.xml"
     desc: "公共 engine build、SemVer、flatten与Packaging gate"
   - path: "models/jdk8/pom.xml"
@@ -31,7 +37,7 @@ code_refs:
 
 ## Summary
 
-本runbook按dependency顺序独立构建`models/jdk`公共engine与`models/jdk8`版本module。命令不把module加入root reactor，也不构建或验证`impact`主流程。
+本runbook按dependency顺序独立构建`models/jdk`公共engine与`models/jdk8`版本module。两个module不加入root reactor；完成install后，root Analyzer quality gate验证`impact`默认接入与uber JAR packaging。
 
 ## Prerequisites
 
@@ -47,7 +53,8 @@ code_refs:
 
 ```sh
 mvn -f models/jdk/pom.xml clean install
-mvn -f models/jdk8/pom.xml clean verify
+mvn -f models/jdk8/pom.xml clean install
+mvn clean verify
 ```
 
 覆盖JDK 8路径时，两条命令都传入相同property，因为两个POM继承root Enforcer：
@@ -128,8 +135,9 @@ models/jdk8/target/jdk8-model-acceptance.tsv
 - lightweight models-on application method set包含models-off set；Stream、AbstractQueuedSynchronizer、ObjectInputStream内部实现与URL protocol implementation不被继续展开。
 - 公共JAR包含`JdkModels`、`JdkModelDefinition`、session/metadata/exception与engine，不包含production catalog。
 - JDK 8 JAR包含`Jdk8Models`与`jdk8-models.tsv`，不包含公共engine class副本。
+- Analyzer uber JAR通过JDK 8 façade的transitive dependency包含公共engine、façade与catalog；packaged `impact --help`包含`--jdk-model`，默认Report显示`jdk8`。
 - 两个JAR均不含Analyzer或`com/ibm/wala/`class；local repository中的flattened POM不依赖root parent解析。
-- root`pom.xml`、`analyzer/pom.xml`和Analyzer source/tests未因model验收发生修改。
+- root`pom.xml`固定`jdk8-models.version`并执行默认/release SemVer gate；Analyzer POM只直接依赖JDK 8 façade。
 
 ## Failure Entrypoints
 
@@ -150,6 +158,6 @@ models/jdk8/target/jdk8-model-acceptance.tsv
 - JDK 8 artifact version由`models/jdk8/pom.xml`的`project.version`维护；公共dependency version由同一POM的`jdk-models.version`维护。
 - 默认profile接受Stable或Snapshot SemVer；`release` profile只接受Stable SemVer并拒绝Snapshot dependency。
 
-## Isolation Boundary
+## Integration Boundary
 
-第一部分完成后仍不能从`impact`启用模型。root reactor、Analyzer dependency、CLI option、Call Graph安装顺序、Diagnostic与Report metadata全部留给第二部分；不得在本runbook的故障修复中顺带修改这些边界。
+公共engine与JDK 8 model继续独立version、reactor和acceptance。Analyzer只在local artifact已安装后构建；`impact`的selection、严格安装、Diagnostic、Report与benchmark regression由root gate负责，不反向放入model module。

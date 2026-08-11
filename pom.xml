@@ -23,6 +23,7 @@
         <test.jdk8.home>/absolute/path/to/jdk8</test.jdk8.home>
 
         <artifact-path-plugin.version>2.1.0</artifact-path-plugin.version>
+        <jdk8-models.version>0.1.0-SNAPSHOT</jdk8-models.version>
         <jackson.version>2.21.2</jackson.version>
         <picocli.version>4.7.6</picocli.version>
         <slf4j.version>2.0.13</slf4j.version>
@@ -47,6 +48,11 @@
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>io.github.dependencyanalysis</groupId>
+                <artifactId>dependency-analyzer-jdk8-models</artifactId>
+                <version>${jdk8-models.version}</version>
+            </dependency>
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-core</artifactId>
@@ -150,6 +156,11 @@
                                     <regex>[0-9]+\.[0-9]+\.[0-9]+(-SNAPSHOT)?</regex>
                                     <regexMessage>artifact-path-plugin.version must be SemVer X.Y.Z or X.Y.Z-SNAPSHOT</regexMessage>
                                 </requireProperty>
+                                <requireProperty>
+                                    <property>jdk8-models.version</property>
+                                    <regex>[0-9]+\.[0-9]+\.[0-9]+(-SNAPSHOT)?</regex>
+                                    <regexMessage>jdk8-models.version must be SemVer X.Y.Z or X.Y.Z-SNAPSHOT</regexMessage>
+                                </requireProperty>
                                 <requireFilesExist>
                                     <files>
                                         <file>${test.jdk8.home}/bin/java</file>
@@ -195,6 +206,11 @@
                                             <property>artifact-path-plugin.version</property>
                                             <regex>[0-9]+\.[0-9]+\.[0-9]+</regex>
                                             <regexMessage>release Artifact Path Plugin must use stable SemVer X.Y.Z</regexMessage>
+                                        </requireProperty>
+                                        <requireProperty>
+                                            <property>jdk8-models.version</property>
+                                            <regex>[0-9]+\.[0-9]+\.[0-9]+</regex>
+                                            <regexMessage>release JDK 8 model dependency must use stable SemVer X.Y.Z</regexMessage>
                                         </requireProperty>
                                         <requireReleaseDeps/>
                                     </rules>

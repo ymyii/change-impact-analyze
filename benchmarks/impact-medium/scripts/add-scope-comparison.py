@@ -47,6 +47,8 @@ def rows(path: Path, expected_scope: str) -> dict[str, dict[str, str]]:
     if any(value.get("dependency_analysis_scope") != expected_scope
            for value in values):
         raise ValueError(f"scope mismatch: {path}")
+    if any(value.get("jdk_model") != "jdk8" for value in values):
+        raise ValueError(f"JDK model mismatch: {path}")
     return result
 
 

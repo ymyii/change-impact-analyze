@@ -15,6 +15,7 @@ import java.util.Optional;
 import io.github.dependencyanalysis.impact.StructuralReferenceIndex;
 import io.github.dependencyanalysis.impact.ModuleAnalysisReason;
 import io.github.dependencyanalysis.impact.CoverageLimitation;
+import io.github.dependencyanalysis.models.jdk.JdkModelMetadata;
 
 /** Live per-module WALA graph and its ownership/metric context. */
 public final class ModuleCallGraphSession {
@@ -48,6 +49,9 @@ public final class ModuleCallGraphSession {
 
     /** Immutable ServiceLoader fixed-point metadata. */
     private final ServiceLoaderModelMetadata serviceLoaderMetadata;
+
+    /** Installed JDK Method Model metadata. */
+    private final Optional<JdkModelMetadata> jdkModelMetadata;
 
     /** External dependency body-boundary evidence and node counts. */
     private final DependencyBodyBoundaryMetadata dependencyBoundary;
@@ -87,6 +91,7 @@ public final class ModuleCallGraphSession {
         final StrategyModelMetadata strategy = values.strategyModels();
         dynamicEvidence = strategy.dynamicEvidence();
         serviceLoaderMetadata = strategy.serviceLoader();
+        jdkModelMetadata = strategy.jdkModel();
         dependencyBoundary = values.dependencyBoundary();
         structuralReferences = values.structuralReferences();
         topology = values.topology();
@@ -162,6 +167,11 @@ public final class ModuleCallGraphSession {
     /** @return typed immutable fixed-point coverage limitations */
     public List<ModelLimitation> getCoverageLimitations() {
         return modelLimitations;
+    }
+
+    /** @return internal installed JDK Method Model metadata */
+    Optional<JdkModelMetadata> jdkModelMetadata() {
+        return jdkModelMetadata;
     }
 
     /** @return dependency body boundary output */

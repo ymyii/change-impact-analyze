@@ -187,8 +187,8 @@ install_artifact_with_dependencies com.acme.impact.path path-y 1.0.0 \
   "$path_y_jar" com.acme.impact scenario-api 1.0.0
 install_artifact_with_dependencies com.acme.impact.path path-x 1.0.0 \
   "$path_x_jar" com.acme.impact.path path-y 1.0.0
-install_artifact com.acme.impact.path path-sibling 1.0.0 \
-  "$path_sibling_jar"
+install_artifact_with_dependencies com.acme.impact.path path-sibling 1.0.0 \
+  "$path_sibling_jar" com.acme.benchmark.vendor vendor-lib-35 1.0.0
 install_artifact com.acme.impact.boundary external-sink 1.0.0 "$sink_jar"
 install_artifact com.acme.impact.boundary external-factory 1.0.0 \
   "$factory_jar"

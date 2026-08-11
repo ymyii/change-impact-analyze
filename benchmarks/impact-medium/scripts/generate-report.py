@@ -23,7 +23,7 @@ ALGORITHMS = (
 REFLECTION_DEFAULT = "ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD"
 SAMPLE_COLUMNS = (
     "label", "run_kind", "round", "sample", "dependency_analysis_scope",
-    "algorithm",
+    "algorithm", "jdk_model",
     "wala_reflection_options", "total_wall_seconds",
     "call_graph_seconds", "peak_heap_used_mib",
     "peak_heap_committed_mib", "heap_max_mib", "heap_sample_count",
@@ -36,7 +36,8 @@ SAMPLE_COLUMNS = (
     "jdk", "maven",
 )
 SUMMARY_COLUMNS = (
-    "dependency_analysis_scope", "algorithm", "wala_reflection_options", "samples",
+    "dependency_analysis_scope", "algorithm", "jdk_model",
+    "wala_reflection_options", "samples",
     "min_total_wall_seconds", "median_total_wall_seconds",
     "max_total_wall_seconds", "min_call_graph_seconds",
     "median_call_graph_seconds", "max_call_graph_seconds",
@@ -55,7 +56,7 @@ SUMMARY_COLUMNS = (
     "edge_vs_zero_cfa",
 )
 TOPOLOGY_COLUMNS = (
-    "algorithm", "wala_reflection_options", "module", "direction",
+    "algorithm", "jdk_model", "wala_reflection_options", "module", "direction",
     "record_type", "rank", "cg_node_id", "cg_node_identity", "context",
     "wala_synthetic", "sentinel_role", "method_identity", "owner", "name",
     "descriptor", "origin",
@@ -110,7 +111,7 @@ def load_topology(run_directory: Path) -> dict[str, Any]:
     path = run_directory / "topology.json"
     with path.open(encoding="utf-8") as stream:
         value = json.load(stream)
-    if value.get("schemaVersion") != 4:
+    if value.get("schemaVersion") != 5:
         raise ValueError(f"unsupported topology schema: {path}")
     return value
 
@@ -151,12 +152,14 @@ def validate(
     by_kind: dict[str, list[dict[str, str]]] = defaultdict(list)
     for row in rows:
         by_kind[row.get("run_kind", "")].append(row)
-    if len(rows) != 24:
-        errors.append(f"应有 24 个独立 CLI 进程，实际 {len(rows)} 个")
+    if len(rows) != 28:
+        errors.append(f"应有 28 个独立 CLI 进程，实际 {len(rows)} 个")
     if len(by_kind["warmup"]) != 4:
         errors.append(f"应有 4 个 warm-up，实际 {len(by_kind['warmup'])} 个")
     if len(by_kind["formal"]) != 20:
         errors.append(f"应有 20 个正式样本，实际 {len(by_kind['formal'])} 个")
+    if len(by_kind["control"]) != 4:
+        errors.append(f"应有 4 个 none control，实际 {len(by_kind['control'])} 个")
     environment_fields = (
         "dependency_analysis_scope", "wala_reflection_options",
         "analyzer_sha256", "git_commit",
@@ -189,11 +192,20 @@ def validate(
                    if row.get("algorithm") == algorithm]
         formal = [row for row in by_kind["formal"]
                   if row.get("algorithm") == algorithm]
+        controls = [row for row in by_kind["control"]
+                    if row.get("algorithm") == algorithm]
         if len(warmups) != 1:
             errors.append(f"{algorithm} 应有 1 个 warm-up，实际 {len(warmups)} 个")
             continue
         if len(formal) != 5:
             errors.append(f"{algorithm} 应有 5 个正式样本，实际 {len(formal)} 个")
+        if len(controls) != 1:
+            errors.append(f"{algorithm} 应有 1 个 none control，实际 {len(controls)} 个")
+        default_rows = warmups + formal
+        if any(row.get("jdk_model") != "jdk8" for row in default_rows):
+            errors.append(f"{algorithm} warm-up/formal 未使用默认 jdk8 model")
+        if any(row.get("jdk_model") != "none" for row in controls):
+            errors.append(f"{algorithm} control 未使用 none model")
         topology = topologies.get(algorithm)
         if topology is None:
             errors.append(f"{algorithm} 缺少 topology JSON")
@@ -202,6 +214,8 @@ def validate(
             errors.append(f"{algorithm} topology algorithm 不匹配")
         if topology.get("reflectionOptions") != REFLECTION_DEFAULT:
             errors.append(f"{algorithm} topology ReflectionOptions 不匹配")
+        if topology.get("jdkModel") != "jdk8":
+            errors.append(f"{algorithm} topology JDK model 不匹配")
         if topology.get("requestedDependencyAnalysisScope") != scope:
             errors.append(f"{algorithm} topology requested scope 不匹配")
         for module in topology.get("modules", []):
@@ -283,6 +297,7 @@ def summaries(formal: list[dict[str, str]], scope: str) -> list[dict[str, str]]:
         values: dict[str, Any] = {
             "dependency_analysis_scope": scope,
             "algorithm": algorithm,
+            "jdk_model": rows[0]["jdk_model"],
             "wala_reflection_options": rows[0]["wala_reflection_options"],
             "samples": len(rows),
             "entrypoint_count": int(number(rows[0], "entrypoint_count")),
@@ -337,6 +352,7 @@ def topology_rows(topologies: dict[str, dict[str, Any]]) -> list[dict[str, str]]
         for module in topology.get("modules", []):
             scope_values = {
                 "algorithm": algorithm,
+                "jdk_model": topology["jdkModel"],
                 "wala_reflection_options": topology["reflectionOptions"],
                 "module": module["module"],
                 "direction": "DEPENDENCY",
@@ -381,6 +397,7 @@ def topology_rows(topologies: dict[str, dict[str, Any]]) -> list[dict[str, str]]
                     ir = value["ir"]
                     common = {
                         "algorithm": algorithm,
+                        "jdk_model": topology["jdkModel"],
                         "wala_reflection_options": topology["reflectionOptions"],
                         "module": module["module"],
                         "direction": direction,
@@ -630,7 +647,8 @@ table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{bo
         f"<title>CallGraph Benchmark — {e(scope)}</title><style>{css}</style></head><body><main>",
         f"<h1>CallGraph Benchmark 可观测性报告 — <code>{e(scope)}</code></h1>",
         f'<p>Suite status: <strong class="{"ok" if not errors else "bad"}">{status}</strong>。'
-        "正式样本使用全新 Java Virtual Machine（JVM），warm-up 仅用于 topology 与缓存预热。</p>",
+        "正式样本使用全新 Java Virtual Machine（JVM），warm-up 仅用于 topology 与缓存预热；"
+        "每个 algorithm 另有一个 <code>none</code> semantic control。</p>",
     ]
     if errors:
         parts.append("<section><h2>Failure diagnostics</h2><ul>")

@@ -22,9 +22,11 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/ResolvedArtifactJsonParser.java"
     desc: "Artifact Path JSON Schema v2 strict streaming parser"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/DependencyAnalysisResult.java"
-    desc: "tree 与 physical artifact bindings"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ArtifactPathBindingResolver.java"
-    desc: "manifest ingestion 的 Module-local coordinate binding 校验"
+    desc: "只暴露 merged Module evidence，并从其派生全局 artifact list"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/ModuleDependencyEvidence.java"
+    desc: "selected projection、winner-normalized topology 与 Module-local binding"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/ModuleDependencyEvidenceMerger.java"
+    desc: "普通/verbose GraphML 与 JSON 的 fail-fast merge boundary"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/jar/IJarRepository.java"
     desc: "command-scoped coordinate-only JAR access boundary"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/jar/CoordinateJarRepository.java"
@@ -43,26 +45,29 @@ code_refs:
 
 ## Summary
 
-`impact` 同时需要 Maven mediated dependency binding、Resolver 确认的 artifact file，以及保留 duplicate occurrence/multi-parent edge 的 dependency topology。每个 workspace 先执行普通 GraphML + Artifact Path Plugin 获取 selected binding，再独立执行 verbose GraphML 获取 occurrence graph。普通 GraphML 是 artifact binding authority；verbose GraphML 是 changed-path scope planning authority。Module-local Schema v2 JSON 只作为 repository ingestion manifest。Baseline/target ingestion 完成后构建 command-scoped immutable `IJarRepository`，后续 domain object 只保存 `ArtifactCoord`。
+`impact` 同时需要 Maven mediated dependency winner、Resolver 确认的 artifact file，以及保留 duplicate occurrence/multi-parent edge 的 dependency topology。每个 workspace 先执行普通 GraphML + Artifact Path Plugin 获取 selected projection/binding，再独立执行 verbose GraphML 获取 occurrence topology。Analyzer 将三者合并为唯一 `ModuleDependencyEvidence`：普通 GraphML 决定 winner 与 classpath order；verbose GraphML 只贡献 occurrence identity、scope 和全部 edge；每个 verbose occurrence 按 `ArtifactCoord.diffKey()` 规范化为 selected coordinate。Module-local Schema v2 JSON 提供同一 evidence 内的 physical binding。Baseline/target ingestion 完成后构建 command-scoped immutable `IJarRepository`，后续 consumer 不再读取 raw GraphML tree 或按目录旁路查 binding。
 
 ## Actors / Entrypoints
 
 - `DependencyAnalyzer.analyzeResolved()` 生成唯一 binding GraphML、verbose occurrence GraphML 与 JSON filename，顺序执行两个 Maven command。
 - Maven Dependency Plugin `3.6.1:tree` 第一次生成普通 GraphML，供 Artifact Path Plugin 解析 selected external artifact physical path；第二次使用 `-Dverbose=true` 生成 occurrence topology。
-- `GraphMLParser` 为每个 GraphML node 保留独立 occurrence identity、`ArtifactCoord`、scope 与全部 parent/child edge，并同时提供 legacy tree/flattened coordinate projection。
+- `GraphMLParser` 为 merge 输入保留每个 GraphML node 的 occurrence identity、`ArtifactCoord`、scope 与全部 parent/child edge。
+- `ModuleDependencyEvidenceMerger` 按 canonical Module directory 配对普通 GraphML、verbose GraphML 与 JSON，并建立 Module-local selected binding。
 - Analyzer 将 Reactor dependency 映射到 target Module 的 `target/classes`。
 
 ## Behavior Contract
 
 - GraphML root coordinate 必须与当前 `MavenProject` 完整 coordinate 一致。
 - Occurrence graph 必须具有唯一 Module root、完整 edge、全 root-reachable node 且无 cycle。Graph 异常不删除 scope artifact；`changed-paths` Module 自动 fallback 到 `full`。
-- Verbose GraphML 中 Maven 的 omitted duplicate/version-managed label 被规范化为 logical `ArtifactCoord`，同一 artifact 的多个 occurrence 与多条 parent path 均保留。
+- 普通 GraphML 同一 `diffKey()` 只能对应一个 selected coordinate；verbose GraphML 每个 retained occurrence 必须能命中该 winner。
+- Merge 后 loser occurrence 只保存 winner coordinate，不保存 loser version、conflict reason 或 raw label；occurrence id、scope、duplicate occurrence 与全部 edge 原样保留。
+- Module coordinate、root、canonical directory、winner index 或 JSON selected binding 任一不一致时 dependency preparation 立即失败，不 fallback。
 - Artifact Path Plugin 只采用 GraphML 中 selected `compile/runtime/provided/system` binding；`test` 完全不进入 dependency diff、path binding、JAR diff 或 Call Graph。
 - Exclusion 与 conflict loser 已由 GraphML mediation 结论排除，不会创建 `ArtifactRequest`。
 - Reactor identity 使用 `groupId:artifactId:type:classifier:baseVersion`；Reactor binding 不解析 binary。
 - 非 `system` binding 使用当前 project effective repositories 批量执行非传递 resolution；path 只取 `ArtifactResult.getArtifact().getFile()` 并 canonicalize。
 - `system` binding 按完整 coordinate 匹配当前 effective `MavenProject` 的 `system` dependency；验证并绑定 absolute `systemPath`，不创建 remote `ArtifactRequest`。
-- GraphML 与 JSON external binding 按 canonical coordinates 双向完全一致；scope 不进入 JSON、集合校验或 physical path lookup。
+- 普通 GraphML selected external projection 与 JSON binding 按 canonical coordinates 双向完全一致且 Module-local 唯一；scope 不进入 JSON 或 physical path lookup。
 - 任一输入校验、`systemPath` binding 或 artifact resolution 失败时 goal 失败，不发布 partial JSON。
 - Schema v2 `absolutePath` 只存在于 manifest ingestion；Analyzer 不从 coordinate 推导 local repository layout。
 - Repository 以当前 `ArtifactCoord` equality 作为全局 JAR identity。Canonical path 相同则静默 deduplicate；同 coordinate 对应不同 canonical path 时按 `Path.toString()` 自然升序选择第一条并输出一次 warning，不将 Module 标记为 `INCONCLUSIVE`。
@@ -70,8 +75,9 @@ code_refs:
 
 ## Design Decisions
 
-- 普通 GraphML 是唯一 artifact binding authority。Plugin 不执行自己的 dependency collection；verbose GraphML 只为 occurrence path topology，不参与 JSON/physical path 选择。
-- Scope planning 必须基于 occurrence graph，不能从 first-wins flattened tree 反推路径。Flattened tree 继续服务 dependency diff 等 coordinate projection。
+- 普通 GraphML 是唯一 mediation、classpath order 与 artifact binding authority。Plugin 不执行自己的 dependency collection；verbose GraphML 只为 occurrence path topology，不参与 winner、JSON 或 physical path 选择。
+- `ModuleDependencyEvidence` 是 dependency diff、classpath、reactor closure、JAR diff、scope、SSA、Call Graph 与 `changed-paths` 的唯一中间对象。`DependencyAnalysisResult` 不提供 raw tree 或 module-directory binding lookup。
+- Scope planning 基于 evidence 内 winner-normalized occurrence graph。Dependency diff 与 reactor closure 基于 evidence 内普通 GraphML selected projection，禁止 first-wins verbose traversal。
 - JSON 只承担 coordinates 到 physical path 的 binding，Schema v2 与 Module identity、dependency scope 和 mediation 策略解耦。
 - `ResolvedArtifact` 只作为 ingestion DTO；repository 建立后，`ModuleAnalysisUnit`、`DependencyUpgradeKey`、ownership、JAR diff、scope、SSA 与 code comparison 均使用 coordinate。
 - JSON filename 仍属于当前 Module execution；Analyzer 通过 JSON/GraphML 的 canonical parent directory 配对，payload 不重复保存 Module 信息。
@@ -120,10 +126,11 @@ mvn <effective-arguments> <project-arguments>
 7. 对其余 occurrence，Plugin 按 canonical coordinates 去重，使用 `new ArtifactRequest(artifact, project.remoteProjectRepositories, "project")` 批量执行非传递 resolution。
 8. 普通与 `system` occurrence 最终映射到同一 coordinates 时，canonical path 相同则合并；path 不同则以 physical path ambiguity 失败。
 9. 全部 binding 成功后，Plugin 将 physical absolute path 写为 sibling temporary JSON，再 atomic move 到目标 filename。
-10. Analyzer 独立执行 verbose `dependency:tree`，解析所有 occurrence、parent/child edge、reactor node 与 legacy selected tree projection。
-11. Analyzer 按 JSON/binding GraphML canonical parent directory 配对，并只按 coordinates 严格校验 external binding 集合；verbose graph 不选择 physical path。
-12. Analyzer 合并 baseline/target 全部 `ResolvedArtifact`，按 coordinate 构建 command-scoped `CoordinateJarRepository`。
-13. Target occurrence graph 进入 `ModuleChangedPathSelection`；JAR diff、WALA scope、Structural scan、SSA/code comparison 通过 `IJarRepository.open(coordinate)` 获取 temporary `JarLease`。
+10. Analyzer 独立执行 verbose `dependency:tree`，解析所有 retained occurrence 与 parent/child edge。
+11. Analyzer 按 canonical Module directory 配对普通 GraphML、verbose GraphML 与 JSON；按普通 GraphML 建立唯一 winner index和selected reactor closure。
+12. 每个 verbose occurrence 按 `diffKey()` 替换为 winner coordinate，保留 id、scope与edge；selected external projection与JSON binding必须完全一致。
+13. Analyzer 只发布 `ModuleDependencyEvidence`；baseline/target全部 physical binding从各 evidence 派生，并按 coordinate 构建 command-scoped `CoordinateJarRepository`。
+14. Dependency diff/classpath/reactor/JAR diff/scope/SSA/Call Graph均读取同一 evidence。`ModuleChangedPathSelection`只从 normalized occurrence回溯路径，`FULL`与fallback只从evidence selected bindings构造artifact policy。
 
 ## JSON Schema v2
 
@@ -166,6 +173,8 @@ mvn <effective-arguments> <project-arguments>
 - Given clean Reactor 且 upstream binary/classes 不存在；When Plugin 执行；Then Reactor coordinate 跳过，Analyzer 在 target compile 后映射到 `target/classes`。
 - Given GraphML 没有 external dependency；When Plugin 执行；Then JSON 输出 `artifacts: []`。
 - Given GraphML 与 JSON external binding 不一致；When Analyzer 配对；Then dependency preparation 失败并报告 missing/unexpected binding。
+- Given普通GraphML selected v2，verbose GraphML同时含v2与v1 loser occurrence；When Analyzer merge；Then全部对应occurrence均保存v2，occurrence id与edge数量不变，v1不进入binding或method-body policy。
+- Given omitted reactor occurrence 与普通 GraphML external winner 具有相同 `diffKey()` 但不同 version；When merge；Then winner保持 external，omitted reactor occurrence不进入 reactor classes。
 - Given 同一 changed dependency 有多条 direct-to-seed path 或多个 occurrence；When scope planning；Then occurrence graph 保留并恢复全部路径，且不选择不通往 seed 的 sibling 或 seed downstream。
 - Given 多个 Module/side 提供相同 coordinate/canonical path；When repository 初始化；Then 静默 deduplicate，结果与输入顺序无关。
 - Given 相同 coordinate 对应不同 canonical path，包括不同 `systemPath`；When repository 初始化；Then 选择 path 字符串自然升序第一条并输出一次 warning，不产生 `INCONCLUSIVE`。
@@ -181,7 +190,7 @@ mvn <effective-arguments> <project-arguments>
 
 ## Edge Cases
 
-- Binding GraphML filename 缺失、不存在、不是普通文件或 root Module 不匹配时，goal 立即失败。Verbose occurrence graph 的 path validation failure 在 Module scope planning 时 fallback 到 `full`。
+- Binding GraphML filename 缺失、不存在、不是普通文件或 root Module 不匹配时，goal 立即失败。Verbose occurrence graph 能完成 winner normalization但 topology validation失败时，Module scope planning fallback到`full`；fallback artifact集合仍只来自selected JSON binding。
 - 非 `system` classifier、`test-jar`、non-JAR、native classifier、SNAPSHOT 与 relocation 均以 GraphML selected coordinate 和 Resolver result 为准；`system` path 只来自 effective `MavenProject`。
 - `system` coordinate 必须与 effective `MavenProject` dependency 完整匹配；缺失、重复、scope 不为 `system`、`systemPath` 为空、非 absolute、文件不存在或不是 regular file 时拒绝绑定。
 - 单个 Plugin execution 内 duplicate coordinate/path ambiguity 仍拒绝发布 manifest；跨 Module/side repository ingestion 的同 coordinate/different path 使用 deterministic winner warning 规则。
@@ -193,6 +202,7 @@ mvn <effective-arguments> <project-arguments>
 - RepositorySystemSession 继续提供 mirror、proxy、authentication、offline policy、cache、WorkspaceReader 与 LocalRepositoryManager；Plugin 不读取或重建 `settings.xml`。
 - 非 `system` Plugin request 只使用当前 project effective repositories，不保留 transitive node-specific repository list；`system` binding 不使用 repository resolution。
 - GraphML 与 JSON 只服务 `impact`；`tree --dependency-plugin-version` 行为和 verbose text report 不变。
+- `impact` 不保存或展示 conflict reason、loser version 与 raw verbose label；`tree` command 的独立 conflict report 保持不变。
 - Non-JAR dependency 保留在 result/Report，但不进入 bytecode diff 或 Call Graph scope。
 - Plugin Schema v2 与 `absolutePath` 字段保持兼容；它们只负责 repository 初始化，不是后续 domain identity。
 - Baseline `analyzeResolved()` 与 target `mvn compile` 并行；join 后执行 target `analyzeResolved()`，避免同一 target workspace 同时运行两个 Maven process。

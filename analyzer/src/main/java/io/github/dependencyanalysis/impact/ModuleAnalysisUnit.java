@@ -62,10 +62,8 @@ public final class ModuleAnalysisUnit {
             final List<ArtifactCoord> baselineDependencies,
             final ModuleChangeSet changes) {
         this(id, modulePresence, classes, reactorClasses,
-                new ModuleDependencyInputs(targetDependencies,
-                        baselineDependencies,
-                        ModuleChangedPathSelection.fullArtifacts(
-                                targetDependencies)), changes);
+                ModuleDependencyInputs.fullArtifacts(targetDependencies,
+                        baselineDependencies), changes);
     }
 
     /**

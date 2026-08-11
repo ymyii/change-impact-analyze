@@ -264,6 +264,8 @@ public final class PerModuleHtmlReportGenerator {
                         run.getCallGraphAlgorithm().identifier()))
                 .append(row("WALA ReflectionOptions",
                         run.getReflectionOptions().identifier()))
+                .append(row("JDK method model",
+                        run.getJdkModel().identifier()))
                 .append(row("WALA", walaVersion()))
                 .append(row("SSA equivalence workers", 1))
                 .append(row("Raw changed members", rawChangeCount(run)))

@@ -53,7 +53,8 @@ run_one() {
   round=$3
   sample=$4
   capture=$5
-  label="$suite_label-$run_kind-$algorithm-$sample"
+  jdk_model=$6
+  label="$suite_label-$run_kind-$jdk_model-$algorithm-$sample"
   run_directory="$BENCHMARK_RUNTIME_ROOT/$label"
   printf '%s\n' "$run_directory" >>"$run_list"
   echo "[$run_kind] algorithm=$algorithm round=$round sample=$sample"
@@ -61,6 +62,7 @@ run_one() {
   BENCHMARK_CALL_GRAPH_ALGORITHM="$algorithm" \
   BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE="$scope" \
   BENCHMARK_WALA_REFLECTION_OPTIONS="$BENCHMARK_WALA_REFLECTION_OPTIONS" \
+  BENCHMARK_JDK_MODEL="$jdk_model" \
   BENCHMARK_RUN_KIND="$run_kind" \
   BENCHMARK_ROUND="$round" \
   BENCHMARK_SAMPLE="$sample" \
@@ -68,9 +70,9 @@ run_one() {
     "$script_dir/run-benchmark.sh" "$label" || suite_failed=1
 }
 
-# One scope: 4 warm-up + 20 formal independent JVM processes.
+# One scope: 4 warm-up + 20 formal + 4 none control JVM processes.
 for algorithm in rta zero-cfa optimized-0-1-cfa 1-object-1-call-site; do
-  run_one "$algorithm" warmup 0 0 1
+  run_one "$algorithm" warmup 0 0 1 jdk8
 done
 
 for round in 1 2 3 4 5; do
@@ -81,8 +83,12 @@ for round in 1 2 3 4 5; do
     4) order="1-object-1-call-site rta zero-cfa optimized-0-1-cfa" ;;
   esac
   for algorithm in $order; do
-    run_one "$algorithm" formal "$round" "$round" 0
+    run_one "$algorithm" formal "$round" "$round" 0 jdk8
   done
+done
+
+for algorithm in rta zero-cfa optimized-0-1-cfa 1-object-1-call-site; do
+  run_one "$algorithm" control 0 0 0 none
 done
 
 set --
