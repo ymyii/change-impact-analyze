@@ -78,7 +78,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 
 ## Preflight Boundary
 
-- 校验 path/Git/root POM/output/JDK 8/Maven version/Maven arguments、内嵌 Dependency Plugin `3.6.1` runtime、workspace/GraphML capability。
+- 校验 path/Git/root POM/output/JDK 8/Maven version/Maven arguments、内嵌 Dependency Plugin `3.6.1` 与 Dependency Evidence Plugin `3.0.0` runtime、workspace/structured evidence capability。
 - Preflight failure 不启动 pipeline，不触碰旧 Report。
 - Reactor/leaf mode、Module coordinate collision、physical artifact ambiguity 属于 preparation failure。
 - entrypoint selector 使用当前 Module `target/classes` 的 immutable index；interface、annotation、private nested class与private method/constructor不进入root范围。Filtered门禁与Call Graph roots复用同一index；privacy过滤不从scope删除class/method。Relevant Module无可执行root时为`SKIPPED_USER_ENTRYPOINT_SCOPE`；所有relevant Module均无匹配时command exit `1`，不替换旧Report。

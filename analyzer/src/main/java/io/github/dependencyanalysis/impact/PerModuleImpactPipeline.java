@@ -564,6 +564,9 @@ final class PerModuleImpactPipeline {
                 scope.getReactorCoordinates(), diagnostics, javaHome,
                 mavenRuntime.getExecutable(), mavenArguments)
                 .withPluginRuntime(pluginRuntime)
+                .withEvidenceDirectory(temporaryDirectory
+                        .resolve("dependency-evidence")
+                        .resolve(side))
                 .withProjectArguments(scope.getProjectArguments())
                 .withDiagnosticContext("baseline".equals(side)
                         ? DiagnosticContext.of(

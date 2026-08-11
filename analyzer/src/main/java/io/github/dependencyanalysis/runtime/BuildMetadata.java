@@ -22,7 +22,7 @@ public final class BuildMetadata {
         return required("analyzer.version");
     }
 
-    /** @return embedded Artifact Path Plugin release version */
+    /** @return embedded Dependency Evidence Plugin release version */
     public static String getArtifactPathPluginVersion() {
         return required("artifact-path-plugin.version");
     }

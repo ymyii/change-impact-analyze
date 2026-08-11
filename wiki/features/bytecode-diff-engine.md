@@ -2,7 +2,7 @@
 title: "Bytecode Diff Engine"
 type: feature
 relations:
-  - path: "wiki/features/dependency-tree-extraction.md"
+  - path: "wiki/features/dependency-evidence-collection.md"
     desc: "resolved artifact ingestion 与 coordinate repository"
   - path: "wiki/features/impact-tracing.md"
     desc: "BoundChangePoint 与 deferred SSA filtering"

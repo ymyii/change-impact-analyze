@@ -30,7 +30,7 @@ code_refs:
   - path: "plugins/pom.xml"
     desc: "独立 Plugin parent/aggregator、Java 8 与 release profile"
   - path: "plugins/artifact-path-resolver/pom.xml"
-    desc: "Artifact Path Maven Plugin 与 repository ZIP packaging"
+    desc: "Dependency Evidence Maven Plugin 与 repository ZIP packaging"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/cli/DependencyAnalyzerCli.java"
     desc: "Root CLI 和 global options 入口"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
@@ -51,11 +51,11 @@ Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer
 
 ## Design Decisions
 
-- Analyzer `2.0.0` 与 Artifact Path Plugin `2.1.0` 是新的稳定 release 起点，之后继续独立使用 SemVer。
+- Analyzer `2.0.0` 与 Dependency Evidence Plugin `3.0.0` 独立使用 SemVer。
 - 日常开发在下一次 release 前复用同一个 `X.Y.Z-SNAPSHOT`；只有 release 决策才切换 stable version、commit 并创建 Git tag。
-- Artifact Path Plugin 以 Java 8 bytecode 发布；执行 Plugin reactor 的 Maven JVM 可以使用 Java 8 以上版本。Analyzer 使用 Java 17 构建和运行；root POM 的 `test.jdk8.home` 提供完整 JDK 8 默认值，Surefire/Failsafe 将其作为 `TEST_JDK8_HOME` 注入 test JVM，其他环境可通过 `-Dtest.jdk8.home=...` 覆盖。
-- Analyzer JAR 将 Maven Dependency Plugin 和 Artifact Path Plugin 统一内嵌为两个独立 Maven repository ZIP；runtime 不安装 loose JAR/POM，也不维护项目自有 checksum/fingerprint。
-- `impact` 以 GraphML 作为唯一 mediation authority；Artifact Path Plugin Schema v2 JSON 只向 command-scoped `IJarRepository` ingestion selected dependency physical binding，后续 domain 只保存 coordinate；`tree` 使用 verbose text 采集完整 dependency occurrence。
+- Dependency Evidence Plugin 以 Java 8 bytecode 发布；执行 Plugin reactor 的 Maven JVM 可以使用 Java 8 以上版本。Analyzer 使用 Java 17 构建和运行；root POM 的 `test.jdk8.home` 提供完整 JDK 8 默认值，Surefire/Failsafe 将其作为 `TEST_JDK8_HOME` 注入 test JVM，其他环境可通过 `-Dtest.jdk8.home=...` 覆盖。
+- Analyzer JAR 将 Maven Dependency Plugin 和 Dependency Evidence Plugin 内嵌为两个独立 Maven repository ZIP；runtime 不安装 loose JAR/POM，也不维护项目自有 checksum/fingerprint。
+- `impact` 通过 Maven API 结构化采集 resolved/raw graph，Schema v3 JSON 在 command cache 内交付 selected tree、occurrence topology、reactor keys 和 physical bindings；`impact` 不读 GraphML。`tree` 使用 verbose text 采集面向人的 dependency occurrence。
 - `impact`只构建target per-Module selected Call Graph；`rta`为默认algorithm，`zero-cfa`、`optimized-0-1-cfa`与可配置深度的`k-obj`可显式选择；WALA ReflectionOptions command-wide可配置，默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`；baseline不compile、不构建Call Graph。
 - `impact`与兼容engine constructor默认`jdk8` Method Model；`--jdk-model none`保留真实JDK bytecode语义。Analyzer通过`dependency-analyzer-jdk8-models`传递引入公共engine，并将class/catalog打入uber JAR。
 - 两个 subcommand 共享 Maven runtime 和 preflight Schema，但分别组装检查 DAG；pipeline 只消费 preflight decision。
@@ -71,7 +71,7 @@ Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer
 - `analyzer/src/main/java/io/github/dependencyanalysis/{build,dependency,bytecode,callgraph,jar,report,workspace}/` - `impact` pipeline 的稳定阶段实现。
 - `analyzer/src/test/java/` - unit tests；`analyzer/src/integration-test/java/` - Failsafe integration tests。
 - `plugins/pom.xml` - 独立 Plugin reactor parent/aggregator。
-- `plugins/artifact-path-resolver/` - GAV `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:2.1.0`；Java 8 `resolve-artifact-paths` goal 与 attached `repository` ZIP。
+- `plugins/artifact-path-resolver/` - GAV `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:3.0.0`；Java 8 `collect-dependency-evidence` goal 与 attached `repository` ZIP。
 - `models/jdk/` - GAV`io.github.dependencyanalysis:dependency-analyzer-jdk-models:0.1.0-SNAPSHOT`；公共Synthetic IR engine/API。
 - `models/jdk8/` - GAV`io.github.dependencyanalysis:dependency-analyzer-jdk8-models:0.1.0-SNAPSHOT`；384-target catalog与安装façade。
 - `benchmarks/impact-medium/` - 可复现的中型impact fixture、每scope 28进程CallGraph suite、HTML报告与Git管理的默认`jdk8` TSV snapshot。
@@ -81,7 +81,7 @@ Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer
 - Analyzer runtime/build 为 Java 17；`impact` target runtime 与 Analyzer tests 使用完整 JDK 8。
 - Maven 3.x；应用默认内嵌 Apache Maven 3.6.3 runtime。
 - picocli 4.7.6、ASM/ASM Tree 9.7、WALA 1.8.0、Vineflower 1.12.0 slim、JUnit 5、AssertJ。
-- maven-shade-plugin 生成 uber JAR；maven-assembly-plugin 生成 Artifact Path Plugin repository ZIP。
+- maven-shade-plugin 生成 uber JAR；maven-assembly-plugin 生成 Dependency Evidence Plugin repository ZIP。
 
 ## Main Entrypoints
 

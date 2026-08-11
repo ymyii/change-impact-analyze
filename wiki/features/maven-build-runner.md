@@ -4,7 +4,7 @@ type: feature
 relations:
   - path: "wiki/architecture/dependency-analysis-pipelines.md"
     desc: "target-only compile 与 front concurrency"
-  - path: "wiki/features/dependency-tree-extraction.md"
+  - path: "wiki/features/dependency-evidence-collection.md"
     desc: "与 dependency process 的调度边界"
 code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/build/BuildRunner.java"

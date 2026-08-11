@@ -19,7 +19,7 @@ class PluginBytecodeVersionTest {
     @Test
     void pluginClassesTargetJavaEight() throws Exception {
         final String resource = "/"
-                + ResolveArtifactPathsMojo.class.getName()
+                + CollectDependencyEvidenceMojo.class.getName()
                 .replace('.', '/') + ".class";
         try (InputStream input = getClass().getResourceAsStream(resource);
              DataInputStream data = new DataInputStream(input)) {

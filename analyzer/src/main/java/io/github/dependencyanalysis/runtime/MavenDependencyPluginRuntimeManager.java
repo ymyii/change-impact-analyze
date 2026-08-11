@@ -57,15 +57,15 @@ public final class MavenDependencyPluginRuntimeManager {
             "/maven/plugin-repositories/"
                     + "maven-dependency-plugin-3.6.1-repository.zip";
 
-    /** Artifact Path Plugin coordinates. */
+    /** Dependency Evidence Plugin coordinates. */
     private static final String ARTIFACT_PATH_COMPONENT =
             "dependency-analyzer-artifact-path-maven-plugin";
 
-    /** Artifact Path Plugin version. */
+    /** Dependency Evidence Plugin version. */
     private static final String ARTIFACT_PATH_VERSION =
             MavenDependencyPluginRuntime.ARTIFACT_PATH_PLUGIN_VERSION;
 
-    /** Artifact Path Plugin repository archive. */
+    /** Dependency Evidence Plugin repository archive. */
     private static final String ARTIFACT_PATH_REPOSITORY_RESOURCE =
             "/maven/plugin-repositories/"
                     + ARTIFACT_PATH_COMPONENT + "-"

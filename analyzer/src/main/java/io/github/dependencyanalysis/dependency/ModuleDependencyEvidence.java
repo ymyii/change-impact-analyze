@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-// Wiki: wiki/features/dependency-tree-extraction.md
+// Wiki: wiki/features/dependency-evidence-collection.md
 // Winner-normalized Module dependency evidence.
 /**
  * Module-local selected dependency projection, normalized occurrence
@@ -22,13 +22,13 @@ public final class ModuleDependencyEvidence {
     /** Canonical Module directory. */
     private final Path modulePath;
 
-    /** Ordinary GraphML selected external dependency projection. */
+    /** Maven-selected external dependency projection. */
     private final List<DependencyNode> dependencies;
 
-    /** Verbose occurrence topology normalized to selected coordinates. */
+    /** Raw occurrence topology normalized to selected coordinates. */
     private final ModuleDependencyOccurrenceGraph occurrenceGraph;
 
-    /** Selected reactor dependency keys in ordinary GraphML order. */
+    /** Selected reactor dependency keys in Maven classpath order. */
     private final List<String> selectedReactorKeys;
 
     /** Module-local selected external artifact bindings. */
@@ -37,7 +37,17 @@ public final class ModuleDependencyEvidence {
     /** Unique binding lookup. */
     private final Map<ArtifactCoord, ResolvedArtifact> artifactsByCoordinate;
 
-    ModuleDependencyEvidence(
+    /**
+     * Creates validated Module-local dependency evidence.
+     *
+     * @param moduleCoordinate Module coordinate
+     * @param directory canonical Module directory
+     * @param selectedDependencies selected external dependency tree
+     * @param normalizedGraph winner-normalized occurrence graph
+     * @param reactorKeys selected reactor keys in classpath order
+     * @param resolvedArtifacts selected physical artifact bindings
+     */
+    public ModuleDependencyEvidence(
             final ArtifactCoord moduleCoordinate,
             final Path directory,
             final List<DependencyNode> selectedDependencies,

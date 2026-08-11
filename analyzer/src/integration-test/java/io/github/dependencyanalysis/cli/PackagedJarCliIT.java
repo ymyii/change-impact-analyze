@@ -27,7 +27,7 @@ class PackagedJarCliIT {
     private static final String ANALYZER_VERSION =
             System.getProperty("cia.analyzerVersion");
 
-    /** Artifact Path Plugin version supplied by the build. */
+    /** Dependency Evidence Plugin version supplied by the build. */
     private static final String ARTIFACT_PATH_PLUGIN_VERSION =
             System.getProperty("cia.artifactPathPluginVersion");
 
@@ -270,9 +270,10 @@ class PackagedJarCliIT {
                 .as(impact.output).isZero();
         assertThat(impact.output)
                 .doesNotContain("got NEW")
-                .contains("artifactPathPlugin="
+                .contains("dependencyEvidencePlugin="
                         + ARTIFACT_PATH_PLUGIN_VERSION)
-                .contains("Artifact Path Plugin implementation=graphml-v2");
+                .contains("Dependency Evidence Plugin implementation="
+                        + "dependency-evidence-v3");
         assertThat(impactReport).content()
                 .contains("Impact Analysis Report")
                 .contains("<th>JDK method model</th><td>jdk8</td>")

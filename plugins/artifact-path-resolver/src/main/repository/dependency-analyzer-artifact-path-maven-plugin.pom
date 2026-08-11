@@ -8,6 +8,18 @@
     <version>@project.version@</version>
     <packaging>maven-plugin</packaging>
     <dependencies>
+        <dependency>
+            <groupId>org.apache.maven.shared</groupId>
+            <artifactId>maven-dependency-tree</artifactId>
+            <version>3.2.1</version>
+            <exclusions>
+                <!-- Maven exports its own compatible Resolver API. -->
+                <exclusion>
+                    <groupId>org.eclipse.aether</groupId>
+                    <artifactId>aether-api</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
         <!-- Prevent Maven 3 from injecting the legacy plexus-utils:1.1. -->
         <dependency>
             <groupId>org.codehaus.plexus</groupId>

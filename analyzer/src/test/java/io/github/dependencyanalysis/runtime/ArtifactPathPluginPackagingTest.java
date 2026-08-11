@@ -15,7 +15,7 @@ import java.util.zip.ZipInputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Built-in Artifact Path Plugin repository packaging contract tests. */
+/** Built-in Dependency Evidence Plugin repository packaging contract tests. */
 class ArtifactPathPluginPackagingTest {
 
     /** Plugin version supplied by Maven. */

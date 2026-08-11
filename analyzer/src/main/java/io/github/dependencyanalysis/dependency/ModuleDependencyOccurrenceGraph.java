@@ -11,11 +11,11 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-/** Immutable GraphML occurrence graph retaining every parent and child edge. */
+/** Immutable raw occurrence graph retaining every parent and child edge. */
 public final class ModuleDependencyOccurrenceGraph {
 
     /**
-     * One GraphML dependency occurrence.
+     * One raw Maven dependency occurrence.
      *
      * @param id occurrence identity
      * @param artifact Maven artifact
@@ -41,7 +41,7 @@ public final class ModuleDependencyOccurrenceGraph {
     }
 
     /**
-     * Directed parent-to-child GraphML edge.
+     * Directed parent-to-child occurrence edge.
      *
      * @param parentId parent occurrence identity
      * @param childId child occurrence identity
@@ -85,7 +85,7 @@ public final class ModuleDependencyOccurrenceGraph {
     /** Module root occurrence id. */
     private final String rootId;
 
-    /** Occurrences by GraphML identity. */
+    /** Occurrences by evidence identity. */
     private final Map<String, Occurrence> occurrences;
 
     /** Stable edge list. */
@@ -101,7 +101,7 @@ public final class ModuleDependencyOccurrenceGraph {
      * Creates an occurrence graph.
      *
      * @param moduleRootId module root identity
-     * @param nodes GraphML occurrences
+     * @param nodes raw occurrences
      * @param graphEdges parent-to-child edges
      */
     public ModuleDependencyOccurrenceGraph(

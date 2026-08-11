@@ -239,35 +239,92 @@ class DependencyAnalyzerIT {
     }
 
     @Test
-    void resolvedArtifactsSkipMissingTestBinary()
+    void scopeConflictWithTestWinnerPrunesRetainedDuplicate()
             throws Exception {
         final Path repository = tempDir.resolve("scope-repository");
         installFixtureArtifact(repository,
-                "compile-lib", "1", "", true);
+                "scope-marker", "1", "", false);
         installFixtureArtifact(repository,
-                "test-lib", "1", "", false);
+                "scope-parent", "1", """
+                        <dependency>
+                          <groupId>fixture.repo</groupId>
+                          <artifactId>scope-marker</artifactId>
+                          <version>1</version>
+                        </dependency>
+                        """, true);
         final Path projectDir = tempDir.resolve("scope-project");
         createScopeProject(projectDir, repository);
         final Path localRepository = tempDir.resolve("scope-local");
+        final Path evidenceCache = tempDir.resolve(
+                "dependency evidence cache 中文");
 
         final DependencyAnalysisResult result = new DependencyAnalyzer(
                 "baseline", projectDir, Set.of(), diag)
                 .withPluginRuntime(pluginRuntime(List.of(
                         "-Dmaven.repo.local=" + localRepository)))
+                .withEvidenceDirectory(evidenceCache)
                 .analyzeResolved();
 
         assertThat(result.getArtifacts())
                 .extracting(item -> item.getArtifact().getArtifactId())
-                .containsExactly("compile-lib");
+                .containsExactly("scope-parent");
+        assertThat(result.getModules()).singleElement()
+                .satisfies(evidence -> assertThat(
+                        evidence.getOccurrenceGraph().occurrences())
+                        .extracting(value -> value.artifact()
+                                .getArtifactId())
+                        .doesNotContain("scope-marker"));
         assertThat(localRepository.resolve(
-                "fixture/repo/compile-lib/1/compile-lib-1.jar"))
+                "fixture/repo/scope-parent/1/scope-parent-1.jar"))
                 .isRegularFile();
         assertThat(localRepository.resolve(
-                "fixture/repo/test-lib/1/test-lib-1.jar"))
+                "fixture/repo/scope-marker/1/scope-marker-1.jar"))
                 .doesNotExist();
         assertThat(localRepository.resolve(
-                "fixture/repo/test-lib/1/test-lib-1.jar.lastUpdated"))
+                "fixture/repo/scope-marker/1/scope-marker-1.jar.lastUpdated"))
                 .doesNotExist();
+        try (java.util.stream.Stream<Path> paths = Files.list(evidenceCache)) {
+            assertThat(paths.toList()).isEmpty();
+        }
+        assertThat(projectDir.resolve("tree.graphml")).doesNotExist();
+        assertThat(projectDir.resolve("artifacts.json")).doesNotExist();
+        try (java.util.stream.Stream<Path> paths = Files.walk(projectDir)) {
+            assertThat(paths.map(path -> path.getFileName().toString())
+                    .toList()).noneMatch(name ->
+                    name.startsWith("dep-tree-cia-")
+                            || name.startsWith("resolved-artifacts-cia-")
+                            || name.startsWith("module-")
+                            && name.endsWith(".json"));
+        }
+    }
+
+    @Test
+    void failedMavenRunCleansEvidenceCacheAndSourceWorkspace()
+            throws Exception {
+        final Path projectDir = tempDir.resolve("broken-project");
+        Files.createDirectories(projectDir);
+        Files.writeString(projectDir.resolve("pom.xml"),
+                "<project><broken></project>");
+        final Path evidenceCache = tempDir.resolve("failed-evidence-cache");
+
+        assertThatThrownBy(() -> new DependencyAnalyzer(
+                "target", projectDir, Set.of(), diag)
+                .withPluginRuntime(pluginRuntime(List.of()))
+                .withEvidenceDirectory(evidenceCache)
+                .analyzeResolved())
+                .isInstanceOf(DependencyAnalysisException.class);
+
+        try (java.util.stream.Stream<Path> paths = Files.list(evidenceCache)) {
+            assertThat(paths.toList()).isEmpty();
+        }
+        try (java.util.stream.Stream<Path> paths = Files.walk(projectDir)) {
+            assertThat(paths.map(path -> path.getFileName().toString())
+                    .toList()).noneMatch(name ->
+                    name.startsWith("dep-tree-cia-")
+                            || name.startsWith("resolved-artifacts-cia-")
+                            || name.startsWith("module-")
+                            && name.endsWith(".json"));
+        }
     }
 
     @Test
@@ -539,12 +596,13 @@ class DependencyAnalyzerIT {
                   <dependencies>
                     <dependency>
                       <groupId>fixture.repo</groupId>
-                      <artifactId>compile-lib</artifactId>
+                      <artifactId>scope-parent</artifactId>
                       <version>1</version>
+                      <scope>provided</scope>
                     </dependency>
                     <dependency>
                       <groupId>fixture.repo</groupId>
-                      <artifactId>test-lib</artifactId>
+                      <artifactId>scope-marker</artifactId>
                       <version>1</version>
                       <scope>test</scope>
                     </dependency>

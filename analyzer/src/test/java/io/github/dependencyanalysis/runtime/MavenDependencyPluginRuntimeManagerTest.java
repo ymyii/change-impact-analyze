@@ -20,7 +20,7 @@ class MavenDependencyPluginRuntimeManagerTest {
     /** Concurrent preparation count. */
     private static final int CONCURRENT_PREPARATIONS = 4;
 
-    /** Artifact Path Plugin version supplied by the build. */
+    /** Dependency Evidence Plugin version supplied by the build. */
     private static final String ARTIFACT_PATH_PLUGIN_VERSION =
             System.getProperty("cia.artifactPathPluginVersion");
 
@@ -46,11 +46,11 @@ class MavenDependencyPluginRuntimeManagerTest {
                 "org.apache.maven.plugins:"
                         + "maven-dependency-plugin:3.6.1:tree");
         assertThat(first.getGoal("list")).endsWith(":3.6.1:list");
-        assertThat(first.getArtifactPathGoal()).isEqualTo(
+        assertThat(first.getDependencyEvidenceGoal()).isEqualTo(
                 "io.github.dependencyanalysis:"
                         + "dependency-analyzer-artifact-path-maven-plugin:"
                         + ARTIFACT_PATH_PLUGIN_VERSION
-                        + ":resolve-artifact-paths");
+                        + ":collect-dependency-evidence");
         assertThat(first.getRepositories()).hasSize(2);
         assertThat(dependencyJar(first)).isRegularFile();
         assertThat(artifactPathJar(first)).isRegularFile();
@@ -210,7 +210,8 @@ class MavenDependencyPluginRuntimeManagerTest {
     }
 
     @Test
-    void executesBothGoalsWithExternalMirrorBlocked() throws Exception {
+    void executesStructuredEvidenceGoalWithExternalMirrorBlocked()
+            throws Exception {
         final Path config = temporary.resolve("execution");
         final Path project = temporary.resolve("project");
         Files.createDirectories(project);
@@ -234,6 +235,10 @@ class MavenDependencyPluginRuntimeManagerTest {
                   </mirrors>
                 </settings>
                 """);
+        final Path evidence = temporary.resolve("evidence cache 中文");
+        final String owner = "runtime-manager-test-owner";
+        Files.createDirectories(evidence);
+        Files.writeString(evidence.resolve(".cia-evidence-owner"), owner);
         final MavenRuntimeDescriptor maven = new MavenRuntimeManager()
                 .prepare(null, config, null);
         try (MavenDependencyPluginRuntime plugin =
@@ -248,10 +253,9 @@ class MavenDependencyPluginRuntimeManagerTest {
                     plugin.getMavenArguments());
             arguments.addAll(List.of(
                     "-X", "-B", "-f", project.resolve("pom.xml").toString(),
-                    plugin.getGoal(), "-DoutputFile=tree.graphml",
-                    "-DoutputType=graphml", plugin.getArtifactPathGoal(),
-                    "-Dcia.dependencyGraphFileName=tree.graphml",
-                    "-Dcia.resolvedArtifactsFileName=artifacts.json"));
+                    plugin.getDependencyEvidenceGoal(),
+                    "-Dcia.dependencyEvidenceDirectory=" + evidence,
+                    "-Dcia.dependencyEvidenceOwner=" + owner));
 
             final MavenExecutionResult result = new MavenExecutor().execute(
                     maven, project, arguments);
@@ -259,17 +263,26 @@ class MavenDependencyPluginRuntimeManagerTest {
             assertThat(result.getExitCode())
                     .describedAs(result.getCombinedOutput()).isZero();
             assertThat(result.getCombinedOutput())
-                    .contains("maven-dependency-plugin:3.6.1:tree")
-                    .contains("(f) dependencyGraphFileName = tree.graphml")
-                    .contains("Artifact Path Plugin implementation=graphml-v2")
+                    .contains("collect-dependency-evidence")
+                    .contains("Dependency Evidence Plugin implementation="
+                            + "dependency-evidence-v3")
                     .contains("version=" + ARTIFACT_PATH_PLUGIN_VERSION)
                     .doesNotContain("sha512=");
-            assertThat(project.resolve("tree.graphml")).isRegularFile();
-            assertThat(project.resolve("artifacts.json")).content()
-                    .contains("\"schemaVersion\" : 2")
-                    .contains("\"artifacts\" : [ ]")
-                    .doesNotContain("\"module\"")
-                    .doesNotContain("\"scope\"");
+            final List<Path> evidenceFiles;
+            try (var files = Files.list(evidence)) {
+                evidenceFiles = files
+                        .filter(path -> path.getFileName().toString()
+                                .startsWith("module-"))
+                        .toList();
+            }
+            assertThat(evidenceFiles).hasSize(1);
+            assertThat(evidenceFiles.get(0)).content()
+                    .contains("\"schemaVersion\" : 3")
+                    .contains("\"module\"")
+                    .contains("\"occurrenceGraph\"")
+                    .contains("\"artifacts\" : [ ]");
+            assertThat(project.resolve("tree.graphml")).doesNotExist();
+            assertThat(project.resolve("artifacts.json")).doesNotExist();
         }
     }
 

@@ -2,7 +2,7 @@
 title: "Coordinate JAR Repository"
 type: feature
 relations:
-  - path: "wiki/features/dependency-tree-extraction.md"
+  - path: "wiki/features/dependency-evidence-collection.md"
     desc: "Resolver manifest ingestion 与 repository 初始化"
   - path: "wiki/features/bytecode-diff-engine.md"
     desc: "repository-backed old/new JAR diff"
@@ -23,7 +23,7 @@ code_refs:
 
 ## Summary
 
-旧 `JarLocator`、`JarLocationResult` 与 local repository layout 推导已删除。`impact` 只信任 Maven Resolver/validated `systemPath` 写入 Schema v2 manifest 的实际 file；baseline/target ingestion 后构建一个 command-scoped immutable `IJarRepository`。业务对象、cache key、ownership 与 Report dependency source 只保留 `ArtifactCoord`。
+旧 `JarLocator`、`JarLocationResult` 与 local repository layout 推导已删除。`impact` 只信任 Maven Resolver/validated `systemPath` 写入 Schema v3 evidence 的实际 file；baseline/target ingestion 后构建一个 command-scoped immutable `IJarRepository`。业务对象、cache key、ownership 与 Report dependency source 只保留 `ArtifactCoord`。
 
 ## Contract
 

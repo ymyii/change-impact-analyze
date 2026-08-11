@@ -15,16 +15,18 @@ import io.github.dependencyanalysis
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 
-// Wiki: wiki/features/dependency-tree-extraction.md - 依赖树与 JSON path binding
+// Wiki: wiki/features/dependency-evidence-collection.md - 结构化依赖证据
 // Wiki: wiki/rules/process-command-resolution.md - 跨平台命令规则
 /** Executes Maven dependency evidence collection for one reactor closure. */
 public final class DependencyAnalyzer {
@@ -32,20 +34,15 @@ public final class DependencyAnalyzer {
     /** Diagnostic stage name. */
     private static final String STAGE = "dependency";
 
-    /** GraphML output filename prefix. */
-    private static final String GRAPHML_PREFIX = "dep-tree-cia-";
+    /** Dependency Evidence JSON filename suffix. */
+    private static final String EVIDENCE_SUFFIX = ".json";
 
-    /** Artifact Path JSON filename prefix. */
-    private static final String ARTIFACT_JSON_PREFIX =
-            "resolved-artifacts-cia-";
+    /** Dependency Evidence owner marker. */
+    private static final String OWNER_MARKER = ".cia-evidence-owner";
 
-    /** Pinned fallback Dependency Plugin prefix. */
-    private static final String FALLBACK_PLUGIN_PREFIX =
-            "org.apache.maven.plugins:maven-dependency-plugin:3.6.1:";
-
-    /** Built-in Artifact Path Plugin goal. */
-    private static final String FALLBACK_ARTIFACT_PATH_GOAL =
-            MavenDependencyPluginRuntime.ARTIFACT_PATH_PLUGIN_GOAL;
+    /** Built-in Dependency Evidence Plugin goal. */
+    private static final String FALLBACK_EVIDENCE_GOAL =
+            MavenDependencyPluginRuntime.DEPENDENCY_EVIDENCE_PLUGIN_GOAL;
 
     /** Failure output tail retained in memory. */
     private static final int TAIL_LINES = 20;
@@ -55,9 +52,6 @@ public final class DependencyAnalyzer {
 
     /** Workspace root. */
     private final Path workspacePath;
-
-    /** Reactor modules supplied by the caller for GraphML filtering. */
-    private final Set<ArtifactCoord> reactorModules;
 
     /** Diagnostics. */
     private final DiagnosticLog diag;
@@ -73,6 +67,9 @@ public final class DependencyAnalyzer {
 
     /** Prepared embedded Plugin runtime. */
     private MavenDependencyPluginRuntime pluginRuntime;
+
+    /** Optional command-owned evidence cache parent. */
+    private Path evidenceDirectory;
 
     /** Reactor project selector arguments. */
     private List<String> projectArguments = List.of();
@@ -137,7 +134,6 @@ public final class DependencyAnalyzer {
             final List<String> arguments) {
         side = sideName;
         workspacePath = path;
-        reactorModules = reactor;
         diag = diagCol;
         buildJavaHome = javaHomeOpt;
         mavenExecutable = executable;
@@ -181,7 +177,19 @@ public final class DependencyAnalyzer {
     }
 
     /**
-     * Runs only Dependency Plugin GraphML extraction.
+     * Selects a command-owned dependency evidence cache parent.
+     *
+     * @param directory cache parent outside the source workspace
+     * @return this analyzer
+     */
+    public DependencyAnalyzer withEvidenceDirectory(
+            final Path directory) {
+        evidenceDirectory = directory.toAbsolutePath().normalize();
+        return this;
+    }
+
+    /**
+     * Collects dependency trees projected from Schema v3 evidence.
      *
      * @return module dependency trees
      * @throws DependencyAnalysisException Maven or parsing failure
@@ -191,33 +199,21 @@ public final class DependencyAnalyzer {
     public List<ModuleDependencyTree> analyze()
             throws DependencyAnalysisException, IOException,
             InterruptedException {
-        start();
-        final String graphmlName = GRAPHML_PREFIX
-                + UUID.randomUUID() + ".graphml";
-        final ProcessConsoleResult execution = runMaven(
-                graphmlName, null, true);
-        final List<Path> graphmlFiles = findNamedFiles(
-                workspacePath, graphmlName);
-        try {
-            requireSuccessful(execution, graphmlName, null, true);
-            if (graphmlFiles.isEmpty()) {
-                throw new DependencyAnalysisException(
-                        "No GraphML files found in workspace: "
-                                + workspacePath);
-            }
-            final List<ModuleDependencyTree> trees =
-                    parseTrees(graphmlFiles);
-            finish(trees.size());
-            return trees;
-        } finally {
-            deleteFiles(graphmlFiles);
+        final List<ModuleDependencyTree> result = new ArrayList<>();
+        for (ModuleDependencyEvidence evidence
+                : analyzeResolved().getModules()) {
+            result.add(new ModuleDependencyTree(
+                    evidence.getModule(), evidence.getModulePath(),
+                    evidence.getDependencies(),
+                    evidence.getOccurrenceGraph()));
         }
+        return List.copyOf(result);
     }
 
     /**
-     * Collects physical artifact bindings and a separate verbose occurrence
-     * GraphML. The built-in path resolver consumes ordinary GraphML; Maven's
-     * verbose labels are retained only for occurrence topology.
+     * Collects selected dependency trees, winner-normalized raw occurrence
+     * topology, reactor keys, and physical artifact bindings in one Maven
+     * session.
      *
      * @return dependency trees and physical paths
      * @throws DependencyAnalysisException Maven or contract failure
@@ -228,49 +224,22 @@ public final class DependencyAnalyzer {
             throws DependencyAnalysisException, IOException,
             InterruptedException {
         start();
-        final String nonce = UUID.randomUUID().toString();
-        final String bindingGraphmlName = GRAPHML_PREFIX + nonce
-                + "-binding.graphml";
-        final String graphmlName = GRAPHML_PREFIX + nonce + ".graphml";
-        final String jsonName = ARTIFACT_JSON_PREFIX + nonce + ".json";
-        final ProcessConsoleResult bindingExecution = runMaven(
-                bindingGraphmlName, jsonName, false);
-        requireSuccessful(bindingExecution, bindingGraphmlName, jsonName,
-                false);
-        final ProcessConsoleResult occurrenceExecution = runMaven(
-                graphmlName, null, true);
-        final List<Path> graphmlFiles = findNamedFiles(
-                workspacePath, graphmlName);
-        final List<Path> bindingGraphmlFiles = findNamedFiles(
-                workspacePath, bindingGraphmlName);
-        final List<Path> jsonFiles = findNamedFiles(
-                workspacePath, jsonName);
+        final EvidenceRun run = prepareEvidenceRun();
         try {
-            requireSuccessful(occurrenceExecution, graphmlName, null, true);
-            if (graphmlFiles.isEmpty() || bindingGraphmlFiles.isEmpty()
-                    || jsonFiles.isEmpty()) {
+            final ProcessConsoleResult execution = runMaven(run);
+            requireSuccessful(execution, run.directory);
+            final List<Path> jsonFiles = evidenceFiles(run.directory);
+            if (jsonFiles.isEmpty()) {
                 throw new DependencyAnalysisException(
-                        "Missing dependency evidence: graphml="
-                                + graphmlFiles.size() + "; bindingGraphml="
-                                + bindingGraphmlFiles.size() + "; json="
-                                + jsonFiles.size());
+                        "No dependency evidence found in cache: "
+                                + run.directory);
             }
-            final List<ModuleDependencyTree> occurrenceTrees =
-                    parseTrees(graphmlFiles);
-            final List<ModuleDependencyTree> selectedTrees =
-                    parseTrees(bindingGraphmlFiles);
-            final List<ResolvedArtifactManifest> manifests =
-                    parseManifests(jsonFiles);
             final List<ModuleDependencyEvidence> modules =
-                    ModuleDependencyEvidenceMerger.merge(
-                            selectedTrees, occurrenceTrees, manifests,
-                            reactorModules);
+                    parseEvidence(jsonFiles);
             finish(modules.size());
             return new DependencyAnalysisResult(modules);
         } finally {
-            deleteFiles(graphmlFiles);
-            deleteFiles(bindingGraphmlFiles);
-            deleteFiles(jsonFiles);
+            deleteEvidenceRun(run);
         }
     }
 
@@ -288,25 +257,16 @@ public final class DependencyAnalyzer {
     }
 
     private ProcessConsoleResult runMaven(
-            final String graphmlName,
-            final String jsonName,
-            final boolean verbose) throws IOException,
+            final EvidenceRun run) throws IOException,
             InterruptedException {
         final List<String> command = new ArrayList<>();
         command.add(mavenExecutable.toString());
         command.addAll(dependencyArguments());
         command.addAll(projectArguments);
-        command.add(dependencyGoal("tree"));
-        command.add("-DoutputType=graphml");
-        if (verbose) {
-            command.add("-Dverbose=true");
-        }
-        command.add("-DoutputFile=" + graphmlName);
-        if (jsonName != null) {
-            command.add(artifactPathGoal());
-            command.add("-Dcia.dependencyGraphFileName=" + graphmlName);
-            command.add("-Dcia.resolvedArtifactsFileName=" + jsonName);
-        }
+        command.add(evidenceGoal());
+        command.add("-Dcia.dependencyEvidenceDirectory="
+                + run.directory);
+        command.add("-Dcia.dependencyEvidenceOwner=" + run.owner);
         command.add("-B");
         diag.trace(diagnosticContext,
                 "Executing dependency evidence goals; workspace="
@@ -324,80 +284,95 @@ public final class DependencyAnalyzer {
 
     private void requireSuccessful(
             final ProcessConsoleResult execution,
-            final String graphmlName,
-            final String jsonName,
-            final boolean verbose) throws DependencyAnalysisException {
+            final Path outputDirectory)
+            throws DependencyAnalysisException {
         if (execution.exitCode() == 0) {
             return;
         }
         diag.failStage(diagnosticContext,
                 "Dependency evidence generation failed side=" + side
                         + " exitCode=" + execution.exitCode());
-        final StringBuilder command = new StringBuilder("mvn ")
-                .append(dependencyGoal("tree"))
-                .append(" -DoutputType=graphml");
-        if (verbose) {
-            command.append(" -Dverbose=true");
-        }
-        command.append(" -DoutputFile=").append(graphmlName);
-        if (jsonName != null) {
-            command.append(' ').append(artifactPathGoal())
-                    .append(" -Dcia.dependencyGraphFileName=")
-                    .append(graphmlName)
-                    .append(" -Dcia.resolvedArtifactsFileName=")
-                    .append(jsonName);
-        }
-        command.append(" -B");
+        final String command = "mvn " + evidenceGoal()
+                + " -Dcia.dependencyEvidenceDirectory=" + outputDirectory
+                + " -Dcia.dependencyEvidenceOwner=<redacted> -B";
         throw new DependencyAnalysisException(side,
-                workspacePath.toString(), command.toString(),
+                workspacePath.toString(), command,
                 execution.exitCode(), execution.outputTail());
     }
 
-    private List<ModuleDependencyTree> parseTrees(
-            final List<Path> graphmlFiles)
-            throws DependencyAnalysisException {
-        final List<ModuleDependencyTree> trees = new ArrayList<>();
-        for (Path graphml : graphmlFiles) {
-            diag.info(diagnosticContext, "Parsing: " + graphml);
-            trees.add(GraphMLParser.parse(graphml, reactorModules));
+    private List<ModuleDependencyEvidence> parseEvidence(
+            final List<Path> files) throws DependencyAnalysisException {
+        final List<ModuleDependencyEvidence> result = new ArrayList<>();
+        final Set<String> modules = new LinkedHashSet<>();
+        for (Path file : files) {
+            diag.info(diagnosticContext, "Parsing evidence: " + file);
+            final ModuleDependencyEvidence evidence =
+                    DependencyEvidenceJsonParser.parse(file);
+            if (!modules.add(evidence.getModule().diffKey())) {
+                throw new DependencyAnalysisException(
+                        "Duplicate dependency evidence Module: "
+                                + evidence.getModule().diffKey());
+            }
+            result.add(evidence);
         }
-        trees.sort(Comparator.comparing(value ->
+        result.sort(Comparator.comparing(value ->
                 value.getModulePath().toString()));
-        return List.copyOf(trees);
+        return List.copyOf(result);
     }
 
-    private List<ResolvedArtifactManifest> parseManifests(
-            final List<Path> jsonFiles)
-            throws DependencyAnalysisException {
-        final List<ResolvedArtifactManifest> manifests =
-                new ArrayList<>();
-        for (Path json : jsonFiles) {
-            manifests.add(ResolvedArtifactJsonParser.parse(json));
-        }
-        return List.copyOf(manifests);
-    }
-
-    private List<Path> findNamedFiles(
-            final Path root,
-            final String name) throws IOException {
+    private List<Path> evidenceFiles(final Path root) throws IOException {
         final List<Path> result = new ArrayList<>();
-        try (Stream<Path> stream = Files.walk(root)) {
+        try (Stream<Path> stream = Files.list(root)) {
             stream.filter(Files::isRegularFile)
-                    .filter(path -> name.equals(
-                            path.getFileName().toString()))
+                    .filter(path -> path.getFileName().toString()
+                            .startsWith("module-"))
+                    .filter(path -> path.getFileName().toString()
+                            .endsWith(EVIDENCE_SUFFIX))
                     .forEach(result::add);
         }
         result.sort(Comparator.comparing(Path::toString));
         return result;
     }
 
-    private void deleteFiles(final List<Path> files) {
-        for (Path file : files) {
-            try {
-                Files.deleteIfExists(file);
-            } catch (IOException exception) {
-                diag.warn(diagnosticContext,
-                        "Unable to remove dependency evidence: " + file);
+    private EvidenceRun prepareEvidenceRun() throws IOException {
+        final Path parent;
+        if (evidenceDirectory == null) {
+            parent = Files.createTempDirectory("cia-dependency-evidence-");
+        } else {
+            Files.createDirectories(evidenceDirectory);
+            parent = evidenceDirectory;
+        }
+        final Path run = parent.resolve(UUID.randomUUID().toString());
+        Files.createDirectory(run);
+        final String owner = UUID.randomUUID().toString();
+        Files.writeString(run.resolve(OWNER_MARKER), owner,
+                StandardCharsets.UTF_8);
+        return new EvidenceRun(run, owner,
+                evidenceDirectory == null ? parent : null);
+    }
+
+    private void deleteEvidenceRun(final EvidenceRun run) {
+        try {
+            deleteTree(run.directory);
+            if (run.temporaryParent != null) {
+                Files.deleteIfExists(run.temporaryParent);
+            }
+        } catch (IOException exception) {
+            diag.warn(diagnosticContext,
+                    "Unable to remove dependency evidence cache: "
+                            + run.directory);
+        }
+    }
+
+    private void deleteTree(final Path root) throws IOException {
+        if (!Files.exists(root)) {
+            return;
+        }
+        try (Stream<Path> stream = Files.walk(root)) {
+            final Path[] paths = stream.sorted(Comparator.reverseOrder())
+                    .toArray(Path[]::new);
+            for (Path path : paths) {
+                Files.deleteIfExists(path);
             }
         }
     }
@@ -407,15 +382,31 @@ public final class DependencyAnalyzer {
                 ? mavenArguments : pluginRuntime.getMavenArguments();
     }
 
-    private String dependencyGoal(final String goalName) {
+    private String evidenceGoal() {
         return pluginRuntime == null
-                ? FALLBACK_PLUGIN_PREFIX + goalName
-                : pluginRuntime.getGoal(goalName);
+                ? FALLBACK_EVIDENCE_GOAL
+                : pluginRuntime.getDependencyEvidenceGoal();
     }
 
-    private String artifactPathGoal() {
-        return pluginRuntime == null
-                ? FALLBACK_ARTIFACT_PATH_GOAL
-                : pluginRuntime.getArtifactPathGoal();
+    /** One Analyzer-owned evidence run. */
+    private static final class EvidenceRun {
+
+        /** Output directory. */
+        private final Path directory;
+
+        /** Owner token. */
+        private final String owner;
+
+        /** OS temporary parent, null for command cache. */
+        private final Path temporaryParent;
+
+        EvidenceRun(
+                final Path outputDirectory,
+                final String ownerToken,
+                final Path osTemporaryParent) {
+            directory = outputDirectory;
+            owner = ownerToken;
+            temporaryParent = osTemporaryParent;
+        }
     }
 }

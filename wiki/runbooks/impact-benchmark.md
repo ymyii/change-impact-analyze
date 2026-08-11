@@ -93,10 +93,11 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 
 ## Fixture and Semantic Contract
 
-- application POM 固定 42 个 compile-scope direct dependency；增加 path、sink、factory artifact 时以等量 vendor dependency 替换，避免规模变化干扰 scope 对比。
+- application POM 固定 42 个 direct dependencies；增加 path、sink、factory 或 scope-conflict fixture 时以等量 direct vendor dependency 替换，避免规模变化干扰 scope 对比。
 - `scenario-api:1.0.0 -> 2.0.0` 固定产生 9 类 raw change。
-- application direct `scenario-api:${scenario.api.version}` 是Maven winner；target为`2.0.0`，`path-a -> path-c`与`path-x -> path-y`继续请求`1.0.0`并在verbose GraphML形成loser occurrence。`changed-paths`必须将两条path都规范化到winner `2.0.0`并完整保留；reactor path也必须使用selected version。
-- direct dependency总数保持42：新增direct `scenario-api`后，`vendor-lib-35`改由`path-sibling`transitive引入，external artifact集合不变。
+- application direct `scenario-api:${scenario.api.version}` 是Maven winner；target为`2.0.0`，`path-a -> path-c`与`path-x -> path-y`继续请求`1.0.0`并在raw occurrence graph形成loser path。`changed-paths`必须将两条path都规范化到winner `2.0.0`并完整保留；reactor path也必须使用selected version。
+- direct dependency总数保持42：`vendor-lib-35`由`path-sibling`transitive引入；`vendor-lib-34`由`external-plain`transitive引入。Selected external classpath 规模与现有Call Graph baseline不变。
+- `scope-conflict-marker` 是direct `test` winner，`external-plain` 同时引入transitive `compile` duplicate。Schema v3 必须删除marker及其occurrence，offline repository中不存在marker JAR，因此任何误请求都会使benchmark失败。
 - `path-a` sibling、seed downstream、external sink/factory/plain 均不位于到达 seed 的 external path，`changed-paths` 将其 method body 设为 no-op 或 flow-to-cast factory。
 - dangerous transfer 必须产生 `CHANGED_INSTANCE_TO_NO_OP_DEPENDENCY` 并使 Module 为 `INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY`。
 - factory `Object` result 经 PROJECT assignment/checkcast 必须产生 factory evidence 和 included target reachability；`full` 必须使用真实 factory body且不产生 approximation evidence。
@@ -104,6 +105,7 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 - `JdkModelUseCase.execute`接收`Stream<String>`并经lazy`Stream.map`注册private`ChangedMapper.apply`，callback调用`ScenarioApi.bodyChanged`；默认`jdk8`必须报告该call chain，`none`按algorithm锁定真实JDK bytecode语义下的candidate/final baseline。
 - `RecursiveCallUseCase.execute`进入private static递归，终止分支调用`ScenarioApi.bodyChanged`；四种algorithm、两种scope与两种JDK Method Model selection均必须报告该impact chain。
 - `expected-results.tsv`以`dependency_analysis_scope + jdk_model + call_graph_algorithm + k_obj_depth`为key，维护16组semantic baseline；非`k-obj`深度列为空，`k-obj`为`1`。
+- Verifier 同时要求fixture source repository 不存在`dep-tree-cia-*`、`resolved-artifacts-cia-*`或`module-*.json` evidence 中间产物；Maven `target/` 仍是current target compile的允许例外。
 
 ## Metrics Contract
 

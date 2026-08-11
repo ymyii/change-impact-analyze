@@ -91,14 +91,6 @@ class ImpactPreflightBoundaryIT {
                   echo "Apache Maven %s"
                   exit 0
                 fi
-                for argument in "$@"; do
-                  case "$argument" in
-                    -DoutputFile=*)
-                      output="${argument#-DoutputFile=}"
-                      printf '<graphml/>\\n' > "$output"
-                      ;;
-                  esac
-                done
                 exit 0
                 """.formatted(version),
                 StandardCharsets.UTF_8);

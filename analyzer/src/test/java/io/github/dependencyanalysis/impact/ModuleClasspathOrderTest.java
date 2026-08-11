@@ -4,21 +4,18 @@ import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.DependencyNode;
 import io.github.dependencyanalysis.dependency.DependencyScope;
 import io.github.dependencyanalysis.dependency.ModuleDependencyEvidence;
-import io.github.dependencyanalysis.dependency.ModuleDependencyEvidenceMerger;
-import io.github.dependencyanalysis.dependency.ModuleDependencyTree;
+import io.github.dependencyanalysis.dependency.ModuleDependencyOccurrenceGraph;
 import io.github.dependencyanalysis.dependency.ResolvedArtifact;
-import io.github.dependencyanalysis.dependency.ResolvedArtifactManifest;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Tests selected GraphML classpath tier ordering. */
+/** Tests selected Maven classpath tier ordering. */
 class ModuleClasspathOrderTest {
 
     /** Module-local evidence directory. */
@@ -33,21 +30,21 @@ class ModuleClasspathOrderTest {
         final ArtifactCoord reactorA = artifact("reactor-a");
         final ArtifactCoord externalZ = artifact("external-z");
         final ArtifactCoord externalA = artifact("external-a");
-        final ModuleDependencyTree selected = new ModuleDependencyTree(
-                module, moduleDirectory, List.of(
-                node(reactorZ, List.of(node(externalZ, List.of()))),
-                node(reactorA, List.of()),
-                node(externalA, List.of())));
         final ResolvedArtifact z = new ResolvedArtifact(
                 externalZ, moduleDirectory.resolve("z.jar"));
         final ResolvedArtifact a = new ResolvedArtifact(
                 externalA, moduleDirectory.resolve("a.jar"));
+        final ModuleDependencyOccurrenceGraph graph =
+                new ModuleDependencyOccurrenceGraph("root", List.of(
+                        new ModuleDependencyOccurrenceGraph.Occurrence(
+                                "root", module, null, true, false)),
+                        List.of());
         final ModuleDependencyEvidence evidence =
-                ModuleDependencyEvidenceMerger.merge(
-                        List.of(selected), List.of(selected),
-                        List.of(new ResolvedArtifactManifest(
-                                moduleDirectory, List.of(a, z))),
-                        Set.of(reactorA, reactorZ)).get(0);
+                new ModuleDependencyEvidence(module, moduleDirectory,
+                        List.of(node(externalZ, List.of()),
+                                node(externalA, List.of())), graph,
+                        List.of(reactorZ.diffKey(), reactorA.diffKey()),
+                        List.of(z, a));
 
         assertThat(ModuleClasspathOrder.reactorKeys(evidence))
                 .containsExactly(reactorZ.diffKey(), reactorA.diffKey());

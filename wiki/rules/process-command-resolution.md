@@ -6,7 +6,7 @@ relations:
     desc: "Git 命令执行适用跨平台命令解析规则"
   - path: "wiki/features/maven-build-runner.md"
     desc: "Maven 编译命令执行适用跨平台命令解析规则"
-  - path: "wiki/features/dependency-tree-extraction.md"
+  - path: "wiki/features/dependency-evidence-collection.md"
     desc: "Maven dependency plugin 命令执行适用跨平台命令解析规则"
   - path: "wiki/features/maven-runtime.md"
     desc: "Maven runtime process 适用跨平台命令解析规则"

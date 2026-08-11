@@ -10,24 +10,24 @@ import java.util.Objects;
 /** Prepared Maven Dependency Plugin execution contract. */
 public final class MavenDependencyPluginRuntime implements AutoCloseable {
 
-    /** Built-in Artifact Path Plugin group. */
+    /** Built-in Dependency Evidence Plugin group. */
     private static final String ARTIFACT_PATH_PLUGIN_GROUP =
             "io.github.dependencyanalysis";
 
-    /** Built-in Artifact Path Plugin artifact. */
+    /** Built-in Dependency Evidence Plugin artifact. */
     private static final String ARTIFACT_PATH_PLUGIN_ARTIFACT =
             "dependency-analyzer-artifact-path-maven-plugin";
 
-    /** Built-in Artifact Path Plugin version. */
+    /** Built-in Dependency Evidence Plugin version. */
     public static final String ARTIFACT_PATH_PLUGIN_VERSION =
             BuildMetadata.getArtifactPathPluginVersion();
 
-    /** Built-in Artifact Path Plugin goal. */
-    public static final String ARTIFACT_PATH_PLUGIN_GOAL =
+    /** Built-in Dependency Evidence Plugin goal. */
+    public static final String DEPENDENCY_EVIDENCE_PLUGIN_GOAL =
             ARTIFACT_PATH_PLUGIN_GROUP + ":"
                     + ARTIFACT_PATH_PLUGIN_ARTIFACT + ":"
                     + ARTIFACT_PATH_PLUGIN_VERSION
-                    + ":resolve-artifact-paths";
+                    + ":collect-dependency-evidence";
 
     /** Maven Dependency Plugin group. */
     private static final String PLUGIN_GROUP =
@@ -104,9 +104,9 @@ public final class MavenDependencyPluginRuntime implements AutoCloseable {
                 + ":" + version + ":" + goalName;
     }
 
-    /** @return built-in Artifact Path Plugin goal */
-    public String getArtifactPathGoal() {
-        return ARTIFACT_PATH_PLUGIN_GOAL;
+    /** @return built-in Dependency Evidence Plugin goal */
+    public String getDependencyEvidenceGoal() {
+        return DEPENDENCY_EVIDENCE_PLUGIN_GOAL;
     }
 
     /** @return Maven arguments including settings overlay */
@@ -119,7 +119,7 @@ public final class MavenDependencyPluginRuntime implements AutoCloseable {
         return repositories;
     }
 
-    /** @return built-in Artifact Path Plugin version */
+    /** @return built-in Dependency Evidence Plugin version */
     public String getArtifactPathPluginVersion() {
         return ARTIFACT_PATH_PLUGIN_VERSION;
     }

@@ -6,6 +6,8 @@ relations:
     desc: "impact workspace 与 tree snapshot 的架构边界"
   - path: "wiki/features/repository-dependency-tree-report.md"
     desc: "tree repository snapshot 和 Git file set"
+  - path: "wiki/features/dependency-evidence-collection.md"
+    desc: "impact command temp 内的 dependency evidence cache"
   - path: "wiki/rules/process-command-resolution.md"
     desc: "Git process 的跨平台约束"
 code_refs:
@@ -36,6 +38,8 @@ Git Workspace Management 为 `impact` 准备 baseline/target project workspace�
 - Local ref 只通过 `rev-parse --verify <ref>^{commit}` 解析，不 fetch。
 - Git file discovery 使用 tracked + non-ignored untracked，并排除 stage mode `160000` Git submodule path。
 - 每次 command 使用 UUID run directory、有效 owner marker 和 `<config>/locks` file lock；cleanup 只能删除当前 owned run。
+- `impact` dependency evidence 只写 `impact/tmp/<run-id>/dependency-evidence/{baseline|target}/<nonce>`，不写 baseline、target 或 current source directory。
+- Current target 的 Maven compile 仍可在对应 workspace 生成 `target/`；该 build output 不属于 dependency evidence cache。
 - 启动时只回收 owner marker 有效且无法取得 active lock 的 stale run，随后执行 `git worktree prune` 清理对应 metadata；无 marker 目录和其他 run 不删除。
 
 ## Actors / Entrypoints
@@ -68,6 +72,7 @@ Git Workspace Management 为 `impact` 准备 baseline/target project workspace�
 - 创建 command run、owner marker 和 active lock；对 local ref 在 `workspaces/<run-id>` 内创建 detached worktree，current checkout 不 checkout/stash。
 - 将 relative analysis path 映射到 detached worktree；路径不存在时在 command Preflight 阻断。
 - Pipeline 复用 prepared path。
+- Dependency Analyzer 将 command tmp 作为 evidence cache parent，单次 Maven 调用完成后删除 nonce。
 - Owner close 先清理 worktree，再删除当前 workspace/tmp run 和 lock。
 
 ## Acceptance Criteria
@@ -83,6 +88,7 @@ Git Workspace Management 为 `impact` 准备 baseline/target project workspace�
 - [ ] 不修改 current branch、index 或 tracked file。
 - [ ] Worktree cleanup 对成功和 failure path 生效。
 - [ ] 并发 run 不能互删；active locked run 不能被 stale recovery 回收。
+- [ ] Maven 成功或失败后source repository均不出现dependency evidence JSON/GraphML中间产物。
 
 ## Edge Cases
 

@@ -58,9 +58,9 @@ mvn -f models/jdk/pom.xml clean install
 mvn -f models/jdk8/pom.xml clean install
 ```
 
-### Plugin reactor
+### Dependency Evidence Plugin reactor
 
-Plugin 第一次 bootstrap 或 Plugin source/package 变化后执行：
+Dependency Evidence Plugin 保留现有 artifactId；第一次 bootstrap 或 Plugin source/package 变化后执行：
 
 ```sh
 mvn -f plugins/pom.xml clean install
@@ -117,7 +117,7 @@ java -jar target/dependency-analyzer.jar tree --help
 
 ## Success Criteria
 
-- Plugin reactor 输出 `0 Checkstyle violations`，tests 全部通过，Plugin class major 不超过 `52`。
+- Plugin reactor 输出 `0 Checkstyle violations`，tests 全部通过，Plugin class major 不超过 `52`。Graph tests 覆盖scope-conflict pruning、multi-path winner normalization、missing winner fail-fast；output tests 覆盖owner/path/symlink 与 atomic publication。
 - Plugin repository ZIP 只有 Maven layout 下当前 version 的 JAR 与 consumer POM，不包含项目生成的 checksum sidecar。
 - Analyzer `mvn clean verify` 的 Surefire 与 Failsafe tests 全部通过且 `Skipped: 0`。
 - 真实 JDK 8 test 完成 JDK probe、WALA scope、CHA、默认 RTA 与显式三种points-to strategy，不因缺少环境变量跳过。RTA与两种ZeroX strategy以完整target JDK 8共同验证Stream/Optional、Collection/Map、Executor/CompletableFuture与Thread dispatch；`k-obj`以最小Java 8 Primordial `Thread.run()` bytecode验证focused callback dispatch。`AccessController.doPrivileged`按JDK 8 native边界单独验证WALA内置native model。
@@ -127,8 +127,9 @@ java -jar target/dependency-analyzer.jar tree --help
 - Entrypoint tests覆盖private nested class、constructor、static/instance method过滤；公开root调用的private method仍作为普通CGNode存在。
 - `target/dependency-analyzer.jar` 存在，manifest `Main-Class` 为 `io.github.dependencyanalysis.cli.DependencyAnalyzerCli`。
 - Analyzer JAR包含公共`JdkModels.class`、`Jdk8Models.class`和`jdk8-models.tsv`；help包含`--jdk-model`。
-- Analyzer JAR 在 `maven/plugin-repositories/` 下恰有 Maven Dependency Plugin 与 Artifact Path Plugin 两个 `repository` ZIP；不存在旧 loose Artifact Path Plugin JAR/POM/checksum resource。
-- Empty Maven local repository + blocked wildcard mirror 下，packaged runtime 可执行 `dependency:tree + resolve-artifact-paths`。
+- Analyzer JAR 在 `maven/plugin-repositories/` 下恰有 Maven Dependency Plugin 与 Dependency Evidence Plugin 两个 `repository` ZIP；不存在 loose Plugin JAR/POM/checksum resource。
+- Empty Maven local repository + blocked wildcard mirror 下，packaged Maven 3.6.3 runtime 可执行 `collect-dependency-evidence`。
+- Analyzer integration tests 覆盖空格/中文 cache path、scope-conflict missing `test` binary，以及 Maven 成功/失败后 source repository 无 evidence 中间文件。
 - 最新 duplicate class precedence tests、report tests 与 `PackagedJarCliIT` 全部通过。
 - Root/两个 subcommand help 列出当前 option；CLI `--version` 与 Maven build metadata 一致。
 - Analyzer能力新增或行为扩展时，必须同步新增/更新benchmark fixture、verification与expected baseline，并执行`JAVA8_HOME=/absolute/path/to/jdk8 benchmarks/impact-medium/run-scope-matrix.sh`；56个JVM、16组scope/model/algorithm semantic baseline和两份HTML Report全部成功后才完成任务。Performance snapshot只发布48个默认`jdk8` run中的20个formal sample/每scope。
@@ -136,7 +137,7 @@ java -jar target/dependency-analyzer.jar tree --help
 ## Failure Entrypoints
 
 - `test.jdk8.home must point to a complete JDK 8`：确认默认路径存在，或通过 `-Dtest.jdk8.home=...` 指向 absolute JDK 8 root；不能使用 JRE 或 Java 17 home。
-- Artifact Path Plugin repository ZIP resolution failure：重新执行 `mvn -f plugins/pom.xml clean install`，确认 Analyzer property 与 installed version 一致。
+- Dependency Evidence Plugin repository ZIP resolution failure：重新执行 `mvn -f plugins/pom.xml clean install`，确认 Analyzer property 与 installed version 一致。
 - JDK model artifact resolution failure：先执行`models/jdk`再执行`models/jdk8`的`clean install`，确认root`jdk8-models.version`匹配。
 - Plugin test failure：`plugins/artifact-path-resolver/target/surefire-reports/`。
 - Analyzer unit/integration failure：`target/surefire-reports/`、`target/failsafe-reports/`。
@@ -147,7 +148,7 @@ java -jar target/dependency-analyzer.jar tree --help
 ## Configuration
 
 - Analyzer development version：root `revision`。
-- Artifact Path Plugin development version：`plugins/pom.xml` 的 `revision`。
+- Dependency Evidence Plugin development version：`plugins/pom.xml` 的 `revision`，当前 `3.0.0`。
 - Analyzer test JDK 8：root `test.jdk8.home`；command-line `-Dtest.jdk8.home=...` 优先。
 - Analyzer 使用的 Plugin version：root `artifact-path-plugin.version`。
 - Analyzer使用的JDK 8 model version：root`jdk8-models.version`。

@@ -34,8 +34,8 @@ code_refs: []
 ### [Maven Build Runner](features/maven-build-runner.md)
 - Summary: 只编译 target；reactor root compile 一次，leaf 使用 `-pl/-am`；baseline dependency 与 target build 并行。
 
-### [Dependency Tree Extraction](features/dependency-tree-extraction.md)
-- Summary: 普通 GraphML 决定 mediation/binding，verbose GraphML 保留 occurrence/multi-parent topology；Schema v2 manifest 初始化 command-scoped repository。
+### [Structured Dependency Evidence Collection](features/dependency-evidence-collection.md)
+- Summary: Maven resolved/raw graph 结构化采集，Schema v3 统一 selected tree、occurrence topology、reactor keys 与 physical bindings；evidence 只写 command cache。
 
 ### [Dependency Diff Engine](features/dependency-diff-engine.md)
 - Summary: 对比 baseline/target resolved dependency tree，生成稳定排序的 dependency changes。
@@ -61,7 +61,7 @@ code_refs: []
 ## Rules
 
 ### [Release Versioning](rules/release-versioning.md)
-- Summary: Analyzer、Artifact Path Plugin、公共JDK engine与JDK 8 model独立SemVer、release profile与Git annotated tag。
+- Summary: Analyzer、Dependency Evidence Plugin、公共JDK engine与JDK 8 model独立SemVer、release profile与Git annotated tag。
 
 ### [Process Command Resolution](rules/process-command-resolution.md)
 - Summary: 所有 production external process token 在 `ProcessBuilder` 前必须经过 `CommandResolver.resolve()`。

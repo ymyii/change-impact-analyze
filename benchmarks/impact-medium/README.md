@@ -1,6 +1,6 @@
 # Impact Medium CallGraph Benchmark
 
-本 benchmark 对打包后的 `dependency-analyzer impact` 执行四种 Call Graph algorithm、两种 dependency analysis scope 和`jdk8`/`none` JDK Method Model semantic control。Fixture 固定包含42个direct dependencies、9类bytecode change、private static递归调用changed dependency的路径，以及经`Stream.map` private `Function` callback调用changed dependency的model路径；target 以direct `scenario-api:2.0.0`作为winner，同时两条transitive path继续请求`1.0.0`，用于覆盖Maven mediation loser path；每个scope/model/algorithm/depth的candidate/final call chains由`expected-results.tsv`锁定。
+本 benchmark 对打包后的 `dependency-analyzer impact` 执行四种 Call Graph algorithm、两种 dependency analysis scope 和`jdk8`/`none` JDK Method Model semantic control。Fixture 固定包含42个direct dependencies、9类bytecode change、private static递归调用changed dependency的路径，以及经`Stream.map` private `Function` callback调用changed dependency的model路径；target 以direct `scenario-api:2.0.0`作为winner，同时两条transitive path继续请求`1.0.0`，用于覆盖Maven mediation loser path。Direct `test` 的`scope-conflict-marker`与`external-plain`引入的transitive `compile` duplicate覆盖Schema v3 scope pruning；`vendor-lib-34`改为transitive以保持selected classpath规模。每个scope/model/algorithm/depth的candidate/final call chains由`expected-results.tsv`锁定。
 
 ## Canonical suite
 
@@ -98,6 +98,8 @@ benchmarks/impact-medium/results/full/topology.tsv
 - Overall `JDK method model`等于请求值；默认run为`jdk8`，control为`none`。
 - requested/actual dependency analysis scope 均等于当前 matrix scope，不允许 fixture fallback。
 - POM 有 42 个 direct dependencies；两个 Module 合计 18 个 raw changed members。
+- `scope-conflict-marker` 不出现在report，且offline Maven repository不生成其JAR。
+- Fixture source repository 不出现`dep-tree-cia-*`、`resolved-artifacts-cia-*`或Schema v3 `module-*.json`中间产物；current target `target/` 是允许的build output。
 - `expected-results.tsv`中存在该scope/model/algorithm/depth的已校准candidate/final call chains。
 - Affected Call Chains包含`RecursiveCallUseCase.execute → RecursiveCallUseCase.recurse → ScenarioApi.bodyChanged`递归路径。
 - 默认`jdk8`的Affected Call Chains包含`JdkModelUseCase → JdkModelUseCase$ChangedMapper.apply → ScenarioApi.bodyChanged`路径；`none`按algorithm锁定真实JDK bytecode语义下的candidate/final baseline。

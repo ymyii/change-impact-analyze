@@ -81,7 +81,7 @@ class ClassOwnershipIndexTest {
                 .isEqualTo(ClassSource.path(first));
         assertThat(index.duplicateClassResolutions()).singleElement()
                 .extracting(DuplicateClassResolution::getPrecedenceReason)
-                .isEqualTo("External dependency GraphML order");
+                .isEqualTo("External dependency classpath order");
     }
 
     @Test
@@ -99,7 +99,7 @@ class ClassOwnershipIndexTest {
                 .isEqualTo(ClassSource.path(reactor));
         assertThat(index.duplicateClassResolutions()).singleElement()
                 .extracting(DuplicateClassResolution::getPrecedenceReason)
-                .isEqualTo("Reactor dependency GraphML order");
+                .isEqualTo("Reactor dependency classpath order");
     }
 
     @Test

@@ -73,6 +73,26 @@ install_artifact() {
 EOF
 }
 
+install_pom_only() {
+  group_id=$1
+  artifact_id=$2
+  version=$3
+  group_path=$(printf '%s' "$group_id" | tr '.' '/')
+  artifact_dir="$benchmark_maven_repo/$group_path/$artifact_id/$version"
+  destination_pom="$artifact_dir/$artifact_id-$version.pom"
+
+  mkdir -p "$artifact_dir"
+  cat >"$destination_pom" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>$group_id</groupId>
+  <artifactId>$artifact_id</artifactId>
+  <version>$version</version>
+</project>
+EOF
+}
+
 install_artifact_with_dependencies() {
   group_id=$1
   artifact_id=$2
@@ -192,7 +212,11 @@ install_artifact_with_dependencies com.acme.impact.path path-sibling 1.0.0 \
 install_artifact com.acme.impact.boundary external-sink 1.0.0 "$sink_jar"
 install_artifact com.acme.impact.boundary external-factory 1.0.0 \
   "$factory_jar"
-install_artifact com.acme.impact.boundary external-plain 1.0.0 "$plain_jar"
+install_pom_only com.acme.impact.scope scope-conflict-marker 1.0.0
+install_artifact_with_dependencies \
+  com.acme.impact.boundary external-plain 1.0.0 "$plain_jar" \
+  com.acme.impact.scope scope-conflict-marker 1.0.0 \
+  com.acme.benchmark.vendor vendor-lib-34 1.0.0
 
 vendor_source_root="$work_root/vendor-sources"
 vendor_classes_root="$work_root/vendor-classes"

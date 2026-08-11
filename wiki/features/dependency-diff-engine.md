@@ -4,7 +4,7 @@ type: feature
 relations:
   - path: "wiki/architecture/dependency-analysis-pipelines.md"
     desc: "依赖变动对比是分析流水线的第五阶段"
-  - path: "wiki/features/dependency-tree-extraction.md"
+  - path: "wiki/features/dependency-evidence-collection.md"
     desc: "依赖变动对比依赖前序阶段产出的 resolved dependency tree"
   - path: "wiki/features/jar-locator.md"
     desc: "VERSION_CHANGED coordinate 由 command-scoped repository 打开 JAR"

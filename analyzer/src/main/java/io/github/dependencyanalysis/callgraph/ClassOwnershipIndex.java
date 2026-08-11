@@ -297,8 +297,8 @@ public final class ClassOwnershipIndex {
             case JDK -> "JDK parent/bootstrap precedence";
             case PROJECT -> "Current module target/classes precedence";
             case REACTOR_DEPENDENCY ->
-                    "Reactor dependency GraphML order";
-            case DEPENDENCY -> "External dependency GraphML order";
+                    "Reactor dependency classpath order";
+            case DEPENDENCY -> "External dependency classpath order";
             default -> "Classpath discovery order";
         };
     }

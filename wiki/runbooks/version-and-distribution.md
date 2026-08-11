@@ -33,7 +33,7 @@ code_refs:
 
 本 runbook 使用 Maven 自身的 Versions、Enforcer、Install、Assembly、Shade、Surefire 与 Failsafe 能力完成 version iteration 和 release。Repository 不提供自有 version/release script，也不维护 version contract 或 fingerprint ledger。
 
-当前release线：Analyzer`2.0.0`、Artifact Path Plugin`2.1.0`、公共JDK engine与JDK 8 model`0.1.0-SNAPSHOT`。四者独立使用Semantic Versioning（SemVer）。
+当前release线：Analyzer`2.0.0`、Dependency Evidence Plugin`3.0.0`、公共JDK engine与JDK 8 model`0.1.0-SNAPSHOT`。四者独立使用Semantic Versioning（SemVer）。
 
 ## Prerequisites
 
@@ -49,7 +49,7 @@ code_refs:
 ```sh
 mvn -f plugins/pom.xml versions:set-property \
   -Dproperty=revision \
-  -DnewVersion=2.2.0-SNAPSHOT \
+  -DnewVersion=3.1.0-SNAPSHOT \
   -DgenerateBackupPoms=false
 
 mvn versions:set-property \
@@ -59,7 +59,7 @@ mvn versions:set-property \
 
 mvn versions:set-property \
   -Dproperty=artifact-path-plugin.version \
-  -DnewVersion=2.2.0-SNAPSHOT \
+  -DnewVersion=3.1.0-SNAPSHOT \
   -DgenerateBackupPoms=false
 ```
 
@@ -72,11 +72,11 @@ mvn -f plugins/pom.xml clean install
 mvn clean verify
 ```
 
-无需为每次本地自测 bump 或 commit。Analyzer build 会重新 copy local repository 中的 Snapshot repository ZIP；runtime 为 Artifact Path Plugin Snapshot 添加 `-U`，并只刷新该小型 repository cache。
+无需为每次本地自测 bump 或 commit。Analyzer build 会重新 copy local repository 中的 Snapshot repository ZIP；runtime 为 Dependency Evidence Plugin Snapshot 添加 `-U`，并只刷新该小型 repository cache。
 
 ## Stable Release
 
-以下示例发布公共engine/JDK 8 model`0.1.0`、Artifact Path Plugin`2.1.0`与Analyzer`2.0.0`。
+以下示例发布公共engine/JDK 8 model`0.1.0`、Dependency Evidence Plugin`3.0.0`与Analyzer`2.0.0`。
 
 ### 1. 切换并安装公共engine与JDK 8 model Stable version
 
@@ -92,7 +92,7 @@ mvn -f models/jdk8/pom.xml -Prelease clean install
 ```sh
 mvn -f plugins/pom.xml versions:set-property \
   -Dproperty=revision \
-  -DnewVersion=2.1.0 \
+  -DnewVersion=3.0.0 \
   -DgenerateBackupPoms=false
 
 mvn -f plugins/pom.xml -Prelease clean install
@@ -108,7 +108,7 @@ mvn versions:set-property \
 
 mvn versions:set-property \
   -Dproperty=artifact-path-plugin.version \
-  -DnewVersion=2.1.0 \
+  -DnewVersion=3.0.0 \
   -DgenerateBackupPoms=false
 
 mvn versions:set-property \
@@ -134,7 +134,7 @@ jar tf target/dependency-analyzer.jar | \
   grep '^maven/plugin-repositories/.*-repository.zip$'
 ```
 
-必须恰好得到 `maven-dependency-plugin-3.6.1-repository.zip` 与 `dependency-analyzer-artifact-path-maven-plugin-2.1.0-repository.zip`。
+必须恰好得到 `maven-dependency-plugin-3.6.1-repository.zip` 与 `dependency-analyzer-artifact-path-maven-plugin-3.0.0-repository.zip`。
 
 同时确认JAR包含`JdkModels.class`、`Jdk8Models.class`与`jdk8-models.tsv`。
 
@@ -147,7 +147,7 @@ git add -A
 git commit -m "build(release): publish dependency analyzer artifacts"
 git tag -a jdk-models-v0.1.0 -m "JDK Models 0.1.0"
 git tag -a jdk8-models-v0.1.0 -m "JDK 8 Models 0.1.0"
-git tag -a artifact-path-plugin-v2.1.0 -m "Artifact Path Plugin 2.1.0"
+git tag -a dependency-evidence-plugin-v3.0.0 -m "Dependency Evidence Plugin 3.0.0"
 git tag -a analyzer-v2.0.0 -m "Dependency Analyzer 2.0.0"
 ```
 

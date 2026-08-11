@@ -101,7 +101,7 @@ public final class ModuleDependencyTree {
         return dependencies;
     }
 
-    /** @return GraphML occurrence graph used only for path planning */
+    /** @return structured occurrence graph used for path planning */
     public ModuleDependencyOccurrenceGraph getOccurrenceGraph() {
         return occurrenceGraph;
     }

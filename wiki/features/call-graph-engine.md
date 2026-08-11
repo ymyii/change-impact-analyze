@@ -6,7 +6,7 @@ relations:
     desc: "默认JDK 8 Synthetic IR selector与严格安装contract"
   - path: "wiki/architecture/dependency-analysis-pipelines.md"
     desc: "per-Module pipeline 与并发边界"
-  - path: "wiki/features/dependency-tree-extraction.md"
+  - path: "wiki/features/dependency-evidence-collection.md"
     desc: "coordinate-based JAR repository 初始化输入"
   - path: "wiki/features/impact-tracing.md"
     desc: "read-only query 消费 live session"
@@ -171,7 +171,7 @@ code_refs:
 - `SYNTHETIC`：WALA lambda、`altMetafactory` lambda 与 ServiceLoader provider iterator。
 - `changed-paths` selected external source：必须是target evidence中的selected binding，且至少位于一条`Module root -> normalized changed dependency occurrence`完整路径中；seed的child/downstream不自动selected，mediation loser不能进入policy。
 - `changed-paths` unselected external source：class、method declaration、resource、ownership、CHA 与 resolution仍真实存在，仅 method body被 boundary解释。
-- Scope load 前按`JDK > PROJECT > REACTOR_DEPENDENCY > DEPENDENCY`建立single-winner ownership。Reactor/external tier只使用普通GraphML selected projection的traversal order；verbose traversal不参与classpath排序。
+- Scope load 前按`JDK > PROJECT > REACTOR_DEPENDENCY > DEPENDENCY`建立single-winner ownership。Reactor/external tier只使用Schema v3 selected projection的Maven traversal order；raw occurrence traversal不参与classpath排序。
 - Dependency duplicate evidence、`MethodId.sourceId` 与 Report source 均使用 coordinate；PROJECT/reactor/JDK 可继续使用非 dependency path identity。
 - byte-identical duplicate 静默去重。内容不同的 duplicate 记录 winner、loser logical source 与 precedence reason；不改变 Module status。
 - `module-info.class` 与 `META-INF/versions/**` 不参与 ownership。Ownership filter 只隐藏 loser class entry，JAR 内其他唯一 class/resource 仍向 WALA 暴露。

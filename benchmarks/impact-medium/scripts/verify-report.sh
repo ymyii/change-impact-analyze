@@ -132,6 +132,16 @@ dependency_count=$(awk '
 ' "$project_root/application/pom.xml")
 [ "$dependency_count" -eq 42 ] \
   || fail "expected 42 direct dependencies; found $dependency_count"
+! grep -R -q 'scope-conflict-marker' "$module_dir" \
+  || fail "test-scope conflict marker entered the analysis report"
+[ ! -f "$BENCHMARK_MAVEN_REPO/com/acme/impact/scope/scope-conflict-marker/1.0.0/scope-conflict-marker-1.0.0.jar" ] \
+  || fail "test-scope conflict marker binary was requested"
+if find "$project_root" -type f \( \
+    -name 'dep-tree-cia-*' -o \
+    -name 'resolved-artifacts-cia-*' -o \
+    -name 'module-*.json' \) -print | grep -q .; then
+  fail "dependency evidence temporary files leaked into the fixture repository"
+fi
 
 visible_change_kind_count=0
 for change_kind in $required_change_kinds; do

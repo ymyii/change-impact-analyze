@@ -34,6 +34,7 @@
     <dependency><groupId>com.acme.impact.boundary</groupId><artifactId>external-sink</artifactId><version>1.0.0</version></dependency>
     <dependency><groupId>com.acme.impact.boundary</groupId><artifactId>external-factory</artifactId><version>1.0.0</version></dependency>
     <dependency><groupId>com.acme.impact.boundary</groupId><artifactId>external-plain</artifactId><version>1.0.0</version></dependency>
+    <dependency><groupId>com.acme.impact.scope</groupId><artifactId>scope-conflict-marker</artifactId><version>1.0.0</version><scope>test</scope></dependency>
     <dependency><groupId>com.acme.impact</groupId><artifactId>legacy-impact-bridge</artifactId><version>1.0.0</version></dependency>
     <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-01</artifactId><version>1.0.0</version></dependency>
     <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-02</artifactId><version>1.0.0</version></dependency>
@@ -68,7 +69,6 @@
     <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-31</artifactId><version>1.0.0</version></dependency>
     <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-32</artifactId><version>1.0.0</version></dependency>
     <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-33</artifactId><version>1.0.0</version></dependency>
-    <dependency><groupId>com.acme.benchmark.vendor</groupId><artifactId>vendor-lib-34</artifactId><version>1.0.0</version></dependency>
   </dependencies>
 
   <build>

@@ -250,10 +250,10 @@ final class ImpactPreflightService {
                 List.of("impact.git-repository",
                         "impact.root-pom"),
                 context -> prepareWorkspace(context)));
-        checks.add(required("impact.graphml-capability",
+        checks.add(required("impact.dependency-evidence-capability",
                 List.of("impact.workspace",
                         "impact.dependency-plugin-runtime"),
-                context -> probeGraphMl(context)));
+                context -> dependencyEvidenceCapability(context)));
         return checks;
     }
 
@@ -384,7 +384,7 @@ final class ImpactPreflightService {
         return PreflightOutcome.pass(
                 "Maven Dependency Plugin runtime prepared",
                 "dependencyPlugin=embedded:" + plugin.getVersion()
-                        + "; artifactPathPlugin="
+                        + "; dependencyEvidencePlugin="
                         + plugin.getArtifactPathPluginVersion()
                         + "; repositories="
                         + plugin.getRepositories().size());
@@ -420,52 +420,14 @@ final class ImpactPreflightService {
         }
     }
 
-    private PreflightOutcome probeGraphMl(
-            final PreflightContext context)
-            throws Exception {
-        final Path probe = Files.createTempFile(
-                context.get(COMMAND_RUN,
-                        CommandRunDirectory.class)
-                        .getTemporaryDirectory(),
-                "graphml-probe-",
-                ".graphml");
-        try {
-            final List<String> arguments =
-                    new ArrayList<>(context.get(
-                            DEPENDENCY_PLUGIN_RUNTIME,
-                            MavenDependencyPluginRuntime.class)
-                            .getMavenArguments());
-            arguments.add("-B");
-            arguments.add(context.get(
-                            DEPENDENCY_PLUGIN_RUNTIME,
-                            MavenDependencyPluginRuntime.class)
-                    .getGoal("tree"));
-            arguments.add("-DoutputType=graphml");
-            arguments.add("-DoutputFile=" + probe);
-            final MavenExecutionResult result =
-                    new MavenExecutor().execute(
-                            context.get(MAVEN_RUNTIME,
-                                    MavenRuntimeDescriptor.class),
-                            context.get(WORKSPACE,
-                                    WorkspaceResult.class)
-                                    .getBaseline().getPath(),
-                            arguments, diagnostics,
-                            DiagnosticContext.of(
-                                    "preflight", "maven-plugin-probe"),
-                            MAVEN_TAIL_LINES);
-            if (result.getExitCode() != 0
-                    || Files.size(probe) == 0) {
-                return PreflightOutcome.fail(
-                        "Dependency plugin GraphML"
-                                + " capability is unavailable",
-                        tail(result.getCombinedOutput()), "");
-            }
-            return PreflightOutcome.pass(
-                    "Dependency plugin supports GraphML",
-                    "probe bytes=" + Files.size(probe));
-        } finally {
-            Files.deleteIfExists(probe);
-        }
+    private PreflightOutcome dependencyEvidenceCapability(
+            final PreflightContext context) {
+        final MavenDependencyPluginRuntime runtime = context.get(
+                DEPENDENCY_PLUGIN_RUNTIME,
+                MavenDependencyPluginRuntime.class);
+        return PreflightOutcome.pass(
+                "Structured dependency evidence is available",
+                "goal=" + runtime.getDependencyEvidenceGoal());
     }
 
     private String tail(final String value) {

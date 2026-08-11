@@ -1,6 +1,7 @@
 package io.github.dependencyanalysis.maven;
 
 import org.eclipse.aether.artifact.Artifact;
+import org.apache.maven.artifact.handler.ArtifactHandler;
 
 import java.util.Comparator;
 import java.util.Objects;
@@ -70,6 +71,20 @@ final class ArtifactCoordinates {
                 artifact.getBaseVersion());
     }
 
+    static ArtifactCoordinates from(
+            final org.apache.maven.artifact.Artifact artifact) {
+        final ArtifactHandler handler = artifact.getArtifactHandler();
+        final String type = emptyDefault(artifact.getType(), "jar");
+        final String extension = handler == null
+                ? type : emptyDefault(handler.getExtension(), type);
+        final String classifier = emptyIfNull(artifact.getClassifier());
+        return new ArtifactCoordinates(
+                artifact.getGroupId(), artifact.getArtifactId(), type,
+                extension, classifier, artifact.getVersion(),
+                emptyDefault(artifact.getBaseVersion(),
+                        artifact.getVersion()));
+    }
+
     static String typeOf(final Artifact artifact) {
         return artifact.getProperty(
                 org.eclipse.aether.artifact.ArtifactProperties.TYPE,
@@ -80,9 +95,20 @@ final class ArtifactCoordinates {
         return value == null ? "" : value;
     }
 
+    private static String emptyDefault(
+            final String value,
+            final String fallback) {
+        return value == null || value.isEmpty() ? fallback : value;
+    }
+
     String identity() {
         return groupId + ":" + artifactId + ":" + type + ":"
                 + classifier + ":" + baseVersion;
+    }
+
+    String analysisKey() {
+        return groupId + ":" + artifactId + ":" + type
+                + (classifier.isEmpty() ? "" : ":" + classifier);
     }
 
     String getGroupId() {

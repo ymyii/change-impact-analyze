@@ -7,7 +7,7 @@ import java.util.Objects;
 /** One selected external dependency and its Resolver-provided path. */
 final class ResolvedArtifactPath {
 
-    /** Stable Schema v2 artifact order. */
+    /** Stable Schema v3 artifact order. */
     static final Comparator<ResolvedArtifactPath> ORDER = Comparator
             .comparing(ResolvedArtifactPath::getCoordinates,
                     ArtifactCoordinates.ORDER)
