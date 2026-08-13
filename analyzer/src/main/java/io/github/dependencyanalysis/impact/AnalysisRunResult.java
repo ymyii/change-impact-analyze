@@ -146,16 +146,6 @@ public final class AnalysisRunResult {
         return moduleResults;
     }
 
-    /** @return configured module parallelism */
-    public int getConfiguredParallelism() {
-        return concurrency.configuredAnalysisParallelism();
-    }
-
-    /** @return actual module parallelism */
-    public int getActualParallelism() {
-        return concurrency.actualModuleParallelism();
-    }
-
     /** @return configured JAR diff workers */
     public int getConfiguredJarDiffWorkers() {
         return concurrency.configuredAnalysisParallelism();
@@ -169,6 +159,11 @@ public final class AnalysisRunResult {
     /** @return configured safe-stage analysis parallelism */
     public int getConfiguredAnalysisParallelism() {
         return concurrency.configuredAnalysisParallelism();
+    }
+
+    /** @return actual Impact Query workers */
+    public int getActualImpactQueryWorkers() {
+        return concurrency.actualImpactQueryWorkers();
     }
 
     /** @return actual code evidence workers */

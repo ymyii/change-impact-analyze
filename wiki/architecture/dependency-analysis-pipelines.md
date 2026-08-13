@@ -20,7 +20,7 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactCommand.java"
     desc: "impact CLI 编排"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
-    desc: "rolling bounded per-Module pipeline与cache spill"
+    desc: "串行per-Module pipeline、阶段级bounded pool与cache spill"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleAnalysisSnapshotter.java"
     desc: "WALA-backed path到report-safe snapshot的释放边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/ReportTaskCache.java"
@@ -61,7 +61,7 @@ code_refs:
 
 ## Summary
 
-Root CLI 分发 `impact` 与 `tree`。`impact`只编译target并构建target per-Module Call Graph；baseline仅提供dependency evidence、old artifact、字节码、ServiceLoader resource和按需old SSA。默认配置固定为`cha + changed-paths + jdk-model none + bytecode semantic comparison disabled`。Module通过rolling bounded queue完成后立即输出cache fragment并脱离WALA graph/session；只有显式启用试验性semantic comparison时，协调线程才在释放前执行SSA equivalence。`tree`逐行解析Maven output，使用cache-backed external grouping并在每个Reactor发布后释放其明细。两条pipeline都通过task-scoped cache和Writer流式Report限制峰值内存。
+Root CLI 分发 `impact` 与 `tree`。`impact`只编译target并构建target per-Module Call Graph；baseline仅提供dependency evidence、old artifact、字节码、ServiceLoader resource和按需old SSA。默认配置固定为`cha + changed-paths + jdk-model none + bytecode semantic comparison disabled`。Relevant Module按stable key严格串行；一个Module完成Call Graph、QueryNode并发impact-query、可选SSA、diagnostics、snapshot detach与cache spill后才开始下一个。`tree`逐行解析Maven output，使用cache-backed external grouping并在每个Reactor发布后释放其明细。两条pipeline都通过task-scoped cache和Writer流式Report限制峰值内存。
 
 ## Architecture Diagram
 
@@ -76,13 +76,13 @@ flowchart TD
   JarDiff --> Bind["BoundChangePoint per Module"]
   Bind --> PathPlan["all reverse paths to changed dependency; union or full fallback"]
   PathPlan --> EntrySelection["immutable target/classes entrypoint class index"]
-  EntrySelection --> ModulePool["rolling bounded Module completion queue"]
-  ModulePool --> ScopeValidation["scope validation"]
+  EntrySelection --> ModuleSerial["stable serial Module loop"]
+  ModuleSerial --> ScopeValidation["scope validation"]
   ScopeValidation --> Strategy["Factory selects topology strategy + capabilities"]
   Strategy --> CFA["one per-Module WALA Call Graph + strategy artifacts"]
   CFA --> Collector["unified evidence collection + ChangePoint binding"]
   Collector --> Session["freeze graph + evidence + limitations + metadata"]
-  Session --> Query["evidence-driven reverse BFS + typed access decision"]
+  Session --> Query["bounded QueryNode reverse BFS + typed access decision"]
   Query --> Semantic{"experimental semantic comparison?"}
   Semantic -->|enabled| SSA["coordinator serial SSA equivalence"]
   Semantic -->|disabled| Spill["JSON Lines snapshot; release WALA session"]
@@ -122,7 +122,7 @@ flowchart TD
 - Root CLI完成preflight与scope planning后，front preparation并行收集baseline dependency并编译target。
 - Baseline/target dependency collection分别产出`ModuleDependencyEvidence`。Maven resolved graph决定selected projection与winner；raw graph occurrence直接映射到retained winner，保留topology；Schema v3在同一Module evidence内绑定physical artifact。
 - Bytecode Diff与ServiceLoader resource Diff完成后，ChangePoint按Module绑定。每个Module使用target evidence的normalized occurrence graph从所有matching winner seed沿全部parent edge反向恢复到Module root；路径、多occurrence和多seed取并集，禁止沿seed child edge扩展。
-- Module task只在rolling window内提交；同时最多存在`actualAnalysisParallelism`个live task。Completion queue每取回一个Module，只有command显式启用试验性semantic comparison时，协调线程才立即执行该Module的serial SSA equivalence；随后在释放session前输出optional diagnostics fragment。
+- Relevant Module按`ModuleId.stableKey()`逐个执行。当前Module完成Call Graph、impact-query、可选serial SSA equivalence与optional diagnostics fragment后，才执行snapshot detach和cache spill，再进入下一个Module。
 - Module随后转换为report-safe snapshot；candidate/final/structural path、observation与summary逐类写JSON Lines。写完后不再持有WALA `CGNode`、class hierarchy、analysis cache或Call Graph session。
 - Code comparison按stable change key去重，通过bounded completion queue生成；完成一项立即写独立fragment。Analysis result、Overall Report与optional diagnostics JSON携带effective algorithm、JDK model、strategy capabilities、Reflection applied状态和Evidence汇总；diagnostics JSON为Schema v8。
 - Overall与Module pages使用UTF-8 `Writer`直接写同filesystem staging；完整关闭所有页面后原子替换command-owned Report，任何时刻不构造完整HTML字符串。
@@ -145,9 +145,10 @@ flowchart TD
 - 两者 join 后才运行 target dependency；同一 target workspace 不并发执行两个 Maven process。
 - Baseline/target dependency 使用同一内嵌 Plugin runtime、settings overlay，并在各自单个 Maven process/session 中执行 fully-qualified `collect-dependency-evidence` goal；target compile 不使用 overlay。
 - Maven resolved graph是`impact`唯一mediation与classpath authority；raw occurrence graph只贡献topology，Schema v3为同一`ModuleDependencyEvidence`提供Module-local selected binding。非`system` binding来自Resolver result，`system` binding来自effective `MavenProject.systemPath`。Repository构建后以`ArtifactCoord`为唯一key，业务对象不保留dependency JAR path。只有selected reactor key映射到`target/classes`；未命中retained winner的raw occurrence不扩张reactor closure。
-- `--analysis-parallelism` 默认`2`，分别控制Module analysis、JAR diff和code comparison bounded pool；各阶段再按task数计算actual workers。Module analysis使用rolling submission，不预先保存全部`Future`，live task/result上限等于actual workers。超过CPU只warning。
+- `--analysis-parallelism`默认在运行期取`max(1, availableProcessors / 2)`，只控制JAR diff、Impact Query和code comparison bounded pool；各阶段按任务数计算worker上限。显式值必须`>=1`，超过可用CPU只warning，不截断。
 - JAR diff 按 logical old/new coordinate pair 去重；code comparison 按 coordinate pair/member 去重并跨 Module 复用。physical path 只存在于 repository 内部和短生命周期 `JarLease`。
-- 每个 Module 内 WALA build/query 单线程；Module 之间并行。
+- Module analysis严格串行，relevant Module数量不参与parallelism计算。WALA build、evidence preparation、seed resolution与access observation均在Module协调线程串行执行。
+- Impact Query使用command-wide共享pool，按exact QueryNode滚动提交；一个任务持有一个局部`ReverseTrace`并处理其全部ordinary/structural evidence。记录command实际同时运行过的最大QueryNode任务数。
 - 启用试验性semantic comparison后，SSA equivalence由单一协调线程执行；每个Module完成graph/query后立即处理，跨Module不并发。默认关闭时不存在该stage及其elapsed metric。
 - Module 普通 failure/timeout 不取消其他 Module；global preparation failure 不替换旧 Report。
 - relevant Module 未匹配用户 entrypoint selector 时为 `SKIPPED_USER_ENTRYPOINT_SCOPE`；所有 relevant Module 都未匹配时属于 command failure，不替换旧 Report。

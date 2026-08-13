@@ -16,6 +16,25 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** Tests Module analysis coverage outcome selection. */
 class PerModuleImpactPipelineTest {
 
+    /** Odd multi-core test input. */
+    private static final int THREE_PROCESSORS = 3;
+
+    /** Eight-core test input. */
+    private static final int EIGHT_PROCESSORS = 8;
+
+    /** Half of eight processors. */
+    private static final int FOUR_WORKERS = 4;
+
+    @Test
+    void analysisParallelismDefaultsToHalfAvailableProcessors() {
+        assertThat(ImpactCommand.defaultAnalysisParallelism(1)).isEqualTo(1);
+        assertThat(ImpactCommand.defaultAnalysisParallelism(2)).isEqualTo(1);
+        assertThat(ImpactCommand.defaultAnalysisParallelism(
+                THREE_PROCESSORS)).isEqualTo(1);
+        assertThat(ImpactCommand.defaultAnalysisParallelism(
+                EIGHT_PROCESSORS)).isEqualTo(FOUR_WORKERS);
+    }
+
     @Test
     void semanticComparisonIsDisabledByCompatibilityConfiguration() {
         final AnalysisRunConfiguration configuration =

@@ -245,15 +245,7 @@ public final class PerModuleHtmlReportGenerator {
                                 + context.maven().getSource() + ")"))
                 .append(row("Maven Dependency Plugin",
                         "embedded " + context.plugin().getVersion()))
-                .append(row("Modules analyzed in parallel",
-                        run.getActualParallelism() + " (configured "
-                                + run.getConfiguredParallelism() + ")"))
-                .append(row("JAR comparisons in parallel",
-                        run.getActualJarDiffWorkers() + " (configured "
-                                + run.getConfiguredJarDiffWorkers() + ")"))
-                .append(row("Code comparisons in parallel",
-                        run.getActualDecompileWorkers() + " (configured "
-                                + run.getConfiguredParallelism() + ")"))
+                .append(concurrencyRows(run))
                 .append(row("Dependency changes",
                         run.getDependencyChanges().size()))
                 .append(row("Conflicting duplicate classes",
@@ -335,6 +327,18 @@ public final class PerModuleHtmlReportGenerator {
         appendPreflight(body, preflight);
         appendDiagnostics(body, events);
         });
+    }
+
+    private String concurrencyRows(final AnalysisRunResult run) {
+        return row("JAR comparisons in parallel",
+                run.getActualJarDiffWorkers() + " (configured "
+                        + run.getConfiguredJarDiffWorkers() + ")")
+                + row("Impact queries in parallel",
+                run.getActualImpactQueryWorkers() + " (configured "
+                        + run.getConfiguredAnalysisParallelism() + ")")
+                + row("Code comparisons in parallel",
+                run.getActualDecompileWorkers() + " (configured "
+                        + run.getConfiguredAnalysisParallelism() + ")");
     }
 
     private void writeModuleIndexPage(

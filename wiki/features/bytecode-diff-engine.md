@@ -66,6 +66,7 @@ code_refs:
 - Access narrowing只比较相同binary identity，且只描述target access相对baseline的strict narrowing。
 - 同一coordinate pair被多个Module引用时共享同一ChangePoint实例，descriptor、hash与`AccessTransition`保持不变。
 - service配置删除但provider class仍存在时生成`SERVICE_PROVIDER_REGISTRATION_REMOVED`；provider class和配置同时删除时只保留`CLASS_REMOVED`。
+- 聚合INFO completion中的`changes`是所有成功logical pair各自去重后的ChangePoint数量之和；同一pair绑定多个Module不重复计数。失败pair计入`failedPairs`但不计入`changes`。
 
 ## Core Flow
 
@@ -113,6 +114,7 @@ code_refs:
 - 单个 pair failure 不取消其他 JAR diff task；关联 Module 记录 `INCONCLUSIVE_BYTECODE_DIFF`。
 - Pair failure的WARN固定包含异常类型与完整message；`-v`/`-vv`再输出带同一pair context的完整stack trace和cause chain。WARN进入Report diagnostics，stack trace只进入Console。
 - Pair failure 且无其他可分析 ChangePoint 时不构建 Call Graph，但仍生成 Module detail page。
+- 聚合日志固定输出`changes=<成功pair唯一ChangePoint总数>; pairs=<logical pair总数>; failedPairs=<失败pair数>; workers=<实际worker数>`；空diff四项均为`0`。
 - Raw bytecode diff不对全部changed method构建SSA；试验性semantic filtering默认关闭，显式启用后延迟到candidate path之后按需构建。
 - 反编译同样延迟到 candidate/Structural path 完成后，只处理 Report 相关 member；pool 使用 `--analysis-parallelism`，每个 Vineflower task 内固定单线程。
 
@@ -129,6 +131,7 @@ code_refs:
 - Given descriptor变化、access expansion或非法modifier组合；When执行diff/构造domain object；Then不猜测access narrowing或立即fail fast。
 - Given provider class与registration同时删除；When执行Diff；Then只生成`CLASS_REMOVED`。Given仅删除registration；Then生成typed resource ChangePoint。
 - Given配置包含comment、空行与duplicate；When执行Diff；Then规范化结果和stable key保持deterministic。
+- Given空diff、全部成功、部分失败或同一pair绑定多个Module；When聚合结束；Then`changes/pairs/failedPairs/workers`遵守唯一logical pair口径。
 
 ### Non-Functional
 

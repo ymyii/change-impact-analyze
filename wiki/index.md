@@ -15,12 +15,12 @@ code_refs: []
 ## Architecture
 
 ### [Dependency Analysis Pipelines](architecture/dependency-analysis-pipelines.md)
-- Summary: `impact` rolling Module/可选试验性SSA/WALA detach与`tree` Reader/external merge pipeline；两者共用UUID task cache和Writer流式Report。
+- Summary: `impact`严格串行Module、按QueryNode并发Impact Query、可选试验性SSA与WALA detach；`tree`使用Reader/external merge；两者共用UUID task cache和Writer流式Report。
 
 ## Features
 
 ### [CLI Preflight and Diagnostics](features/cli-preflight-diagnostics.md)
-- Summary: stderr-only 五段 DiagnosticLog、Preflight、verbosity，以及`-vv`下100 ms heap observation、10 s snapshot与final peak summary。
+- Summary: stderr-only五段DiagnosticLog、半核analysis parallelism默认值、QueryNode进度、JAR diff汇总，以及`-vv` Runtime Metrics。
 
 ### [Maven Runtime](features/maven-runtime.md)
 - Summary: 用户 executable、跨平台内嵌 Maven 3.6.3、两个独立 repository ZIP，以及 Stable/Snapshot 分离 cache 与 command-scoped settings。
@@ -44,7 +44,7 @@ code_refs: []
 - Summary: `ArtifactCoord` 是 dependency JAR logical identity；repository deterministic 选择 Resolver binding，并以 tracked `JarLease` 隔离 physical handle。
 
 ### [Bytecode Diff Engine](features/bytecode-diff-engine.md)
-- Summary: logical coordinate pair经repository lease并行去重Diff；检测bytecode、JVM access narrowing与ServiceLoader registration removal。
+- Summary: logical coordinate pair经repository lease并行去重Diff；检测bytecode、JVM access narrowing与ServiceLoader registration removal，并按唯一pair汇总changes/failure。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
 - Summary: CHA changed-paths裁剪无关external target并传递保留external祖先type；固定JDK leaf、Object Diff-directed policy、五种algorithm capability与Schema v8 diagnostics。
@@ -53,7 +53,7 @@ code_refs: []
 - Summary: CHA固定`none`；四种非CHA algorithm默认接入独立`models/jdk8`精确catalog，并允许显式`none`。
 
 ### [Impact Tracing](features/impact-tracing.md)
-- Summary: 构图后统一collector绑定公共`ReferenceEvidence`；冻结session上的query生成node-only path与完整terminal，试验性SSA过滤默认关闭，并在`-vv`下提供单seed独立10秒心跳。
+- Summary: 构图后统一collector绑定公共`ReferenceEvidence`；冻结session按exact `QueryNode`分组并发reverse BFS，共享单节点局部`ReverseTrace`，并在`-vv`下提供QueryNode独立10秒心跳。
 
 ### [Report Generator](features/report-generator.md)
 - Summary: `impact`通过Writer原子生成英文Overall与Module三页；使用WALA-detached snapshot并展示artifact policy、ancestor exception与pruned target metrics。

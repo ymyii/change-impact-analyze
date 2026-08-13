@@ -61,7 +61,7 @@ code_refs:
 Index 记录：
 
 - Overall mode/status、JDK/Maven version、`Maven Dependency Plugin: embedded 3.6.1`。
-- Configured/actual analysis parallelism、Module/JAR diff/decompile workers；试验性比较关闭时SSA worker显示`0 (disabled)`，启用时显示`1 (experimental)`。
+- `JAR comparisons in parallel`、`Impact queries in parallel`与`Code comparisons in parallel`分别展示actual worker和同一configured analysis parallelism；不展示Module parallelism。试验性比较关闭时SSA worker显示`0 (disabled)`，启用时显示`1 (experimental)`。
 - Baseline dependency、target build、front preparation、target dependency、JAR diff、Module analysis、decompile elapsed；只有启用试验性比较时展示SSA elapsed。
 - Dependency changes、raw ChangePoints、candidate/equivalent-filtered/final paths、duplicate conflict/shadowed ChangePoint与SSA status counts；试验性比较关闭时SSA counts显示`not run`。
 - 每 Module status/reason/link、candidate/filtered/final、direct/transitive、affected methods/classes、Structural Reference Paths、entrypoint selector/matching、scope、CG nodes/edges/contexts、SSA/limitation counts。

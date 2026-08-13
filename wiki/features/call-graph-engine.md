@@ -232,7 +232,7 @@ CallGraphBuildRequest
 
 RTA使用caller-local`IR`/`DefUse`解析`Lookup.findStatic*`到`invokeExact`/`invokeWithArguments`target。三种points-to strategy继续使用WALA MethodHandle extension。CHA保留WALA自带lambda metafactory；unresolved invokedynamic与MethodHandle只生成typed limitation，不切换algorithm。
 
-`AnalysisCacheImpl` 使用 `SSAOptions.defaultOptions()`。Builder/query 在 Module 内单线程；不同 Module 受 `--analysis-parallelism` 控制。`CallGraphTimeoutMonitor` 仅使用 WALA cooperative cancel；`0` 表示无限等待，timeout 不输出 partial graph。
+`AnalysisCacheImpl` 使用 `SSAOptions.defaultOptions()`。Module按stable key严格串行；Builder和evidence planning在Module协调线程执行。冻结session后的reverse traversal可由`--analysis-parallelism`控制的Impact Query pool按exact `QueryNode`并发只读。`CallGraphTimeoutMonitor` 仅使用 WALA cooperative cancel；`0` 表示无限等待，timeout 不输出 partial graph。
 
 ## Core Flow
 
@@ -383,7 +383,8 @@ Factory summary使用真实 resolved callee owner、method与descriptor，生成
 
 - Given任意Module进入构图；When选择`cha`；Then使用`CHACallGraph(hierarchy,false)`、全部普通node为`Everywhere`、points-to/JDK model/JDK body capability均为false；其他algorithm保持各自builder policy。
 - Given`k-obj` ClassFactory compatibility merge；Whenproduction构造builder；Then复用唯一existing default selector且不显式创建`ClassFactoryContextSelector`或`UnionContextSelector`；Context shape门禁验证单一`JavaTypeContext`引用、`Context.isA()`、`Context.get()`与runtime `instanceof`，不根据格式化字符串猜测类型。
-- Given Module analysis开始；When执行 builder与query；Then Module内保持单线程，Module间并发边界不变。
+- Given多个relevant Module；When执行analysis；Then按stable key严格串行，任一时刻最多一个Module处于analysis生命周期。
+- Given冻结的Module session与多个exact QueryNode；When执行Impact Query；Then只读reverse traversal受`--analysis-parallelism`限制，builder、IR evidence preparation与access observation不并发。
 - Given Call Graph完成；When进入Impact query；ThenEvidence已完整冻结，query不扫描IR发现method/field/type/reflection/ServiceLoader reference，也不执行overlay、whole-scope重扫或第二张target Call Graph。
 - Given版本、scope、selector与环境相同；When重复执行分析；Then输出保持 deterministic。
 

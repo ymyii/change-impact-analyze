@@ -18,6 +18,7 @@ import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -29,13 +30,35 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.IntConsumer;
 
 // Wiki: wiki/features/impact-tracing.md - Node-only reverse query entrypoint
-/** Single-thread Impact Path query over a frozen per-module session. */
+/** QueryNode-grouped Impact Path query over a frozen per-module session. */
 public final class ModuleImpactTracer {
 
     /** Diagnostics. */
     private final DiagnosticLog diagnostics;
+
+    /** Shared command Impact Query executor; null for direct inline calls. */
+    private final ExecutorService executor;
+
+    /** Maximum QueryNode workers. */
+    private final int parallelism;
+
+    /** Command-level actual worker observer. */
+    private final IntConsumer workersObserver;
+
+    /** Active QueryNode tasks for this serial Module. */
+    private final AtomicInteger activeWorkers = new AtomicInteger();
+
+    /** Active-worker termination monitor after Module-local cancellation. */
+    private final Object workerLifecycle = new Object();
 
     /**
      * Creates a direct module tracer.
@@ -43,7 +66,30 @@ public final class ModuleImpactTracer {
      * @param collector diagnostics
      */
     public ModuleImpactTracer(final DiagnosticLog collector) {
+        this(collector, null, 1, ignored -> { });
+    }
+
+    /**
+     * Creates a tracer using a shared command executor.
+     *
+     * @param collector diagnostics
+     * @param queryExecutor shared Impact Query executor
+     * @param workerLimit configured QueryNode worker limit
+     * @param observer actual worker observer
+     */
+    ModuleImpactTracer(
+            final DiagnosticLog collector,
+            final ExecutorService queryExecutor,
+            final int workerLimit,
+            final IntConsumer observer) {
         diagnostics = Objects.requireNonNull(collector, "collector");
+        executor = queryExecutor;
+        if (workerLimit < 1) {
+            throw new IllegalArgumentException(
+                    "Impact Query parallelism must be >= 1");
+        }
+        parallelism = workerLimit;
+        workersObserver = Objects.requireNonNull(observer, "observer");
     }
 
     /**
@@ -59,28 +105,48 @@ public final class ModuleImpactTracer {
         final DiagnosticContext context = DiagnosticContext.of(
                 "module-analysis", "impact-query").withModule(
                 unit.getModuleId().stableKey());
-        diagnostics.startStage(context);
+        final QueryPlan plan = plan(unit, session);
+        final int workers = plan.works().isEmpty() ? 0
+                : executor == null ? 1
+                : Math.min(parallelism, plan.works().size());
+        diagnostics.startStage(context, "Task started; seeds="
+                + plan.seedCount() + "; queryNodes=" + plan.works().size()
+                + "; workers=" + workers);
         try (SeedProgressReporter seedProgress =
                      SeedProgressReporter.open(diagnostics, context)) {
-            final ModuleImpactQueryResult result = trace(
-                    unit, session, context, seedProgress);
-            diagnostics.endStage(context);
+            final QueryExecution execution = execute(
+                    unit.getModuleId(), session, plan.works(), workers,
+                    seedProgress);
+            final ModuleImpactQueryResult result = finish(
+                    plan, execution, context);
+            diagnostics.endStage(context, "Task completed; seeds="
+                    + plan.seedCount() + "; queryNodes="
+                    + plan.works().size() + "; workers=" + workers);
             return result;
+        } catch (RuntimeException exception) {
+            diagnostics.failStage(context, "Task failed: "
+                    + Objects.requireNonNullElse(
+                    exception.getMessage(), exception.getClass().getName()));
+            throw exception;
         }
     }
 
-    private ModuleImpactQueryResult trace(
+    private QueryPlan plan(
             final ModuleAnalysisUnit unit,
-            final ModuleCallGraphSession session,
-            final DiagnosticContext context,
-            final SeedProgressReporter seedProgress) {
-        final List<ImpactPath> paths = new ArrayList<>();
-        final Map<BoundChangePoint, ChangePointDisposition> dispositions =
+            final ModuleCallGraphSession session) {
+        final Map<BoundChangePoint, ChangePointDisposition> fixedDispositions =
                 new LinkedHashMap<>();
         final Map<BoundChangePoint, List<ImpactEvidence>> observations =
                 new LinkedHashMap<>();
         final Set<QueryLimitation> limitations = new LinkedHashSet<>();
-        final Map<QueryNode, ReverseTrace> traceCache = new HashMap<>();
+        final Map<BoundChangePoint, PointState> pointStates =
+                new LinkedHashMap<>();
+        final Map<QueryNode, QueryWorkBuilder> grouped = new HashMap<>();
+        final List<StructuralReferencePath> directStructural =
+                new ArrayList<>();
+        final Set<StructuralReferenceMatch> plannedStructural =
+                new LinkedHashSet<>();
+        int seedCount = 0;
         final ChangePointSeedResolverRegistry seedResolvers =
                 new ChangePointSeedResolverRegistry();
         final List<StructuralReferenceMatch> structuralReferences =
@@ -88,25 +154,39 @@ public final class ModuleImpactTracer {
         final StructuralReferencePreparation.Result preparedStructures =
                 new StructuralReferencePreparation().prepare(
                         structuralReferences, session);
-        final StructuralPathResult structures = materializeStructuralPaths(
-                unit.getModuleId(), preparedStructures,
-                session, traceCache, seedProgress);
-        structures.observations().forEach((point, values) ->
-                observations.put(point, values));
-        limitations.addAll(structures.limitations());
+        preparedStructures.observations().forEach((point, values) ->
+                mergeObservations(observations, point, values));
+        limitations.addAll(preparedStructures.limitations());
+        for (StructuralReferenceMatch match
+                : preparedStructures.references()) {
+            if (match.reference().getOrigin() == CodeOrigin.PROJECT) {
+                directStructural.add(new StructuralReferencePath(
+                        match.changePoint(), match.reference(), List.of(),
+                        ImpactClassification.DIRECT));
+                continue;
+            }
+            plannedStructural.add(match);
+            for (QueryNode node : structuralSeeds(
+                    unit.getModuleId(), match.reference(), session)) {
+                grouped.computeIfAbsent(node, QueryWorkBuilder::new)
+                        .structural().add(
+                        new StructuralSeedBinding(match, node));
+                seedCount++;
+            }
+        }
         for (BoundChangePoint point : unit.getChangePoints().stream()
                 .sorted(Comparator.comparing(BoundChangePoint::stableKey))
                 .toList()) {
             final ChangePoint change = point.getChangePoint();
             if (isAdded(change.getKind())) {
-                dispositions.put(point,
+                fixedDispositions.put(point,
                         ChangePointDisposition.CHANGE_KIND_NOT_ANALYZED);
                 continue;
             }
             final ChangePointDisposition duplicateDisposition =
                     duplicateDisposition(point, session.getOwnership());
             if (duplicateDisposition != null) {
-                dispositions.put(point, duplicateDisposition);
+                fixedDispositions.put(point, duplicateDisposition);
                 continue;
             }
             final ChangePointSeedResolution resolution =
@@ -116,61 +196,262 @@ public final class ModuleImpactTracer {
                                     .resolution(point)));
             final List<ImpactSeed> seeds = resolution.seeds();
             limitations.addAll(resolution.limitations());
-            if (!resolution.evidence().isEmpty()) {
-                final List<ImpactEvidence> merged = new ArrayList<>(
-                        observations.getOrDefault(point, List.of()));
-                merged.addAll(resolution.evidence());
-                observations.put(point, merged.stream()
-                        .distinct()
-                        .sorted(Comparator.comparing(
-                                ImpactEvidence::stableKey))
-                        .toList());
+            mergeObservations(observations, point, resolution.evidence());
+            pointStates.put(point, new PointState(change.getKind(),
+                    resolution.observation(), !seeds.isEmpty()));
+            for (ImpactSeed seed : seeds) {
+                grouped.computeIfAbsent(seed.node(), QueryWorkBuilder::new)
+                        .ordinary().add(new OrdinarySeedBinding(point, seed));
+                seedCount++;
             }
-            final int before = paths.size();
-            if (!seeds.isEmpty()) {
-                final Map<String, ImpactPath> representative =
-                        new LinkedHashMap<>();
-                for (ImpactSeed seed : seeds) {
-                    try (SeedProgressTracker tracker =
-                                 seedProgress.startOrdinary(point, seed)) {
-                        final ReverseTrace reverse = traceCache
-                                .computeIfAbsent(seed.node(), node -> reverse(
-                                        unit.getModuleId(), node, session,
-                                        tracker));
-                        tracker.reverseCompleted(reverse.visited().size());
-                        for (ImpactPath path : materialize(
-                                point, seed, reverse, tracker)) {
-                            tracker.representativeSelection(
-                                    path.getNodes().get(0));
-                            final String affected = methodIdentity(
-                                    path.getAffectedMethod());
-                            final ImpactPath previous = representative.get(
-                                    affected);
-                            if (previous == null
-                                    || representativePathComparator()
-                                    .compare(path, previous) < 0) {
-                                representative.put(affected, path);
-                            }
-                        }
-                        tracker.complete();
-                    }
-                }
-                paths.addAll(representative.values());
-            }
-            dispositions.put(point, new ChangePointDispositionReducer()
-                    .reduce(change.getKind(), resolution.observation(),
-                            !seeds.isEmpty(), paths.size() > before,
-                            structures.hasPath(point),
-                            structures.unreachable().contains(point),
-                            structures.observations().containsKey(point)));
         }
-        paths.sort(pathComparator());
+        final List<QueryWorkBuilder> orderedBuilders = grouped.values().stream()
+                .sorted(Comparator.comparing(
+                        QueryWorkBuilder::node, queryNodeComparator()))
+                .toList();
+        final List<QueryWork> works = new ArrayList<>();
+        long ordinal = 0L;
+        for (QueryWorkBuilder builder : orderedBuilders) {
+            final List<OrdinarySeedBinding> ordinary =
+                    builder.ordinary().stream().sorted(Comparator
+                    .comparing((OrdinarySeedBinding value) ->
+                            value.point().stableKey())
+                    .thenComparing(value -> value.seed()
+                            .evidence().stableKey())).toList();
+            final List<StructuralSeedBinding> structural =
+                    builder.structural().stream().sorted(Comparator
+                    .comparing((StructuralSeedBinding value) ->
+                            value.match().changePoint().stableKey())
+                    .thenComparing(value -> value.match()
+                            .reference().stableKey())).toList();
+            works.add(new QueryWork(++ordinal, builder.node(), ordinary,
+                    structural));
+        }
+        return new QueryPlan(works, seedCount, fixedDispositions,
+                pointStates, stableObservations(observations), limitations,
+                directStructural, plannedStructural,
+                preparedStructures.observations().keySet());
+    }
+
+    private QueryExecution execute(
+            final ModuleId moduleId,
+            final ModuleCallGraphSession session,
+            final List<QueryWork> works,
+            final int workers,
+            final SeedProgressReporter progress) {
+        final QueryExecution result = new QueryExecution();
+        if (works.isEmpty()) {
+            return result;
+        }
+        if (executor == null) {
+            for (QueryWork work : works) {
+                result.merge(runWork(moduleId, session, work, progress));
+            }
+            return result;
+        }
+        final CompletionService<QueryNodeResult> completion =
+                new ExecutorCompletionService<>(executor);
+        final List<Future<QueryNodeResult>> active = new ArrayList<>();
+        int next = 0;
+        while (next < works.size() && active.size() < workers) {
+            active.add(submit(completion, moduleId, session,
+                    works.get(next++), progress));
+        }
+        try {
+            while (!active.isEmpty()) {
+                final Future<QueryNodeResult> completed = completion.take();
+                active.remove(completed);
+                result.merge(completed.get());
+                if (next < works.size()) {
+                    active.add(submit(completion, moduleId, session,
+                            works.get(next++), progress));
+                }
+            }
+            return result;
+        } catch (InterruptedException exception) {
+            active.forEach(value -> value.cancel(true));
+            Thread.currentThread().interrupt();
+            throw new ImpactException("Impact Query interrupted", exception);
+        } catch (ExecutionException exception) {
+            cancelAndAwait(active);
+            throw new ImpactException("QueryNode task failed",
+                    exception.getCause());
+        }
+    }
+
+    private void cancelAndAwait(
+            final List<Future<QueryNodeResult>> active) {
+        active.forEach(value -> value.cancel(true));
+        synchronized (workerLifecycle) {
+            while (activeWorkers.get() > 0) {
+                try {
+                    workerLifecycle.wait();
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new ImpactException(
+                            "Interrupted while cancelling QueryNode tasks",
+                            exception);
+                }
+            }
+        }
+    }
+
+    private Future<QueryNodeResult> submit(
+            final CompletionService<QueryNodeResult> completion,
+            final ModuleId moduleId,
+            final ModuleCallGraphSession session,
+            final QueryWork work,
+            final SeedProgressReporter progress) {
+        return completion.submit(() -> runWork(
+                moduleId, session, work, progress));
+    }
+
+    private QueryNodeResult runWork(
+            final ModuleId moduleId,
+            final ModuleCallGraphSession session,
+            final QueryWork work,
+            final SeedProgressReporter progress) {
+        final int active;
+        synchronized (workerLifecycle) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new ImpactException("QueryNode task cancelled");
+            }
+            active = activeWorkers.incrementAndGet();
+        }
+        workersObserver.accept(active);
+        try (SeedProgressTracker tracker = progress.startQueryNode(
+                     work.ordinal(), work.node(), work.evidenceSeeds())) {
+            ReverseTrace reverse = reverse(
+                    moduleId, work.node(), session, tracker);
+            tracker.reverseCompleted(reverse.visited().size());
+            final List<ImpactPath> paths = new ArrayList<>();
+            for (OrdinarySeedBinding binding : work.ordinary()) {
+                for (ImpactPath path : materialize(binding.point(),
+                        binding.seed(), reverse, tracker)) {
+                    tracker.representativeSelection(path.getNodes().get(0));
+                    paths.add(path);
+                }
+            }
+            final List<StructuralReferencePath> structural =
+                    new ArrayList<>();
+            final Set<StructuralReferenceMatch> recovered =
+                    new LinkedHashSet<>();
+            for (StructuralSeedBinding binding : work.structural()) {
+                final List<StructuralReferencePath> materialized =
+                        materializeStructural(
+                                binding.match().changePoint(),
+                                binding.match().reference(), reverse,
+                                tracker);
+                if (!materialized.isEmpty()) {
+                    recovered.add(binding.match());
+                }
+                for (StructuralReferencePath path : materialized) {
+                    tracker.representativeSelection(
+                            path.getNodes().get(0));
+                    structural.add(path);
+                }
+            }
+            final QueryNodeResult result = new QueryNodeResult(
+                    paths, structural, recovered);
+            reverse = null;
+            tracker.complete();
+            return result;
+        } finally {
+            synchronized (workerLifecycle) {
+                activeWorkers.decrementAndGet();
+                workerLifecycle.notifyAll();
+            }
+        }
+    }
+
+    private ModuleImpactQueryResult finish(
+            final QueryPlan plan,
+            final QueryExecution execution,
+            final DiagnosticContext context) {
+        final Map<BoundChangePoint, Map<String, ImpactPath>> ordinary =
+                new LinkedHashMap<>();
+        for (ImpactPath path : execution.paths()) {
+            final BoundChangePoint point =
+                    path.getTerminal().getChangePoint();
+            final String affected = methodIdentity(path.getAffectedMethod());
+            final Map<String, ImpactPath> selected = ordinary
+                    .computeIfAbsent(point, ignored -> new LinkedHashMap<>());
+            final ImpactPath previous = selected.get(affected);
+            if (previous == null || representativePathComparator()
+                    .compare(path, previous) < 0) {
+                selected.put(affected, path);
+            }
+        }
+        final List<ImpactPath> paths = ordinary.values().stream()
+                .flatMap(value -> value.values().stream())
+                .sorted(pathComparator()).toList();
+        final Map<String, StructuralReferencePath> structural =
+                new LinkedHashMap<>();
+        for (StructuralReferencePath path : plan.directStructural()) {
+            structural.putIfAbsent(referenceKey(path), path);
+        }
+        for (StructuralReferencePath path : execution.structuralPaths()) {
+            final String key = referenceKey(path) + "|"
+                    + methodIdentity(path.getAffectedMethod());
+            final StructuralReferencePath previous = structural.get(key);
+            if (previous == null || structuralPathComparator()
+                    .compare(path, previous) < 0) {
+                structural.put(key, path);
+            }
+        }
+        final List<StructuralReferencePath> structuralPaths =
+                structural.values().stream()
+                        .sorted(structuralReportComparator()).toList();
+        final Set<BoundChangePoint> unreachable = new LinkedHashSet<>();
+        plan.plannedStructural().stream()
+                .filter(match -> !execution.recovered().contains(match))
+                .forEach(match -> unreachable.add(match.changePoint()));
+        final Map<BoundChangePoint, ChangePointDisposition> dispositions =
+                new LinkedHashMap<>(plan.fixedDispositions());
+        plan.pointStates().forEach((point, state) -> dispositions.put(point,
+                new ChangePointDispositionReducer().reduce(
+                        state.kind(), state.observation(), state.hasSeeds(),
+                        ordinary.containsKey(point),
+                        structuralPaths.stream().anyMatch(path ->
+                                path.getChangePoint().equals(point)),
+                        unreachable.contains(point),
+                        plan.structuralObservedPoints().contains(point))));
+        final Map<BoundChangePoint, ChangePointDisposition> stableDispositions =
+                new LinkedHashMap<>();
+        dispositions.entrySet().stream().sorted(Comparator.comparing(entry ->
+                entry.getKey().stableKey())).forEach(entry ->
+                stableDispositions.put(entry.getKey(), entry.getValue()));
         diagnostics.info(context, "candidatePaths=" + paths.size()
-                + "; structuralPaths=" + structures.paths().size()
-                + "; reverseBfs=" + traceCache.size());
-        return new ModuleImpactQueryResult(
-                paths, structures.paths(), dispositions, observations,
-                limitations.stream().sorted().toList());
+                + "; structuralPaths=" + structuralPaths.size()
+                + "; reverseBfs=" + plan.works().size());
+        return new ModuleImpactQueryResult(paths, structuralPaths,
+                stableDispositions, plan.observations(),
+                plan.limitations().stream().sorted().toList());
+    }
+
+    private void mergeObservations(
+            final Map<BoundChangePoint, List<ImpactEvidence>> observations,
+            final BoundChangePoint point,
+            final List<? extends ImpactEvidence> additions) {
+        if (additions.isEmpty()) {
+            return;
+        }
+        final List<ImpactEvidence> merged = new ArrayList<>(
+                observations.getOrDefault(point, List.of()));
+        merged.addAll(additions);
+        observations.put(point, merged.stream().distinct()
+                .sorted(Comparator.comparing(ImpactEvidence::stableKey))
+                .toList());
+    }
+
+    private Map<BoundChangePoint, List<ImpactEvidence>> stableObservations(
+            final Map<BoundChangePoint, List<ImpactEvidence>> observations) {
+        final Map<BoundChangePoint, List<ImpactEvidence>> stable =
+                new LinkedHashMap<>();
+        observations.entrySet().stream().sorted(Comparator.comparing(entry ->
+                entry.getKey().stableKey())).forEach(entry ->
+                stable.put(entry.getKey(), List.copyOf(entry.getValue())));
+        return stable;
     }
 
     private List<StructuralReferenceMatch> structuralReferences(
@@ -210,65 +491,6 @@ public final class ModuleImpactTracer {
         return resolution.getLosers().stream()
                 .anyMatch(value -> value.getSource().equals(changedSource))
                 ? ChangePointDisposition.SHADOWED_BY_DUPLICATE : null;
-    }
-
-    private StructuralPathResult materializeStructuralPaths(
-            final ModuleId moduleId,
-            final StructuralReferencePreparation.Result prepared,
-            final ModuleCallGraphSession session,
-            final Map<QueryNode, ReverseTrace> traceCache,
-            final SeedProgressReporter seedProgress) {
-        final Map<String, StructuralReferencePath> selected =
-                new LinkedHashMap<>();
-        final Set<BoundChangePoint> unreachable = new LinkedHashSet<>();
-        for (StructuralReferenceMatch match : prepared.references()) {
-            final StructuralReference reference = match.reference();
-            if (reference.getOrigin() == CodeOrigin.PROJECT) {
-                final StructuralReferencePath path =
-                        new StructuralReferencePath(match.changePoint(),
-                                reference, List.of(),
-                                ImpactClassification.DIRECT);
-                selected.putIfAbsent(referenceKey(match), path);
-                continue;
-            }
-            boolean recovered = false;
-            for (QueryNode seed : structuralSeeds(
-                    moduleId, reference, session)) {
-                try (SeedProgressTracker tracker =
-                             seedProgress.startStructural(match, seed)) {
-                    final ReverseTrace reverse = traceCache.computeIfAbsent(
-                            seed, node -> reverse(moduleId, node, session,
-                                    tracker));
-                    tracker.reverseCompleted(reverse.visited().size());
-                    for (StructuralReferencePath path : materializeStructural(
-                            match.changePoint(), reference, reverse,
-                            tracker)) {
-                        tracker.representativeSelection(
-                                path.getNodes().get(0));
-                        recovered = true;
-                        final String key = referenceKey(match) + "|"
-                                + methodIdentity(path.getAffectedMethod());
-                        final StructuralReferencePath existing = selected.get(
-                                key);
-                        if (existing == null
-                                || structuralPathComparator().compare(
-                                path, existing) < 0) {
-                            selected.put(key, path);
-                        }
-                    }
-                    tracker.complete();
-                }
-            }
-            if (!recovered) {
-                unreachable.add(match.changePoint());
-            }
-        }
-        final List<StructuralReferencePath> paths =
-                new ArrayList<>(selected.values());
-        paths.sort(structuralReportComparator());
-        return new StructuralPathResult(
-                paths, unreachable, prepared.observations(),
-                prepared.limitations());
     }
 
     private List<QueryNode> structuralSeeds(
@@ -352,6 +574,11 @@ public final class ModuleImpactTracer {
                 + match.reference().stableKey();
     }
 
+    private String referenceKey(final StructuralReferencePath path) {
+        return path.getChangePoint().stableKey() + "|"
+                + path.getReference().stableKey();
+    }
+
     private ReverseTrace reverse(
             final ModuleId moduleId,
             final QueryNode seed,
@@ -364,6 +591,9 @@ public final class ModuleImpactTracer {
         visited.add(seed);
         tracker.reverseProgress(seed, visited.size());
         while (!queue.isEmpty()) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new ImpactException("QueryNode task cancelled");
+            }
             final QueryNode current = queue.remove();
             tracker.reverseProgress(current, visited.size());
             final List<QueryNode> predecessors = predecessors(
@@ -474,7 +704,9 @@ public final class ModuleImpactTracer {
                 .comparingInt((ImpactPath path) ->
                         path.getNodes().size() - 1)
                 .thenComparing((left, right) -> compareNodeSequences(
-                        left.getNodes(), right.getNodes()));
+                        left.getNodes(), right.getNodes()))
+                .thenComparing(path -> path.getTerminal()
+                        .getImpactEvidence().stableKey());
     }
 
     private Comparator<StructuralReferencePath> structuralPathComparator() {
@@ -574,11 +806,11 @@ public final class ModuleImpactTracer {
 
 
     /**
-     * Per-seed backward slice, never a whole-graph predecessor copy.
+     * QueryNode-local backward slice, released before the task returns.
      *
-     * @param seed exact seed node
-     * @param next shortest-path successor map
-     * @param visited reachable predecessor nodes
+     * @param seed query seed
+     * @param next next-node links toward the seed
+     * @param visited nodes visited by this QueryNode only
      */
     private record ReverseTrace(
             QueryNode seed,
@@ -586,24 +818,183 @@ public final class ModuleImpactTracer {
             Set<QueryNode> visited) {
     }
 
-    /**
-     * Materialized structural paths and unreachable metadata evidence.
-     *
-     * @param paths reportable structural paths
-     * @param unreachable references without a PROJECT boundary
-     * @param observations typed access observations
-     * @param limitations structural access resolution failures
-     */
-    private record StructuralPathResult(
-            List<StructuralReferencePath> paths,
-            Set<BoundChangePoint> unreachable,
-            Map<BoundChangePoint, List<ImpactEvidence>> observations,
-            List<QueryLimitation> limitations) {
+    /** Mutable planning bucket for one exact QueryNode. */
+    private static final class QueryWorkBuilder {
 
-        boolean hasPath(final BoundChangePoint point) {
-            return paths.stream().anyMatch(path ->
-                    path.getChangePoint().equals(point));
+        /** Exact QueryNode. */
+        private final QueryNode node;
+
+        /** Ordinary evidence bindings. */
+        private final List<OrdinarySeedBinding> ordinary = new ArrayList<>();
+
+        /** Structural evidence bindings. */
+        private final List<StructuralSeedBinding> structural =
+                new ArrayList<>();
+
+        QueryWorkBuilder(final QueryNode value) {
+            node = value;
+        }
+
+        QueryNode node() {
+            return node;
+        }
+
+        List<OrdinarySeedBinding> ordinary() {
+            return ordinary;
+        }
+
+        List<StructuralSeedBinding> structural() {
+            return structural;
         }
     }
 
+    /**
+     * One ordinary terminal evidence binding.
+     *
+     * @param point bound change point
+     * @param seed impact seed
+     */
+    private record OrdinarySeedBinding(
+            BoundChangePoint point,
+            ImpactSeed seed) {
+    }
+
+    /**
+     * One structural evidence binding.
+     *
+     * @param match structural match
+     * @param node resolved query node
+     */
+    private record StructuralSeedBinding(
+            StructuralReferenceMatch match,
+            QueryNode node) {
+    }
+
+    /**
+     * Immutable work for one unique QueryNode.
+     *
+     * @param ordinal stable QueryNode ordinal
+     * @param node exact query node
+     * @param ordinary ordinary evidence bindings
+     * @param structural structural evidence bindings
+     */
+    private record QueryWork(
+            long ordinal,
+            QueryNode node,
+            List<OrdinarySeedBinding> ordinary,
+            List<StructuralSeedBinding> structural) {
+
+        QueryWork {
+            ordinary = List.copyOf(ordinary);
+            structural = List.copyOf(structural);
+        }
+
+        int evidenceSeeds() {
+            return ordinary.size() + structural.size();
+        }
+    }
+
+    /**
+     * Per-ChangePoint state retained after serial seed resolution.
+     *
+     * @param kind change kind
+     * @param observation reference observation
+     * @param hasSeeds whether the point produced a seed
+     */
+    private record PointState(
+            ChangePointKind kind,
+            ReferenceObservation observation,
+            boolean hasSeeds) {
+    }
+
+    /**
+     * Complete immutable plan before QueryNode execution starts.
+     *
+     * @param works ordered QueryNode work
+     * @param seedCount total evidence bindings
+     * @param fixedDispositions dispositions resolved during planning
+     * @param pointStates per-change state
+     * @param observations evidence observations
+     * @param limitations query limitations
+     * @param directStructural direct project structural paths
+     * @param plannedStructural planned structural matches
+     * @param structuralObservedPoints structurally observed changes
+     */
+    private record QueryPlan(
+            List<QueryWork> works,
+            int seedCount,
+            Map<BoundChangePoint, ChangePointDisposition> fixedDispositions,
+            Map<BoundChangePoint, PointState> pointStates,
+            Map<BoundChangePoint, List<ImpactEvidence>> observations,
+            Set<QueryLimitation> limitations,
+            List<StructuralReferencePath> directStructural,
+            Set<StructuralReferenceMatch> plannedStructural,
+            Set<BoundChangePoint> structuralObservedPoints) {
+
+        QueryPlan {
+            works = List.copyOf(works);
+            fixedDispositions = Collections.unmodifiableMap(
+                    new LinkedHashMap<>(fixedDispositions));
+            pointStates = Collections.unmodifiableMap(
+                    new LinkedHashMap<>(pointStates));
+            observations = Collections.unmodifiableMap(
+                    new LinkedHashMap<>(observations));
+            limitations = Set.copyOf(limitations);
+            directStructural = List.copyOf(directStructural);
+            plannedStructural = Set.copyOf(plannedStructural);
+            structuralObservedPoints = Set.copyOf(structuralObservedPoints);
+        }
+    }
+
+    /**
+     * One QueryNode result without its ReverseTrace.
+     *
+     * @param paths ordinary paths
+     * @param structuralPaths structural paths
+     * @param recovered recovered structural matches
+     */
+    private record QueryNodeResult(
+            List<ImpactPath> paths,
+            List<StructuralReferencePath> structuralPaths,
+            Set<StructuralReferenceMatch> recovered) {
+
+        QueryNodeResult {
+            paths = List.copyOf(paths);
+            structuralPaths = List.copyOf(structuralPaths);
+            recovered = Set.copyOf(recovered);
+        }
+    }
+
+    /** Completion-order aggregate containing final lightweight results only. */
+    private static final class QueryExecution {
+
+        /** Ordinary candidate paths. */
+        private final List<ImpactPath> paths = new ArrayList<>();
+
+        /** Structural candidate paths. */
+        private final List<StructuralReferencePath> structuralPaths =
+                new ArrayList<>();
+
+        /** Structural bindings that reached PROJECT. */
+        private final Set<StructuralReferenceMatch> recovered =
+                new LinkedHashSet<>();
+
+        void merge(final QueryNodeResult result) {
+            paths.addAll(result.paths());
+            structuralPaths.addAll(result.structuralPaths());
+            recovered.addAll(result.recovered());
+        }
+
+        List<ImpactPath> paths() {
+            return paths;
+        }
+
+        List<StructuralReferencePath> structuralPaths() {
+            return structuralPaths;
+        }
+
+        Set<StructuralReferenceMatch> recovered() {
+            return recovered;
+        }
+    }
 }

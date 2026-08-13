@@ -68,6 +68,7 @@ import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** Executes the Spring backend per-module Call Graph pipeline. */
 final class PerModuleImpactPipeline {
@@ -247,25 +248,11 @@ final class PerModuleImpactPipeline {
                 units, bindings.failedModules());
         final Set<String> unmatchedEntrypointModules =
                 entrypoints.unmatchedModules();
-        final int relevantCount = (int) units.stream()
-                .filter(unit -> !unit.getChangePoints().isEmpty()
-                        || bindings.failedModules().contains(
-                        unit.getModuleId().coordinateKey()))
-                .filter(unit -> !unmatchedEntrypointModules.contains(
-                        unit.getModuleId().coordinateKey()))
-                .count();
-        final int actualParallelism = relevantCount == 0 ? 0
-                : Math.min(analysisParallelism, relevantCount);
-        if (analysisParallelism
-                > Runtime.getRuntime().availableProcessors()) {
-            diagnostics.warn("module-analysis",
-                    "--analysis-parallelism exceeds availableProcessors: "
-                            + analysisParallelism);
-        }
         final long modulesStart = System.currentTimeMillis();
-        final List<ModuleAnalysisResult> filtered = analyzeModules(
+        final ModuleAnalysisBatch analyzed = analyzeModules(
                 units, bindings.failedModules(), unmatchedEntrypointModules,
-                entrypoints, actualParallelism);
+                entrypoints);
+        final List<ModuleAnalysisResult> filtered = analyzed.modules();
         elapsed.put("module-analysis",
                 System.currentTimeMillis() - modulesStart);
         if (experimentalBytecodeSemanticComparisonEnabled) {
@@ -293,9 +280,10 @@ final class PerModuleImpactPipeline {
         return new AnalysisRunResult(targetScope.getMode(),
                 overallStatus(codeEvidence.modules()), changes,
                 codeEvidence.modules(), new AnalysisConcurrency(
-                        analysisParallelism, actualParallelism,
+                        analysisParallelism,
                         bindings.actualWorkers(),
-                codeEvidence.actualWorkers()), elapsed,
+                        analyzed.actualImpactQueryWorkers(),
+                        codeEvidence.actualWorkers()), elapsed,
                 new AnalysisRunConfiguration(
                         entrypointSelection, callGraphAlgorithm,
                         kObjDepth,
@@ -702,7 +690,27 @@ final class PerModuleImpactPipeline {
             groups.computeIfAbsent(pairKey(key), ignored ->
                     new ArrayList<>()).add(key);
         }
-        return parallelJarDiff(groups);
+        final int workers = groups.isEmpty() ? 0
+                : Math.min(groups.size(), jarDiffWorkerLimit());
+        final DiagnosticContext context = DiagnosticContext.of(
+                "jar-diff", "aggregate");
+        diagnostics.startStage(context, "Task started; pairs="
+                + groups.size() + "; workers=" + workers);
+        try {
+            final BindingResult result = parallelJarDiff(groups);
+            diagnostics.endStage(context, "Task completed; changes="
+                    + result.changeCount() + "; pairs="
+                    + result.pairCount() + "; failedPairs="
+                    + result.failedPairCount() + "; workers="
+                    + result.actualWorkers());
+            return result;
+        } catch (InterruptedException | RuntimeException exception) {
+            diagnostics.failStage(context, "Task failed; pairs="
+                    + groups.size() + "; workers=" + workers + "; reason="
+                    + Objects.requireNonNullElse(exception.getMessage(),
+                    exception.getClass().getName()));
+            throw exception;
+        }
     }
 
     private BindingResult parallelJarDiff(
@@ -710,7 +718,7 @@ final class PerModuleImpactPipeline {
             throws InterruptedException {
         if (groups.isEmpty()) {
             return new BindingResult(Map.of(), Set.of(), Map.of(),
-                    Map.of(), Map.of(), Map.of(), jarDiffWorkerLimit(), 0);
+                    Map.of(), Map.of(), Map.of(), 0, 0, 0, 0);
         }
         final int configuredWorkers = jarDiffWorkerLimit();
         final int workers = Math.min(groups.size(), configuredWorkers);
@@ -805,9 +813,12 @@ final class PerModuleImpactPipeline {
                 Comparator.comparing(BoundChangePoint::stableKey)));
         failuresByModule.values().forEach(values -> values.sort(
                 Comparator.comparing(JarDiffFailure::stableKey)));
+        final int changeCount = pairPoints.values().stream()
+                .mapToInt(List::size).sum();
+        final int failedPairCount = groups.size() - pairPoints.size();
         return new BindingResult(byModule, failedModules, failuresByModule,
                 baselineByModule, removedByModule, issuesByModule,
-                configuredWorkers, workers);
+                workers, changeCount, groups.size(), failedPairCount);
     }
 
     private int jarDiffWorkerLimit() {
@@ -834,8 +845,9 @@ final class PerModuleImpactPipeline {
             final ServiceLoaderResourceDiffResult services =
                     new ServiceLoaderResourceDiffEngine(kinds).diff(
                             upgrade, repository(), points);
-            final List<ChangePoint> combined = new ArrayList<>(points);
-            combined.addAll(services.changePoints());
+            final Set<ChangePoint> unique = new LinkedHashSet<>(points);
+            unique.addAll(services.changePoints());
+            final List<ChangePoint> combined = List.copyOf(unique);
             diagnostics.debug(context, "JAR comparison completed; changes="
                     + combined.size());
             return new PairDiff(key, combined,
@@ -928,15 +940,12 @@ final class PerModuleImpactPipeline {
         return Set.copyOf(result);
     }
 
-    private List<ModuleAnalysisResult> analyzeModules(
+    private ModuleAnalysisBatch analyzeModules(
             final List<ModuleAnalysisUnit> units,
             final Set<String> failedDiffModules,
             final Set<String> unmatchedEntrypointModules,
-            final EntrypointPreparation entrypoints,
-            final int actualParallelism) throws InterruptedException {
-        final Map<String, ModuleAnalysisUnit> unitsByKey = new HashMap<>();
-        units.forEach(unit -> unitsByKey.put(
-                unit.getModuleId().coordinateKey(), unit));
+            final EntrypointPreparation entrypoints)
+            throws InterruptedException {
         final List<ModuleAnalysisResult> result = new ArrayList<>();
         final List<ModuleAnalysisUnit> active = new ArrayList<>();
         for (ModuleAnalysisUnit unit : units) {
@@ -960,19 +969,15 @@ final class PerModuleImpactPipeline {
             }
         }
         if (active.isEmpty()) {
-            return result.stream().sorted(moduleResultComparator()).toList();
+            return new ModuleAnalysisBatch(result.stream()
+                    .sorted(moduleResultComparator()).toList(), 0);
         }
+        active.sort(Comparator.comparing(unit ->
+                unit.getModuleId().stableKey()));
         final ManagedExecutor managed = executors.fixed(
-                "module-analysis", Math.max(1, actualParallelism));
-        final ExecutorService executor = managed.executor();
-        final CompletionService<ModuleAnalysisResult> completion =
-                new ExecutorCompletionService<>(executor);
-        int next = 0;
-        int completed = 0;
-        while (next < active.size() && next < actualParallelism) {
-            submitModule(completion, active.get(next++), failedDiffModules,
-                    entrypoints);
-        }
+                "impact-query", analysisParallelism);
+        final ExecutorService queryExecutor = managed.executor();
+        final AtomicInteger actualImpactQueryWorkers = new AtomicInteger();
         final SsaEquivalenceEngine ssa =
                 experimentalBytecodeSemanticComparisonEnabled
                 ? new SsaEquivalenceEngine(
@@ -984,63 +989,44 @@ final class PerModuleImpactPipeline {
                 ? null : new CallGraphDiagnosticsExporter(
                 diagnostics, javaRuntime, repository());
         try {
-            while (completed < active.size()) {
-                try {
-                    ModuleAnalysisResult module = completion.take().get();
-                    if (ssa != null) {
-                        final long ssaStart = System.currentTimeMillis();
-                        module = ssa.filter(List.of(module)).get(0);
-                        final Map<String, Long> stages = new LinkedHashMap<>(
-                                module.getStageElapsedMillis());
-                        stages.put("ssa-equivalence",
-                                System.currentTimeMillis() - ssaStart);
-                        module = module.toBuilder()
-                                .stageElapsedMillis(stages).build();
-                    }
-                    if (diagnosticsExporter != null
-                            && module.getSession() != null
-                            && module.getSession().getTopology().isPresent()) {
-                        final ModuleAnalysisResult live = module;
-                        reportCache.writeJsonLines("diagnostic-module",
-                                module.getModuleId().stableKey(),
-                                List.of(jsonRecord(json ->
-                                        diagnosticsExporter
-                                                .writeModuleRecord(
-                                                        json, live))));
-                    }
-                    if (reportCache != null) {
-                        module = snapshotter.detach(module);
-                    }
-                    spillModule(module);
-                    result.add(module);
-                } catch (ExecutionException exception) {
-                    throw new IllegalStateException(
-                            "Module task escaped isolation",
-                            exception.getCause());
+            for (ModuleAnalysisUnit unit : active) {
+                final String key = unit.getModuleId().coordinateKey();
+                ModuleAnalysisResult module = analyzeModuleTask(
+                        unit, failedDiffModules.contains(key),
+                        entrypoints.indexes().get(key),
+                        entrypoints.failures().get(key), queryExecutor,
+                        actualImpactQueryWorkers);
+                if (ssa != null) {
+                    final long ssaStart = System.currentTimeMillis();
+                    module = ssa.filter(List.of(module)).get(0);
+                    final Map<String, Long> stages = new LinkedHashMap<>(
+                            module.getStageElapsedMillis());
+                    stages.put("ssa-equivalence",
+                            System.currentTimeMillis() - ssaStart);
+                    module = module.toBuilder()
+                            .stageElapsedMillis(stages).build();
                 }
-                completed++;
-                if (next < active.size()) {
-                    submitModule(completion, active.get(next++),
-                            failedDiffModules, entrypoints);
+                if (diagnosticsExporter != null
+                        && module.getSession() != null
+                        && module.getSession().getTopology().isPresent()) {
+                    final ModuleAnalysisResult live = module;
+                    reportCache.writeJsonLines("diagnostic-module",
+                            module.getModuleId().stableKey(),
+                            List.of(jsonRecord(json -> diagnosticsExporter
+                                    .writeModuleRecord(json, live))));
                 }
+                if (reportCache != null) {
+                    module = snapshotter.detach(module);
+                }
+                spillModule(module);
+                result.add(module);
             }
         } finally {
             managed.close();
         }
         result.sort(moduleResultComparator());
-        return List.copyOf(result);
-    }
-
-    private void submitModule(
-            final CompletionService<ModuleAnalysisResult> completion,
-            final ModuleAnalysisUnit unit,
-            final Set<String> failedDiffModules,
-            final EntrypointPreparation entrypoints) {
-        final String key = unit.getModuleId().coordinateKey();
-        completion.submit(() -> analyzeModuleTask(
-                unit, failedDiffModules.contains(key),
-                entrypoints.indexes().get(key),
-                entrypoints.failures().get(key)));
+        return new ModuleAnalysisBatch(List.copyOf(result),
+                actualImpactQueryWorkers.get());
     }
 
     private void spillModule(final ModuleAnalysisResult module) {
@@ -1187,14 +1173,17 @@ final class PerModuleImpactPipeline {
             final ModuleAnalysisUnit unit,
             final boolean diffFailed,
             final EntrypointClassIndex preparedEntrypoints,
-            final CallGraphException entrypointFailure) {
+            final CallGraphException entrypointFailure,
+            final ExecutorService queryExecutor,
+            final AtomicInteger actualImpactQueryWorkers) {
         final DiagnosticContext context = DiagnosticContext.of(
                 "module-analysis", "module").withModule(
                 unit.getModuleId().stableKey());
         diagnostics.startStage(context);
         try {
             return analyzeModule(unit, diffFailed,
-                    preparedEntrypoints, entrypointFailure);
+                    preparedEntrypoints, entrypointFailure, queryExecutor,
+                    actualImpactQueryWorkers);
         } finally {
             diagnostics.endStage(context);
         }
@@ -1204,7 +1193,9 @@ final class PerModuleImpactPipeline {
             final ModuleAnalysisUnit unit,
             final boolean diffFailed,
             final EntrypointClassIndex preparedEntrypoints,
-            final CallGraphException entrypointFailure) {
+            final CallGraphException entrypointFailure,
+            final ExecutorService queryExecutor,
+            final AtomicInteger actualImpactQueryWorkers) {
         final long start = System.currentTimeMillis();
         final Map<String, Long> stageElapsed = new LinkedHashMap<>();
         if (unit.getChangePoints().isEmpty()) {
@@ -1270,7 +1261,10 @@ final class PerModuleImpactPipeline {
                     System.currentTimeMillis() - stageStart);
             stageStart = System.currentTimeMillis();
             final ModuleImpactQueryResult query =
-                    new ModuleImpactTracer(diagnostics).trace(unit, session);
+                    new ModuleImpactTracer(diagnostics, queryExecutor,
+                            analysisParallelism, workers ->
+                            actualImpactQueryWorkers.accumulateAndGet(
+                                    workers, Math::max)).trace(unit, session);
             stageElapsed.put("call-graph-query",
                     System.currentTimeMillis() - stageStart);
             final List<String> limitations = new ArrayList<>(
@@ -1325,6 +1319,9 @@ final class PerModuleImpactPipeline {
                     : ModuleAnalysisReason.FAILED_ANALYSIS;
             return failed(unit, reason, exception, start, stageElapsed);
         } catch (RuntimeException exception) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw exception;
+            }
             return failed(unit, ModuleAnalysisReason.FAILED_ANALYSIS,
                     exception, start, stageElapsed);
         }
@@ -1553,8 +1550,10 @@ final class PerModuleImpactPipeline {
      * @param baselineServiceRegistrationsByModule baseline provider facts
      * @param removedServiceRegistrationsByModule removed provider facts
      * @param serviceLoaderResourceIssuesByModule resource Diff issues
-     * @param configuredWorkers configured JAR diff worker limit
      * @param actualWorkers actual JAR diff workers
+     * @param changeCount unique successful ChangePoints
+     * @param pairCount unique logical JAR pairs
+     * @param failedPairCount failed logical JAR pairs
      */
     private record BindingResult(
             Map<String, List<BoundChangePoint>> pointsByModule,
@@ -1566,8 +1565,21 @@ final class PerModuleImpactPipeline {
                     removedServiceRegistrationsByModule,
             Map<String, List<ServiceLoaderResourceIssue>>
                     serviceLoaderResourceIssuesByModule,
-            int configuredWorkers,
-            int actualWorkers) {
+            int actualWorkers,
+            int changeCount,
+            int pairCount,
+            int failedPairCount) {
+    }
+
+    /**
+     * Serial Module results and observed QueryNode concurrency.
+     *
+     * @param modules stable Module results
+     * @param actualImpactQueryWorkers maximum active QueryNode workers
+     */
+    private record ModuleAnalysisBatch(
+            List<ModuleAnalysisResult> modules,
+            int actualImpactQueryWorkers) {
     }
 
     /**

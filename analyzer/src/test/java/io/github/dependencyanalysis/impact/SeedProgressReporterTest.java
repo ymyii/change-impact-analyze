@@ -1,11 +1,7 @@
 package io.github.dependencyanalysis.impact;
 
-import io.github.dependencyanalysis.bytecode.ChangePoint;
-import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.MethodId;
-import io.github.dependencyanalysis.dependency.ArtifactCoord;
-import io.github.dependencyanalysis.dependency.DependencyScope;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.LogVerbosity;
@@ -15,17 +11,15 @@ import org.junit.jupiter.api.Test;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Tests isolated per-seed TRACE clocks and progress metrics. */
+/** Tests isolated per-QueryNode TRACE clocks and progress metrics. */
 class SeedProgressReporterTest {
 
     /** Ten seconds in nanoseconds. */
@@ -46,14 +40,14 @@ class SeedProgressReporterTest {
     /** Seed B visited count. */
     private static final int SEED_B_VISITED = 7;
 
+    /** Seed B evidence count. */
+    private static final int SEED_B_EVIDENCE = 3;
+
     /** Quiet seed visited count. */
     private static final int QUIET_VISITED = 9;
 
-    /** Terminal reference bytecode PC. */
-    private static final int TERMINAL_PC = 12;
-
     @Test
-    void resetsClockVisitedRecentNodeAndHeartbeatForEverySeed() {
+    void resetsClockVisitedRecentNodeAndHeartbeatForEveryQueryNode() {
         final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         final DiagnosticLog log = new DiagnosticLog(
                 new PrintStream(bytes), LogVerbosity.TRACE);
@@ -64,25 +58,25 @@ class SeedProgressReporterTest {
 
         try (SeedProgressReporter reporter = SeedProgressReporter.create(
                 log, context, clock::get, scheduler,
-                SeedProgressReporter.HEARTBEAT_INTERVAL)) {
+            SeedProgressReporter.HEARTBEAT_INTERVAL)) {
             final QueryNode seedA = node("SeedA");
-            try (SeedProgressTracker tracker = reporter.startOrdinary(
-                    point("first"), new ImpactSeed(seedA,
-                            evidence("first")))) {
+            try (SeedProgressTracker tracker = reporter.startQueryNode(
+                    1L, seedA, 2)) {
                 tracker.reverseProgress(node("RecentA"), SEED_A_VISITED);
                 clock.set(TEN_SECONDS);
                 scheduler.fire();
                 clock.set(2 * TEN_SECONDS);
                 scheduler.fire();
+                tracker.reverseCompleted(SEED_A_VISITED);
+                tracker.representativeSelection(node("RecentA"));
                 clock.set(TWENTY_FIVE_SECONDS);
                 tracker.complete();
                 scheduler.fire();
             }
 
             final QueryNode seedB = node("SeedB");
-            try (SeedProgressTracker tracker = reporter.startOrdinary(
-                    point("second"), new ImpactSeed(seedB,
-                            evidence("second")))) {
+            try (SeedProgressTracker tracker = reporter.startQueryNode(
+                    2L, seedB, SEED_B_EVIDENCE)) {
                 tracker.reverseCompleted(SEED_B_VISITED);
                 clock.set(THIRTY_FIVE_SECONDS);
                 scheduler.fire();
@@ -92,32 +86,36 @@ class SeedProgressReporterTest {
 
         final List<String> lines = eventLines(bytes);
         assertThat(lines).filteredOn(line -> line.contains(
-                "event=seed-started"))
+                "event=query-node-started"))
                 .hasSize(2)
                 .allMatch(line -> line.contains(
-                        "elapsedMs=0; visited=0"));
+                        "phase=REVERSE_BFS; elapsedMs=0; visited=0"));
         assertThat(lines).anySatisfy(line -> assertThat(line)
-                .contains("event=seed-progress; seedOrdinal=1")
+                .contains("event=query-node-progress; queryNodeOrdinal=1")
+                .contains("evidenceSeeds=2")
                 .contains("heartbeat=1; elapsedMs=10000")
                 .contains("visited=4")
                 .contains("recentMethodName=RecentA"));
         assertThat(lines).anySatisfy(line -> assertThat(line)
-                .contains("event=seed-progress; seedOrdinal=1")
+                .contains("event=query-node-progress; queryNodeOrdinal=1")
                 .contains("heartbeat=2; elapsedMs=20000"));
         assertThat(lines).anySatisfy(line -> assertThat(line)
-                .contains("event=seed-completed; seedOrdinal=1")
-                .contains("elapsedMs=25000; visited=4"));
+                .contains("event=query-node-completed; queryNodeOrdinal=1")
+                .contains("phase=REPRESENTATIVE_SELECTION")
+                .contains("elapsedMs=25000; visited=4")
+                .contains("recentMethodName=RecentA"));
         assertThat(lines).anySatisfy(line -> assertThat(line)
-                .contains("event=seed-started; seedOrdinal=2")
+                .contains("event=query-node-started; queryNodeOrdinal=2")
+                .contains("evidenceSeeds=3")
                 .contains("elapsedMs=0; visited=0")
-                .contains("methodName=SeedB"));
+                .contains("recentMethodName=SeedB"));
         assertThat(lines).anySatisfy(line -> assertThat(line)
-                .contains("event=seed-progress; seedOrdinal=2")
+                .contains("event=query-node-progress; queryNodeOrdinal=2")
                 .contains("heartbeat=1; elapsedMs=10000")
                 .contains("visited=7")
                 .contains("recentMethodName=SeedB"));
         assertThat(lines).filteredOn(line -> line.contains(
-                "event=seed-progress; seedOrdinal=1"))
+                "event=query-node-progress; queryNodeOrdinal=1"))
                 .hasSize(2);
         assertThat(lines).allMatch(line -> !line.contains("methodBody"));
         assertThat(log.getEvents()).isEmpty();
@@ -125,7 +123,7 @@ class SeedProgressReporterTest {
     }
 
     @Test
-    void disablesSeedDiagnosticsBelowTraceWithoutScheduling() {
+    void disablesQueryNodeDiagnosticsBelowTraceWithoutScheduling() {
         final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         final DiagnosticLog log = new DiagnosticLog(
                 new PrintStream(bytes), LogVerbosity.DEBUG);
@@ -135,9 +133,8 @@ class SeedProgressReporterTest {
                 log, DiagnosticContext.stage("impact-query"),
                 System::nanoTime, scheduler,
                 SeedProgressReporter.HEARTBEAT_INTERVAL);
-             SeedProgressTracker tracker = reporter.startOrdinary(
-                     point("quiet"), new ImpactSeed(
-                             node("Quiet"), evidence("quiet")))) {
+             SeedProgressTracker tracker = reporter.startQueryNode(
+                     1L, node("Quiet"), 1)) {
             tracker.reverseProgress(node("Hidden"), QUIET_VISITED);
             scheduler.fire();
             tracker.complete();
@@ -149,36 +146,13 @@ class SeedProgressReporterTest {
 
     private List<String> eventLines(final ByteArrayOutputStream bytes) {
         return bytes.toString(StandardCharsets.UTF_8).lines()
-                .filter(line -> line.contains("event=seed-"))
+                .filter(line -> line.contains("event=query-node-"))
                 .toList();
     }
 
     private QueryNode node(final String name) {
         return new TestQueryNode(new MethodId("sample/Owner", name,
                 "()V", "sample", "sample/classes"), CodeOrigin.PROJECT);
-    }
-
-    private BoundChangePoint point(final String name) {
-        final ArtifactCoord module = new ArtifactCoord(
-                "sample", "app", "jar", "1");
-        final ArtifactCoord oldArtifact = new ArtifactCoord(
-                "sample", "library", "jar", "1");
-        final ArtifactCoord newArtifact = new ArtifactCoord(
-                "sample", "library", "jar", "2");
-        return new BoundChangePoint(new DependencyUpgradeKey(
-                new ModuleId(module, Path.of("app")), DependencyScope.COMPILE,
-                oldArtifact, newArtifact), new ChangePoint(newArtifact,
-                ChangePointKind.METHOD_REMOVED, "sample/Api", name, "()V",
-                null, null));
-    }
-
-    private ReferenceEvidence evidence(final String name) {
-        return new ReferenceEvidence(Optional.empty(),
-                new ReferenceTarget("sample/Api", name, "()V"),
-                EvidenceKind.METHOD_REFERENCE,
-                EvidenceMechanism.DECLARED_INVOKE,
-                new EvidenceLocation("sample/Owner#call()V", TERMINAL_PC),
-                "declared invoke " + name);
     }
 
     /**

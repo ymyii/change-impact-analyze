@@ -61,6 +61,16 @@ import java.util.concurrent.Callable;
 public final class ImpactCommand
         implements Callable<Integer> {
 
+    /**
+     * Computes the runtime default for bounded parallel stages.
+     *
+     * @param availableProcessors processors visible to the Analyzer JVM
+     * @return half the processors, with a minimum of one
+     */
+    static int defaultAnalysisParallelism(final int availableProcessors) {
+        return Math.max(1, availableProcessors / 2);
+    }
+
     /** Root options. */
     @ParentCommand
     private DependencyAnalyzerCli root;
@@ -109,10 +119,10 @@ public final class ImpactCommand
 
     /** Concurrent safe analysis tasks. */
     @Option(names = "--analysis-parallelism",
-            defaultValue = "2",
-            description = "Maximum concurrent Module, JAR diff, and "
-                    + "decompilation tasks.")
-    private int analysisParallelism;
+            description = "Maximum concurrent JAR diff, impact query, and "
+                    + "code comparison tasks; default: half of available "
+                    + "processors.")
+    private Integer analysisParallelism;
 
     /** Command-wide Call Graph algorithm. */
     @Option(names = "--call-graph-algorithm",
@@ -206,11 +216,22 @@ public final class ImpactCommand
                     "--call-graph-timeout-seconds must be >= 0");
             return 1;
         }
-        if (analysisParallelism < 1) {
+        final int selectedAnalysisParallelism = analysisParallelism == null
+                ? defaultAnalysisParallelism(
+                Runtime.getRuntime().availableProcessors())
+                : analysisParallelism;
+        if (selectedAnalysisParallelism < 1) {
             diagnostics.error("preflight",
                     "--analysis-parallelism must be >= 1");
             return 1;
         }
+        if (analysisParallelism != null && selectedAnalysisParallelism
+                > Runtime.getRuntime().availableProcessors()) {
+            diagnostics.warn("preflight",
+                    "--analysis-parallelism exceeds availableProcessors: "
+                            + selectedAnalysisParallelism);
+        }
+        analysisParallelism = selectedAnalysisParallelism;
         final Integer selectedKObjDepth = selectedKObjDepth(diagnostics);
         if (selectedKObjDepth == null) {
             return 1;

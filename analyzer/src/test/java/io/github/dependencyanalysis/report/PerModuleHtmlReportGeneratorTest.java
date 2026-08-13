@@ -151,7 +151,7 @@ class PerModuleHtmlReportGeneratorTest {
         final AnalysisRunResult run = new AnalysisRunResult(
                 AnalysisMode.REACTOR, AnalysisStatus.SUCCESS,
                 List.of(dependencyChange), List.of(module, skipped),
-                new AnalysisConcurrency(2, 1, 4, 1),
+                new AnalysisConcurrency(2, 1, 2, 1),
                 Map.of("module-analysis", 10L),
                 new AnalysisRunConfiguration(
                         EntrypointSelection.allProjectClasses(),
@@ -187,6 +187,13 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("Optimized 0-1-CFA")
                 .contains("Maven Dependency Plugin")
                 .contains("embedded 3.6.1")
+                .contains("<th>JAR comparisons in parallel</th><td>1 "
+                        + "(configured 2)</td>")
+                .contains("<th>Impact queries in parallel</th><td>2 "
+                        + "(configured 2)</td>")
+                .contains("<th>Code comparisons in parallel</th><td>1 "
+                        + "(configured 2)</td>")
+                .doesNotContain("Modules analyzed in parallel")
                 .contains("example:app:jar:1")
                 .contains("example:new-module:jar:1")
                 .contains("Skipped")

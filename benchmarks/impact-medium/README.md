@@ -24,6 +24,8 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 
 `BENCHMARK_WALA_REFLECTION_OPTIONS` 默认且正式验收要求为 `ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。
 
+Canonical runner固定显式传入`--analysis-parallelism 2`，避免Analyzer的动态半核默认值随执行机器变化；该值只控制JAR diff、Impact Query与code comparison，不启用Module并发。
+
 ## Prerequisites
 
 - Java 17：启动 Analyzer。

@@ -31,12 +31,16 @@ import org.objectweb.asm.Opcodes;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
@@ -137,6 +141,18 @@ class ModuleImpactTracerTest {
                 final ModuleImpactQueryResult result =
                         new ModuleImpactTracer(diagnostics)
                                 .trace(unit, session);
+                final AtomicInteger peakWorkers = new AtomicInteger();
+                final ExecutorService queryExecutor =
+                        Executors.newFixedThreadPool(2);
+                final ModuleImpactQueryResult parallelResult;
+                try {
+                    parallelResult = new ModuleImpactTracer(
+                            diagnostics, queryExecutor, 2,
+                            workers -> peakWorkers.accumulateAndGet(
+                                    workers, Math::max)).trace(unit, session);
+                } finally {
+                    queryExecutor.shutdownNow();
+                }
 
                 assertThat(result.getDispositions())
                         .as(algorithm.identifier())
@@ -158,6 +174,19 @@ class ModuleImpactTracerTest {
                 assertAccessObservation(result, illegal,
                         AccessDecision.INACCESSIBLE,
                         AccessDecisionReason.DIFFERENT_RUNTIME_PACKAGE);
+                assertThat(parallelResult.getPaths())
+                        .as(algorithm.identifier()).isEqualTo(
+                                result.getPaths());
+                assertThat(parallelResult.getDispositions())
+                        .as(algorithm.identifier()).isEqualTo(
+                                result.getDispositions());
+                assertThat(parallelResult.getObservations())
+                        .as(algorithm.identifier()).isEqualTo(
+                                result.getObservations());
+                assertThat(parallelResult.getLimitations())
+                        .as(algorithm.identifier()).isEqualTo(
+                                result.getLimitations());
+                assertThat(peakWorkers.get()).isBetween(1, 2);
             }
         }
     }
@@ -211,9 +240,9 @@ class ModuleImpactTracerTest {
                 moduleId, ModulePresence.BOTH, project,
                 List.of(dependencies), List.of(), List.of(),
                 new ModuleChangeSet(points, List.of()));
+        final ByteArrayOutputStream queryLog = new ByteArrayOutputStream();
         final DiagnosticLog diagnostics = new DiagnosticLog(
-                new PrintStream(new ByteArrayOutputStream()),
-                LogVerbosity.INFO);
+                new PrintStream(queryLog), LogVerbosity.TRACE);
         final JavaRuntimeDescriptor runtime =
                 new Jdk8RuntimeProvider().probe(Path.of(
                         System.getenv("TEST_JDK8_HOME")));
@@ -249,6 +278,21 @@ class ModuleImpactTracerTest {
                 }
             }
         }
+        final List<String> queryStarts = queryLog.toString(
+                StandardCharsets.UTF_8).lines()
+                .filter(line -> line.contains("[impact-query]"))
+                .filter(line -> line.contains("Task started; seeds="))
+                .toList();
+        assertThat(queryStarts)
+                .hasSize(CallGraphAlgorithm.values().length)
+                .allMatch(line -> line.contains("workers=1"));
+        assertThat(queryStarts).anyMatch(line -> line.contains(
+                "seeds=4; queryNodes=1; workers=1"));
+        assertThat(queryLog.toString(StandardCharsets.UTF_8).lines()
+                .filter(line -> line.contains(
+                        "event=query-node-completed"))
+                .filter(line -> line.contains("evidenceSeeds=4"))
+                .toList()).isNotEmpty();
     }
 
     @Test

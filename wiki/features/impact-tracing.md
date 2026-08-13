@@ -12,7 +12,7 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactCommand.java"
     desc: "试验性bytecode semantic comparison的CLI opt-in"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
-    desc: "query后的可选串行SSA stage与session释放边界"
+    desc: "command-wide Impact Query pool、串行Module生命周期与session释放边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleImpactTracer.java"
     desc: "Evidence anchor驱动的deterministic reverse BFS与representative path"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ReferenceEvidence.java"
@@ -50,7 +50,7 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChangePointTerminal.java"
     desc: "路径末端BoundChangePoint与exact ReferenceEvidence"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/SeedProgressReporter.java"
-    desc: "-vv下单个逻辑seed独立计时、visited与10秒心跳"
+    desc: "-vv下单个QueryNode独立计时、visited与10秒心跳"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChangePointDisposition.java"
     desc: "ChangePoint 最终 disposition contract"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/SsaEquivalenceEngine.java"
@@ -63,7 +63,7 @@ code_refs:
 
 ## Summary
 
-Impact Tracing只消费冻结的`ModuleCallGraphSession`。在Call Graph完成后、session冻结前，算法无关`ChangePointEvidenceCollector`扫描reachable method一次，将ordinary invoke、field/type、Class.forName、ServiceLoader、dynamic handle和raw structural/resource fact统一转换成`ReferenceEvidence`并绑定每个`BoundChangePoint`。Query不再扫描IR发现reference，只从Evidence method anchor执行deterministic reverse breadth-first search（BFS，广度优先搜索）。Impact Path只保存有序`QueryNode`与完整`ChangePointTerminal`；Removed subject永远是terminal，不进入WALA topology。
+Impact Tracing只消费冻结的`ModuleCallGraphSession`。在Call Graph完成后、session冻结前，算法无关`ChangePointEvidenceCollector`扫描reachable method一次，将ordinary invoke、field/type、Class.forName、ServiceLoader、dynamic handle和raw structural/resource fact统一转换成`ReferenceEvidence`并绑定每个`BoundChangePoint`。Query先串行完成Structural Reference准备、ordinary seed resolution和access observation，再将全部evidence binding按exact `QueryNode`分组并执行deterministic reverse breadth-first search（BFS，广度优先搜索）。Impact Path只保存有序`QueryNode`与完整`ChangePointTerminal`；Removed subject永远是terminal，不进入WALA topology。
 
 ## Design Decisions
 
@@ -101,22 +101,27 @@ Impact Tracing只消费冻结的`ModuleCallGraphSession`。在Call Graph完成�
 
 ## Reverse BFS and Representative Path
 
-- 每个 exact seed node 执行一次 deterministic reverse BFS；结果按 query 内 seed cache 复用。
+- ordinary `(BoundChangePoint, ImpactSeed)`与structural `(StructuralReferenceMatch, QueryNode)`按exact `QueryNode`分组；一个QueryNode任务处理该节点关联的全部evidence。PROJECT direct structural reference直接生成结果，不进入任务数。
+- QueryNode与其evidence binding先按stable key排序，再分配Module-local稳定ordinal。不同Call Graph Context仍是不同QueryNode，不按method文本合并。
+- 每个QueryNode任务使用局部queue、`visited`、`next`和唯一`ReverseTrace`执行一次deterministic reverse BFS；Module级`traceCache`不存在。
+- worker只返回immutable ordinary path、structural path与recovery结果，不返回`ReverseTrace`、`visited`或`next`。任务返回前释放局部`ReverseTrace`强引用；同时存活的反向切片不超过active QueryNode worker数。
 - Traversal identity 是 exact `CGNode`，禁止使用 `Context.toString()` 作为 stable identity。
 - Reverse BFS 访问全部 predecessor；每个访问到的 `CodeOrigin.PROJECT` node 都是 affected method，包括 call chain 中间的 PROJECT method。
 - Impact Path与Structural Reference Path只保存有序node sequence和terminal，不调用`getPossibleSites(caller, callee)`反查中间callsite。
-- 同一 `ChangePoint + affected PROJECT method` 汇总不同 seed 与不同 Context：先选hop数最少的path，再逐node按method owner/name/descriptor、module/source、origin和graph node id稳定决胜。
+- completion result到达后立即归并，不保存全部任务结果。同一 `ChangePoint + affected PROJECT method` 汇总不同 seed 与不同 Context：先选hop数最少的path，再逐node按method owner/name/descriptor、module/source、origin和graph node id比较，最后按terminal evidence stable key决胜。
 - Fake root/world-clinit 不进入 Report。Seed origin 是 PROJECT 时 classification 为 `DIRECT`，否则为 `TRANSITIVE`。
 - 不同 Module 独立 query、独立 disposition、独立 Report。
 
-## Per-Seed TRACE Progress
+## QueryNode Concurrency and TRACE Progress
 
-- `-vv`为每个普通逻辑seed和非PROJECT structural seed输出transient Console-only `seed-started`与`seed-completed`；PROJECT direct structural reference没有QueryNode seed，不输出。
-- 每个seed在自身开始日志之后从`elapsedMs=0`、`visited=0`独立计时。计时只覆盖该seed的cache查询、cache miss reverse BFS、path materialization与representative selection，不包含resolver或其他seed。
-- 单个seed运行满10秒后输出首个`seed-progress`，以后按该seed自身的20、30、40秒周期输出。seed切换时elapsed、visited、recent CGNode、phase与heartbeat序号全部重置；10秒内完成的seed没有progress日志。
-- BFS期间visited表示该seed当前已发现节点数，recent CGNode表示最近开始查询predecessor的节点；BFS完成后visited固定为该seed使用的`ReverseTrace.visited`总数，recent node随path materialization与representative selection更新。cache reuse只复用ReverseTrace，不复用tracker状态。
-- 心跳使用query-scoped daemon scheduler与per-seed thread-safe snapshot，因此分析线程停留在一次WALA调用时仍可输出；scheduler不遍历正在修改的graph collection，也不读取method body、IR或SSA instruction。
-- seed正常完成时先停止心跳再输出total elapsed与visited；异常路径只停止心跳并保持原异常传播，不伪造completed。INFO/DEBUG不创建scheduler；全部seed日志不进入retained events、JSON或HTML Report。
+- pipeline在Module严格串行的前提下创建一个command-wide managed `impact-query`固定线程池，各Module依次复用。单Module滚动提交最多`min(analysisParallelism, queryNodes)`个任务，完成一个再提交一个。
+- 直接构造`ModuleImpactTracer`的Java调用保持inline串行，不创建线程池。
+- 每个Module的`impact-query` INFO start固定包含`seeds=<ordinary/structural evidence binding总数>`、`queryNodes=<exact QueryNode数>`与`workers=<min(analysisParallelism, queryNodes)>`。
+- `-vv`为每个QueryNode输出transient Console-only `query-node-started`、可选`query-node-progress`与`query-node-completed`；字段包含稳定`queryNodeOrdinal`、`evidenceSeeds`、phase、elapsed、recent node及本QueryNode独立的`visited`。PROJECT direct structural reference不输出QueryNode事件。
+- 每个QueryNode从`elapsedMs=0`、`visited=0`独立计时。单任务运行满10秒后输出首个progress，以后按自身20、30、40秒周期输出；任务之间不继承elapsed、visited、recent node、phase或heartbeat ordinal。
+- BFS期间visited表示当前QueryNode已发现节点数；BFS完成后固定为该QueryNode局部`ReverseTrace.visited`总数。心跳只读取per-QueryNode thread-safe snapshot，不遍历正在修改的graph collection，也不读取method body、IR或SSA instruction。
+- QueryNode正常完成时先停止心跳再输出total elapsed与visited；异常路径只停止心跳并传播异常，不伪造completed。INFO/DEBUG不创建scheduler；这些事件不进入retained events、JSON或HTML Report。
+- 任一QueryNode失败时取消并等待当前Module已启动的其他query任务退出，再将该Module转换为`FAILED_ANALYSIS`。共享pool继续服务后续Module；pipeline结束或全局异常时统一关闭。
 
 ## Dynamic Terminal Evidence
 
@@ -193,7 +198,8 @@ Session冻结后，Impact query只读取graph、`ChangePointEvidenceIndex`、str
 
 - [ ] Query保持Call Graph、CHA、strategy metadata与Evidence index只读。
 - [ ] Path materialization不反查中间callsite；node sequence与完整ChangePointTerminal足以生成Report。
-- [ ] 每个TRACE seed独立计时和统计，10秒心跳不跨seed继承状态。
+- [ ] 每个TRACE QueryNode独立计时和统计，10秒心跳不跨QueryNode继承状态。
+- [ ] parallelism为`1`或更大时，paths、dispositions、observations与limitations排序一致。
 - [ ] `TypeInference`按reachable node缓存，access checker不依赖algorithm或points-to value。
 - [ ] 相同输入的representative path、evidence与limitation排序稳定。
 

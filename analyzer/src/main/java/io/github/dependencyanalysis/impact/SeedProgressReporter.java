@@ -18,8 +18,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 
-// Wiki: wiki/features/impact-tracing.md - Per-seed TRACE progress contract
-/** Query-scoped factory for isolated per-seed TRACE progress trackers. */
+// Wiki: wiki/features/impact-tracing.md - Per-QueryNode TRACE progress contract
+/** Query-scoped factory for isolated per-QueryNode TRACE progress trackers. */
 final class SeedProgressReporter implements AutoCloseable {
 
     /** Production heartbeat interval. */
@@ -37,11 +37,8 @@ final class SeedProgressReporter implements AutoCloseable {
     /** Query-scoped scheduler, null when TRACE is disabled. */
     private final HeartbeatScheduler scheduler;
 
-    /** Per-seed heartbeat interval. */
+    /** Per-QueryNode heartbeat interval. */
     private final long heartbeatNanos;
-
-    /** Module-local seed ordinal. */
-    private final AtomicLong ordinals = new AtomicLong();
 
     private SeedProgressReporter(
             final DiagnosticLog log,
@@ -74,7 +71,7 @@ final class SeedProgressReporter implements AutoCloseable {
         final ScheduledExecutorService executor =
                 Executors.newSingleThreadScheduledExecutor(runnable -> {
                     final Thread thread = new Thread(runnable,
-                            "dependency-analyzer-seed-progress");
+                            "dependency-analyzer-query-node-progress");
                     thread.setDaemon(true);
                     return thread;
                 });
@@ -108,79 +105,34 @@ final class SeedProgressReporter implements AutoCloseable {
     }
 
     /**
-     * Starts one ordinary logical seed with a fresh clock and metrics.
+     * Starts one QueryNode task with a fresh clock and metrics.
      *
-     * @param point bound change point
-     * @param seed ordinary seed
-     * @return isolated seed tracker
+     * @param ordinal stable Module-local QueryNode ordinal
+     * @param node exact QueryNode
+     * @param evidenceSeeds evidence bindings consumed by the task
+     * @return isolated QueryNode tracker
      */
-    SeedProgressTracker startOrdinary(
-            final BoundChangePoint point,
-            final ImpactSeed seed) {
+    SeedProgressTracker startQueryNode(
+            final long ordinal,
+            final QueryNode node,
+            final int evidenceSeeds) {
         if (scheduler == null) {
             return SeedProgressTracker.disabled();
         }
-        final ReferenceEvidence evidence = seed.evidence();
-        final String detail = "changePoint=" + clean(point.stableKey())
-                + "; evidenceKind=" + evidence.kind()
-                + "; evidenceMechanism=" + evidence.mechanism()
-                + "; evidenceTarget=" + clean(evidence.target().stableKey())
-                + "; evidenceLocation="
-                + clean(evidence.location().stableKey())
-                + "; evidenceDetail=" + clean(evidence.detail());
-        return start("ORDINARY", seed.node(), detail);
-    }
-
-    /**
-     * Starts one structural logical seed with a fresh clock and metrics.
-     *
-     * @param match structural reference match
-     * @param seed structural seed node
-     * @return isolated seed tracker
-     */
-    SeedProgressTracker startStructural(
-            final StructuralReferenceMatch match,
-            final QueryNode seed) {
-        if (scheduler == null) {
-            return SeedProgressTracker.disabled();
-        }
-        final StructuralReference reference = match.reference();
-        final String detail = "changePoint="
-                + clean(match.changePoint().stableKey())
-                + "; referenceKind=" + reference.getKind()
-                + "; referencingClass="
-                + clean(reference.getReferencingClass())
-                + "; referencingMember="
-                + clean(reference.getReferencingMember())
-                + "; changedClass=" + clean(reference.getChangedClass())
-                + "; referenceOrigin=" + reference.getOrigin()
-                + "; referenceEvidence="
-                + clean(reference.getEvidence());
-        return start("STRUCTURAL", seed, detail);
-    }
-
-    private SeedProgressTracker start(
-            final String seedType,
-            final QueryNode seed,
-            final String detail) {
-        final long ordinal = ordinals.incrementAndGet();
-        final NodeProgress node = NodeProgress.from(seed);
+        final NodeProgress progress = NodeProgress.from(node);
         diagnostics.transientLog(context, DiagnosticLevel.TRACE,
                 LogVerbosity.TRACE,
-                "event=seed-started; seedOrdinal=" + ordinal
-                        + "; seedType=" + seedType
-                        + "; elapsedMs=0; visited=0; " + detail
-                        + "; " + node.render(""));
+                "event=query-node-started; queryNodeOrdinal=" + ordinal
+                        + "; evidenceSeeds=" + evidenceSeeds
+                        + "; phase=REVERSE_BFS"
+                        + "; elapsedMs=0; visited=0; "
+                        + progress.render("recent"));
         final SeedProgressTracker tracker = new SeedProgressTracker(
                 new TrackerConfiguration(diagnostics, context, nanoTime,
                         scheduler, heartbeatNanos),
-                ordinal, seedType, node);
+                ordinal, evidenceSeeds, progress);
         tracker.schedule();
         return tracker;
-    }
-
-    private String clean(final String value) {
-        return value.replace("\r", "\\r").replace("\n", "\\n");
     }
 
     @Override
@@ -263,7 +215,7 @@ record TrackerConfiguration(
         long heartbeatNanos) {
 }
 
-/** Thread-safe metrics for exactly one logical seed. */
+/** Thread-safe metrics for exactly one QueryNode task. */
 final class SeedProgressTracker implements AutoCloseable {
 
     /** Shared disabled tracker; it owns no mutable query state. */
@@ -276,7 +228,7 @@ final class SeedProgressTracker implements AutoCloseable {
     /** Module context. */
     private final DiagnosticContext context;
 
-    /** Per-seed monotonic clock. */
+    /** Per-QueryNode monotonic clock. */
     private final LongSupplier nanoTime;
 
     /** Query scheduler. */
@@ -285,26 +237,26 @@ final class SeedProgressTracker implements AutoCloseable {
     /** Interval. */
     private final long heartbeatNanos;
 
-    /** Per-seed start; never shared with another seed. */
+    /** Per-QueryNode start; never shared with another task. */
     private final long startedNanos;
 
     /** Log identity. */
     private final long ordinal;
 
-    /** Seed category. */
-    private final String seedType;
+    /** Evidence bindings consumed by this QueryNode. */
+    private final int evidenceSeeds;
 
-    /** Per-seed visited count. */
+    /** Per-QueryNode visited count. */
     private final AtomicInteger visited = new AtomicInteger();
 
-    /** Per-seed most recently processed node. */
+    /** Per-QueryNode most recently processed node. */
     private final AtomicReference<NodeProgress> recentNode;
 
-    /** Per-seed current phase. */
-    private final AtomicReference<SeedPhase> phase =
-            new AtomicReference<>(SeedPhase.REVERSE_BFS);
+    /** Per-QueryNode current phase. */
+    private final AtomicReference<QueryNodePhase> phase =
+            new AtomicReference<>(QueryNodePhase.REVERSE_BFS);
 
-    /** Per-seed heartbeat ordinal. */
+    /** Per-QueryNode heartbeat ordinal. */
     private final AtomicLong heartbeats = new AtomicLong();
 
     /** Active state. */
@@ -324,24 +276,24 @@ final class SeedProgressTracker implements AutoCloseable {
         heartbeatNanos = 0L;
         startedNanos = 0L;
         ordinal = 0L;
-        seedType = "";
+        evidenceSeeds = 0;
         recentNode = new AtomicReference<>();
         active.set(false);
     }
 
     SeedProgressTracker(
             final TrackerConfiguration configuration,
-            final long seedOrdinal,
-            final String type,
-            final NodeProgress seedNode) {
+            final long queryNodeOrdinal,
+            final int bindings,
+            final NodeProgress queryNode) {
         diagnostics = configuration.diagnostics();
         context = configuration.context();
         nanoTime = configuration.nanoTime();
         scheduler = configuration.scheduler();
         heartbeatNanos = configuration.heartbeatNanos();
-        ordinal = seedOrdinal;
-        seedType = type;
-        recentNode = new AtomicReference<>(seedNode);
+        ordinal = queryNodeOrdinal;
+        evidenceSeeds = bindings;
+        recentNode = new AtomicReference<>(queryNode);
         startedNanos = nanoTime.getAsLong();
     }
 
@@ -361,7 +313,7 @@ final class SeedProgressTracker implements AutoCloseable {
         if (!active.get()) {
             return;
         }
-        phase.set(SeedPhase.REVERSE_BFS);
+        phase.set(QueryNodePhase.REVERSE_BFS);
         recentNode.set(NodeProgress.from(node));
         visited.set(count);
     }
@@ -377,14 +329,14 @@ final class SeedProgressTracker implements AutoCloseable {
             return;
         }
         visited.set(count);
-        phase.set(SeedPhase.PATH_MATERIALIZATION);
+        phase.set(QueryNodePhase.PATH_MATERIALIZATION);
     }
 
     void pathMaterialization(final QueryNode node) {
         if (!active.get()) {
             return;
         }
-        phase.set(SeedPhase.PATH_MATERIALIZATION);
+        phase.set(QueryNodePhase.PATH_MATERIALIZATION);
         recentNode.set(NodeProgress.from(node));
     }
 
@@ -392,7 +344,7 @@ final class SeedProgressTracker implements AutoCloseable {
         if (!active.get()) {
             return;
         }
-        phase.set(SeedPhase.REPRESENTATIVE_SELECTION);
+        phase.set(QueryNodePhase.REPRESENTATIVE_SELECTION);
         recentNode.set(NodeProgress.from(node));
     }
 
@@ -404,10 +356,12 @@ final class SeedProgressTracker implements AutoCloseable {
             cancel();
             diagnostics.transientLog(context, DiagnosticLevel.TRACE,
                     LogVerbosity.TRACE,
-                    "event=seed-completed; seedOrdinal=" + ordinal
-                            + "; seedType=" + seedType
+                    "event=query-node-completed; queryNodeOrdinal=" + ordinal
+                            + "; evidenceSeeds=" + evidenceSeeds
+                            + "; phase=" + phase.get()
                             + "; elapsedMs=" + elapsedMillis()
-                            + "; visited=" + visited.get());
+                            + "; visited=" + visited.get() + "; "
+                            + recentNode.get().render("recent"));
         }
     }
 
@@ -420,8 +374,8 @@ final class SeedProgressTracker implements AutoCloseable {
             final NodeProgress node = recentNode.get();
             diagnostics.transientLog(context, DiagnosticLevel.TRACE,
                     LogVerbosity.TRACE,
-                    "event=seed-progress; seedOrdinal=" + ordinal
-                            + "; seedType=" + seedType
+                    "event=query-node-progress; queryNodeOrdinal=" + ordinal
+                            + "; evidenceSeeds=" + evidenceSeeds
                             + "; heartbeat=" + heartbeat
                             + "; elapsedMs=" + elapsedMillis()
                             + "; phase=" + phase.get()
@@ -451,8 +405,8 @@ final class SeedProgressTracker implements AutoCloseable {
         }
     }
 
-    /** Single-seed progress phases. */
-    private enum SeedPhase {
+    /** Single-QueryNode progress phases. */
+    private enum QueryNodePhase {
         /** Reverse predecessor traversal. */
         REVERSE_BFS,
         /** Ordered node path recovery. */

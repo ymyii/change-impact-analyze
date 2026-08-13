@@ -124,6 +124,14 @@ case "$dependency_scope" in
 esac
 grep -q '<th>Raw changed members</th><td>22</td>' "$report" \
   || fail "raw changed member count is not 22"
+grep -E -q '<th>JAR comparisons in parallel</th><td>[0-9]+ \(configured 2\)</td>' "$report" \
+  || fail "JAR comparison parallelism is missing or not pinned to 2"
+grep -E -q '<th>Impact queries in parallel</th><td>[0-9]+ \(configured 2\)</td>' "$report" \
+  || fail "Impact Query parallelism is missing or not pinned to 2"
+grep -E -q '<th>Code comparisons in parallel</th><td>[0-9]+ \(configured 2\)</td>' "$report" \
+  || fail "code comparison parallelism is missing or not pinned to 2"
+! grep -q '<th>Modules analyzed in parallel</th>' "$report" \
+  || fail "removed Module parallelism row is present"
 grep -F -q "<th>Algorithm</th><td>$algorithm</td>" "$report" \
   || fail "Call Graph algorithm does not match requested $algorithm"
 if [ "$algorithm" = k-obj ]; then

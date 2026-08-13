@@ -79,7 +79,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - `--baseline <ref>` required；`--target <ref>` 默认 current checkout。
 - `--path <path>`：reactor root 或 leaf Module。
 - `--analysis-target spring-backend`：默认且唯一 target。
-- `--analysis-parallelism <N>`：默认 `2`，必须 `>=1`；统一控制 Module analysis、JAR diff、反编译 pool，不按 CPU 数静默截断，超过 CPU 输出 warning。
+- `--analysis-parallelism <N>`：未传值时运行期取`max(1, Runtime.getRuntime().availableProcessors() / 2)`，向下取整；显式值必须`>=1`。只控制JAR diff、Impact Query与code comparison pool；显式值超过可用CPU时输出warning，不截断。Help只说明默认使用可用CPU核数的一半，不显示固定数字。
 - `--call-graph-algorithm <cha|rta|zero-cfa|optimized-0-1-cfa|k-obj>`：默认`cha`，command-wide应用到全部Module；大小写不敏感，不接受alias或自动fallback；旧`1-object-1-call-site`标识直接拒绝。
 - `--k-obj-depth <正整数>`：只可与`k-obj`同时使用，默认`1`，不设置人为上限；零值、负值及与其他算法组合均在Preflight前作为参数错误返回。
 - `--jdk-model <jdk8|none>`：默认依algorithm解析。未指定algorithm/model或显式`cha`但未指定model时为`none`；其他algorithm未指定model时为`jdk8`。显式`cha + jdk8`在Preflight前exit code`1`；其他algorithm仍可显式`none`。
@@ -121,6 +121,8 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - Analyzer Diagnostic event 默认 retained，可进入 `impact` HTML Diagnostics。Preflight evidence/fallback、Maven output、exception stack trace 与 Runtime Metrics 是 transient，只进入 Console。
 - Console 与 HTML Report 对 retained event 共用 `DiagnosticLogFormatter`，包含同一 event timestamp 和 prefix；Module Diagnostics 只按 `DiagnosticEvent.module` 精确归属。
 - Call Graph completion message包含effective`algorithm`与`jdkModel=jdk8|none`，并仅在`k-obj`时包含实际`kObjDepth`。HTML展示CHA Reflection not-applied。Schema v8 diagnostics额外输出strategy capabilities、reflection applied状态、Evidence resolution/kind/mechanism、local constant resolution和CHA ancestor-retained/pruned target计数；Evidence不作为topology node/edge输出。
+- 每个Module的`impact-query` INFO start包含`seeds`、去重后`queryNodes`与该Module worker上限。`-vv` QueryNode事件使用`query-node-started|progress|completed`，并携带stable ordinal、evidence seed数、phase、elapsed、recent node和QueryNode-local visited。
+- JAR diff aggregate INFO completion包含成功logical pair的唯一`changes`总数、logical `pairs`、`failedPairs`与实际`workers`；空diff固定输出`changes=0; pairs=0; failedPairs=0; workers=0`。
 
 示例：
 
@@ -134,7 +136,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - `INFO`/`DEBUG` 使用 no-op session；不创建 scheduler、不读取 heap、不输出 metrics。
 - `TRACE` 使用 command-scoped daemon scheduler：启动时立即观察并输出snapshot，之后每100 ms fixed-delay观察heap，但只按10 s cadence输出heap/thread-pool snapshot。所有normal return、early return和exception path都通过`close()`停止。
 - Heap 行使用 `stage=runtime-metrics, substage=heap` 和空第五段；`sample/elapsedMs/heapUsedMiB/heapCommittedMiB/heapMaxMiB` 位于 message，MiB 保留 1 位小数。
-- 当前注册的每个 Analyzer-owned pool 单独使用 `stage=runtime-metrics, substage=thread-pool`，第五段只保留 `pool` identity；sample、elapsed、pool size、task count 和 lifecycle value 位于 message。Registry 只包含 `front-preparation`、`jar-diff`、`module-analysis`、`code-comparison`；scheduler、process-output pump、JVM common pool、WALA internal thread 和 Maven external process 不注册。
+- 当前注册的每个 Analyzer-owned pool 单独使用 `stage=runtime-metrics, substage=thread-pool`，第五段只保留 `pool` identity；sample、elapsed、pool size、task count 和 lifecycle value 位于 message。Registry 只包含 `front-preparation`、`jar-diff`、`impact-query`、`code-comparison`；scheduler、process-output pump、JVM common pool、WALA internal thread 和 Maven external process 不注册。
 - 单次采样异常使用 `stage=runtime-metrics, substage=sampler` 和空第五段；sample、elapsed 与 error 位于 TRACE transient message，不会改变 command status、Report 或 exit code。
 - `close()`在设置closed flag前强制一次final heap observation，然后使用`stage=runtime-metrics, substage=summary`输出`sample count`、`peakHeapUsedMiB`、`peakHeapCommittedMiB`与`heapMaxMiB`。该summary是benchmark heap主指标来源；process-tree RSS继续由外部runner采集。
 

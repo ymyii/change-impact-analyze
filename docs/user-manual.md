@@ -49,7 +49,7 @@ Global options 可放在 subcommand 前或后：
 
 `--verbose --verbose` 与 `-vv` 等价。Analyzer 运行日志统一写入 stderr，每个物理行固定为 `[时间][日志级别][阶段][子阶段][额外信息] message`；缺失段使用 `[-]`。第五段只包含当前四段无法唯一表达的阶段实例或日志分类 identity，当前为 `check/reactor/module/artifact/pool`；status、progress、elapsed、path、计数和 metrics value 等实际日志信息使用 message 中的 `key=value`。`INFO` 输出稳定的 stage、progress、warning 和 error，Maven subprocess 只透传 warning/error；JAR pair diff failure 的 WARN 固定包含异常类型和完整 message。`DEBUG` 额外输出 analysis option/decision、完整 Maven subprocess output，并在 command 或隔离的 JAR pair 异常时逐行输出带完整 prefix 的 stack trace 与 cause chain；`TRACE` 再输出 normalized path、ref、scope，以及启动后立即采样、随后每 10 秒采样的 Runtime Metrics。Picocli help/usage、参数解析错误和第三方库直接写入 stderr 的内容不保证五段 prefix。
 
-`-vv` Runtime Metrics 包含 heap `used/committed/max` MiB，以及当前 Analyzer-owned `front-preparation`、`jar-diff`、`module-analysis`、`code-comparison` thread pool 的 core/max/size/active/queued/completed/tasks 和 lifecycle 状态。Heap 第五段为空；thread-pool 第五段只包含 `pool` identity；sample、elapsed 和全部指标值位于 message。`-v` 不创建 metrics scheduler，也不输出 metrics。Runtime Metrics、Maven output、Preflight evidence/fallback 和 stack trace 只进入 Console，不进入 HTML Diagnostics；HTML Diagnostics 与 Console 对 retained event 使用相同 timestamp 和 prefix。
+`-vv` Runtime Metrics 包含 heap `used/committed/max` MiB，以及当前 Analyzer-owned `front-preparation`、`jar-diff`、`impact-query`、`code-comparison` thread pool 的 core/max/size/active/queued/completed/tasks 和 lifecycle 状态。Heap 第五段为空；thread-pool 第五段只包含 `pool` identity；sample、elapsed 和全部指标值位于 message。`-v` 不创建 metrics scheduler，也不输出 metrics。Runtime Metrics、Maven output、Preflight evidence/fallback 和 stack trace 只进入 Console，不进入 HTML Diagnostics；HTML Diagnostics 与 Console 对 retained event 使用相同 timestamp 和 prefix。
 
 ```text
 [2026-08-05T14:30:01.123+08:00][INFO][analysis][reactor][reactor=root] Maven collection completed; progress=1/2; status=SUCCESS; modules=8
@@ -152,7 +152,7 @@ dependency-analyzer impact \
 - `--output` parent 必须存在且可写。
 - `--format` 仅接受 `html`；`md` compatibility token 会 fail fast。
 - `--analysis-target` 默认且首版只接受 `spring-backend`。
-- `--analysis-parallelism` 默认 `2`，必须 `>=1`；统一控制 Module analysis、JAR diff 和代码反编译各自的 bounded pool。超过 CPU 数只输出 warning，不静默截断。
+- `--analysis-parallelism` 未传值时默认使用`max(1, 可用CPU核数 / 2)`，向下取整；显式值必须`>=1`。该参数只控制JAR diff、Impact Query和代码反编译各自的bounded pool。显式值超过可用CPU数时输出warning，不静默截断。
 - `--call-graph-algorithm` command-wide选择全部Module使用的WALA算法；默认`cha`，可显式选择`rta`、`zero-cfa`、`optimized-0-1-cfa`或`k-obj`。值大小写不敏感，不接受alias，不执行timeout fallback。CHA使用WALA Class Hierarchy Analysis（CHA）进行context-insensitive dispatch，不构建points-to；其他algorithm保留既有传播精度。
 - `--k-obj-depth`只可与`--call-graph-algorithm k-obj`同时使用；必须为正整数，默认`1`，不设置人为上限。普通static调用复用object Context，递归在固定`k`的有限Context空间内收敛；较大的`k`仍可能显著增加CGNode、CGEdge、内存与耗时。
 - `--jdk-model` command-wide选择全部Module使用的JDK Method Model。默认值依algorithm解析：CHA固定`none`；其他algorithm未指定时为`jdk8`。显式`cha + jdk8`在分析前失败；其他algorithm仍可显式`none`。
@@ -178,7 +178,7 @@ dependency-analyzer impact \
 | `-o` | `--output` | HTML Index 文件。 |
 | `-f` | `--format` | 仅 `html`；`md` 已移除。 |
 |  | `--analysis-target` | 仅 `spring-backend`。 |
-|  | `--analysis-parallelism` | Module analysis、JAR diff、代码反编译并发数，默认 `2`。 |
+|  | `--analysis-parallelism` | JAR diff、Impact Query、代码反编译并发上限；默认可用CPU核数的一半，最少`1`。 |
 |  | `--call-graph-algorithm` | `cha`（默认）、`rta`、`zero-cfa`、`optimized-0-1-cfa`或`k-obj`；全部Module使用同一算法。 |
 |  | `--k-obj-depth` | `k-obj`的receiver allocation string深度，正整数，默认`1`；其他算法禁止使用。 |
 |  | `--jdk-model` | CHA固定`none`；其他algorithm默认`jdk8`并可显式`none`。 |
@@ -338,9 +338,15 @@ Scope 由结构化 dependency 与 occurrence 节点直接携带。相同 coordin
 
 Physical JAR pair按`--analysis-parallelism`并行执行bytecode Diff与`META-INF/services/*`resource Diff。Resource配置会删除comment/空行、去重并校验baseline provider；仅registration删除生成`SERVICE_PROVIDER_REGISTRATION_REMOVED`，provider class与配置同时删除时只保留`CLASS_REMOVED`。每个logical pair只生成一组immutable ChangePoint，由多个Module共享。
 
+JAR diff聚合结束的INFO日志包含`changes`、`pairs`、`failedPairs`和`workers`。`changes`只汇总成功logical pair的唯一ChangePoint，同一pair绑定多个Module只统计一次；空diff四项均为`0`。
+
 每个relevant Module依次构造target ownership、AnalysisScope、Class Hierarchy和selected WALA strategy。默认CHA使用`Everywhere` Context，JDK method只保留leaf edge；`changed-paths`路径外dependency method是no-op leaf，实际到达时产生boundary limitation。`full`展开external body。CHA不会生成factory或dangerous transfer metadata。
 
-Call Graph完成后，统一`ChangePointEvidenceCollector`扫描reachable method一次，将method、field、type、structural、Class.forName、ServiceLoader、`invokedynamic`和MethodHandle reference绑定为公共`ReferenceEvidence`，再冻结Module session。Impact query只读取Evidence anchor执行反向BFS，不重新扫描IR发现reference。Removed class/method/field/resource永远只作为terminal，不进入WALA Call Graph node/edge。Module内build/collector/query单线程，Module之间并行。
+Call Graph完成后，统一`ChangePointEvidenceCollector`扫描reachable method一次，将method、field、type、structural、Class.forName、ServiceLoader、`invokedynamic`和MethodHandle reference绑定为公共`ReferenceEvidence`，再冻结Module session。Impact query先串行完成Structural Reference准备、ordinary seed resolution和access observation，再按exact `QueryNode`分组并发执行反向BFS；一个QueryNode任务复用一个局部`ReverseTrace`处理关联的全部evidence。PROJECT direct structural reference不进入任务。Removed class/method/field/resource永远只作为terminal，不进入WALA Call Graph node/edge。
+
+Relevant Module按稳定顺序严格串行：当前Module完成Call Graph、Impact Query、可选SSA filtering、diagnostics、snapshot detach和cache spill后，才开始下一个Module。一个QueryNode失败只取消并等待当前Module剩余query任务，随后当前Module记为`FAILED_ANALYSIS`；共享Impact Query pool继续服务后续Module。
+
+每个Module开始Impact Query时，INFO日志打印evidence binding总数`seeds`、去重后`queryNodes`和实际worker上限。`-vv`使用`query-node-started`、`query-node-progress`、`query-node-completed`跟踪稳定ordinal、`evidenceSeeds`、phase、elapsed、recent node与当前QueryNode独立的`visited`；不同QueryNode不共享visited或心跳状态。
 
 Bytecode diff额外产生`CLASS_ACCESS_NARROWED`、`METHOD_ACCESS_NARROWED`（含constructor）和`FIELD_ACCESS_NARROWED`。Query使用target CHA解析actual declaration，并按Java 8 runtime package、subclass、symbolic owner与caller-local verifier receiver type判断new access。`ACCESSIBLE`不建path；`INACCESSIBLE`与`POTENTIALLY_INACCESSIBLE`保守保留path；全部reference仍合法时在Dependency Changes显示`ACCESS_REMAINS_VALID`，不生成Affected Call Chain。该能力分析pre-existing bytecode的JVM binary compatibility，不分析source compatibility、Reflection/JNI/custom ClassLoader或Java 9 module exports。
 
@@ -371,7 +377,7 @@ Module analysis 检查分类如下。这里的“阻塞”只终止当前 Module
 <module-base>-changes.html  Dependency Changes
 ```
 
-Overall Index提供`How to read this report`、`Analysis scope and limitations`、`Terminology`与Module汇总。Technical details展示effective Algorithm、JDK Method Model、WALA Reflection applied状态和Bytecode semantic comparison的experimental enabled/disabled状态；默认关闭时SSA worker为`0 (disabled)`且comparison counts为`not run`，CHA显示`not applied by cha`。Impact terminal展示Evidence kind/mechanism；Evidence不计入CGNode/CGEdge。Module Index展示status、scope、metrics、typed coverage limitations和Diagnostics；Affected Call Chains在显式启用试验性比较后可展示SSA-equivalent candidate，并始终展示final及Structural Reference Chains；Dependency Changes展示相关ChangePoint及typed reference evidence。
+Overall Index提供`How to read this report`、`Analysis scope and limitations`、`Terminology`与Module汇总。Run summary只展示`JAR comparisons in parallel`、`Impact queries in parallel`和`Code comparisons in parallel`的actual/configured值，不展示Module并发字段。Technical details展示effective Algorithm、JDK Method Model、WALA Reflection applied状态和Bytecode semantic comparison的experimental enabled/disabled状态；默认关闭时SSA worker为`0 (disabled)`且comparison counts为`not run`，CHA显示`not applied by cha`。Impact terminal展示Evidence kind/mechanism；Evidence不计入CGNode/CGEdge。Module Index展示status、scope、metrics、typed coverage limitations和Diagnostics；Affected Call Chains在显式启用试验性比较后可展示SSA-equivalent candidate，并始终展示final及Structural Reference Chains；Dependency Changes展示相关ChangePoint及typed reference evidence。
 
 相关 method、field 与 class 提供默认折叠的 old/new Unified diff。内容来自 local dependency bytecode 的 Vineflower decompiled Java representation，不保证与原始 source 相同；反编译失败或文本相同时保留 ASM instruction fallback。Filesystem path、WALA/SSA、descriptor/hash、raw enum、Maven executable、JDK/config/output path 等 evidence 只放在 `Technical details`。所有页面为英文，并提供 top breadcrumbs、Module sibling navigation 和 responsive sticky TOC；不使用 JavaScript 或外部 asset。
 
