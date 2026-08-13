@@ -350,7 +350,7 @@ Factory summary使用真实 resolved callee owner、method与descriptor，生成
 ## Module Classification
 
 - Blocking：PROJECT/reactor 命中 excluded JDK class、scope unreadable、零 PROJECT entrypoint、CHA/Call Graph failure、timeout。
-- Coverage warning：dependency body boundary、external excluded JDK reference、MethodHandle/ServiceLoader limitation、reachable unsupported `invokedynamic`、SSA `UNKNOWN`。
+- Coverage warning：dependency body boundary、external excluded JDK reference、MethodHandle/ServiceLoader limitation、reachable unsupported `invokedynamic`，以及显式启用试验性semantic comparison后的SSA `UNKNOWN`。
 - CHA中reachable unresolved Class.forName、ServiceLoader local constant、unknown bootstrap与unsupported MethodHandle是coverage warning；正常external target裁剪与ancestor-retained method不生成coverage warning。
 - Typed coverage reason包含 `INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY`，并与 bytecode diff、dynamic model和scope limitation按 reducer 固定 precedence归并；全部 limitation仍保留。Duplicate warning不进入 Coverage limitations。
 
@@ -392,6 +392,6 @@ Factory summary使用真实 resolved callee owner、method与descriptor，生成
 - nonconstant/missing/invalid ServiceLoader配置形成 stable limitation，不回退到 broad compatible-callsite matching。
 - timeout不发布 partial graph；Module按 `FAILED_CALL_GRAPH_TIMEOUT`处理，其他 Module继续。
 - 零 PROJECT entrypoint、scope unreadable或CHA/Call Graph failure属于 blocking Module结果。
-- class-based merging或smushing可能增加 conservative edge与candidate path；只有后续 `PROVEN_EQUIVALENT` SSA结果允许删除候选路径。
+- class-based merging或smushing可能增加conservative edge与candidate path；默认不执行semantic filtering。显式启用试验性比较后，只有`PROVEN_EQUIVALENT` SSA结果允许删除候选路径。
 - `ClassFactoryContextSelector`在类名无法解析时可能不产生`JavaTypeContext`，兼容合并器此时保持WALA原n-object顺序；因此仅检查异常消失不足以证明兼容性，真实Call Graph中ClassFactory `JavaTypeContext`的malformed和duplicate计数必须为0且有效Context计数必须大于0。
 - WALA 1.8.0 `BasicRTABuilder`的`TypeBasedHeapModel`不提供metadata-object `InstanceKey`，且其`Class.newInstance` interpreter不枚举summary内constructor callsite。因此RTA即使选择包含`APPLICATION_GET_METHOD`的ReflectionOptions，也可能保留`Class.forName`/Reflection API node而无法闭合constructor或`Method.invoke`业务target。ZeroX保留metadata constant，但在完整target JDK 8 scope启用`Method.invoke`可能显著扩大fixed point。项目不用post-build补边或fake metadata value绕过该边界。

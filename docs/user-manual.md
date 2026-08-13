@@ -138,6 +138,8 @@ dependency-analyzer impact \
   [--k-obj-depth <positive-integer>] \
   [--jdk-model <jdk8|none>] \
   [--wala-reflection-options <WALA-enum-name>] \
+  [--dependency-analysis-scope <changed-paths|full>] \
+  [--experimental-bytecode-semantic-comparison] \
   [--entrypoint-include '<class-path-pattern>']... \
   [--entrypoint-exclude '<class-path-pattern>']... \
   [-k, --include-change-kinds <csv>] \
@@ -155,6 +157,7 @@ dependency-analyzer impact \
 - `--k-obj-depth`只可与`--call-graph-algorithm k-obj`同时使用；必须为正整数，默认`1`，不设置人为上限。普通static调用复用object Context，递归在固定`k`的有限Context空间内收敛；较大的`k`仍可能显著增加CGNode、CGEdge、内存与耗时。
 - `--jdk-model` command-wide选择全部Module使用的JDK Method Model。默认值依algorithm解析：CHA固定`none`；其他algorithm未指定时为`jdk8`。显式`cha + jdk8`在分析前失败；其他algorithm仍可显式`none`。
 - `--wala-reflection-options`（alias `--reflection-options`）command-wide选择WALA `AnalysisOptions.ReflectionOptions`。CHA不应用该设置，Report显示`not applied by cha`；其他algorithm使用配置值，默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。
+- `--experimental-bytecode-semantic-comparison`显式启用试验性的normalized SSA/Control Flow Graph语义比较，默认关闭。关闭时保留全部candidate Impact Path，不构建baseline SSA，不产生`FILTERED_EQUIVALENT`或SSA `UNKNOWN`状态降级；基础JAR/bytecode Diff、ChangePoint、Impact query与反编译/ASM code evidence不受影响。
 - `--entrypoint-include`/`--entrypoint-exclude` 接受 slash-separated JVM internal class path，例如 `com/icbc/payment/OrderService`；可选 WALA `L` 前缀会在匹配前移除。选项可重复，多个 include 取并集，exclude 优先。
 - 普通 segment 中 `*` 匹配零到多个字符，`?` 匹配一个字符，均不跨越 `/`。最后一个普通 segment 始终是 class segment，允许 `$` 匹配 nested class；前面的 package segment 不允许 `$`。例如 `com/*/A?`、`com/ic?c/*Controller`、`com/icbc/*$Handler`。
 - `**` 只能作为最后一个完整 segment。`com/icbc/**` 匹配该路径下直属及任意深度 package 中的全部 class，`**` 匹配全部 class；`com/**/A`、`com/icbc/A**`、leading/trailing slash、空 segment、`.`、`\\` 与 `:` 均非法。`com/icbc/**` 后不能追加 class pattern；需要限定 class 名时使用确定深度的普通 pattern，例如 `com/*/*Controller`。旧 colon/dot selector 不兼容，参数校验直接 exit `1`。
@@ -180,6 +183,7 @@ dependency-analyzer impact \
 |  | `--k-obj-depth` | `k-obj`的receiver allocation string深度，正整数，默认`1`；其他算法禁止使用。 |
 |  | `--jdk-model` | CHA固定`none`；其他algorithm默认`jdk8`并可显式`none`。 |
 |  | `--wala-reflection-options` | WALA `ReflectionOptions` enum name；CHA不应用，其他algorithm默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。 |
+|  | `--experimental-bytecode-semantic-comparison` | 显式启用试验性的normalized SSA语义比较；默认关闭。 |
 |  | `--entrypoint-include` | 只选择匹配 slash class path 的 target class declared methods；可重复。 |
 |  | `--entrypoint-exclude` | 从 include/default selection 中排除匹配 slash class path 的 target class；可重复且优先。 |
 | `-k` | `--include-change-kinds` | 纳入分析的 `ChangePointKind` CSV。 |
@@ -353,11 +357,11 @@ Module analysis 检查分类如下。这里的“阻塞”只终止当前 Module
 | ServiceLoader unresolved evidence | Coverage warning | 保留分析结果，Module 为 `INCONCLUSIVE_SERVICE_LOADER`。 |
 | CHA `Class.forName` local constant unresolved/invalid | Coverage warning | 保留分析结果，Module为`INCONCLUSIVE_REFLECTION`。 |
 | CHA实际到达`changed-paths` no-op dependency leaf | Coverage warning | 保留caller→leaf edge，Module为`INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY`。 |
-| SSA equivalence `UNKNOWN` | Coverage warning | 不删除 Impact Path，原 `SUCCESS` Module 转为 `INCONCLUSIVE`。 |
+| 启用试验性比较后的SSA equivalence `UNKNOWN` | Coverage warning | 不删除 Impact Path，原 `SUCCESS` Module 转为 `INCONCLUSIVE`。 |
 | 内容不同的 duplicate class | Non-blocking warning | 按 classpath precedence 选择 winner；不改 status/reason、Coverage limitations 或 exit code。 |
 | Code comparison unavailable | Evidence warning | 保留 Impact 结果；只在 Diagnostics/Technical details 说明，不改 Module status。 |
 
-所有 Module query 完成后，全局串行比较 candidate path 中唯一 `METHOD_BODY_CHANGED` 的 old/new normalized WALA SSA/CFG。只有 `PROVEN_EQUIVALENT` 删除路径；`DIFFERENT` 与 `UNKNOWN` 保留，`UNKNOWN` 使 Module 为 `INCONCLUSIVE`。
+默认关闭bytecode semantic comparison：Module query产生的candidate path直接作为final path，不创建old-side SSA/Class Hierarchy。显式传入`--experimental-bytecode-semantic-comparison`后，协调线程才串行比较candidate path中唯一`METHOD_BODY_CHANGED`的old/new normalized WALA SSA/Control Flow Graph；只有`PROVEN_EQUIVALENT`删除路径，`DIFFERENT`与`UNKNOWN`保留，`UNKNOWN`使Module为`INCONCLUSIVE`。
 
 `--output` 指向 Overall Index；同级 `<output-stem>-modules/` 为每个非 `SKIPPED` Module 生成三页：
 
@@ -367,7 +371,7 @@ Module analysis 检查分类如下。这里的“阻塞”只终止当前 Module
 <module-base>-changes.html  Dependency Changes
 ```
 
-Overall Index提供`How to read this report`、`Analysis scope and limitations`、`Terminology`与Module汇总。Technical details展示effective Algorithm、JDK Method Model和WALA Reflection applied状态；CHA显示`not applied by cha`。Impact terminal展示Evidence kind/mechanism；Evidence不计入CGNode/CGEdge。Module Index展示status、scope、metrics、typed coverage limitations和Diagnostics；Affected Call Chains展示final、SSA-equivalent candidate及Structural Reference Chains；Dependency Changes展示相关ChangePoint及typed reference evidence。
+Overall Index提供`How to read this report`、`Analysis scope and limitations`、`Terminology`与Module汇总。Technical details展示effective Algorithm、JDK Method Model、WALA Reflection applied状态和Bytecode semantic comparison的experimental enabled/disabled状态；默认关闭时SSA worker为`0 (disabled)`且comparison counts为`not run`，CHA显示`not applied by cha`。Impact terminal展示Evidence kind/mechanism；Evidence不计入CGNode/CGEdge。Module Index展示status、scope、metrics、typed coverage limitations和Diagnostics；Affected Call Chains在显式启用试验性比较后可展示SSA-equivalent candidate，并始终展示final及Structural Reference Chains；Dependency Changes展示相关ChangePoint及typed reference evidence。
 
 相关 method、field 与 class 提供默认折叠的 old/new Unified diff。内容来自 local dependency bytecode 的 Vineflower decompiled Java representation，不保证与原始 source 相同；反编译失败或文本相同时保留 ASM instruction fallback。Filesystem path、WALA/SSA、descriptor/hash、raw enum、Maven executable、JDK/config/output path 等 evidence 只放在 `Technical details`。所有页面为英文，并提供 top breadcrumbs、Module sibling navigation 和 responsive sticky TOC；不使用 JavaScript 或外部 asset。
 
@@ -583,9 +587,9 @@ Exit code：
 
 `Resolved conflicting duplicate classes by classpath precedence` 表示同一 binary name 有内容不同的多个定义。Analyzer 不再因此阻塞 Module；请在 Module Index 的 `Duplicate class resolution` 查看 winner、shadowed sources 与 precedence reason。Dependency Changes 中的 `SHADOWED_BY_DUPLICATE` 表示该 changed definition 是 loser，因此没有生成 Impact Path。该 warning 本身不代表 Coverage limitation；若 Module 同时为 `INCONCLUSIVE` 或 `FAILED`，应查看独立的 reason/Diagnostics。
 
-### SSA equivalence 为 `UNKNOWN`
+### 试验性 SSA equivalence 为 `UNKNOWN`
 
-Old/new IR 缺失、unsupported instruction、bootstrap evidence 不足、CFG mapping ambiguity 或 exception 会返回 `UNKNOWN`。该结果不会缩小影响范围；相关 Impact Paths 保留，并在 Module page 的 SSA 与 Coverage Limitations 中展示原因。
+该问题只会在显式传入`--experimental-bytecode-semantic-comparison`后出现。Old/new IR缺失、unsupported instruction、bootstrap evidence不足、Control Flow Graph mapping ambiguity或exception会返回`UNKNOWN`。该结果不会缩小影响范围；相关Impact Path保留，并在Module page的SSA与Coverage Limitations中展示原因。
 
 ### Maven dependency resolution failure
 

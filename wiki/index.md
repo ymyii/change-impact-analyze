@@ -15,7 +15,7 @@ code_refs: []
 ## Architecture
 
 ### [Dependency Analysis Pipelines](architecture/dependency-analysis-pipelines.md)
-- Summary: `impact` rolling Module/SSA/WALA detach与`tree` Reader/external merge pipeline；两者共用UUID task cache和Writer流式Report。
+- Summary: `impact` rolling Module/可选试验性SSA/WALA detach与`tree` Reader/external merge pipeline；两者共用UUID task cache和Writer流式Report。
 
 ## Features
 
@@ -53,7 +53,7 @@ code_refs: []
 - Summary: CHA固定`none`；四种非CHA algorithm默认接入独立`models/jdk8`精确catalog，并允许显式`none`。
 
 ### [Impact Tracing](features/impact-tracing.md)
-- Summary: 构图后统一collector绑定公共`ReferenceEvidence`；冻结session上的query生成node-only path与完整terminal，并在`-vv`下提供单seed独立10秒心跳。
+- Summary: 构图后统一collector绑定公共`ReferenceEvidence`；冻结session上的query生成node-only path与完整terminal，试验性SSA过滤默认关闭，并在`-vv`下提供单seed独立10秒心跳。
 
 ### [Report Generator](features/report-generator.md)
 - Summary: `impact`通过Writer原子生成英文Overall与Module三页；使用WALA-detached snapshot并展示artifact policy、ancestor exception与pruned target metrics。

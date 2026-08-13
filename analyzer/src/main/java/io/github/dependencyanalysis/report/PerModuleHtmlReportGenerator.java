@@ -136,7 +136,8 @@ public final class PerModuleHtmlReportGenerator {
                     javaRuntime.getVersion(), maven.getVersion().toString(),
                     maven.getSource().toString(),
                     entrypointSelectionLabel(run),
-                    "embedded " + plugin.getVersion());
+                    "embedded " + plugin.getVersion(),
+                    run.isExperimentalBytecodeSemanticComparisonEnabled());
             final Map<ModuleAnalysisResult, ModulePages> pages =
                     writeModulePages(run, modules, events,
                             absolute.getFileName().toString(), moduleRuntime);
@@ -189,6 +190,8 @@ public final class PerModuleHtmlReportGenerator {
             final OverallContext context) throws IOException {
         writeDocument(target, "Impact Analysis Report", "Overall", "", "",
                 overallToc(), body -> {
+        final boolean semanticComparison = run
+                .isExperimentalBytecodeSemanticComparisonEnabled();
         body
                 .append("<h1 id=\"top\">Impact Analysis Report</h1>")
                 .append("<section id=\"read\"><h2>How to read this report")
@@ -276,8 +279,11 @@ public final class PerModuleHtmlReportGenerator {
                                 : run.getReflectionOptions().identifier()))
                 .append(row("JDK method model",
                         run.getJdkModel().identifier()))
+                .append(row("Bytecode semantic comparison",
+                        semanticComparisonStatus(semanticComparison)))
                 .append(row("WALA", walaVersion()))
-                .append(row("SSA equivalence workers", 1))
+                .append(row("SSA equivalence workers",
+                        ssaWorkers(semanticComparison)))
                 .append(row("Raw changed members", rawChangeCount(run)))
                 .append(row("Entrypoint includes",
                         run.getEntrypointSelection().includes()))
@@ -286,7 +292,8 @@ public final class PerModuleHtmlReportGenerator {
                 .append(row("Maven executable",
                         context.maven().getExecutable()))
                 .append(row("SSA equivalent / different / unknown",
-                        ssaCounts(run.getModuleResults())))
+                        ssaCounts(run.getModuleResults(),
+                                semanticComparison)))
                 .append("</table></details></section>")
                 .append("<section id=\"modules\"><h2>Modules</h2>")
                 .append("<table><tr><th>Module</th><th>Status</th>")
@@ -417,8 +424,12 @@ public final class PerModuleHtmlReportGenerator {
                 .append(sessionRows(module))
                 .append(row("Raw status", module.getStatus()))
                 .append(row("Raw reason", module.getReason()))
+                .append(row("Bytecode semantic comparison",
+                        semanticComparisonStatus(runtime
+                                .semanticComparisonEnabled())))
                 .append(row("SSA equivalent / different / unknown",
-                        ssaCounts(List.of(module))))
+                        ssaCounts(List.of(module), runtime
+                                .semanticComparisonEnabled())))
                 .append(row("Raw dependency / member changes",
                         module.getUnit().getDependencyChanges().size() + " / "
                                 + module.getUnit().getChangePoints().size()))
@@ -1521,6 +1532,21 @@ public final class PerModuleHtmlReportGenerator {
                 MethodEquivalenceStatus.UNKNOWN);
     }
 
+    private String ssaCounts(
+            final List<ModuleAnalysisResult> modules,
+            final boolean enabled) {
+        return enabled ? ssaCounts(modules) : "not run";
+    }
+
+    private String semanticComparisonStatus(final boolean enabled) {
+        return enabled ? "enabled (experimental)"
+                : "disabled (experimental)";
+    }
+
+    private String ssaWorkers(final boolean enabled) {
+        return enabled ? "1 (experimental)" : "0 (disabled)";
+    }
+
     private long equivalenceCount(
             final List<ModuleAnalysisResult> modules,
             final MethodEquivalenceStatus status) {
@@ -1905,12 +1931,14 @@ public final class PerModuleHtmlReportGenerator {
      * @param mavenSource selected Maven runtime source
      * @param entrypointBoundary selected PROJECT entrypoint boundary
      * @param pluginVersion Maven Dependency Plugin source/version
+     * @param semanticComparisonEnabled experimental comparison toggle
      */
     private record ModuleRuntime(
             String jdkVersion,
             String mavenVersion,
             String mavenSource,
             String entrypointBoundary,
-            String pluginVersion) {
+            String pluginVersion,
+            boolean semanticComparisonEnabled) {
     }
 }

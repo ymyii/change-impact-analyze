@@ -2,6 +2,10 @@ package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.callgraph.ModelKind;
 import io.github.dependencyanalysis.callgraph.ModelLimitation;
+import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
+import io.github.dependencyanalysis.callgraph.EntrypointSelection;
+import io.github.dependencyanalysis.callgraph.JdkModelSelection;
+import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
 
 import org.junit.jupiter.api.Test;
 
@@ -11,6 +15,32 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /** Tests Module analysis coverage outcome selection. */
 class PerModuleImpactPipelineTest {
+
+    @Test
+    void semanticComparisonIsDisabledByCompatibilityConfiguration() {
+        final AnalysisRunConfiguration configuration =
+                new AnalysisRunConfiguration(
+                        EntrypointSelection.allProjectClasses(),
+                        CallGraphAlgorithm.CHA);
+
+        assertThat(configuration
+                .experimentalBytecodeSemanticComparisonEnabled()).isFalse();
+    }
+
+    @Test
+    void semanticComparisonCanBeEnabledExplicitly() {
+        final AnalysisRunConfiguration configuration =
+                new AnalysisRunConfiguration(
+                        EntrypointSelection.allProjectClasses(),
+                        CallGraphAlgorithm.CHA,
+                        CallGraphAlgorithm.defaultKObjDepth(),
+                        WalaReflectionOptions.defaultOptions(),
+                        DependencyAnalysisScopeMode.defaultMode(),
+                        JdkModelSelection.NONE, true);
+
+        assertThat(configuration
+                .experimentalBytecodeSemanticComparisonEnabled()).isTrue();
+    }
 
     @Test
     void scopeValidationWarningIsInconclusive() {

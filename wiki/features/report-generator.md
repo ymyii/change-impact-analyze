@@ -12,7 +12,7 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/report/PerModuleHtmlReportGenerator.java"
     desc: "impact HTML Index 与 Module pages"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/AnalysisRunResult.java"
-    desc: "run status、selected algorithm 与 metrics"
+    desc: "run status、selected algorithm、试验性semantic comparison配置与metrics"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleAnalysisResult.java"
     desc: "Module detail result"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleCallGraphSnapshot.java"
@@ -43,12 +43,12 @@ code_refs:
 
 ## Actors / Entrypoints
 
-- `impact` command在全部Module analysis、SSA filtering与code comparison完成后触发原子HTML publication。
+- `impact` command在全部Module analysis、可选试验性SSA filtering与code comparison完成后触发原子HTML publication。
 - 用户从Overall Index进入每个Module的三页视图。
 
 ## Behavior Contract
 
-- Overall technical details展示effective Algorithm、JDK Method Model和WALA ReflectionOptions applied/not-applied状态。
+- Overall technical details展示effective Algorithm、JDK Method Model、WALA ReflectionOptions applied/not-applied状态及试验性Bytecode semantic comparison的enabled/disabled状态。
 - Overall汇总 changed-paths/full/fallback Module 数量、real-IR/no-op external artifact 数量、no-op/factory method node、dangerous transfer与 `INCONCLUSIVE` 比例。
 - CHA Module同时展示ancestor-retained external type/method node与pruned external method target计数。Artifact-level `REAL_IR/NO_OP`列表不因type-level ancestor exception被误报为整个JAR使用真实IR。
 - Access narrowing member展示old/new access、typed decision/reason及代表性caller/reference evidence。
@@ -61,9 +61,9 @@ code_refs:
 Index 记录：
 
 - Overall mode/status、JDK/Maven version、`Maven Dependency Plugin: embedded 3.6.1`。
-- Configured/actual analysis parallelism、Module/JAR diff/decompile workers、SSA serial worker。
-- Baseline dependency、target build、front preparation、target dependency、JAR diff、Module analysis、SSA、decompile elapsed。
-- Dependency changes、raw ChangePoints、candidate/equivalent-filtered/final paths、duplicate conflict/shadowed ChangePoint 与 SSA status counts。
+- Configured/actual analysis parallelism、Module/JAR diff/decompile workers；试验性比较关闭时SSA worker显示`0 (disabled)`，启用时显示`1 (experimental)`。
+- Baseline dependency、target build、front preparation、target dependency、JAR diff、Module analysis、decompile elapsed；只有启用试验性比较时展示SSA elapsed。
+- Dependency changes、raw ChangePoints、candidate/equivalent-filtered/final paths、duplicate conflict/shadowed ChangePoint与SSA status counts；试验性比较关闭时SSA counts显示`not run`。
 - 每 Module status/reason/link、candidate/filtered/final、direct/transitive、affected methods/classes、Structural Reference Paths、entrypoint selector/matching、scope、CG nodes/edges/contexts、SSA/limitation counts。
 - Preflight 与 Diagnostics 整体默认折叠。
 - Algorithm、JDK model与WALA ReflectionOptions读取command-wide`AnalysisRunResult`：默认显示`cha`、`none`与`not applied by cha`；非CHA显示实际Reflection选项。
@@ -107,6 +107,8 @@ Index 记录：
 ### Functional
 
 - Given default command configuration；When发布Report；Then technical details显示`cha`、`none`与`not applied by cha`，terminal显示Evidence kind/mechanism。
+- Given未启用试验性bytecode semantic comparison；When发布Report；ThenOverall与Module technical details显示`disabled (experimental)`，SSA worker为`0 (disabled)`且counts为`not run`。
+- Given显式启用试验性bytecode semantic comparison；When发布Report；Then显示`enabled (experimental)`、单一SSA worker与实际equivalent/different/unknown counts。
 - Given access reference全部仍合法；When发布Dependency Changes；Then显示`ACCESS_REMAINS_VALID`与old/new access，Affected Call Chains中不存在虚假path。
 - Given potential access reference；When发布Report；Then明确标注`Potential access incompatibility`且不改变Module status。
 - Given dangerous transfer或flow-to-cast factory；When发布Report；ThenModule reason为`INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY`并展示caller、callee、artifact、PC、typed proof/type与dependency path evidence。

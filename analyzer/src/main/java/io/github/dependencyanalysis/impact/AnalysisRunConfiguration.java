@@ -17,6 +17,8 @@ import java.util.Objects;
  * @param reflectionOptions command-wide WALA ReflectionOptions
  * @param dependencyAnalysisScope requested dependency method-body scope
  * @param jdkModel command-wide JDK Method Model selection
+ * @param experimentalBytecodeSemanticComparisonEnabled whether experimental
+ *        normalized SSA semantic comparison is enabled
  */
 public record AnalysisRunConfiguration(
         EntrypointSelection entrypointSelection,
@@ -24,7 +26,8 @@ public record AnalysisRunConfiguration(
         int kObjDepth,
         WalaReflectionOptions reflectionOptions,
         DependencyAnalysisScopeMode dependencyAnalysisScope,
-        JdkModelSelection jdkModel) {
+        JdkModelSelection jdkModel,
+        boolean experimentalBytecodeSemanticComparisonEnabled) {
 
     /** Validates command-wide configuration. */
     public AnalysisRunConfiguration {
@@ -38,6 +41,18 @@ public record AnalysisRunConfiguration(
         CallGraphPolicy.validate(callGraphAlgorithm, jdkModel);
     }
 
+    /** Compatibility constructor with semantic comparison disabled. */
+    public AnalysisRunConfiguration(
+            final EntrypointSelection selection,
+            final CallGraphAlgorithm algorithm,
+            final int depth,
+            final WalaReflectionOptions reflection,
+            final DependencyAnalysisScopeMode dependencyScope,
+            final JdkModelSelection selectedJdkModel) {
+        this(selection, algorithm, depth, reflection, dependencyScope,
+                selectedJdkModel, false);
+    }
+
     /** Compatibility constructor using the default JDK model. */
     public AnalysisRunConfiguration(
             final EntrypointSelection selection,
@@ -46,7 +61,7 @@ public record AnalysisRunConfiguration(
             final DependencyAnalysisScopeMode dependencyScope,
             final JdkModelSelection selectedJdkModel) {
         this(selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
-                reflection, dependencyScope, selectedJdkModel);
+                reflection, dependencyScope, selectedJdkModel, false);
     }
 
     /** Compatibility constructor using default k depth and JDK model. */
@@ -57,7 +72,7 @@ public record AnalysisRunConfiguration(
             final DependencyAnalysisScopeMode dependencyScope) {
         this(selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
                 reflection, dependencyScope,
-                CallGraphPolicy.defaultJdkModel(algorithm));
+                CallGraphPolicy.defaultJdkModel(algorithm), false);
     }
 
     /**
@@ -72,7 +87,7 @@ public record AnalysisRunConfiguration(
         this(selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
                 WalaReflectionOptions.defaultOptions(),
                 DependencyAnalysisScopeMode.defaultMode(),
-                CallGraphPolicy.defaultJdkModel(algorithm));
+                CallGraphPolicy.defaultJdkModel(algorithm), false);
     }
 
     /** Compatibility constructor using the default dependency scope. */
@@ -83,6 +98,6 @@ public record AnalysisRunConfiguration(
         this(selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
                 reflection,
                 DependencyAnalysisScopeMode.defaultMode(),
-                CallGraphPolicy.defaultJdkModel(algorithm));
+                CallGraphPolicy.defaultJdkModel(algorithm), false);
     }
 }

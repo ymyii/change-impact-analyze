@@ -22,6 +22,8 @@ import java.nio.file.Path;
  * @param reflectionOptions command-wide WALA ReflectionOptions
  * @param dependencyAnalysisScope dependency method-body scope
  * @param jdkModel command-wide JDK Method Model selection
+ * @param experimentalBytecodeSemanticComparisonEnabled whether experimental
+ *        normalized SSA semantic comparison is enabled
  * @param executors Analyzer-owned pool registry
  * @param reportCache production task cache, nullable for compatibility callers
  */
@@ -35,6 +37,7 @@ record PerModulePipelineOptions(
         WalaReflectionOptions reflectionOptions,
         DependencyAnalysisScopeMode dependencyAnalysisScope,
         JdkModelSelection jdkModel,
+        boolean experimentalBytecodeSemanticComparisonEnabled,
         ManagedExecutorRegistry executors,
         ReportTaskCache reportCache) {
 
@@ -51,7 +54,8 @@ record PerModulePipelineOptions(
             final ManagedExecutorRegistry executorRegistry) {
         this(timeoutSeconds, parallelism, paths, selection, algorithm,
                 CallGraphAlgorithm.defaultKObjDepth(), reflection,
-                dependencyScope, selectedJdkModel, executorRegistry, null);
+                dependencyScope, selectedJdkModel, false,
+                executorRegistry, null);
     }
 
     /** Compatibility constructor using the default JDK model. */
@@ -68,7 +72,7 @@ record PerModulePipelineOptions(
                 CallGraphAlgorithm.defaultKObjDepth(), reflection,
                 dependencyScope,
                 CallGraphPolicy.defaultJdkModel(algorithm),
-                executorRegistry, null);
+                false, executorRegistry, null);
     }
 
     PerModulePipelineOptions(
@@ -85,7 +89,7 @@ record PerModulePipelineOptions(
                 reflection,
                 DependencyAnalysisScopeMode.defaultMode(),
                 CallGraphPolicy.defaultJdkModel(algorithm),
-                executorRegistry, null);
+                false, executorRegistry, null);
     }
 
     PerModulePipelineOptions(
@@ -101,7 +105,7 @@ record PerModulePipelineOptions(
                 WalaReflectionOptions.defaultOptions(),
                 DependencyAnalysisScopeMode.defaultMode(),
                 CallGraphPolicy.defaultJdkModel(algorithm),
-                executorRegistry, null);
+                false, executorRegistry, null);
     }
 
     /** @return command temporary directory */

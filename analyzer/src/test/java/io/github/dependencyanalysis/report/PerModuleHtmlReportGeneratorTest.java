@@ -178,6 +178,12 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("Analysis scope and limitations")
                 .contains("Terminology")
                 .contains("optimized-0-1-cfa")
+                .contains("<th>Bytecode semantic comparison</th><td>"
+                        + "disabled (experimental)</td>")
+                .contains("<th>SSA equivalence workers</th><td>"
+                        + "0 (disabled)</td>")
+                .contains("<th>SSA equivalent / different / unknown</th>"
+                        + "<td>not run</td>")
                 .contains("Optimized 0-1-CFA")
                 .contains("Maven Dependency Plugin")
                 .contains("embedded 3.6.1")
@@ -285,7 +291,13 @@ class PerModuleHtmlReportGeneratorTest {
         final AnalysisRunResult run = new AnalysisRunResult(
                 AnalysisMode.REACTOR, AnalysisStatus.SUCCESS, List.of(),
                 List.of(module), new AnalysisConcurrency(2, 1, 1, 1),
-                Map.of(), EntrypointSelection.allProjectClasses());
+                Map.of(), new AnalysisRunConfiguration(
+                        EntrypointSelection.allProjectClasses(),
+                        CallGraphAlgorithm.CHA,
+                        CallGraphAlgorithm.defaultKObjDepth(),
+                        WalaReflectionOptions.defaultOptions(),
+                        DependencyAnalysisScopeMode.defaultMode(),
+                        JdkModelSelection.NONE, true));
         final MavenDependencyPluginRuntime plugin =
                 new MavenDependencyPluginRuntimeManager().prepare(
                         temporary.resolve("config-filtered"),
@@ -311,6 +323,13 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("View candidate chains filtered as equivalent")
                 .contains("example.app.Controller#handle")
                 .doesNotContain("/secret/work/classes");
+        assertThat(output).content()
+                .contains("<th>Bytecode semantic comparison</th><td>"
+                        + "enabled (experimental)</td>")
+                .contains("<th>SSA equivalence workers</th><td>"
+                        + "1 (experimental)</td>")
+                .contains("<th>SSA equivalent / different / unknown</th>"
+                        + "<td>1 / 0 / 0</td>");
         assertThat(changes)
                 .contains("example:library 1 → 2")
                 .contains("Equivalent (filtered)")

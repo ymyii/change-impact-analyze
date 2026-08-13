@@ -61,7 +61,7 @@ code_refs:
 
 ## Summary
 
-Root CLI 分发 `impact` 与 `tree`。`impact`只编译target并构建target per-Module Call Graph；baseline仅提供dependency evidence、old artifact、字节码、ServiceLoader resource和按需old SSA。默认配置固定为`cha + changed-paths + jdk-model none`。Module通过rolling bounded queue完成后立即串行执行SSA equivalence、输出cache fragment并脱离WALA graph/session。`tree`逐行解析Maven output，使用cache-backed external grouping并在每个Reactor发布后释放其明细。两条pipeline都通过task-scoped cache和Writer流式Report限制峰值内存。
+Root CLI 分发 `impact` 与 `tree`。`impact`只编译target并构建target per-Module Call Graph；baseline仅提供dependency evidence、old artifact、字节码、ServiceLoader resource和按需old SSA。默认配置固定为`cha + changed-paths + jdk-model none + bytecode semantic comparison disabled`。Module通过rolling bounded queue完成后立即输出cache fragment并脱离WALA graph/session；只有显式启用试验性semantic comparison时，协调线程才在释放前执行SSA equivalence。`tree`逐行解析Maven output，使用cache-backed external grouping并在每个Reactor发布后释放其明细。两条pipeline都通过task-scoped cache和Writer流式Report限制峰值内存。
 
 ## Architecture Diagram
 
@@ -83,8 +83,10 @@ flowchart TD
   CFA --> Collector["unified evidence collection + ChangePoint binding"]
   Collector --> Session["freeze graph + evidence + limitations + metadata"]
   Session --> Query["evidence-driven reverse BFS + typed access decision"]
-  Query --> SSA["coordinator serial SSA equivalence"]
-  SSA --> Spill["JSON Lines snapshot; release WALA session"]
+  Query --> Semantic{"experimental semantic comparison?"}
+  Semantic -->|enabled| SSA["coordinator serial SSA equivalence"]
+  Semantic -->|disabled| Spill["JSON Lines snapshot; release WALA session"]
+  SSA --> Spill
   Spill --> Decompile["bounded code comparison fragments"]
   Decompile --> Report["Writer streaming + atomic publication"]
 ```
@@ -105,6 +107,7 @@ flowchart TD
 - `--call-graph-algorithm` command-wide选择`cha`、`rta`、`zero-cfa`、`optimized-0-1-cfa`或`k-obj`，默认`cha`；同一次command的全部Module使用一致analysis model，不自动fallback。`--k-obj-depth`只对`k-obj`合法，默认`1`且必须为正整数。
 - JDK Method Model默认值依algorithm解析：`cha`固定`none`；其他algorithm未指定时为`jdk8`。显式`cha + jdk8`在CLI、pipeline和直接Java API共用的capability validation中失败；其他algorithm仍可显式选择`none`。
 - `--dependency-analysis-scope` command-wide 选择 `changed-paths` 或 `full`，默认 `changed-paths`。Requested mode 与 per-Module actual mode 分开保存；occurrence graph 无法稳定恢复全部路径时，仅该 Module 自动 fallback 到 `full` 并记录 typed reason。
+- `--experimental-bytecode-semantic-comparison` command-wide控制试验性的normalized SSA semantic comparison，默认关闭。关闭时candidate path直接成为final path，不构建old-side SSA/Class Hierarchy；基础JAR/bytecode Diff、ChangePoint、Impact query和code comparison始终执行。
 - `changed-paths`不删除artifact：全部target external JAR、resource、reactor classes和JDK仍进入scope/CHA/ownership/model resolution。CHA在resolution时裁剪无关external target，但传递保留PROJECT/reactor/selected external class的路径外external祖先type；四种非CHA algorithm继续使用resolved external `IMethod`的IR policy。
 - 五种Call Graph实现通过唯一、穷尽Factory选择独立strategy。Strategy只产生topology、protocol summary、typed limitation和标准metadata；不得创建/绑定`ChangePoint`、生成Impact Path或改变disposition/report规则。
 - `--wala-reflection-options`同样command-wide，默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。CHA不安装WALA Reflection expansion，Diagnostic和Report显式显示`not applied by cha`；其他algorithm应用实际选择。
@@ -119,7 +122,7 @@ flowchart TD
 - Root CLI完成preflight与scope planning后，front preparation并行收集baseline dependency并编译target。
 - Baseline/target dependency collection分别产出`ModuleDependencyEvidence`。Maven resolved graph决定selected projection与winner；raw graph occurrence直接映射到retained winner，保留topology；Schema v3在同一Module evidence内绑定physical artifact。
 - Bytecode Diff与ServiceLoader resource Diff完成后，ChangePoint按Module绑定。每个Module使用target evidence的normalized occurrence graph从所有matching winner seed沿全部parent edge反向恢复到Module root；路径、多occurrence和多seed取并集，禁止沿seed child edge扩展。
-- Module task只在rolling window内提交；同时最多存在`actualAnalysisParallelism`个live task。Completion queue每取回一个Module，协调线程立即执行该Module的serial SSA equivalence，并在释放session前输出optional diagnostics fragment。
+- Module task只在rolling window内提交；同时最多存在`actualAnalysisParallelism`个live task。Completion queue每取回一个Module，只有command显式启用试验性semantic comparison时，协调线程才立即执行该Module的serial SSA equivalence；随后在释放session前输出optional diagnostics fragment。
 - Module随后转换为report-safe snapshot；candidate/final/structural path、observation与summary逐类写JSON Lines。写完后不再持有WALA `CGNode`、class hierarchy、analysis cache或Call Graph session。
 - Code comparison按stable change key去重，通过bounded completion queue生成；完成一项立即写独立fragment。Analysis result、Overall Report与optional diagnostics JSON携带effective algorithm、JDK model、strategy capabilities、Reflection applied状态和Evidence汇总；diagnostics JSON为Schema v8。
 - Overall与Module pages使用UTF-8 `Writer`直接写同filesystem staging；完整关闭所有页面后原子替换command-owned Report，任何时刻不构造完整HTML字符串。
@@ -145,7 +148,7 @@ flowchart TD
 - `--analysis-parallelism` 默认`2`，分别控制Module analysis、JAR diff和code comparison bounded pool；各阶段再按task数计算actual workers。Module analysis使用rolling submission，不预先保存全部`Future`，live task/result上限等于actual workers。超过CPU只warning。
 - JAR diff 按 logical old/new coordinate pair 去重；code comparison 按 coordinate pair/member 去重并跨 Module 复用。physical path 只存在于 repository 内部和短生命周期 `JarLease`。
 - 每个 Module 内 WALA build/query 单线程；Module 之间并行。
-- SSA equivalence由单一协调线程执行；每个Module完成graph/query后立即处理，跨Module不并发。
+- 启用试验性semantic comparison后，SSA equivalence由单一协调线程执行；每个Module完成graph/query后立即处理，跨Module不并发。默认关闭时不存在该stage及其elapsed metric。
 - Module 普通 failure/timeout 不取消其他 Module；global preparation failure 不替换旧 Report。
 - relevant Module 未匹配用户 entrypoint selector 时为 `SKIPPED_USER_ENTRYPOINT_SCOPE`；所有 relevant Module 都未匹配时属于 command failure，不替换旧 Report。
 
@@ -189,7 +192,7 @@ flowchart TD
 - CHA对精确`ServiceLoader.load(Class)`回溯caller-local Class constant，并将target有效provider的真实public zero-argument constructor作为`SERVICE_LOADER` protocol edge加入构图；baseline/target registration removal仍只绑定公共Evidence terminal。
 - 非 constant ServiceLoader service type、非法 provider 与 reachable unknown bootstrap 产生 stable limitation，并使 Module `INCONCLUSIVE`。
 - Spring DI/AOP/annotation/XML/config、custom classloader 不完整建模。
-- 只允许 `PROVEN_EQUIVALENT` 删除 Impact Paths；`UNKNOWN` 保留路径。
+- 默认关闭试验性semantic comparison时不删除任何candidate Impact Path。显式启用后只允许`PROVEN_EQUIVALENT`删除路径；`UNKNOWN`保留路径。
 - Access narrowing只读target CHA/IR与raw Structural Reference index；不创建baseline CHA/Call Graph，也不向任何Call Graph strategy注入points-to value。
 - Dependency Changes 只展示 candidate/final Impact Path 或 Structural Reference Path 关联 member；SSA-filtered candidate 仍保留调用链和 decompiled code evidence。
 - `SUCCESS` 只表示 selected dependency path 与已建模 boundary 内未发现 Impact Path；不保证 no-op dependency 内部不存在影响。

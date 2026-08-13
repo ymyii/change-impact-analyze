@@ -5,7 +5,7 @@ relations:
   - path: "wiki/features/dependency-evidence-collection.md"
     desc: "resolved artifact ingestion 与 coordinate repository"
   - path: "wiki/features/impact-tracing.md"
-    desc: "BoundChangePoint 与 deferred SSA filtering"
+    desc: "BoundChangePoint与默认关闭的试验性SSA filtering"
   - path: "wiki/features/cli-preflight-diagnostics.md"
     desc: "JAR pair failure message、stack trace 与 retained/transient 边界"
   - path: "wiki/runbooks/impact-benchmark.md"
@@ -113,7 +113,7 @@ code_refs:
 - 单个 pair failure 不取消其他 JAR diff task；关联 Module 记录 `INCONCLUSIVE_BYTECODE_DIFF`。
 - Pair failure的WARN固定包含异常类型与完整message；`-v`/`-vv`再输出带同一pair context的完整stack trace和cause chain。WARN进入Report diagnostics，stack trace只进入Console。
 - Pair failure 且无其他可分析 ChangePoint 时不构建 Call Graph，但仍生成 Module detail page。
-- Raw bytecode diff 不对全部 changed method 构建 SSA；semantic filtering 延迟到 candidate path 之后。
+- Raw bytecode diff不对全部changed method构建SSA；试验性semantic filtering默认关闭，显式启用后延迟到candidate path之后按需构建。
 - 反编译同样延迟到 candidate/Structural path 完成后，只处理 Report 相关 member；pool 使用 `--analysis-parallelism`，每个 Vineflower task 内固定单线程。
 
 ## Acceptance Criteria

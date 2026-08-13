@@ -120,6 +120,9 @@ final class PerModuleImpactPipeline {
     /** Command-wide JDK Method Model selection. */
     private final JdkModelSelection jdkModel;
 
+    /** Experimental normalized SSA semantic comparison toggle. */
+    private final boolean experimentalBytecodeSemanticComparisonEnabled;
+
     /** Command temporary directory. */
     private final Path temporaryDirectory;
 
@@ -176,6 +179,8 @@ final class PerModuleImpactPipeline {
                 options.dependencyAnalysisScope(),
                 "dependencyAnalysisScope");
         jdkModel = Objects.requireNonNull(options.jdkModel(), "jdkModel");
+        experimentalBytecodeSemanticComparisonEnabled =
+                options.experimentalBytecodeSemanticComparisonEnabled();
     }
 
     /**
@@ -263,9 +268,11 @@ final class PerModuleImpactPipeline {
                 entrypoints, actualParallelism);
         elapsed.put("module-analysis",
                 System.currentTimeMillis() - modulesStart);
-        elapsed.put("ssa-equivalence", filtered.stream()
-                .mapToLong(value -> value.getStageElapsedMillis()
-                        .getOrDefault("ssa-equivalence", 0L)).sum());
+        if (experimentalBytecodeSemanticComparisonEnabled) {
+            elapsed.put("ssa-equivalence", filtered.stream()
+                    .mapToLong(value -> value.getStageElapsedMillis()
+                            .getOrDefault("ssa-equivalence", 0L)).sum());
+        }
         final long codeStart = System.currentTimeMillis();
         final CodeEvidenceResult codeEvidence = buildCodeComparisons(filtered);
         elapsed.put("code-comparison",
@@ -293,7 +300,8 @@ final class PerModuleImpactPipeline {
                         entrypointSelection, callGraphAlgorithm,
                         kObjDepth,
                         reflectionOptions, dependencyAnalysisScope,
-                        jdkModel));
+                        jdkModel,
+                        experimentalBytecodeSemanticComparisonEnabled));
         } finally {
             jarRepository = null;
         }
@@ -965,8 +973,10 @@ final class PerModuleImpactPipeline {
             submitModule(completion, active.get(next++), failedDiffModules,
                     entrypoints);
         }
-        final SsaEquivalenceEngine ssa = new SsaEquivalenceEngine(
-                diagnostics, javaRuntime, repository());
+        final SsaEquivalenceEngine ssa =
+                experimentalBytecodeSemanticComparisonEnabled
+                ? new SsaEquivalenceEngine(
+                        diagnostics, javaRuntime, repository()) : null;
         final ModuleAnalysisSnapshotter snapshotter =
                 new ModuleAnalysisSnapshotter();
         final CallGraphDiagnosticsExporter diagnosticsExporter =
@@ -977,14 +987,16 @@ final class PerModuleImpactPipeline {
             while (completed < active.size()) {
                 try {
                     ModuleAnalysisResult module = completion.take().get();
-                    final long ssaStart = System.currentTimeMillis();
-                    module = ssa.filter(List.of(module)).get(0);
-                    final Map<String, Long> stages = new LinkedHashMap<>(
-                            module.getStageElapsedMillis());
-                    stages.put("ssa-equivalence",
-                            System.currentTimeMillis() - ssaStart);
-                    module = module.toBuilder()
-                            .stageElapsedMillis(stages).build();
+                    if (ssa != null) {
+                        final long ssaStart = System.currentTimeMillis();
+                        module = ssa.filter(List.of(module)).get(0);
+                        final Map<String, Long> stages = new LinkedHashMap<>(
+                                module.getStageElapsedMillis());
+                        stages.put("ssa-equivalence",
+                                System.currentTimeMillis() - ssaStart);
+                        module = module.toBuilder()
+                                .stageElapsedMillis(stages).build();
+                    }
                     if (diagnosticsExporter != null
                             && module.getSession() != null
                             && module.getSession().getTopology().isPresent()) {

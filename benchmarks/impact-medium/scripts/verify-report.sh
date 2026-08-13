@@ -176,6 +176,8 @@ if [ "$algorithm" = cha ]; then
 fi
 grep -q 'View candidate chains filtered as equivalent' "$module_dir"/*-impact.html \
   || fail "filtered candidate chain is missing"
+grep -q '<th>Bytecode semantic comparison</th><td>enabled (experimental)</td>' "$report" \
+  || fail "experimental bytecode semantic comparison is not enabled"
 
 dependency_count=$(awk '
   /<dependencies>/ { in_dependencies = 1; next }

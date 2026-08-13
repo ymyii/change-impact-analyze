@@ -57,7 +57,7 @@ code_refs:
 
 ## Summary
 
-Canonical入口显式执行`changed-paths`与`full`两种dependency analysis scope。每种scope对`cha`、`rta`、`zero-cfa`、`optimized-0-1-cfa`与`k-obj`分别执行1次warm-up、5次formal sample；四种非CHA algorithm另各执行1次`none`control，共34个独立Java Virtual Machine（JVM）进程。双scope合计68个JVM。CHA省略algorithm/model以验收默认`cha + none`；非CHA显式algorithm并省略model以验收默认`jdk8`。本runbook只定义执行contract；未获用户明确授权时禁止运行matrix。
+Canonical入口显式执行`changed-paths`与`full`两种dependency analysis scope，并为每个run传入`--experimental-bytecode-semantic-comparison`以覆盖SSA等价过滤。每种scope对`cha`、`rta`、`zero-cfa`、`optimized-0-1-cfa`与`k-obj`分别执行1次warm-up、5次formal sample；四种非CHA algorithm另各执行1次`none`control，共34个独立Java Virtual Machine（JVM）进程。双scope合计68个JVM。CHA省略algorithm/model以验收默认`cha + none`；非CHA显式algorithm并省略model以验收默认`jdk8`。本runbook只定义执行contract；未获用户明确授权时禁止运行matrix。
 
 ## Prerequisites
 
@@ -93,6 +93,7 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 - Warm-up 启用 `--call-graph-diagnostics-output`，采集 topology、source、IR 与 dependency path evidence。
 - Formal 不启用 diagnostics capture，只采集语义、性能与 graph totals。
 - CHA warm-up/formal同时省略algorithm/model；非CHA warm-up/formal显式algorithm并省略model；control显式传非CHAalgorithm和`--jdk-model none`。
+- 所有run显式传入`--experimental-bytecode-semantic-comparison`，保持candidate/final semantic baseline覆盖试验性SSA过滤；CLI默认关闭由unit与packaged JAR integration test验收。
 - 每种 scope 内 Entrypoint、CGNode、CGEdge、body-policy counts 和 dependency path topology 必须在 warm-up/formal 间稳定。
 
 ## Fixture and Semantic Contract

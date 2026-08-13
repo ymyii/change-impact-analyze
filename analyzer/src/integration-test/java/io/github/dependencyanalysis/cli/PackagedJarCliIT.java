@@ -169,6 +169,7 @@ class PackagedJarCliIT {
                 .contains("-f, --format")
                 .contains("-k, --include-change-kinds")
                 .contains("--jdk-model")
+                .contains("--experimental-bytecode-semantic-comparison")
                 .contains("--call-graph-timeout-seconds");
         assertThat(treeHelp.exitCode).isZero();
         assertThat(treeHelp.output)
@@ -278,6 +279,8 @@ class PackagedJarCliIT {
                 .contains("Impact Analysis Report")
                 .contains("<th>Algorithm</th><td>cha</td>")
                 .contains("<th>JDK method model</th><td>none</td>")
+                .contains("<th>Bytecode semantic comparison</th><td>"
+                        + "disabled (experimental)</td>")
                 .contains("Preflight")
                 .contains("impact.java-runtime");
     }

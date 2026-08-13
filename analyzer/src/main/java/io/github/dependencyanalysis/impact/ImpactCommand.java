@@ -151,6 +151,13 @@ public final class ImpactCommand
                     + "or full; default: changed-paths.")
     private DependencyAnalysisScopeMode dependencyAnalysisScope;
 
+    /** Experimental normalized SSA semantic comparison. */
+    // Wiki: wiki/features/impact-tracing.md - Experimental SSA opt-in boundary
+    @Option(names = "--experimental-bytecode-semantic-comparison",
+            description = "Experimental normalized SSA semantic comparison "
+                    + "for changed method bodies; disabled by default.")
+    private boolean experimentalBytecodeSemanticComparisonEnabled;
+
     /** Included PROJECT entrypoint classes. */
     @Option(names = "--entrypoint-include",
             description = "Repeatable slash-separated class-path pattern "
@@ -317,8 +324,9 @@ public final class ImpactCommand
                     new PipelineOutputPaths(commandRun.getTemporaryDirectory(),
                             normalizedDiagnostics), entrypointSelection,
                     callGraphAlgorithm, selectedKObjDepth, reflectionOptions,
-                    dependencyAnalysisScope, jdkModel, metrics.executors(),
-                    reportCache)).run(context.get(
+                    dependencyAnalysisScope, jdkModel,
+                    experimentalBytecodeSemanticComparisonEnabled,
+                    metrics.executors(), reportCache)).run(context.get(
                     ImpactPreflightService.WORKSPACE, WorkspaceResult.class));
             reportCache.complete();
             publishReport(result, report, diagnostics, mavenRuntime,

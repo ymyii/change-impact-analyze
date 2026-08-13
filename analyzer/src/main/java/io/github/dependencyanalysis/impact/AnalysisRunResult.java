@@ -51,6 +51,9 @@ public final class AnalysisRunResult {
     /** Command-wide JDK Method Model selection. */
     private final JdkModelSelection jdkModel;
 
+    /** Whether experimental bytecode semantic comparison is enabled. */
+    private final boolean experimentalBytecodeSemanticComparisonEnabled;
+
     /**
      * Creates a completed run result.
      *
@@ -119,6 +122,8 @@ public final class AnalysisRunResult {
                 "dependencyAnalysisScope");
         jdkModel = java.util.Objects.requireNonNull(
                 settings.jdkModel(), "jdkModel");
+        experimentalBytecodeSemanticComparisonEnabled =
+                settings.experimentalBytecodeSemanticComparisonEnabled();
     }
 
     /** @return analysis mode */
@@ -199,6 +204,11 @@ public final class AnalysisRunResult {
     /** @return command-wide JDK Method Model selection */
     public JdkModelSelection getJdkModel() {
         return jdkModel;
+    }
+
+    /** @return whether experimental bytecode semantic comparison is enabled */
+    public boolean isExperimentalBytecodeSemanticComparisonEnabled() {
+        return experimentalBytecodeSemanticComparisonEnabled;
     }
 
     /** @return stage elapsed metrics */

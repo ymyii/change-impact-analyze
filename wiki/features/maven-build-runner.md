@@ -19,7 +19,7 @@ code_refs:
 
 ## Summary
 
-Build Runner 只编译 target/current workspace。Baseline 不执行 Maven compile；其 old bytecode/SSA 输入来自 resolved dependency artifact。
+Build Runner只编译target/current workspace。Baseline不执行Maven compile；old bytecode始终来自resolved dependency artifact，只有显式启用试验性semantic comparison时才按需从该artifact构建old SSA。
 
 ## Mode
 

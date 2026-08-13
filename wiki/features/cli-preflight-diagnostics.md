@@ -84,6 +84,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - `--k-obj-depth <正整数>`：只可与`k-obj`同时使用，默认`1`，不设置人为上限；零值、负值及与其他算法组合均在Preflight前作为参数错误返回。
 - `--jdk-model <jdk8|none>`：默认依algorithm解析。未指定algorithm/model或显式`cha`但未指定model时为`none`；其他algorithm未指定model时为`jdk8`。显式`cha + jdk8`在Preflight前exit code`1`；其他algorithm仍可显式`none`。
 - `--wala-reflection-options <enum-name>`：默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`，接受WALA `ReflectionOptions` enum name；`--reflection-options`为alias。CHA保留配置值但不应用，Report显示`not applied by cha`。
+- `--experimental-bytecode-semantic-comparison`：无参数command-wide opt-in；默认关闭试验性的normalized SSA semantic comparison。该开关不关闭基础Bytecode Diff、ChangePoint、Impact query或code evidence。
 - `--entrypoint-include '<class-path-pattern>'` 与 `--entrypoint-exclude ...`：可重复；直接匹配 slash-separated JVM internal class path，include 取并集，exclude 优先。普通 segment支持 `*`、`?`；`**` 只能作为最后一个完整 segment。Colon/dot旧语法、leading/trailing slash、空 segment与嵌入式 `**` 在 CLI validation阶段 exit `1`。
 - `--call-graph-timeout-seconds <N>`：默认 `0`；按 Module、从实际 WALA build 开始计时。
 - `--call-graph-diagnostics-output <json>`：可选benchmark-only只读输出；未设置时不执行CGNode ranking、IMethod子榜、shortest path、IR capture或decompilation。路径不得与`--output`相同。
@@ -96,7 +97,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - `PARTIAL_SUCCESS`、`FAILED`：`2`。
 - Argument validation、Preflight、global preparation failure：`1`。
 
-`INCONCLUSIVE`表示analysis在公开model内完成，但存在JAR diff、`invokedynamic`、MethodHandle、ServiceLoader、SSA或外部dependency excluded JDK reference uncertainty；它不是hard failure。仅由最后一类scope gap触发时，Module reason为`INCONCLUSIVE_SCOPE_VALIDATION`。
+`INCONCLUSIVE`表示analysis在公开model内完成，但存在JAR diff、`invokedynamic`、MethodHandle、ServiceLoader、启用试验性比较后的SSA或外部dependency excluded JDK reference uncertainty；它不是hard failure。仅由最后一类scope gap触发时，Module reason为`INCONCLUSIVE_SCOPE_VALIDATION`。
 
 ## Preflight Boundary
 

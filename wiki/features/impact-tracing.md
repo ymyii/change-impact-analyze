@@ -9,6 +9,10 @@ relations:
   - path: "wiki/features/report-generator.md"
     desc: "Impact Path、Structural Reference Path 与 code evidence 输出"
 code_refs:
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactCommand.java"
+    desc: "试验性bytecode semantic comparison的CLI opt-in"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
+    desc: "query后的可选串行SSA stage与session释放边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleImpactTracer.java"
     desc: "Evidence anchor驱动的deterministic reverse BFS与representative path"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ReferenceEvidence.java"
@@ -50,7 +54,7 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChangePointDisposition.java"
     desc: "ChangePoint 最终 disposition contract"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/SsaEquivalenceEngine.java"
-    desc: "global serial candidate-only filtering"
+    desc: "显式启用后的global serial candidate-only filtering"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/CodeComparisonBuilder.java"
     desc: "repository-backed old/new decompiled Java 与 ASM fallback"
 ---
@@ -152,12 +156,14 @@ Impact Tracing只消费冻结的`ModuleCallGraphSession`。在Call Graph完成�
 - 找到reference且全部仍合法时为`ACCESS_REMAINS_VALID`；完全未找到reference才是`DECLARED_REFERENCE_NOT_FOUND`。
 - Target type/declaration无法解析时生成`ACCESS_TARGET_TYPE_UNRESOLVED`或`ACCESS_DECLARATION_UNRESOLVED`，reason为`INCONCLUSIVE_SCOPE_VALIDATION`。
 
-## SSA Equivalence
+## Experimental SSA Equivalence
 
-- 只处理已有 candidate Impact Path 的唯一 `METHOD_BODY_CHANGED`；所有 Module query join 后全局串行执行。
+- `--experimental-bytecode-semantic-comparison`是command-wide opt-in，默认关闭；关闭时candidate Impact Path直接成为final path，`equivalenceResults`为空，不创建old-side SSA/Class Hierarchy，也不产生SSA limitation或stage metric。
+- 显式启用后只处理已有candidate Impact Path的唯一`METHOD_BODY_CHANGED`；协调线程在每个Module query完成后串行执行，跨Module不并发。
 - Target IR 来自 target session；old IR 使用 baseline ArtifactCoord closure、repository lease 与同一 JDK 8 构建 old-side CHA，不构建 baseline Call Graph。
 - 两侧使用相同 `SSAOptions` 和独立 cache。比较 typed constants、Def-Use、normal/exception CFG、catch type、declared references、phi/pi/catch 与 side-effect order。
 - `PROVEN_EQUIVALENT` 删除该 ChangePoint 的全部 path；`DIFFERENT`、`UNKNOWN` 保留。`UNKNOWN` 将原 `SUCCESS` Module 转为 `INCONCLUSIVE`。
+- 该开关不控制基础Bytecode Diff或Code Comparison Evidence；关闭试验功能仍生成`METHOD_BODY_CHANGED`、Impact Path、decompiled Java和ASM fallback。
 
 ## Code Comparison Evidence
 
@@ -180,6 +186,8 @@ Session冻结后，Impact query只读取graph、`ChangePointEvidenceIndex`、str
 - Given access narrowing与reachable pre-existing bytecode reference；When new access明确不允许或protected receiver无法证明合法；Then保留definite/potential Impact Path及typed old/new access evidence。
 - Given全部相关reference在new access下仍合法；When完成query；Then disposition为`ACCESS_REMAINS_VALID`，不生成Affected Call Chain。
 - Given target CHA无法解析必要type/declaration；When完成query；Then limitation通过Result Object进入统一coverage reduction。
+- Given未提供试验性semantic comparison开关；When完成query；Thencandidate/final path一致，SSA结果、limitation和stage metric均为空。
+- Given显式启用试验性semantic comparison；When比较结果为`PROVEN_EQUIVALENT`或`UNKNOWN`；Then分别过滤对应path或保留path并按既有规则降级Module。
 
 ### Non-Functional
 

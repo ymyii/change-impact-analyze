@@ -125,6 +125,7 @@ class DependencyAnalyzerCliTest {
                 .contains("--k-obj-depth")
                 .contains("--jdk-model")
                 .contains("--dependency-analysis-scope")
+                .contains("--experimental-bytecode-semantic-comparison")
                 .contains("--call-graph-diagnostics-output")
                 .contains("--wala-reflection-options")
                 .contains("--entrypoint-include")
@@ -352,6 +353,25 @@ class DependencyAnalyzerCliTest {
     }
 
     @Test
+    void bytecodeSemanticComparisonDefaultsOffAndParsesOptIn() {
+        final CommandLine defaultCommand = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli());
+        final CommandLine enabledCommand = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli());
+
+        final CommandLine.ParseResult defaultResult =
+                defaultCommand.parseArgs("impact", "--baseline", "HEAD",
+                        "--output", "report.html");
+        final CommandLine.ParseResult enabledResult =
+                enabledCommand.parseArgs("impact", "--baseline", "HEAD",
+                        "--output", "report.html",
+                        "--experimental-bytecode-semantic-comparison");
+
+        assertThat(semanticComparison(defaultResult)).isFalse();
+        assertThat(semanticComparison(enabledResult)).isTrue();
+    }
+
+    @Test
     void callGraphDiagnosticsOutputIsOptionalAndParsesAsFile() {
         final CommandLine command = DependencyAnalyzerCli
                 .newCommandLine(new DependencyAnalyzerCli());
@@ -467,5 +487,11 @@ class DependencyAnalyzerCliTest {
             final CommandLine.ParseResult result) {
         return result.subcommand().commandSpec().findOption(
                 "--dependency-analysis-scope").getValue();
+    }
+
+    private boolean semanticComparison(
+            final CommandLine.ParseResult result) {
+        return result.subcommand().commandSpec().findOption(
+                "--experimental-bytecode-semantic-comparison").getValue();
     }
 }
