@@ -2,6 +2,7 @@ package io.github.dependencyanalysis.tree;
 
 import org.junit.jupiter.api.Test;
 
+import java.io.StringReader;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions
@@ -124,6 +125,20 @@ class DependencyTextParserTest {
                 false, "2.0", "duplicate");
         assertManaged(result.getOccurrences().get(2),
                 false, "3.0", "conflict");
+    }
+
+    @Test
+    void parsesReaderLineByLineWithoutStringSplit() throws Exception {
+        final ParsedModuleTree result = new DependencyTextParser().parse(
+                new StringReader("""
+                        com.example:app:jar:1.0
+                        +- org.demo:a:jar:1.0:compile
+                        \\- org.demo:b:jar:2.0:runtime
+                        """), Set.of(), Set.of("compile", "runtime"));
+
+        assertThat(result.getOccurrences())
+                .extracting(value -> value.getKey().getArtifactId())
+                .containsExactly("a", "b");
     }
 
     private void assertManaged(

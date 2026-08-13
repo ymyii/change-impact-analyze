@@ -124,6 +124,9 @@ final class DependencyBodyBoundary {
     /** Changed classes mapped to their path evidence. */
     private final Map<String, List<String>> changedClassPaths;
 
+    /** Unselected external ancestor types that retain real IR for CHA. */
+    private final ChaAncestorRetentionPolicy ancestorRetention;
+
     /** Stable dangerous-transfer set. */
     private final Set<DependencyBoundaryEvidence> dangerousTransfers =
             new LinkedHashSet<>();
@@ -136,8 +139,18 @@ final class DependencyBodyBoundary {
             final ModuleAnalysisUnit unit,
             final ClassOwnershipIndex ownershipIndex,
             final IClassHierarchy classHierarchy) {
+        this(unit, ownershipIndex, classHierarchy,
+                ChaAncestorRetentionPolicy.disabled());
+    }
+
+    DependencyBodyBoundary(
+            final ModuleAnalysisUnit unit,
+            final ClassOwnershipIndex ownershipIndex,
+            final IClassHierarchy classHierarchy,
+            final ChaAncestorRetentionPolicy ancestors) {
         ownership = Objects.requireNonNull(ownershipIndex, "ownershipIndex");
         hierarchy = Objects.requireNonNull(classHierarchy, "classHierarchy");
+        ancestorRetention = Objects.requireNonNull(ancestors, "ancestors");
         selection = unit.getChangedPathSelection();
         changedClassPaths = changedClassPaths(unit);
     }
@@ -225,6 +238,7 @@ final class DependencyBodyBoundary {
         final ClassOwnership owner = ownership.ownershipOf(
                 method.getDeclaringClass().getName().toString());
         return owner != null && owner.getOrigin() == CodeOrigin.DEPENDENCY
+                && !ancestorRetention.retains(method)
                 && owner.getSource().artifact().map(selection::policyFor)
                 .orElse(DependencyMethodBodyPolicy.REAL_IR)
                 == DependencyMethodBodyPolicy.NO_OP;
@@ -245,9 +259,16 @@ final class DependencyBodyBoundary {
      */
     DependencyBodyBoundaryMetadata metadata(
             final com.ibm.wala.ipa.callgraph.CallGraph graph) {
+        return metadata(graph, 0);
+    }
+
+    DependencyBodyBoundaryMetadata metadata(
+            final com.ibm.wala.ipa.callgraph.CallGraph graph,
+            final int prunedExternalTargets) {
         int real = 0;
         int noOp = 0;
         int factory = 0;
+        int retained = 0;
         for (CGNode node : graph) {
             final ClassOwnership owner = ownership.ownershipOf(
                     node.getMethod().getDeclaringClass().getName().toString());
@@ -256,6 +277,9 @@ final class DependencyBodyBoundary {
             }
             if (!noOp(node.getMethod())) {
                 real++;
+                if (ancestorRetention.retains(node.getMethod())) {
+                    retained++;
+                }
             } else if (factoryFact(node.getContext()) != null) {
                 factory++;
             } else {
@@ -264,7 +288,9 @@ final class DependencyBodyBoundary {
         }
         return new DependencyBodyBoundaryMetadata(
                 new ArrayList<>(dangerousTransfers),
-                new ArrayList<>(factories), real, noOp, factory);
+                new ArrayList<>(factories), List.of(), real, noOp, factory,
+                ancestorRetention.retainedTypeCount(), retained,
+                prunedExternalTargets);
     }
 
     private FactoryFact factoryFact(final Context context) {

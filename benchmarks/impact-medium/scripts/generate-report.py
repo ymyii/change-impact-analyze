@@ -73,7 +73,10 @@ TOPOLOGY_COLUMNS = (
     "dependency_scope_fallback_reason", "real_external_artifact_count",
     "no_op_external_artifact_count", "real_external_method_node_count",
     "no_op_method_node_count", "factory_method_node_count",
-    "dangerous_transfer_count", "changed_dependency_seed", "dependency_path",
+    "dangerous_transfer_count", "ancestor_retained_external_type_count",
+    "ancestor_retained_external_method_node_count",
+    "pruned_external_method_target_count", "changed_dependency_seed",
+    "dependency_path",
 )
 NUMERIC_SAMPLE_FIELDS = (
     "total_wall_seconds", "call_graph_seconds", "peak_heap_used_mib",
@@ -113,7 +116,7 @@ def load_topology(run_directory: Path) -> dict[str, Any]:
     path = run_directory / "topology.json"
     with path.open(encoding="utf-8") as stream:
         value = json.load(stream)
-    if value.get("schemaVersion") != 7:
+    if value.get("schemaVersion") != 8:
         raise ValueError(f"unsupported topology schema: {path}")
     return value
 
@@ -402,6 +405,12 @@ def topology_rows(topologies: dict[str, dict[str, Any]]) -> list[dict[str, str]]
                     "factoryMethodNodeCount", 0)),
                 "dangerous_transfer_count": str(module.get(
                     "dangerousTransferCount", 0)),
+                "ancestor_retained_external_type_count": str(module.get(
+                    "ancestorRetainedExternalTypeCount", 0)),
+                "ancestor_retained_external_method_node_count": str(module.get(
+                    "ancestorRetainedExternalMethodNodeCount", 0)),
+                "pruned_external_method_target_count": str(module.get(
+                    "prunedExternalMethodTargetCount", 0)),
             }
             module_row = dict(scope_values)
             module_row["record_type"] = "DEPENDENCY_SCOPE"
@@ -752,6 +761,8 @@ table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{bo
                          f'<div class="metric">Actual scope<br><strong>{e(module["actualDependencyAnalysisScope"])}</strong></div>'
                          f'<div class="metric">Real/no-op artifact<br><strong>{module.get("realExternalArtifactCount", 0)} / {module.get("noOpExternalArtifactCount", 0)}</strong></div>'
                          f'<div class="metric">Real/no-op/factory method<br><strong>{module.get("realExternalMethodNodeCount", 0)} / {module.get("noOpMethodNodeCount", 0)} / {module.get("factoryMethodNodeCount", 0)}</strong></div>'
+                         f'<div class="metric">Ancestor-retained type/method<br><strong>{module.get("ancestorRetainedExternalTypeCount", 0)} / {module.get("ancestorRetainedExternalMethodNodeCount", 0)}</strong></div>'
+                         f'<div class="metric">Pruned external target<br><strong>{module.get("prunedExternalMethodTargetCount", 0)}</strong></div>'
                          f'<div class="metric">Dangerous transfer<br><strong>{module.get("dangerousTransferCount", 0)}</strong></div></div>')
             fallback = module.get("dependencyScopeFallbackReason", "")
             if fallback:

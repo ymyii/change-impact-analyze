@@ -143,6 +143,12 @@ class GenerateReportTest(unittest.TestCase):
             )
             self.assertIn("path_root_kind", topology_columns)
             self.assertIn("path_root_cg_node_identity", topology_columns)
+            self.assertIn(
+                "ancestor_retained_external_type_count", topology_columns
+            )
+            self.assertIn(
+                "pruned_external_method_target_count", topology_columns
+            )
             self.assertNotIn("entrypoint_cg_node_identity", topology_columns)
             self.assertNotIn("path_status", topology_columns)
             self.assertEqual(
@@ -277,13 +283,13 @@ class GenerateReportTest(unittest.TestCase):
             for name, expected in tracked_snapshots.items():
                 self.assertEqual(expected, (tracked_dir / name).read_bytes())
 
-    def test_schema_v6_is_rejected(self) -> None:
+    def test_schema_v7_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             run_directories = self._write_suite(root / "runs")
             topology_path = run_directories[0] / "topology.json"
             topology = json.loads(topology_path.read_text(encoding="utf-8"))
-            topology["schemaVersion"] = 6
+            topology["schemaVersion"] = 7
             topology_path.write_text(json.dumps(topology), encoding="utf-8")
 
             result = self._generate(
@@ -591,7 +597,7 @@ class GenerateReportTest(unittest.TestCase):
             "topCallers", False,
         )
         topology = {
-            "schemaVersion": 7,
+            "schemaVersion": 8,
             "algorithm": algorithm,
             "kObjDepth": 1 if algorithm == "k-obj" else None,
             "jdkModel": "none" if algorithm == "cha" else "jdk8",
@@ -615,6 +621,15 @@ class GenerateReportTest(unittest.TestCase):
                     "noOpMethodNodeCount": 7 if scope == "changed-paths" else 0,
                     "factoryMethodNodeCount": 1 if scope == "changed-paths" else 0,
                     "dangerousTransferCount": 1 if scope == "changed-paths" else 0,
+                    "ancestorRetainedExternalTypeCount": (
+                        3 if algorithm == "cha" and scope == "changed-paths" else 0
+                    ),
+                    "ancestorRetainedExternalMethodNodeCount": (
+                        8 if algorithm == "cha" and scope == "changed-paths" else 0
+                    ),
+                    "prunedExternalMethodTargetCount": (
+                        4 if algorithm == "cha" and scope == "changed-paths" else 0
+                    ),
                     "dependencyPaths": [{
                         "seed": "fixture:scenario-api:jar:2.0",
                         "path": "fixture:path-a:jar:1.0 -> fixture:scenario-api:jar:2.0",

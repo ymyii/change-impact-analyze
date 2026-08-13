@@ -1,5 +1,7 @@
 package io.github.dependencyanalysis.impact;
 
+import com.fasterxml.jackson.core.JsonGenerator;
+
 import io.github.dependencyanalysis.build.BuildResult;
 import io.github.dependencyanalysis.build.BuildRunner;
 import io.github.dependencyanalysis.build.ModuleBuildOutput;
@@ -43,9 +45,12 @@ import io.github.dependencyanalysis.metrics.ManagedExecutorRegistry
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 import io.github.dependencyanalysis.runtime.MavenDependencyPluginRuntime;
 import io.github.dependencyanalysis.runtime.MavenRuntimeDescriptor;
+import io.github.dependencyanalysis.runtime.ReportTaskCache;
 import io.github.dependencyanalysis.workspace.WorkspaceResult;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -121,6 +126,9 @@ final class PerModuleImpactPipeline {
     /** Optional Call Graph benchmark diagnostics JSON. */
     private final Path callGraphDiagnosticsOutput;
 
+    /** Optional task-scoped report cache for the production command. */
+    private final ReportTaskCache reportCache;
+
     /** Immutable JAR repository for the active command. */
     private IJarRepository jarRepository;
 
@@ -155,6 +163,7 @@ final class PerModuleImpactPipeline {
         analysisParallelism = options.analysisParallelism();
         temporaryDirectory = options.temporaryDirectory();
         callGraphDiagnosticsOutput = options.callGraphDiagnosticsOutput();
+        reportCache = options.reportCache();
         entrypointSelection = Objects.requireNonNull(
                 options.entrypointSelection(), "entrypointSelection");
         callGraphAlgorithm = Objects.requireNonNull(
@@ -249,23 +258,25 @@ final class PerModuleImpactPipeline {
                             + analysisParallelism);
         }
         final long modulesStart = System.currentTimeMillis();
-        final List<ModuleAnalysisResult> analyzed = analyzeModules(
+        final List<ModuleAnalysisResult> filtered = analyzeModules(
                 units, bindings.failedModules(), unmatchedEntrypointModules,
                 entrypoints, actualParallelism);
         elapsed.put("module-analysis",
                 System.currentTimeMillis() - modulesStart);
-        final long ssaStart = System.currentTimeMillis();
-        final List<ModuleAnalysisResult> filtered =
-                new SsaEquivalenceEngine(
-                        diagnostics, javaRuntime, repository())
-                        .filter(analyzed);
-        elapsed.put("ssa-equivalence",
-                System.currentTimeMillis() - ssaStart);
+        elapsed.put("ssa-equivalence", filtered.stream()
+                .mapToLong(value -> value.getStageElapsedMillis()
+                        .getOrDefault("ssa-equivalence", 0L)).sum());
         final long codeStart = System.currentTimeMillis();
         final CodeEvidenceResult codeEvidence = buildCodeComparisons(filtered);
         elapsed.put("code-comparison",
                 System.currentTimeMillis() - codeStart);
-        if (callGraphDiagnosticsOutput != null) {
+        if (callGraphDiagnosticsOutput != null && reportCache != null) {
+            new CallGraphDiagnosticsExporter(
+                    diagnostics, javaRuntime, repository()).writeFragments(
+                    callGraphDiagnosticsOutput, callGraphAlgorithm,
+                    kObjDepth, reflectionOptions, dependencyAnalysisScope,
+                    jdkModel, reportCache.fragments());
+        } else if (callGraphDiagnosticsOutput != null) {
             new CallGraphDiagnosticsExporter(
                     diagnostics, javaRuntime, repository()).write(
                     callGraphDiagnosticsOutput, callGraphAlgorithm,
@@ -318,24 +329,32 @@ final class PerModuleImpactPipeline {
         final ManagedExecutor managed = executors.fixed(
                 "code-comparison", workers);
         final ExecutorService executor = managed.executor();
-        final List<Future<MemberCodeEvidence>> futures = new ArrayList<>();
-        for (Map.Entry<String, List<BoundChangePoint>> request
-                : requests.entrySet().stream()
-                .sorted(Map.Entry.comparingByKey()).toList()) {
-            futures.add(executor.submit(() -> codeComparison(
-                    request.getKey(), request.getValue().get(0))));
+        final CompletionService<MemberCodeEvidence> completion =
+                new ExecutorCompletionService<>(executor);
+        final List<Map.Entry<String, List<BoundChangePoint>>> ordered =
+                requests.entrySet().stream()
+                        .sorted(Map.Entry.comparingByKey()).toList();
+        int next = 0;
+        int completed = 0;
+        while (next < ordered.size() && next < workers) {
+            submitCodeComparison(completion, ordered.get(next++));
         }
         final Map<String, CodeComparisonEvidence> evidence =
                 new LinkedHashMap<>();
         try {
-            for (Future<MemberCodeEvidence> future : futures) {
+            while (completed < ordered.size()) {
                 try {
-                    final MemberCodeEvidence value = future.get();
+                    final MemberCodeEvidence value = completion.take().get();
                     evidence.put(value.key(), value.evidence());
+                    spillCodeComparison(value);
                 } catch (ExecutionException exception) {
                     throw new IllegalStateException(
                             "Unexpected code comparison task failure",
                             exception.getCause());
+                }
+                completed++;
+                if (next < ordered.size()) {
+                    submitCodeComparison(completion, ordered.get(next++));
                 }
             }
         } finally {
@@ -363,6 +382,33 @@ final class PerModuleImpactPipeline {
             enriched.add(module.toBuilder().codeComparisons(bound).build());
         }
         return new CodeEvidenceResult(enriched, workers);
+    }
+
+    private void submitCodeComparison(
+            final CompletionService<MemberCodeEvidence> completion,
+            final Map.Entry<String, List<BoundChangePoint>> request) {
+        completion.submit(() -> codeComparison(
+                request.getKey(), request.getValue().get(0)));
+    }
+
+    private void spillCodeComparison(final MemberCodeEvidence value) {
+        if (reportCache == null) {
+            return;
+        }
+        reportCache.writeJsonLines("code-comparison", value.key(),
+                List.of(jsonRecord(json -> {
+                    json.writeStartObject();
+                    json.writeStringField("changeKey", value.key());
+                    json.writeStringField("status",
+                            value.evidence().getStatus().name());
+                    json.writeStringField("reason",
+                            value.evidence().getReason());
+                    json.writeStringField("unifiedDiff",
+                            value.evidence().getUnifiedDiff());
+                    json.writeStringField("asmFallback",
+                            value.evidence().getAsmFallback());
+                    json.writeEndObject();
+                })));
     }
 
     private MemberCodeEvidence codeComparison(
@@ -911,22 +957,59 @@ final class PerModuleImpactPipeline {
         final ManagedExecutor managed = executors.fixed(
                 "module-analysis", Math.max(1, actualParallelism));
         final ExecutorService executor = managed.executor();
-        final List<Future<ModuleAnalysisResult>> futures = new ArrayList<>();
-        for (ModuleAnalysisUnit unit : active) {
-            final String key = unit.getModuleId().coordinateKey();
-            futures.add(executor.submit(() -> analyzeModuleTask(
-                    unit, failedDiffModules.contains(key),
-                    entrypoints.indexes().get(key),
-                    entrypoints.failures().get(key))));
+        final CompletionService<ModuleAnalysisResult> completion =
+                new ExecutorCompletionService<>(executor);
+        int next = 0;
+        int completed = 0;
+        while (next < active.size() && next < actualParallelism) {
+            submitModule(completion, active.get(next++), failedDiffModules,
+                    entrypoints);
         }
+        final SsaEquivalenceEngine ssa = new SsaEquivalenceEngine(
+                diagnostics, javaRuntime, repository());
+        final ModuleAnalysisSnapshotter snapshotter =
+                new ModuleAnalysisSnapshotter();
+        final CallGraphDiagnosticsExporter diagnosticsExporter =
+                callGraphDiagnosticsOutput == null || reportCache == null
+                ? null : new CallGraphDiagnosticsExporter(
+                diagnostics, javaRuntime, repository());
         try {
-            for (Future<ModuleAnalysisResult> future : futures) {
+            while (completed < active.size()) {
                 try {
-                    result.add(future.get());
+                    ModuleAnalysisResult module = completion.take().get();
+                    final long ssaStart = System.currentTimeMillis();
+                    module = ssa.filter(List.of(module)).get(0);
+                    final Map<String, Long> stages = new LinkedHashMap<>(
+                            module.getStageElapsedMillis());
+                    stages.put("ssa-equivalence",
+                            System.currentTimeMillis() - ssaStart);
+                    module = module.toBuilder()
+                            .stageElapsedMillis(stages).build();
+                    if (diagnosticsExporter != null
+                            && module.getSession() != null
+                            && module.getSession().getTopology().isPresent()) {
+                        final ModuleAnalysisResult live = module;
+                        reportCache.writeJsonLines("diagnostic-module",
+                                module.getModuleId().stableKey(),
+                                List.of(jsonRecord(json ->
+                                        diagnosticsExporter
+                                                .writeModuleRecord(
+                                                        json, live))));
+                    }
+                    if (reportCache != null) {
+                        module = snapshotter.detach(module);
+                    }
+                    spillModule(module);
+                    result.add(module);
                 } catch (ExecutionException exception) {
                     throw new IllegalStateException(
                             "Module task escaped isolation",
                             exception.getCause());
+                }
+                completed++;
+                if (next < active.size()) {
+                    submitModule(completion, active.get(next++),
+                            failedDiffModules, entrypoints);
                 }
             }
         } finally {
@@ -934,6 +1017,158 @@ final class PerModuleImpactPipeline {
         }
         result.sort(moduleResultComparator());
         return List.copyOf(result);
+    }
+
+    private void submitModule(
+            final CompletionService<ModuleAnalysisResult> completion,
+            final ModuleAnalysisUnit unit,
+            final Set<String> failedDiffModules,
+            final EntrypointPreparation entrypoints) {
+        final String key = unit.getModuleId().coordinateKey();
+        completion.submit(() -> analyzeModuleTask(
+                unit, failedDiffModules.contains(key),
+                entrypoints.indexes().get(key),
+                entrypoints.failures().get(key)));
+    }
+
+    private void spillModule(final ModuleAnalysisResult module) {
+        if (reportCache == null) {
+            return;
+        }
+        final String key = module.getModuleId().stableKey();
+        reportCache.writeJsonLines("module-summary", key,
+                json -> {
+                    writeModuleSummary(json, module);
+                    return 1;
+                });
+        spillImpactPaths("candidate-path", key,
+                module.getCandidatePaths());
+        spillImpactPaths("final-path", key, module.getFinalPaths());
+        reportCache.writeJsonLines("structural-path", key, json -> {
+            int count = 0;
+            for (StructuralReferencePath path
+                    : module.getStructuralPaths()) {
+                json.writeStartObject();
+                json.writeStringField("module", key);
+                json.writeStringField("changePoint",
+                        path.getChangePoint().stableKey());
+                json.writeStringField("reference",
+                        path.getReference().stableKey());
+                json.writeStringField("classification",
+                        path.getClassification().name());
+                json.writeNumberField("nodeCount",
+                        path.getNodes().size());
+                json.writeEndObject();
+                count++;
+            }
+            return count;
+        });
+        reportCache.writeJsonLines("observation", key, json -> {
+            int count = 0;
+            final List<Map.Entry<BoundChangePoint, List<ImpactEvidence>>>
+                    entries = module.getObservations().entrySet().stream()
+                    .sorted(Comparator.comparing(entry ->
+                            entry.getKey().stableKey())).toList();
+            for (Map.Entry<BoundChangePoint, List<ImpactEvidence>> entry
+                    : entries) {
+                for (ImpactEvidence evidence : entry.getValue().stream()
+                        .sorted(Comparator.comparing(
+                                ImpactEvidence::stableKey)).toList()) {
+                    json.writeStartObject();
+                    json.writeStringField("module", key);
+                    json.writeStringField("changePoint",
+                            entry.getKey().stableKey());
+                    json.writeStringField("stableKey",
+                            evidence.stableKey());
+                    json.writeStringField("render", evidence.render());
+                    json.writeEndObject();
+                    count++;
+                }
+            }
+            return count;
+        });
+    }
+
+    private void spillImpactPaths(
+            final String kind,
+            final String key,
+            final List<ImpactPath> paths) {
+        reportCache.writeJsonLines(kind, key, json -> {
+            for (ImpactPath path : paths) {
+                writePath(json, key, path);
+            }
+            return paths.size();
+        });
+    }
+
+    private void writeModuleSummary(
+            final JsonGenerator json,
+            final ModuleAnalysisResult module) throws IOException {
+        json.writeStartObject();
+        json.writeNumberField("schemaVersion",
+                ReportTaskCache.SCHEMA_VERSION);
+        json.writeStringField("module", module.getModuleId().stableKey());
+        json.writeStringField("status", module.getStatus().name());
+        json.writeStringField("reason", module.getReason().name());
+        json.writeNumberField("candidatePathCount",
+                module.getCandidatePaths().size());
+        json.writeNumberField("finalPathCount",
+                module.getFinalPaths().size());
+        json.writeNumberField("structuralPathCount",
+                module.getStructuralPaths().size());
+        json.writeBooleanField("walaSessionRetained",
+                module.getSession() != null);
+        if (module.getCallGraphSnapshot() != null) {
+            json.writeNumberField("callGraphNodeCount",
+                    module.getCallGraphSnapshot().stats().methodCount());
+            json.writeNumberField("callGraphEdgeCount",
+                    module.getCallGraphSnapshot().stats().edgeCount());
+        }
+        json.writeEndObject();
+    }
+
+    private void writePath(
+            final JsonGenerator json,
+            final String module,
+            final ImpactPath path) throws IOException {
+        json.writeStartObject();
+        json.writeStringField("module", module);
+        json.writeStringField("changePoint",
+                path.getTerminal().getChangePoint().stableKey());
+        json.writeStringField("classification",
+                path.getClassification().name());
+        json.writeArrayFieldStart("nodes");
+        for (QueryNode node : path.getNodes()) {
+            json.writeStartObject();
+            json.writeStringField("method", node.methodId().toString());
+            json.writeStringField("origin", node.origin().name());
+            if (node instanceof SnapshotQueryNode snapshot) {
+                json.writeStringField("context", snapshot.context());
+                json.writeNumberField("graphNodeId",
+                        snapshot.graphNodeId());
+                json.writeStringField("sentinel",
+                        snapshot.sentinelRole().name());
+            }
+            json.writeEndObject();
+        }
+        json.writeEndArray();
+        json.writeEndObject();
+    }
+
+    private java.util.function.Consumer<JsonGenerator> jsonRecord(
+            final CheckedJsonWriter writer) {
+        return json -> {
+            try {
+                writer.write(json);
+            } catch (IOException exception) {
+                throw new UncheckedIOException(exception);
+            }
+        };
+    }
+
+    @FunctionalInterface
+    private interface CheckedJsonWriter {
+        void write(JsonGenerator json) throws IOException;
     }
 
     private ModuleAnalysisResult analyzeModuleTask(

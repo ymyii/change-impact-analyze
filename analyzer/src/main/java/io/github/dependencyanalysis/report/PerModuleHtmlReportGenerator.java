@@ -28,6 +28,7 @@ import io.github.dependencyanalysis.impact.QueryEdge;
 import io.github.dependencyanalysis.impact.QueryNode;
 import io.github.dependencyanalysis.impact.StructuralReferencePath;
 import io.github.dependencyanalysis.impact.WalaQueryNode;
+import io.github.dependencyanalysis.impact.SnapshotQueryNode;
 import io.github.dependencyanalysis.preflight.PreflightReport;
 import io.github.dependencyanalysis.preflight.PreflightResult;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
@@ -35,6 +36,7 @@ import io.github.dependencyanalysis.runtime.MavenDependencyPluginRuntime;
 import io.github.dependencyanalysis.runtime.MavenRuntimeDescriptor;
 
 import java.io.IOException;
+import java.io.Writer;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -141,8 +143,8 @@ public final class PerModuleHtmlReportGenerator {
                             absolute.getFileName().toString(), moduleRuntime);
             final OverallContext context = new OverallContext(
                     maven, plugin, javaRuntime, ownedName, pages);
-            Files.writeString(staging.resolve(absolute.getFileName()),
-                    overallPage(run, events, preflight, context));
+            writeOverallPage(staging.resolve(absolute.getFileName()),
+                    run, events, preflight, context);
             publish(staging, absolute, ownedName);
         } catch (IOException exception) {
             throw new ReportException(
@@ -169,24 +171,26 @@ public final class PerModuleHtmlReportGenerator {
             final ModulePages pages = new ModulePages(
                     base + ".html", base + "-impact.html",
                     base + "-changes.html");
-            Files.writeString(directory.resolve(pages.index()),
-                    moduleIndexPage(module, events, pages, overallFile,
-                            runtime));
-            Files.writeString(directory.resolve(pages.impact()),
-                    impactPage(module, pages, overallFile));
-            Files.writeString(directory.resolve(pages.changes()),
-                    changesPage(module, pages, overallFile));
+            writeModuleIndexPage(directory.resolve(pages.index()), module,
+                    events, pages, overallFile, runtime);
+            writeImpactPage(directory.resolve(pages.impact()), module,
+                    pages, overallFile);
+            writeChangesPage(directory.resolve(pages.changes()), module,
+                    pages, overallFile);
             result.put(module, pages);
         }
         return result;
     }
 
-    private String overallPage(
+    private void writeOverallPage(
+            final Path target,
             final AnalysisRunResult run,
             final List<DiagnosticEvent> events,
             final PreflightReport preflight,
-            final OverallContext context) {
-        final StringBuilder body = new StringBuilder()
+            final OverallContext context) throws IOException {
+        writeDocument(target, "Impact Analysis Report", "Overall", "", "",
+                overallToc(), body -> {
+        body
                 .append("<h1 id=\"top\">Impact Analysis Report</h1>")
                 .append("<section id=\"read\"><h2>How to read this report")
                 .append("</h2><p>Start with the Modules table. Open a module ")
@@ -324,17 +328,21 @@ public final class PerModuleHtmlReportGenerator {
         body.append("</table></section>");
         appendPreflight(body, preflight);
         appendDiagnostics(body, events);
-        return document("Impact Analysis Report", "Overall", "", "",
-                overallToc(), body.toString());
+        });
     }
 
-    private String moduleIndexPage(
+    private void writeModuleIndexPage(
+            final Path target,
             final ModuleAnalysisResult module,
             final List<DiagnosticEvent> events,
             final ModulePages pages,
             final String overallFile,
-            final ModuleRuntime runtime) {
-        final StringBuilder body = new StringBuilder()
+            final ModuleRuntime runtime) throws IOException {
+        writeDocument(target, "Module summary", "Module Index",
+                breadcrumbs(overallFile, module, pages.index(),
+                        "Module Index"), siblingLinks(pages, "index"),
+                moduleIndexToc(), body -> {
+        body
                 .append("<h1 id=\"top\">Module summary: ")
                 .append(escape(moduleLabel(module)))
                 .append("</h1><section id=\"summary\"><h2>Summary</h2>")
@@ -398,13 +406,9 @@ public final class PerModuleHtmlReportGenerator {
         appendDuplicateResolutions(body, module);
         body.append("<section id=\"metrics\"><h2>Runtime metrics</h2>")
                 .append("<table>")
-                .append(row("Entry methods", module.getSession() == null
-                        ? "Not available"
-                        : module.getSession().getEntrypointCount()))
+                .append(row("Entry methods", entrypointCount(module)))
                 .append(row("Selected application classes",
-                        module.getSession() == null ? "Not available"
-                                : module.getSession()
-                                .getSelectedEntrypointClassCount()))
+                        selectedEntrypointClassCount(module)))
                 .append(row("Call relationships", module.getCallGraphStats()
                         == null ? "Not available"
                         : module.getCallGraphStats().edgeCount()))
@@ -435,14 +439,11 @@ public final class PerModuleHtmlReportGenerator {
                 .append("</summary>");
         appendDiagnosticList(body, moduleEvents(module, events));
         body.append("</details></section>");
-        return document("Module summary", "Module Index",
-                breadcrumbs(overallFile, module, pages.index(),
-                        "Module Index"), siblingLinks(pages, "index"),
-                moduleIndexToc(), body.toString());
+        });
     }
 
     private void appendDependencyBodyBoundary(
-            final StringBuilder body,
+            final HtmlSink body,
             final ModuleAnalysisResult module) {
         final var selection = module.getUnit().getChangedPathSelection();
         final List<ArtifactCoord> realArtifacts = module.getUnit()
@@ -473,13 +474,17 @@ public final class PerModuleHtmlReportGenerator {
                         realArtifacts.size()))
                 .append(row("No-op external artifacts",
                         noOpArtifacts.size()));
-        final DependencyBodyBoundaryMetadata metadata = module.getSession()
-                == null ? DependencyBodyBoundaryMetadata.empty()
-                : module.getSession().getDependencyBoundary();
+        final DependencyBodyBoundaryMetadata metadata = boundary(module);
         body.append(row("Real / no-op / factory method nodes",
                         metadata.realExternalMethodNodes() + " / "
                                 + metadata.noOpMethodNodes() + " / "
                                 + metadata.factoryMethodNodes()))
+                .append(row("Ancestor-retained external types / methods",
+                        metadata.ancestorRetainedExternalTypeCount() + " / "
+                                + metadata
+                                .ancestorRetainedExternalMethodNodeCount()))
+                .append(row("Pruned external method targets",
+                        metadata.prunedExternalMethodTargetCount()))
                 .append("</table><h3>Changed dependency paths</h3>");
         if (selection.paths().isEmpty()) {
             body.append("<p>No reverse dependency path evidence was ")
@@ -496,6 +501,12 @@ public final class PerModuleHtmlReportGenerator {
         }
         appendArtifactPolicyList(body, "Real-IR artifacts", realArtifacts);
         appendArtifactPolicyList(body, "No-op artifacts", noOpArtifacts);
+        body.append("<p><strong>Type-level exception:</strong> a no-op ")
+                .append("artifact remains artifact-level no-op, but an ")
+                .append("external type in the complete ancestor chain of ")
+                .append("a PROJECT, reactor dependency, or selected ")
+                .append("external class uses real IR for its reachable ")
+                .append("concrete methods. JDK types are excluded.</p>");
         appendBoundaryEvidence(body, metadata);
         body.append("<p><strong>Interpretation:</strong> SUCCESS means no ")
                 .append("Impact Path was found within the selected paths and ")
@@ -504,7 +515,7 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private void appendArtifactPolicyList(
-            final StringBuilder body,
+            final HtmlSink body,
             final String title,
             final List<ArtifactCoord> artifacts) {
         body.append("<details><summary>").append(escape(title))
@@ -519,7 +530,7 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private void appendBoundaryEvidence(
-            final StringBuilder body,
+            final HtmlSink body,
             final DependencyBodyBoundaryMetadata metadata) {
         body.append("<h3>Reached dependency body boundaries</h3>");
         if (metadata.bodyBoundaryHits().isEmpty()) {
@@ -589,7 +600,7 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private void appendDuplicateResolutions(
-            final StringBuilder body,
+            final HtmlSink body,
             final ModuleAnalysisResult module) {
         final List<DuplicateClassResolution> resolutions =
                 duplicateResolutions(module);
@@ -642,11 +653,17 @@ public final class PerModuleHtmlReportGenerator {
         body.append("</table></details></section>");
     }
 
-    private String impactPage(
+    private void writeImpactPage(
+            final Path target,
             final ModuleAnalysisResult module,
             final ModulePages pages,
-            final String overallFile) {
-        final StringBuilder body = new StringBuilder()
+            final String overallFile) throws IOException {
+        writeDocument(target, "Affected Call Chains",
+                "Affected Call Chains",
+                breadcrumbs(overallFile, module, pages.impact(),
+                        "Affected Call Chains"),
+                siblingLinks(pages, "impact"), impactToc(), body -> {
+        body
                 .append("<h1 id=\"top\">Affected Call Chains: ")
                 .append(escape(moduleLabel(module)))
                 .append("</h1><section id=\"chains\"><h2>Affected call ")
@@ -684,14 +701,11 @@ public final class PerModuleHtmlReportGenerator {
                             body, value, pages));
         }
         body.append("</section>");
-        return document("Affected Call Chains", "Affected Call Chains",
-                breadcrumbs(overallFile, module, pages.impact(),
-                        "Affected Call Chains"),
-                siblingLinks(pages, "impact"), impactToc(), body.toString());
+        });
     }
 
     private boolean appendCallPathGroups(
-            final StringBuilder body,
+            final HtmlSink body,
             final List<ImpactPath> paths,
             final ModulePages pages,
             final String anchorPrefix) {
@@ -717,7 +731,7 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private void appendCallPathMember(
-            final StringBuilder body,
+            final HtmlSink body,
             final List<ImpactPath> allPaths,
             final BoundChangePoint point,
             final ModulePages pages) {
@@ -773,7 +787,7 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private void appendStructuralPath(
-            final StringBuilder body,
+            final HtmlSink body,
             final StructuralReferencePath path,
             final ModulePages pages) {
         body.append("<article class=\"card\"><strong>")
@@ -809,11 +823,16 @@ public final class PerModuleHtmlReportGenerator {
         body.append("</ul></details></article>");
     }
 
-    private String changesPage(
+    private void writeChangesPage(
+            final Path target,
             final ModuleAnalysisResult module,
             final ModulePages pages,
-            final String overallFile) {
-        final StringBuilder body = new StringBuilder()
+            final String overallFile) throws IOException {
+        writeDocument(target, "Dependency Changes", "Dependency Changes",
+                breadcrumbs(overallFile, module, pages.changes(),
+                        "Dependency Changes"),
+                siblingLinks(pages, "changes"), changesToc(), body -> {
+        body
                 .append("<h1 id=\"top\">Dependency Changes: ")
                 .append(escape(moduleLabel(module)))
                 .append("</h1><section id=\"dependencies\"><h2>Changed ")
@@ -850,15 +869,11 @@ public final class PerModuleHtmlReportGenerator {
                         Math.max(0, module.getUnit().getChangePoints().size()
                                 - relevant.size())))
                 .append("</table></details></section>");
-        return document("Dependency Changes", "Dependency Changes",
-                breadcrumbs(overallFile, module, pages.changes(),
-                        "Dependency Changes"),
-                siblingLinks(pages, "changes"), changesToc(),
-                body.toString());
+        });
     }
 
     private void appendDependencySection(
-            final StringBuilder body,
+            final HtmlSink body,
             final ModuleAnalysisResult module,
             final String key,
             final List<BoundChangePoint> points) {
@@ -880,7 +895,7 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private void appendMemberCategory(
-            final StringBuilder body,
+            final HtmlSink body,
             final ModuleAnalysisResult module,
             final String title,
             final List<BoundChangePoint> points,
@@ -915,7 +930,7 @@ public final class PerModuleHtmlReportGenerator {
     private String memberBadges(
             final ModuleAnalysisResult module,
             final BoundChangePoint point) {
-        final StringBuilder result = new StringBuilder();
+        final HtmlSink result = HtmlSink.memory();
         if (module.getFinalPaths().stream().anyMatch(path -> path.getTerminal()
                 .getChangePoint().equals(point))) {
             result.append("<span class=\"badge\">Affected</span>");
@@ -971,7 +986,7 @@ public final class PerModuleHtmlReportGenerator {
         if (evidence == null) {
             return "";
         }
-        final StringBuilder result = new StringBuilder()
+        final HtmlSink result = HtmlSink.memory()
                 .append("<details><summary>View code changes</summary>")
                 .append("<p class=\"muted\">Decompiled Java ")
                 .append("representation</p>");
@@ -1003,7 +1018,7 @@ public final class PerModuleHtmlReportGenerator {
         final ChangePoint point = bound.getChangePoint();
         final MethodEquivalenceResult equivalence = module
                 .getEquivalenceResults().get(bound);
-        final StringBuilder result = new StringBuilder(
+        final HtmlSink result = HtmlSink.memory(
                 "<details><summary>Technical details</summary><table>")
                 .append(row("Raw ChangePointKind", point.getKind()))
                 .append(row("Raw disposition",
@@ -1049,25 +1064,39 @@ public final class PerModuleHtmlReportGenerator {
         return result.append("</table></details>").toString();
     }
 
-    private String document(
+    private void writeDocument(
+            final Path target,
             final String title,
             final String currentPage,
             final String breadcrumbs,
             final String siblings,
             final String toc,
-            final String body) {
-        return "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\">"
-                + "<meta name=\"viewport\" content=\"width=device-width,"
-                + "initial-scale=1\"><title>" + escape(title)
-                + "</title><style>" + CSS + "</style></head><body><header>"
-                + (breadcrumbs.isEmpty()
-                ? "<nav class=\"breadcrumbs\" aria-label=\"Breadcrumb\">"
-                + "<span>Overall</span></nav>" : breadcrumbs)
-                + siblings + "</header><div class=\"layout\"><nav class=\"toc\""
-                + " aria-label=\"Table of contents\"><strong>On this page"
-                + "</strong><div class=\"muted\" aria-current=\"page\">"
-                + escape(currentPage) + "</div>" + toc
-                + "</nav><main>" + body + "</main></div></body></html>";
+            final PageBody body) throws IOException {
+        try (Writer writer = Files.newBufferedWriter(
+                target, java.nio.charset.StandardCharsets.UTF_8)) {
+            final HtmlSink output = HtmlSink.writer(writer);
+            output.append("<!DOCTYPE html><html lang=\"en\"><head>")
+                    .append("<meta charset=\"UTF-8\"><meta name=\"viewport\"")
+                    .append(" content=\"width=device-width,initial-scale=1\">")
+                    .append("<title>").append(escape(title))
+                    .append("</title><style>").append(CSS)
+                    .append("</style></head><body><header>")
+                    .append(breadcrumbs.isEmpty()
+                            ? "<nav class=\"breadcrumbs\" "
+                            + "aria-label=\"Breadcrumb\">"
+                            + "<span>Overall</span></nav>" : breadcrumbs)
+                    .append(siblings)
+                    .append("</header><div class=\"layout\"><nav class=\"toc\"")
+                    .append(" aria-label=\"Table of contents\"><strong>")
+                    .append("On this page</strong><div class=\"muted\"")
+                    .append(" aria-current=\"page\">")
+                    .append(escape(currentPage)).append("</div>")
+                    .append(toc).append("</nav><main>");
+            body.write(output);
+            output.append("</main></div></body></html>");
+        } catch (java.io.UncheckedIOException exception) {
+            throw exception.getCause();
+        }
     }
 
     private String breadcrumbs(
@@ -1108,7 +1137,7 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private void appendTerminology(
-            final StringBuilder body,
+            final HtmlSink body,
             final CallGraphAlgorithm algorithm) {
         body.append("<section id=\"terms\"><h2>Terminology</h2><dl>")
                 .append(term("WALA", "The Java analysis library used to "
@@ -1171,7 +1200,7 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private void appendPreflight(
-            final StringBuilder body,
+            final HtmlSink body,
             final PreflightReport preflight) {
         body.append("<section id=\"preflight\"><h2>Preflight checks</h2>")
                 .append("<details><summary>Technical details</summary>")
@@ -1189,7 +1218,7 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private void appendDiagnostics(
-            final StringBuilder body,
+            final HtmlSink body,
             final List<DiagnosticEvent> events) {
         body.append("<section id=\"diagnostics\"><h2>Diagnostics</h2>");
         body.append("<details><summary>Technical details</summary>");
@@ -1198,7 +1227,7 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private void appendDiagnosticList(
-            final StringBuilder body,
+            final HtmlSink body,
             final List<DiagnosticEvent> events) {
         if (events.isEmpty()) {
             body.append("<p>No diagnostic event was recorded.</p>");
@@ -1215,7 +1244,7 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private void appendStageMetrics(
-            final StringBuilder body,
+            final HtmlSink body,
             final Map<String, Long> stages) {
         body.append("<h3>Stage elapsed time</h3><table>")
                 .append("<tr><th>Stage</th><th>Milliseconds</th></tr>");
@@ -1226,7 +1255,7 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private void appendList(
-            final StringBuilder body,
+            final HtmlSink body,
             final List<String> values,
             final String empty) {
         if (values.isEmpty()) {
@@ -1381,9 +1410,13 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private String contextEvidence(final QueryNode node) {
-        return node instanceof WalaQueryNode
-                ? ((WalaQueryNode) node).walaNode().getContext().toString()
-                : node.origin() + " synthetic evidence";
+        if (node instanceof WalaQueryNode wala) {
+            return wala.walaNode().getContext().toString();
+        }
+        if (node instanceof SnapshotQueryNode snapshot) {
+            return snapshot.context();
+        }
+        return node.origin() + " synthetic evidence";
     }
 
     private long pathCount(
@@ -1501,10 +1534,13 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private long contextCount(final ModuleAnalysisResult module) {
-        return module.getSession() == null ? 0L
-                : module.getSession().getGraph().stream()
-                .map(com.ibm.wala.ipa.callgraph.CGNode::getContext)
-                .distinct().count();
+        if (module.getSession() != null) {
+            return module.getSession().getGraph().stream()
+                    .map(com.ibm.wala.ipa.callgraph.CGNode::getContext)
+                    .distinct().count();
+        }
+        return module.getCallGraphSnapshot() == null ? 0L
+                : module.getCallGraphSnapshot().contextCount();
     }
 
     private String dependencyScopeCounts(final AnalysisRunResult run) {
@@ -1543,21 +1579,16 @@ public final class PerModuleHtmlReportGenerator {
         long noOp = 0L;
         long factory = 0L;
         for (ModuleAnalysisResult module : run.getModuleResults()) {
-            if (module.getSession() != null) {
-                noOp += module.getSession().getDependencyBoundary()
-                        .noOpMethodNodes();
-                factory += module.getSession().getDependencyBoundary()
-                        .factoryMethodNodes();
-            }
+            noOp += boundary(module).noOpMethodNodes();
+            factory += boundary(module).factoryMethodNodes();
         }
         return noOp + " / " + factory;
     }
 
     private long dangerousTransferCount(final AnalysisRunResult run) {
         return run.getModuleResults().stream()
-                .filter(value -> value.getSession() != null)
-                .mapToLong(value -> value.getSession()
-                        .getDependencyBoundary().dangerousTransfers().size())
+                .mapToLong(value -> boundary(value)
+                        .dangerousTransfers().size())
                 .sum();
     }
 
@@ -1574,15 +1605,48 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private String sessionRows(final ModuleAnalysisResult module) {
-        if (module.getSession() == null) {
+        final CallGraphStats stats = module.getCallGraphStats();
+        if (stats == null) {
             return row("Call Graph", "Not available");
         }
-        final CallGraphStats stats = module.getSession().getStats();
         return row("Parameter candidates",
-                module.getSession().getParameterCandidateCount())
+                parameterCandidateCount(module))
                 + row("Call Graph nodes", stats.methodCount())
                 + row("Call Graph edges", stats.edgeCount())
                 + row("WALA Context count", contextCount(module));
+    }
+
+    private Object entrypointCount(final ModuleAnalysisResult module) {
+        return module.getSession() != null
+                ? module.getSession().getEntrypointCount()
+                : module.getCallGraphSnapshot() == null ? "Not available"
+                : module.getCallGraphSnapshot().entrypointCount();
+    }
+
+    private Object selectedEntrypointClassCount(
+            final ModuleAnalysisResult module) {
+        return module.getSession() != null
+                ? module.getSession().getSelectedEntrypointClassCount()
+                : module.getCallGraphSnapshot() == null ? "Not available"
+                : module.getCallGraphSnapshot()
+                .selectedEntrypointClassCount();
+    }
+
+    private Object parameterCandidateCount(
+            final ModuleAnalysisResult module) {
+        return module.getSession() != null
+                ? module.getSession().getParameterCandidateCount()
+                : module.getCallGraphSnapshot() == null ? "Not available"
+                : module.getCallGraphSnapshot().parameterCandidateCount();
+    }
+
+    private DependencyBodyBoundaryMetadata boundary(
+            final ModuleAnalysisResult module) {
+        return module.getSession() != null
+                ? module.getSession().getDependencyBoundary()
+                : module.getCallGraphSnapshot() == null
+                ? DependencyBodyBoundaryMetadata.empty()
+                : module.getCallGraphSnapshot().dependencyBoundary();
     }
 
     private String row(final String name, final Object value) {
@@ -1669,7 +1733,7 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private String toc(final String... entries) {
-        final StringBuilder value = new StringBuilder("<ul>");
+        final HtmlSink value = HtmlSink.memory("<ul>");
         for (int index = 0; index < entries.length; index += 2) {
             value.append("<li><a href=\"#")
                     .append(attribute(entries[index]))
@@ -1756,6 +1820,49 @@ public final class PerModuleHtmlReportGenerator {
             });
         } catch (IOException ignored) {
             // Best-effort command-owned cleanup.
+        }
+    }
+
+    /** Streaming HTML body callback. */
+    @FunctionalInterface
+    private interface PageBody {
+        void write(HtmlSink output);
+    }
+
+    /** Append facade shared by streaming and small in-memory fragments. */
+    private static final class HtmlSink {
+
+        /** Target appendable. */
+        private final Appendable target;
+
+        private HtmlSink(final Appendable value) {
+            target = value;
+        }
+
+        static HtmlSink memory() {
+            return memory("");
+        }
+
+        static HtmlSink memory(final String initial) {
+            return new HtmlSink(new StringBuilder(initial));
+        }
+
+        static HtmlSink writer(final Writer value) {
+            return new HtmlSink(value);
+        }
+
+        HtmlSink append(final Object value) {
+            try {
+                target.append(String.valueOf(value));
+                return this;
+            } catch (IOException exception) {
+                throw new java.io.UncheckedIOException(exception);
+            }
+        }
+
+        @Override
+        public String toString() {
+            return target.toString();
         }
     }
 

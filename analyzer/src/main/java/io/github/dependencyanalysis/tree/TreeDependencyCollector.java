@@ -156,17 +156,19 @@ public final class TreeDependencyCollector {
             for (Path pom : initialPoms) {
                 final Path output = outputs.get(pom);
                 try {
-                    final String text = Files.exists(output)
-                            ? Files.readString(output,
-                            StandardCharsets.UTF_8) : "";
-                    if (text.isBlank()) {
+                    if (!Files.isRegularFile(output)
+                            || Files.size(output) == 0L) {
                         throw new IllegalStateException(
                                 "Dependency tree output"
                                         + " is unavailable");
                     }
-                    final ParsedModuleTree parsed =
-                            new DependencyTextParser().parse(
-                                    text, reactorKeys, scopes);
+                    final ParsedModuleTree parsed;
+                    try (java.io.BufferedReader reader =
+                                 Files.newBufferedReader(output,
+                                         StandardCharsets.UTF_8)) {
+                        parsed = new DependencyTextParser().parse(
+                                reader, reactorKeys, scopes);
+                    }
                     if (!complete) {
                         degraded = true;
                         reasons.add(pom
@@ -194,17 +196,19 @@ public final class TreeDependencyCollector {
                                 modules))) {
                     final Path output = outputs.get(pom);
                     try {
-                        final String text = Files.exists(output)
-                                ? Files.readString(output,
-                                StandardCharsets.UTF_8) : "";
-                        if (text.isBlank()) {
+                        if (!Files.isRegularFile(output)
+                                || Files.size(output) == 0L) {
                             throw new IllegalStateException(
                                     "Dependency tree output"
                                             + " is unavailable");
                         }
-                        final ParsedModuleTree parsed =
-                                new DependencyTextParser().parse(
-                                        text, reactorKeys, scopes);
+                        final ParsedModuleTree parsed;
+                        try (java.io.BufferedReader reader =
+                                     Files.newBufferedReader(output,
+                                             StandardCharsets.UTF_8)) {
+                            parsed = new DependencyTextParser().parse(
+                                    reader, reactorKeys, scopes);
+                        }
                         if (!complete) {
                             degraded = true;
                             reasons.add(pom

@@ -6,6 +6,7 @@ import io.github.dependencyanalysis.callgraph.EntrypointSelection;
 import io.github.dependencyanalysis.callgraph.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
 import io.github.dependencyanalysis.metrics.ManagedExecutorRegistry;
+import io.github.dependencyanalysis.runtime.ReportTaskCache;
 
 import java.nio.file.Path;
 
@@ -22,6 +23,7 @@ import java.nio.file.Path;
  * @param dependencyAnalysisScope dependency method-body scope
  * @param jdkModel command-wide JDK Method Model selection
  * @param executors Analyzer-owned pool registry
+ * @param reportCache production task cache, nullable for compatibility callers
  */
 record PerModulePipelineOptions(
         long callGraphTimeoutSeconds,
@@ -33,7 +35,8 @@ record PerModulePipelineOptions(
         WalaReflectionOptions reflectionOptions,
         DependencyAnalysisScopeMode dependencyAnalysisScope,
         JdkModelSelection jdkModel,
-        ManagedExecutorRegistry executors) {
+        ManagedExecutorRegistry executors,
+        ReportTaskCache reportCache) {
 
     /** Compatibility constructor using the default k-object depth. */
     PerModulePipelineOptions(
@@ -48,7 +51,7 @@ record PerModulePipelineOptions(
             final ManagedExecutorRegistry executorRegistry) {
         this(timeoutSeconds, parallelism, paths, selection, algorithm,
                 CallGraphAlgorithm.defaultKObjDepth(), reflection,
-                dependencyScope, selectedJdkModel, executorRegistry);
+                dependencyScope, selectedJdkModel, executorRegistry, null);
     }
 
     /** Compatibility constructor using the default JDK model. */
@@ -65,7 +68,7 @@ record PerModulePipelineOptions(
                 CallGraphAlgorithm.defaultKObjDepth(), reflection,
                 dependencyScope,
                 CallGraphPolicy.defaultJdkModel(algorithm),
-                executorRegistry);
+                executorRegistry, null);
     }
 
     PerModulePipelineOptions(
@@ -82,7 +85,7 @@ record PerModulePipelineOptions(
                 reflection,
                 DependencyAnalysisScopeMode.defaultMode(),
                 CallGraphPolicy.defaultJdkModel(algorithm),
-                executorRegistry);
+                executorRegistry, null);
     }
 
     PerModulePipelineOptions(
@@ -98,7 +101,7 @@ record PerModulePipelineOptions(
                 WalaReflectionOptions.defaultOptions(),
                 DependencyAnalysisScopeMode.defaultMode(),
                 CallGraphPolicy.defaultJdkModel(algorithm),
-                executorRegistry);
+                executorRegistry, null);
     }
 
     /** @return command temporary directory */

@@ -29,6 +29,9 @@ public final class ModuleAnalysisResult {
     /** Live session retained through SSA filtering. */
     private final ModuleCallGraphSession session;
 
+    /** Lightweight report metrics detached from the live session. */
+    private final ModuleCallGraphSnapshot callGraphSnapshot;
+
     /** Candidate paths before SSA filtering. */
     private final List<ImpactPath> candidatePaths;
 
@@ -70,6 +73,7 @@ public final class ModuleAnalysisResult {
         reason = Objects.requireNonNull(builder.reason, "reason");
         detail = Objects.requireNonNull(builder.detail, "detail");
         session = builder.session;
+        callGraphSnapshot = builder.callGraphSnapshot;
         candidatePaths = immutable(builder.candidatePaths);
         finalPaths = immutable(builder.finalPaths);
         structuralPaths = immutable(builder.structuralPaths);
@@ -126,6 +130,11 @@ public final class ModuleAnalysisResult {
     /** @return live Call Graph session, nullable */
     public ModuleCallGraphSession getSession() {
         return session;
+    }
+
+    /** @return detached Call Graph report metrics, nullable */
+    public ModuleCallGraphSnapshot getCallGraphSnapshot() {
+        return callGraphSnapshot;
     }
 
     /** @return pre-filter candidate paths */
@@ -187,7 +196,8 @@ public final class ModuleAnalysisResult {
 
     /** @return Call Graph metrics, nullable */
     public CallGraphStats getCallGraphStats() {
-        return session == null ? null : session.getStats();
+        return session != null ? session.getStats()
+                : callGraphSnapshot == null ? null : callGraphSnapshot.stats();
     }
 
     /** @return mutable builder initialized from this result */
@@ -195,6 +205,7 @@ public final class ModuleAnalysisResult {
         return new Builder(unit)
                 .status(status, reason, detail)
                 .session(session)
+                .callGraphSnapshot(callGraphSnapshot)
                 .candidatePaths(candidatePaths)
                 .finalPaths(finalPaths)
                 .structuralPaths(structuralPaths)
@@ -225,6 +236,9 @@ public final class ModuleAnalysisResult {
 
         /** Session. */
         private ModuleCallGraphSession session;
+
+        /** Detached Call Graph report metrics. */
+        private ModuleCallGraphSnapshot callGraphSnapshot;
 
         /** Candidate paths. */
         private List<ImpactPath> candidatePaths = List.of();
@@ -293,6 +307,15 @@ public final class ModuleAnalysisResult {
          */
         public Builder session(final ModuleCallGraphSession value) {
             session = value;
+            return this;
+        }
+
+        /**
+         * @param value detached Call Graph report metrics
+         * @return this builder
+         */
+        public Builder callGraphSnapshot(final ModuleCallGraphSnapshot value) {
+            callGraphSnapshot = value;
             return this;
         }
 

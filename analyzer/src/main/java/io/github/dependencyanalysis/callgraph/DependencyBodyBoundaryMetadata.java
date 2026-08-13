@@ -15,6 +15,9 @@ import java.util.List;
  * @param realExternalMethodNodes real-IR external method nodes
  * @param noOpMethodNodes ordinary no-op method nodes
  * @param factoryMethodNodes factory summary method nodes
+ * @param ancestorRetainedExternalTypeCount retained external ancestor types
+ * @param ancestorRetainedExternalMethodNodeCount reachable retained methods
+ * @param prunedExternalMethodTargetCount pruned external method targets
  */
 public record DependencyBodyBoundaryMetadata(
         List<DependencyBoundaryEvidence> dangerousTransfers,
@@ -22,7 +25,10 @@ public record DependencyBodyBoundaryMetadata(
         List<DependencyBodyBoundaryHit> bodyBoundaryHits,
         int realExternalMethodNodes,
         int noOpMethodNodes,
-        int factoryMethodNodes) {
+        int factoryMethodNodes,
+        int ancestorRetainedExternalTypeCount,
+        int ancestorRetainedExternalMethodNodeCount,
+        int prunedExternalMethodTargetCount) {
 
     /** Snapshots deterministic boundary output. */
     public DependencyBodyBoundaryMetadata {
@@ -31,6 +37,13 @@ public record DependencyBodyBoundaryMetadata(
         factories = factories.stream().distinct().sorted().toList();
         bodyBoundaryHits = bodyBoundaryHits.stream().distinct()
                 .sorted().toList();
+        if (realExternalMethodNodes < 0 || noOpMethodNodes < 0
+                || factoryMethodNodes < 0
+                || ancestorRetainedExternalTypeCount < 0
+                || ancestorRetainedExternalMethodNodeCount < 0
+                || prunedExternalMethodTargetCount < 0) {
+            throw new IllegalArgumentException("negative boundary metric");
+        }
     }
 
     /** Compatibility constructor for propagation boundary metadata. */
@@ -41,12 +54,12 @@ public record DependencyBodyBoundaryMetadata(
             final int noOpNodes,
             final int factoryNodes) {
         this(transfers, factoryEvidence, List.of(), realNodes, noOpNodes,
-                factoryNodes);
+                factoryNodes, 0, 0, 0);
     }
 
     /** @return empty metadata for compatibility callers */
     public static DependencyBodyBoundaryMetadata empty() {
         return new DependencyBodyBoundaryMetadata(
-                List.of(), List.of(), List.of(), 0, 0, 0);
+                List.of(), List.of(), List.of(), 0, 0, 0, 0, 0, 0);
     }
 }

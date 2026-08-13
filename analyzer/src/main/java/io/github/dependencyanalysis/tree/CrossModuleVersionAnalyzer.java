@@ -1,5 +1,7 @@
 package io.github.dependencyanalysis.tree;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -103,6 +105,72 @@ public final class CrossModuleVersionAnalyzer {
                     entry.getKey(), values));
         }
         return result;
+    }
+
+    /**
+     * Uses selected-only task-cache external grouping for one reactor.
+     *
+     * @param reactor reactor result
+     * @param cacheRoot task cache root
+     * @return deterministic divergence issues
+     * @throws IOException on cache grouping failure
+     */
+    List<CrossModuleVersionIssue> analyze(
+            final ReactorTreeResult reactor,
+            final Path cacheRoot) throws IOException {
+        final List<CrossModuleVersionIssue> result = new ArrayList<>();
+        new TreeExternalOccurrenceSorter().group(reactor.getModules(), true,
+                cacheRoot, "reactor-" + reactor.getReactor().getId(),
+                (key, references) -> {
+                    final CrossModuleVersionIssue issue = issue(
+                            key, references);
+                    if (issue != null) {
+                        result.add(issue);
+                    }
+                });
+        return List.copyOf(result);
+    }
+
+    private CrossModuleVersionIssue issue(
+            final DependencyKey key,
+            final List<TreeExternalOccurrenceSorter.OccurrenceRef>
+                    references) {
+        final Set<String> versions = new LinkedHashSet<>();
+        references.forEach(value -> versions.add(
+                value.occurrence().getSelectedVersion()));
+        if (versions.size() < 2) {
+            return null;
+        }
+        final Map<String, Long> counts = new LinkedHashMap<>();
+        final Map<String, TreeExternalOccurrenceSorter.OccurrenceRef> samples =
+                new LinkedHashMap<>();
+        for (TreeExternalOccurrenceSorter.OccurrenceRef reference
+                : references) {
+            final String id = reference.module().getCoordinate() + "|"
+                    + reference.occurrence().getSelectedVersion() + "|"
+                    + reference.occurrence().getEffectiveScope();
+            counts.merge(id, 1L, Long::sum);
+            samples.putIfAbsent(id, reference);
+        }
+        final List<CrossModuleVersion> values = new ArrayList<>();
+        for (Map.Entry<String, Long> count : counts.entrySet()) {
+            final var sample = samples.get(count.getKey());
+            final Map<String, VersionPath> paths = new java.util.TreeMap<>();
+            references.stream().filter(value -> value.module().equals(
+                            sample.module()))
+                    .map(value -> VersionPath.from(value.occurrence()))
+                    .forEach(path -> paths.putIfAbsent(
+                            path.stableKey(), path));
+            values.add(new CrossModuleVersion(
+                    sample.module().getCoordinate(),
+                    sample.occurrence().getSelectedVersion(),
+                    sample.occurrence().getEffectiveScope(),
+                    count.getValue(), new ArrayList<>(paths.values())));
+        }
+        values.sort(java.util.Comparator.comparing(
+                        CrossModuleVersion::getVersion)
+                .thenComparing(CrossModuleVersion::getModule));
+        return new CrossModuleVersionIssue(key, values);
     }
 
     /** Module and occurrence pair. */

@@ -15,7 +15,7 @@ code_refs: []
 ## Architecture
 
 ### [Dependency Analysis Pipelines](architecture/dependency-analysis-pipelines.md)
-- Summary: Root CLI、dependency/resource Diff、Call Graph strategy、统一Evidence collection、冻结query session与独立`impact`/`tree` pipeline。
+- Summary: `impact` rolling Module/SSA/WALA detach与`tree` Reader/external merge pipeline；两者共用UUID task cache和Writer流式Report。
 
 ## Features
 
@@ -26,10 +26,10 @@ code_refs: []
 - Summary: 用户 executable、跨平台内嵌 Maven 3.6.3、两个独立 repository ZIP，以及 Stable/Snapshot 分离 cache 与 command-scoped settings。
 
 ### [Repository Dependency Tree Report](features/repository-dependency-tree-report.md)
-- Summary: Git snapshot、bounded/full reactor execution、统一 Tree progress Diagnostic、incremental checkpoint 与 Module-tab offline report。
+- Summary: Git snapshot、bounded/full reactor execution、Reader逐行解析、cache-backed conflict grouping、incremental checkpoint与流式offline report。
 
 ### [Git Workspace Management](features/git-workspace-management.md)
-- Summary: `impact`/`tree` config UUID workspace/tmp、owner lock、stale recovery 与 detached worktree cleanup。
+- Summary: `impact`/`tree` config UUID workspace/tmp、owner lock、task-scoped report-cache、stale recovery与detached worktree cleanup。
 
 ### [Maven Build Runner](features/maven-build-runner.md)
 - Summary: 只编译 target；reactor root compile 一次，leaf 使用 `-pl/-am`；baseline dependency 与 target build 并行。
@@ -47,7 +47,7 @@ code_refs: []
 - Summary: logical coordinate pair经repository lease并行去重Diff；检测bytecode、JVM access narrowing与ServiceLoader registration removal。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
-- Summary: CHA为默认构图strategy；Object.toString/hashCode Diff-directed dispatch、固定JDK leaf、caller-local SSA constant、ServiceLoader protocol edge、五种algorithm capability与Schema v7 diagnostics。
+- Summary: CHA changed-paths裁剪无关external target并传递保留external祖先type；固定JDK leaf、Object Diff-directed policy、五种algorithm capability与Schema v8 diagnostics。
 
 ### [JDK Method Models](features/jdk-method-models.md)
 - Summary: CHA固定`none`；四种非CHA algorithm默认接入独立`models/jdk8`精确catalog，并允许显式`none`。
@@ -56,7 +56,7 @@ code_refs: []
 - Summary: 构图后统一collector绑定公共`ReferenceEvidence`；冻结session上的query只按anchor执行deterministic reverse BFS与access decision。
 
 ### [Report Generator](features/report-generator.md)
-- Summary: `impact` 原子生成英文 Overall 与 Module 三页；展示 requested/actual dependency scope、全部到达路径、body policy 与 boundary evidence。
+- Summary: `impact`通过Writer原子生成英文Overall与Module三页；使用WALA-detached snapshot并展示artifact policy、ancestor exception与pruned target metrics。
 
 ## Rules
 

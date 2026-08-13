@@ -1,5 +1,9 @@
 package io.github.dependencyanalysis.tree;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.Reader;
+import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -71,13 +75,38 @@ public final class DependencyTextParser {
             final String text,
             final Set<DependencyKey> reactorKeys,
             final Set<String> scopes) {
+        try {
+            return parse(new StringReader(text), reactorKeys, scopes);
+        } catch (IOException exception) {
+            throw new IllegalStateException(
+                    "Unexpected in-memory dependency text failure",
+                    exception);
+        }
+    }
+
+    /**
+     * Parses one dependency plugin stream without materializing all lines.
+     *
+     * @param input UTF-8 dependency plugin reader
+     * @param reactorKeys reactor conflict keys
+     * @param scopes included scopes
+     * @return parsed tree
+     * @throws IOException on input failure
+     */
+    public ParsedModuleTree parse(
+            final Reader input,
+            final Set<DependencyKey> reactorKeys,
+            final Set<String> scopes) throws IOException {
         final Map<Integer, String> stack =
                 new HashMap<>();
         final List<DependencyOccurrence> result =
                 new ArrayList<>();
         String root = "unknown";
         boolean foundRoot = false;
-        for (String rawLine : text.split("\\R")) {
+        final BufferedReader lines = input instanceof BufferedReader
+                ? (BufferedReader) input : new BufferedReader(input);
+        String rawLine;
+        while ((rawLine = lines.readLine()) != null) {
             String line = rawLine;
             if (line.startsWith("[INFO] ")) {
                 line = line.substring(

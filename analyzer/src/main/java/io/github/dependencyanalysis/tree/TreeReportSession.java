@@ -21,6 +21,9 @@ public final class TreeReportSession {
     /** Expected reactor count. */
     private final int totalReactors;
 
+    /** Task cache root used for external conflict grouping, nullable. */
+    private final Path groupingCache;
+
     /** Lightweight published reactor checkpoints. */
     private final List<ReactorReportSummary> summaries =
             new ArrayList<>();
@@ -38,16 +41,19 @@ public final class TreeReportSession {
      * @param reportMetadata metadata
      * @param outputDirectory output directory
      * @param reactorCount expected reactors
+     * @param cacheRoot external grouping cache root, nullable
      */
     TreeReportSession(
             final TreeReportRenderer reportRenderer,
             final TreeReportMetadata reportMetadata,
             final Path outputDirectory,
-            final int reactorCount) {
+            final int reactorCount,
+            final Path cacheRoot) {
         renderer = reportRenderer;
         metadata = reportMetadata;
         output = outputDirectory;
         totalReactors = reactorCount;
+        groupingCache = cacheRoot;
     }
 
     /**
@@ -71,7 +77,7 @@ public final class TreeReportSession {
         }
         final ReactorReportSummary summary =
                 renderer.publishReactor(metadata, output,
-                        result, summaries, totalReactors);
+                        result, summaries, totalReactors, groupingCache);
         summaries.add(summary);
     }
 

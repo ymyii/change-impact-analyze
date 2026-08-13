@@ -1,8 +1,11 @@
 package io.github.dependencyanalysis.tree;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions
@@ -10,6 +13,19 @@ import static org.assertj.core.api.Assertions
 
 /** Module and cross-module version analysis tests. */
 class VersionAnalyzersTest {
+
+    /** Synthetic occurrence count forcing multiple merge rounds. */
+    private static final int EXTERNAL_SORT_OCCURRENCES = 9;
+
+    /** Synthetic distinct dependency-key count. */
+    private static final int EXTERNAL_SORT_KEYS = 3;
+
+    /** Tiny payload threshold forcing JSON Lines chunks. */
+    private static final long EXTERNAL_SORT_BYTES = 64L;
+
+    /** External sort cache root. */
+    @TempDir
+    private Path temporary;
 
     @Test
     void reportsDifferentDependencyPathVersions() {
@@ -229,6 +245,36 @@ class VersionAnalyzersTest {
                                     org.assertj.core.groups.Tuple
                                             .tuple("2", "runtime"));
                 });
+    }
+
+    @Test
+    void externalGroupingSpillsAndMergesWithBoundedFanIn()
+            throws Exception {
+        final List<DependencyOccurrence> occurrences = new ArrayList<>();
+        for (int index = 0; index < EXTERNAL_SORT_OCCURRENCES; index++) {
+            final String artifact = "artifact-" + (index
+                    % EXTERNAL_SORT_KEYS);
+            occurrences.add(occurrence(new DependencyKey(
+                            "g", artifact, "jar", ""),
+                    Integer.toString(index), Integer.toString(index),
+                    true, List.of("module", artifact)));
+        }
+        final ModuleTreeResult module = new ModuleTreeResult(
+                Path.of("module/pom.xml"), "g:module:1", occurrences,
+                true, "");
+        final List<String> groups = new ArrayList<>();
+
+        new TreeExternalOccurrenceSorter(2, EXTERNAL_SORT_BYTES, 2).group(
+                List.of(module), false, temporary, "test",
+                (key, values) -> groups.add(key + "=" + values.size()));
+
+        assertThat(groups).containsExactly(
+                "g:artifact-0:jar:=3",
+                "g:artifact-1:jar:=3",
+                "g:artifact-2:jar:=3");
+        try (var children = Files.list(temporary)) {
+            assertThat(children).isEmpty();
+        }
     }
 
     private ModuleTreeResult module(

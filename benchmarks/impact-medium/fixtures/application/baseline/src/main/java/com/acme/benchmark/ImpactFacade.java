@@ -12,7 +12,8 @@ public class ImpactFacade {
             new FieldDescriptorUseCase().executeOldDescriptor(),
             new RemovedClassUseCase().execute(),
             new RecursiveCallUseCase().execute(value.length()),
-            new BoundaryUseCase().exercise()
+            new BoundaryUseCase().exercise(),
+            new AncestorRetentionUseCase().exercise(value.length())
         };
     }
 }

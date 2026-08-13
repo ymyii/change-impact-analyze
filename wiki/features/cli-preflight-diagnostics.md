@@ -117,7 +117,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - 外部 dependency scope warning 使用 `[scope-validation][module][module=…][artifact=…]` context；每个 artifact 一条，warning text 同时进入 Module `Coverage limitations`。
 - Analyzer Diagnostic event 默认 retained，可进入 `impact` HTML Diagnostics。Preflight evidence/fallback、Maven output、exception stack trace 与 Runtime Metrics 是 transient，只进入 Console。
 - Console 与 HTML Report 对 retained event 共用 `DiagnosticLogFormatter`，包含同一 event timestamp 和 prefix；Module Diagnostics 只按 `DiagnosticEvent.module` 精确归属。
-- Call Graph completion message包含effective`algorithm`与`jdkModel=jdk8|none`，并仅在`k-obj`时包含实际`kObjDepth`。HTML展示CHA Reflection not-applied。Schema v7 diagnostics额外输出strategy capabilities、reflection applied状态、Evidence resolution/kind/mechanism汇总和local constant resolution计数；Evidence不作为topology node/edge输出。
+- Call Graph completion message包含effective`algorithm`与`jdkModel=jdk8|none`，并仅在`k-obj`时包含实际`kObjDepth`。HTML展示CHA Reflection not-applied。Schema v8 diagnostics额外输出strategy capabilities、reflection applied状态、Evidence resolution/kind/mechanism、local constant resolution和CHA ancestor-retained/pruned target计数；Evidence不作为topology node/edge输出。
 
 示例：
 

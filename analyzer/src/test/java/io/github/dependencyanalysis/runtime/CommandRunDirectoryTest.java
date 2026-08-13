@@ -5,8 +5,10 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Tests isolated config command run storage. */
 class CommandRunDirectoryTest {
@@ -86,6 +88,117 @@ class CommandRunDirectoryTest {
         try (CommandRunDirectory ignored =
                      new CommandRunDirectory(config, "tree")) {
             assertThat(foreign).isDirectory();
+        }
+    }
+
+    @Test
+    void reportCachesAreRunScopedAtomicAndCleaned() throws Exception {
+        final Path firstRoot;
+        final Path secondRoot;
+        try (CommandRunDirectory first =
+                     new CommandRunDirectory(config, "impact");
+             CommandRunDirectory second =
+                     new CommandRunDirectory(config, "impact")) {
+            try (ReportTaskCache firstCache =
+                         new ReportTaskCache(first, "impact");
+                 ReportTaskCache secondCache =
+                         new ReportTaskCache(second, "impact")) {
+                firstRoot = firstCache.root();
+                secondRoot = secondCache.root();
+                assertThat(firstRoot).isNotEqualTo(secondRoot);
+                final ReportTaskCache.Fragment fragment =
+                        firstCache.writeJsonLines("module-summary",
+                                "module-a", List.of(json -> {
+                                    try {
+                                        json.writeStartObject();
+                                        json.writeStringField("module", "a");
+                                        json.writeEndObject();
+                                    } catch (java.io.IOException exception) {
+                                        throw new java.io.UncheckedIOException(
+                                                exception);
+                                    }
+                                }));
+                assertThat(fragment.path()).isRegularFile();
+                assertThat(fragment.completeMarker()).isRegularFile();
+                firstCache.complete();
+                assertThat(firstRoot.resolve("manifest.json"))
+                        .content().contains("\"complete\" : true")
+                        .contains("module-summary");
+            }
+            assertThat(firstRoot).doesNotExist();
+            assertThat(secondRoot).doesNotExist();
+        }
+    }
+
+    @Test
+    void reportCacheRejectsDuplicateRootAndCleansFailurePath() {
+        try (CommandRunDirectory run =
+                     new CommandRunDirectory(config, "tree");
+             ReportTaskCache cache = new ReportTaskCache(run, "tree")) {
+            assertThatThrownBy(() -> new ReportTaskCache(run, "tree"))
+                    .isInstanceOf(MavenRuntimeException.class)
+                    .hasMessageContaining("prepare report cache");
+            assertThat(cache.root()).isDirectory();
+        }
+    }
+
+    @Test
+    void reportCacheRejectsIncompleteCorruptAndWrongSchemaFragments()
+            throws Exception {
+        try (CommandRunDirectory run =
+                     new CommandRunDirectory(config, "impact");
+             ReportTaskCache cache = new ReportTaskCache(run, "impact")) {
+            final ReportTaskCache.Fragment fragment = cache.writeJsonLines(
+                    "module-summary", "module-a", json -> {
+                        json.writeStartObject();
+                        json.writeBooleanField("complete", true);
+                        json.writeEndObject();
+                        return 1;
+                    });
+
+            Files.writeString(fragment.completeMarker(), "schema=999\n");
+            assertThatThrownBy(cache::complete)
+                    .isInstanceOf(MavenRuntimeException.class)
+                    .hasMessageContaining("Invalid report cache fragment");
+            Files.writeString(fragment.completeMarker(), "schema=1\n");
+
+            Files.writeString(fragment.path(), "{broken");
+            assertThatThrownBy(cache::complete)
+                    .isInstanceOf(MavenRuntimeException.class)
+                    .hasMessageContaining("Invalid report cache fragment");
+            Files.writeString(fragment.path(), "{\"complete\":true}");
+
+            final Path manifest = cache.root().resolve("manifest.json");
+            Files.writeString(manifest,
+                    Files.readString(manifest).replace(
+                            "\"schemaVersion\" : 1",
+                            "\"schemaVersion\" : 999"));
+            assertThatThrownBy(cache::complete)
+                    .isInstanceOf(MavenRuntimeException.class)
+                    .hasMessageContaining("complete report cache manifest");
+        }
+    }
+
+    @Test
+    void reportCacheRefusesSymlinkCleanupAndAllowsRetry()
+            throws Exception {
+        try (CommandRunDirectory run =
+                     new CommandRunDirectory(config, "tree")) {
+            final ReportTaskCache cache = new ReportTaskCache(run, "tree");
+            final Path outside = config.resolve("outside.txt");
+            Files.writeString(outside, "keep");
+            final Path link = cache.root().resolve("unsafe-link");
+            Files.createSymbolicLink(link, outside);
+
+            assertThatThrownBy(cache::close)
+                    .isInstanceOf(MavenRuntimeException.class)
+                    .hasMessageContaining("clean report cache");
+            assertThat(outside).hasContent("keep");
+
+            Files.delete(link);
+            cache.close();
+            assertThat(cache.root()).doesNotExist();
+            assertThat(outside).hasContent("keep");
         }
     }
 }

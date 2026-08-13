@@ -30,9 +30,13 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphAlgorithmStrategy.java"
     desc: "算法 strategy 边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/ChaCallGraphStrategy.java"
-    desc: "WALA CHACallGraph与Analyzer-owned no-body/protocol interpreter"
+    desc: "WALA CHACallGraph、external target pruning与protocol interpreter"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/ChaDispatchFilteringClassHierarchy.java"
-    desc: "CHA Object.toString/hashCode的Diff-directed target过滤边界"
+    desc: "CHA virtual/interface与static/invokespecial target过滤边界"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/ChaAncestorRetentionPolicy.java"
+    desc: "changed-paths外部祖先类型的传递保留policy"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/ChaDispatchTargetPolicy.java"
+    desc: "Object Diff-directed与external target裁剪的统一顺序"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/LocalConstantResolver.java"
     desc: "caller-local SSA String/Class常量有限回溯"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/RtaCallGraphStrategy.java"
@@ -66,7 +70,7 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleChangedPathSelection.java"
     desc: "resolved logical artifact 的 real-IR/no-op policy source"
   - path: "analyzer/src/test/java/io/github/dependencyanalysis/callgraph/DependencyBodyBoundaryTest.java"
-    desc: "CHA leaf boundary与四种非CHA no-op/factory/dangerous transfer regression"
+    desc: "CHA完整祖先链、target pruning与四种非CHA boundary regression"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphTopologyAnalyzer.java"
     desc: "benchmark-only CGNode父榜、IMethod子榜、shortest path与SCC cycle"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphNodeIdentity.java"
@@ -78,7 +82,7 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphRelatedMethod.java"
     desc: "父CGNode下按IMethod聚合的related CGNode子榜"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/CallGraphDiagnosticsExporter.java"
-    desc: "Schema v7 topology、capability、Evidence与local constant统计JSON原子输出"
+    desc: "Schema v8 topology、ancestor/pruning、capability与Evidence统计JSON流式输出"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/CallGraphMethodSourceBuilder.java"
     desc: "PROJECT/reactor/dependency/JDK exact bytecode source 与 ASM fallback"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/ServiceLoaderProtocolIndex.java"
@@ -157,7 +161,7 @@ code_refs:
 
 ## Summary
 
-每个relevant target Module使用独立strategy构建一张WALA Call Graph。默认算法为Class Hierarchy Analysis（CHA），默认组合是`cha + changed-paths + jdk-model none`。CHA保留JDK leaf但不遍历JDK body，不构建points-to；只允许从`Class.forName(String)`和`ServiceLoader.load(Class)`参数出发，在单个reachable caller的Static Single Assignment（SSA，静态单赋值）definition上执行有界常量回溯。RTA、ZeroCFA、optimized 0-1-CFA与`k-obj`保留既有传播模型。所有strategy由同一capability contract描述，构图后再由算法无关collector生成并绑定统一Evidence。
+每个relevant target Module使用独立strategy构建一张WALA Call Graph。默认算法为Class Hierarchy Analysis（CHA），默认组合是`cha + changed-paths + jdk-model none`。CHA默认不为路径外external method创建node/edge；PROJECT、reactor dependency或selected external class继承/实现的路径外external祖先类型是type-level例外，其reachable concrete method使用真实Intermediate Representation（IR，中间表示）。JDK仍是固定leaf，不按祖先链展开。CHA不构建points-to；只允许从`Class.forName(String)`和`ServiceLoader.load(Class)`参数出发，在单个reachable caller的Static Single Assignment（SSA，静态单赋值）definition上执行有界常量回溯。RTA、ZeroCFA、optimized 0-1-CFA与`k-obj`保留既有传播模型。
 
 ## Design Decisions
 
@@ -174,13 +178,15 @@ code_refs:
 - `--jdk-model`接受`jdk8`或`none`。CHA固定`none`，显式`cha + jdk8`失败；其他algorithm未指定时默认`jdk8`且仍可显式`none`。CLI、pipeline与直接Java API共用`CallGraphPolicy`校验。
 - ZeroCFA 对 modeled ServiceLoader allocation 使用 service/loader-specific `ConstantKey`，使 constant service receiver Context不因普通 class-based allocation丢失；真正的 class-based ServiceLoader receiver使用 deterministic `ALL_CONFIGURED_SERVICES` aggregate fallback。
 - Method-body policy 依据 resolved `IMethod.getDeclaringClass()` 的 logical artifact source判断；call-site declared owner不参与。Selected subclass override 即使覆盖 unselected base declaration，仍按 override 的 declaring source使用真实 IR。
+- CHA external ancestor policy只在per-Module actual mode为`changed-paths`时启用。起点是PROJECT、REACTOR_DEPENDENCY与artifact policy为`REAL_IR`的selected external class；沿resolved superclass/direct interface闭合完整祖先链。路径外external祖先标记为ancestor-retained；JDK、synthetic与unresolved type不进入集合。
+- CHA target policy先应用既有`Object.toString/hashCode` Diff-directed filter，再应用external target policy。`getPossibleTargets`两条virtual/interface路径与`resolveMethod`两条static/`invokespecial`路径使用同一policy。
 
 ## Behavior Contract
 
 - Diagnostic与HTML Report使用effective algorithm、Reflection applied状态、JDK model和strategy capabilities；仅`k-obj`展示实际深度。CHA的Reflection状态固定为not applied。
 - Call Graph保持 conservative over-approximation；class-based merging或smushing可能改变 nodes、edges、contexts与候选 Impact Path数量，但不改变 Module status、timeout、query和publication contract。
 - ServiceLoader、Class.forName、MethodHandle与注册的`invokedynamic` limitation使用typed reason/code/location/detail。局部常量无法唯一解析时不猜测业务target，Module为`INCONCLUSIVE`。
-- 路径外 external method 的普通 no-op 不单独改变 Module status。Dangerous transfer、flow-to-cast factory 或其他明确 typed boundary limitation 使 Module 为 `INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY`。
+- CHA裁剪的路径外external target不创建node/edge、不产生`DEPENDENCY_BODY_BOUNDARY_REACHED`，也不单独改变Module status。Ancestor-retained method属于精确支持范围。四种非CHA algorithm的普通no-op仍不单独改变status；dangerous transfer、flow-to-cast factory或其他明确typed boundary limitation使Module为`INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY`。
 
 ## Scope and Logical Ownership
 
@@ -190,7 +196,7 @@ code_refs:
 - `JDK`：显式 `--java-home` 的 JDK 8 boot/ext JAR。
 - `SYNTHETIC`：WALA lambda、`altMetafactory` lambda 与 ServiceLoader provider iterator。
 - `changed-paths` selected external source：必须是target evidence中的selected binding，且至少位于一条`Module root -> normalized changed dependency occurrence`完整路径中；seed的child/downstream不自动selected，mediation loser不能进入policy。
-- `changed-paths` unselected external source：class、method declaration、resource、ownership、CHA 与 resolution仍真实存在，仅 method body被 boundary解释。
+- `changed-paths` unselected external source：class、method declaration、resource、ownership、CHA与resolution仍真实存在。CHA只为ancestor-retained reachable method保留真实IR，其他target在resolution阶段裁剪；四种非CHA algorithm继续使用no-op/factory body boundary。
 - Scope load 前按`JDK > PROJECT > REACTOR_DEPENDENCY > DEPENDENCY`建立single-winner ownership。Reactor/external tier只使用Schema v3 selected projection的Maven traversal order；raw occurrence traversal不参与classpath排序。
 - Dependency duplicate evidence、`MethodId.sourceId` 与 Report source 均使用 coordinate；PROJECT/reactor/JDK 可继续使用非 dependency path identity。
 - byte-identical duplicate 静默去重。内容不同的 duplicate 记录 winner、loser logical source 与 precedence reason；不改变 Module status。
@@ -232,17 +238,25 @@ RTA使用caller-local`IR`/`DefUse`解析`Lookup.findStatic*`到`invokeExact`/`in
 
 1. 建立 winner-only ownership、structural metadata、WALA scope与CHA。
 2. 从 immutable PROJECT class index生成 declared-type entrypoints。
-3. Factory选择strategy并校验capabilities；CHA安装no-body/protocol interpreter，其他algorithm安装各自WALA model与dependency body boundary。
+3. CHA基于resolved ownership构建immutable ancestor policy并安装统一target filter；Factory选择strategy并校验capabilities，其他algorithm安装各自WALA model与dependency body boundary。
 4. 单线程构建selected Call Graph；interpreter/node/callsite处理检查cooperative timeout，超时映射`FAILED_CALL_GRAPH_TIMEOUT`。
 5. 统一collector扫描可达method，绑定method/field/type/structural/resource/dynamic reference evidence。
 6. 将graph、Evidence、limitation、IR cache、ownership和strategy metadata冻结为只读query session。
 
 ## CHA Strategy
 
-- 普通target method使用`Everywhere` Context；PROJECT、reactor dependency和允许展开的external dependency委托context-insensitive interpreter。
+- 普通target method使用`Everywhere` Context；PROJECT、reactor dependency、selected external与ancestor-retained external method委托context-insensitive interpreter。
 - JDK method保留caller到JDK leaf edge，call/new site为空；普通JDK leaf不产生coverage limitation，且永远不安装JDK Method Model。
-- `changed-paths`路径外external dependency method是no-op leaf。只有实际到达该leaf时生成`DEPENDENCY_BODY_BOUNDARY_REACHED`；factory与dangerous transfer计数固定为零。`full`正常展开external method body。
+- `changed-paths`路径外external dependency method默认在target resolution阶段裁剪，caller→callee edge与callee node均不存在；被裁剪调用不生成body boundary limitation。`full`不启用该external filter，正常展开external method body。
 - CHA不安装factory、dangerous transfer、flow-to-cast、points-to或heap推断；不执行跨method或通用数据流fixed point。
+
+### External Ancestor Retention
+
+- Policy以resolved class ownership和logical `ArtifactCoord`判断，不读取call-site declared owner。只有artifact policy为`NO_OP`且位于完整祖先链的external type进入retained集合；同一JAR的无关type不扩张。
+- Retained type的constructor、static、private、default与普通concrete method均可读取真实IR；abstract method不创建node。Virtual/interface dispatch继续连接PROJECT、reactor或selected external concrete override。
+- Retained method调用同一retained type或祖先链内其他retained type时继续深入；调用无关路径外external type时在下一次target resolution裁剪。
+- Retained type不是entrypoint来源。只有从既有PROJECT root可达的方法创建node，不能把整个type或JAR的方法加入roots。
+- Unselected ServiceLoader provider仍裁剪；只有provider declaring type本身同时命中ancestor-retained规则时保留。JDK superclass/interface、`java/lang/Object`与其他Primordial type继续使用既有leaf/model policy。
 
 ### Diff-directed Object Dispatch
 
@@ -264,7 +278,7 @@ CHA中“无数据流分析”是指不执行points-to、heap、interprocedural�
 
 ### No-op Summary
 
-- 只覆盖路径并集外 external JAR 的 resolved method；PROJECT、REACTOR_DEPENDENCY、JDK、SYNTHETIC、selected external method 与现有 WALA model不覆盖。
+- 该summary只供RTA、ZeroCFA、optimized 0-1-CFA与`k-obj`使用。只覆盖路径并集外 external JAR 的 resolved method；PROJECT、REACTOR_DEPENDENCY、JDK、SYNTHETIC、selected external method 与现有 WALA model不覆盖。
 - 不向 analysis cache 请求被覆盖 method 的原始 IR。
 - `void`、constructor 与 class initializer生成空 body和正常 return；primitive返回 JVM 默认值；reference返回 `null`。
 - 不生成内部 call、field read/write、callback、exception或thread behavior。Caller 到 resolved no-op callee 的 edge保留，callee不继续展开真实实现。
@@ -325,7 +339,7 @@ Factory summary使用真实 resolved callee owner、method与descriptor，生成
 ## Benchmark-only Topology Capture
 
 - `impact --call-graph-diagnostics-output <json>`只在显式设置时启用；未设置时`ModuleCallGraphEngine`不创建topology analyzer、不遍历ranking、不计算Call Graph path、不执行decompilation。
-- Capture读取同一张已完成Call Graph并作为nullable immutable metadata进入session；不新增edge、不运行第二个builder、不改变Impact query。JSON使用`schemaVersion: 7`并原子替换目标文件；记录strategy capabilities、Reflection applied状态、Evidence resolution/kind/mechanism汇总和local constant success/unresolved计数。Evidence不作为topology node/edge输出。
+- Capture读取同一张已完成Call Graph并作为nullable immutable metadata进入session；不新增edge、不运行第二个builder、不改变Impact query。JSON使用`schemaVersion: 8`；每个Module完成时先输出task-cache fragment，最终按Module稳定顺序流式合并并原子替换目标文件。除既有strategy、Evidence与local constant统计外，Module记录新增`ancestorRetainedExternalTypeCount`、`ancestorRetainedExternalMethodNodeCount`与`prunedExternalMethodTargetCount`。Evidence不作为topology node/edge输出。
 - 父榜以精确CGNode为单位，不合并WALA Context。CGNode identity包含`owner + name + descriptor + origin + Context + graphNodeId + walaSynthetic + sentinelRole`。Caller/Callee先按related CGNode count降序，再按distinct related IMethod、raw CGEdge与stable CGNode identity排序，各保留Top 10。
 - 每个父榜CGNode包含一个按IMethod聚合的Top 10子榜；子榜按该IMethod代表的related CGNode count、raw CGEdge与stable Method identity排序。每个子项保留完整count、deterministic前10个exact CGNode/Context example与omitted count；这一层用于定位同一Method因Context或points-to传播产生的节点膨胀，同时限制HTML与tracked TSV体积。不输出独立points-to set排行榜。
 - `getFakeRootNode()`、`getFakeWorldClinitNode()`及其incident edge与普通CGNode/CGEdge相同，参与父榜、IMethod子榜、raw edge count、strongly connected component（SCC）和shortest chain。Node的`sentinelRole`固定为`FAKE_ROOT`、`FAKE_WORLD_CLINIT`或`NONE`。
@@ -337,7 +351,7 @@ Factory summary使用真实 resolved callee owner、method与descriptor，生成
 
 - Blocking：PROJECT/reactor 命中 excluded JDK class、scope unreadable、零 PROJECT entrypoint、CHA/Call Graph failure、timeout。
 - Coverage warning：dependency body boundary、external excluded JDK reference、MethodHandle/ServiceLoader limitation、reachable unsupported `invokedynamic`、SSA `UNKNOWN`。
-- CHA中reachable unresolved Class.forName、ServiceLoader local constant、unknown bootstrap、unsupported MethodHandle与实际dependency no-op leaf均是coverage warning。
+- CHA中reachable unresolved Class.forName、ServiceLoader local constant、unknown bootstrap与unsupported MethodHandle是coverage warning；正常external target裁剪与ancestor-retained method不生成coverage warning。
 - Typed coverage reason包含 `INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY`，并与 bytecode diff、dynamic model和scope limitation按 reducer 固定 precedence归并；全部 limitation仍保留。Duplicate warning不进入 Coverage limitations。
 
 ## Acceptance
@@ -359,7 +373,10 @@ Factory summary使用真实 resolved callee owner、method与descriptor，生成
 - Given完整JDK 8、`k-obj`、`k=1`、默认ReflectionOptions与`jdk8` model，且entrypoint通过`Method.invoke`到达`Class.forName`；When检查完整或cooperative timeout时的partial Call Graph；Then每个现存有效ClassFactory Context恰好包含一个语义`JavaTypeContext`且`RECEIVER`为`TypeAbstraction`，`Method.invoke`仍保留`ConstantKey<IMethod>` receiver，entrypoint到两个Reflection API的路径存在，且allocation string最大深度为1。
 - Given已完成Call Graph包含WALA fake root或fake world-clinit；When启用benchmark topology capture；Then sentinel node及incident edge参与CGNode ranking、IMethod子榜、SCC与shortest chain，chain step使用typed `sentinelRole`标记，且不输出declared-entrypoint unreachable状态。
 - Given `AccessController.doPrivileged(PrivilegedAction)`；When target JDK 8构图；Then callback通过WALA内置`SummarizedMethod` native model可达。JDK 8该API本身是native，不能宣称经过真实JDK bytecode body。
-- Given`changed-paths`与路径外external method；WhenCHA实际到达该method；Then保留caller→leaf edge、method不展开、记录boundary limitation，factory/dangerous transfer计数为零。
+- Given`changed-paths`与无关路径外external method；WhenCHA解析virtual/interface或static/`invokespecial`target；Then不创建callee node或caller→callee edge，增加pruned target计数，且不生成boundary limitation。
+- Given PROJECT class `A extends B extends C`且实现external interface default/abstract method；When`B/C/interface`位于路径外external artifact；Then完整祖先type被retained，reachable constructor/static/private/default/concrete method使用真实IR，abstract dispatch连接`A`的concrete override，并能反向追踪到changed dependency。
+- Given retained ancestor调用同JAR无关external type；WhenCHA继续解析；Then无关type的target仍被裁剪，不扩大到整个JAR。
+- Given祖先是JDK superclass/interface；When构建ancestor policy；Then不标记retained，JDK leaf与`Object.toString/hashCode`既有filter保持不变。
 - Given相同 fixture显式使用`full`；When构图；Then全部 external method使用真实 IR，不产生 no-op/factory/dangerous approximation evidence。
 
 ### Non-Functional

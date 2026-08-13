@@ -398,8 +398,19 @@ public final class ModuleCallGraphEngine {
             reportDuplicateResolutions(context, ownership);
             final AnalysisScope scope = scope(unit, ownership);
             final IClassHierarchy hierarchy = hierarchy(scope);
+            final boolean chaChangedPaths = algorithm == CallGraphAlgorithm.CHA
+                    && unit.getChangedPathSelection().actualMode()
+                    == io.github.dependencyanalysis.impact
+                    .DependencyAnalysisScopeMode.CHANGED_PATHS;
+            final ChaAncestorRetentionPolicy ancestorRetention =
+                    ChaAncestorRetentionPolicy.create(
+                            unit, ownership, hierarchy, chaChangedPaths);
             final DependencyBodyBoundary dependencyBoundary =
-                    new DependencyBodyBoundary(unit, ownership, hierarchy);
+                    new DependencyBodyBoundary(unit, ownership, hierarchy,
+                            ancestorRetention);
+            final ChaDispatchTargetPolicy chaTargets =
+                    ChaDispatchTargetPolicy.create(unit, ownership,
+                            ancestorRetention, chaChangedPaths);
             final List<Entrypoint> entrypoints = entrypoints(
                     hierarchy, entrypointIndex);
             if (entrypoints.isEmpty()) {
@@ -428,8 +439,7 @@ public final class ModuleCallGraphEngine {
                         .build(new CallGraphBuildRequest(
                                 scope, hierarchy, entrypoints, cache,
                                 ownership,
-                                ChaDispatchTargetPolicy.create(
-                                        unit, ownership),
+                                chaTargets,
                                 serviceLoaderIndex, dynamicModels,
                                 jdkModel, reflectionOptions,
                                 dependencyBoundary,

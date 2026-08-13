@@ -30,7 +30,7 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/MavenDependencyPluginRuntimeManager.java"
     desc: "内置 Dependency Plugin repository、settings overlay 和 capability boundary"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/DependencyTextParser.java"
-    desc: "DependencyOccurrence parser"
+    desc: "Reader逐行DependencyOccurrence parser"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/DependencyOccurrence.java"
     desc: "Version、scope、selection、path 和 reactor module evidence"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/VersionPath.java"
@@ -41,6 +41,12 @@ code_refs:
     desc: "Module 内 version mediation"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/CrossModuleVersionAnalyzer.java"
     desc: "跨 module resolved version 差异"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeExternalOccurrenceSorter.java"
+    desc: "bounded batch与最多32路external merge grouping"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeReportCacheSpiller.java"
+    desc: "per-Reactor ordered/normalized/selected JSON Lines fragment"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/ReportTaskCache.java"
+    desc: "UUID task cache manifest、complete marker与cleanup"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeReportRenderer.java"
     desc: "Repository/reactor static HTML 与 atomic publish"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeReportSession.java"
@@ -51,7 +57,7 @@ code_refs:
 
 ## Summary
 
-`tree` 扫描 Git repository 内所有 eligible `pom.xml`，按 Maven `<modules>` ownership 识别 reactor root。Path 命中 root 时收集完整 reactor；只命中 child module 时收集 requested module 与同 reactor dependency closure，并生成可通过 `file://` 打开的无网络静态 HTML report。Packaging 为 `pom` 且存在 active child 的纯 aggregator root 保留 execution context，但不生成 Module result。
+`tree`扫描Git repository内所有eligible `pom.xml`，按Maven `<modules>` ownership识别reactor root。Path命中root时收集完整reactor；只命中child module时收集requested module与同reactor dependency closure。Maven output通过`Reader`逐行解析；conflict grouping使用task-cache external sort；HTML通过Writer逐段写入。Packaging为`pom`且存在active child的纯aggregator root保留execution context，但不生成Module result。
 
 ## Design Decisions
 
@@ -65,6 +71,8 @@ code_refs:
 - 跨 module analyzer 用 selected occurrence 判定 resolved version 差异。Module mediation 保留在各自 Module tab 的 Internal conflicts table；跨 Module resolved version 差异进入独立的 Reactor-level Cross-module conflicts section。
 - JAR 内置 `maven-dependency-plugin:3.6.1` 和完整 plugin dependency repository，默认分析不依赖远程 plugin download。
 - Dependency tree 是 Maven-style verbose `<pre class="dependency-tree">` 静态证据；页面只为 conflict table 提供 component-scoped 交互，避免大型 tree 的额外状态与操作成本。
+- 每个command复用`CommandRunDirectory`的UUID temporary root，在`report-cache`内写versioned JSON Lines。Reactor发布后立即删除其fragment；cache不进入最终artifact，也不用于断点续跑。
+- Module internal与cross-module grouping采用external sort：batch最多10,000条或约8 MiB payload，任一阈值先到即spill；merge fan-in最多32。Internal只归并当前Module，cross-module只归并selected occurrence摘要。
 
 ## Actors / Entrypoints
 
@@ -79,7 +87,7 @@ code_refs:
 - Bounded-module mode 按稳定 `groupId:artifactId` selector 执行 `-pl <requested> -am`。Dependency closure 来自 requested occurrence，要求 selected、scope 命中、GAV 匹配且属于同 reactor；无关 sibling、root aggregator 和 support project 不进入 Report。
 - Full-reactor mode 即使 active module 位于 reactor root directory 外，只要仍在 Git repository 内也进入 execution。Packaging 为 `pom` 且存在 active child 的纯 aggregator root 不进入 Module result；无 active child 的 `pom` project，以及 packaging 为 `jar`、`war` 等且同时聚合 children 的 root 仍进入分析。Independent reactor dependency 不跨 reactor 追踪。
 - 默认 scope 为 `compile,runtime,provided,test,system`；filter 同时作用于 tree、统计和 version analysis。
-- 每个 active module 独立调用 dependency plugin text output、standard tokens、verbose；不执行 compile/package。
+- 每个active module独立调用dependency plugin text output、standard tokens、verbose；不执行compile/package。Parser持有`BufferedReader`并逐行消费UTF-8 output，不用`Files.readString`或完整文本`split`。
 - 默认 plugin 使用全限定 `org.apache.maven.plugins:maven-dependency-plugin:3.6.1:tree` goal；`-d` override 必须在 Command Preflight 通过完整 evidence capability check。
 - `dependencyManagement` 只通过实际 occurrence 的 Maven verbose annotation 参与分析；未使用的 managed entry、完整 imported BOM 清单和 management 来源文件不在分析范围内。
 - Reactor failure 不阻止其他 reactor report；全局终态为 `SUCCESS`、`COMPLETED_WITH_ISSUES` 或 `FAILED`。
@@ -122,9 +130,9 @@ Maven verbose text 出现 `version managed from X` 或 `scope managed from Y` �
 - Command Preflight 成功后重建工具拥有的输出，立即发布 assets、空 reactors directory 与 `RUNNING 0/N` Index；output root 其他文件保留。
 - Console 通过统一五段 Diagnostic prefix 按 `Preflight → Analysis → Summary` 输出。Reactor start/result 使用 `stage=analysis, substage=reactor`；`SUCCESS` 为 `INFO`，degraded/issue 为 `WARN`，failed 为 `ERROR`。
 - Maven collection 每个非空输出行按 level 转发；默认只显示 warning/error，`-v/-vv` 显示完整 output。Failure evidence 只保留 bounded 100-line tail。
-- 每个 reactor 顺序执行 Maven collection、module/version/cross-module analysis，并在 Analysis 阶段聚合 issue。
-- 先将 temporary reactor page 原子发布，再原子刷新 Index；Index 只链接已完整发布的 page。
-- 发布后只保留 `ReactorReportSummary` 和 Command Preflight，释放完整 `ReactorTreeResult`、occurrence 与 path 数据。
+- 每个reactor顺序执行Maven collection并将ordered tree record、normalized occurrence、selected reactor dependency摘要与Module metadata写入task cache；module/version/cross-module analysis通过bounded external grouping聚合issue。
+- Reactor page以UTF-8 Writer顺序写metadata、conflict、Module tab与verbose tree；完整关闭后原子发布，再用Writer原子刷新Index。Index只链接已完整发布的page。
+- Reactor page和Index checkpoint都成功后删除该Reactor cache fragment；只保留`ReactorReportSummary`和Command Preflight，释放完整`ReactorTreeResult`、occurrence与path数据。
 - 全部处理结束写 `SUCCESS N/N` 或 `COMPLETED_WITH_ISSUES`；pipeline/report failure 写 `FAILED x/N` 并保留已发布 page；hard interruption 保留最后一个 `RUNNING x/N` checkpoint。
 
 ## Acceptance Criteria
@@ -144,6 +152,8 @@ Maven verbose text 出现 `version managed from X` 或 `scope managed from Y` �
 - Given 冲突数超过 10；When 检索、Module/Scope filter、排序或分页；Then 页面离线更新，page size 可选 10/50/100。
 - Given output root 有其他文件；When重复生成；Then其他文件保持不变，旧 reactor 页面消失。
 - Given 第二个 reactor 尚未结束；When process 被硬终止；Then第一个 page 与 `RUNNING 1/N` Index 可通过 `file://` 打开。
+- Given occurrence超过batch阈值且产生超过32个spill；When执行internal/cross-module analysis；Then多轮merge保持dependency key、Module和occurrence稳定顺序，且同时打开的输入不超过32。
+- Given Maven output远大于heap；When解析并render verbose tree；Thenparser与renderer均单向逐行/逐段处理，不构造完整input text或HTML page字符串。
 
 ### Non-Functional
 
@@ -152,6 +162,7 @@ Maven verbose text 出现 `version managed from X` 或 `scope managed from Y` �
 - [ ] 大型 verbose tree 不设置 path 截断上限。
 - [ ] 每张 conflict table 的交互状态彼此隔离，且不改变或截断底层 occurrence path。
 - [ ] Current branch、index 和 tracked 文件不被修改。
+- [ ] Success、analysis failure、render failure与publish failure均删除当前UUID下`report-cache`；并发command cache互不读取或删除。
 
 ## Edge Cases
 
@@ -164,6 +175,6 @@ Maven verbose text 出现 `version managed from X` 或 `scope managed from Y` �
 ## Implementation Boundaries
 
 - 只分析 project `dependencies`，不分析 plugin dependency tree 或未使用的完整 `dependencyManagement` 清单。
-- Parser 不依赖 ANSI color 或 Maven console prefix；canonical input 是 UTF-8 output file。
+- Parser不依赖ANSI color或Maven console prefix；canonical input是UTF-8 output file并通过`Reader`消费。
 - Incremental writer 只持有 metadata、轻量 Command Preflight 与 `ReactorReportSummary`，不长期持有已完成 reactor 的完整 domain result。
-- Renderer 不执行 Git、Maven 或 dependency analysis。
+- Renderer不执行Git、Maven或dependency analysis，不返回完整HTML `String`。

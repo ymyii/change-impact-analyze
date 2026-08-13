@@ -68,7 +68,8 @@ final class ChaDispatchFilteringClassHierarchy implements IClassHierarchy {
             return targets;
         }
         final LinkedHashSet<IMethod> retained = new LinkedHashSet<>();
-        targets.stream().filter(policy::retains).sorted(METHOD_ORDER)
+        targets.stream().filter(target -> policy.retains(reference, target))
+                .sorted(METHOD_ORDER)
                 .forEach(retained::add);
         return Collections.unmodifiableSet(retained);
     }
@@ -125,7 +126,7 @@ final class ChaDispatchFilteringClassHierarchy implements IClassHierarchy {
 
     @Override
     public IMethod resolveMethod(final MethodReference reference) {
-        return delegate.resolveMethod(reference);
+        return filter(reference, delegate.resolveMethod(reference));
     }
 
     @Override
@@ -142,7 +143,16 @@ final class ChaDispatchFilteringClassHierarchy implements IClassHierarchy {
     @Override
     public IMethod resolveMethod(
             final IClass type, final Selector selector) {
-        return delegate.resolveMethod(type, selector);
+        final IMethod resolved = delegate.resolveMethod(type, selector);
+        return filter(MethodReference.findOrCreate(
+                type.getReference(), selector), resolved);
+    }
+
+    private IMethod filter(
+            final MethodReference reference,
+            final IMethod target) {
+        return target == null || !policy.filters(reference)
+                || policy.retains(reference, target) ? target : null;
     }
 
     @Override

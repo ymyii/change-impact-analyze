@@ -12,6 +12,7 @@ import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.impact.BoundChangePoint;
+import io.github.dependencyanalysis.impact.DependencyMethodBodyPolicy;
 import io.github.dependencyanalysis.impact.ModuleAnalysisUnit;
 
 import java.util.LinkedHashSet;
@@ -31,21 +32,41 @@ final class ChaDispatchTargetPolicy {
     /** Whether filtering is enabled. */
     private final boolean enabled;
 
+    /** Whether all unselected external targets are pruned. */
+    private final boolean externalPruning;
+
     /** Target external methods whose override Diff survives in target. */
     private final Set<ExternalMethodKey> diffRelatedExternalMethods;
 
     /** Target classpath winner ownership, frozen before strategy build. */
     private final ClassOwnershipIndex ownership;
 
+    /** Artifact-level method-body selection. */
+    private final io.github.dependencyanalysis.impact
+            .ModuleChangedPathSelection selection;
+
+    /** Type-level external ancestor exception. */
+    private final ChaAncestorRetentionPolicy ancestorRetention;
+
+    /** Stable identities of external method targets removed from CHA. */
+    private final Set<String> prunedExternalTargets = new LinkedHashSet<>();
+
     private ChaDispatchTargetPolicy(
             final boolean filterEnabled,
+            final boolean pruneExternal,
             final Set<ExternalMethodKey> externalMethods,
-            final ClassOwnershipIndex winnerOwnership) {
+            final ClassOwnershipIndex winnerOwnership,
+            final io.github.dependencyanalysis.impact
+                    .ModuleChangedPathSelection bodySelection,
+            final ChaAncestorRetentionPolicy ancestors) {
         enabled = filterEnabled;
+        externalPruning = pruneExternal;
         diffRelatedExternalMethods = Set.copyOf(Objects.requireNonNull(
                 externalMethods, "externalMethods"));
         ownership = Objects.requireNonNull(
                 winnerOwnership, "winnerOwnership");
+        selection = bodySelection;
+        ancestorRetention = Objects.requireNonNull(ancestors, "ancestors");
     }
 
     /**
@@ -58,6 +79,15 @@ final class ChaDispatchTargetPolicy {
     static ChaDispatchTargetPolicy create(
             final ModuleAnalysisUnit unit,
             final ClassOwnershipIndex ownership) {
+        return create(unit, ownership,
+                ChaAncestorRetentionPolicy.disabled(), false);
+    }
+
+    static ChaDispatchTargetPolicy create(
+            final ModuleAnalysisUnit unit,
+            final ClassOwnershipIndex ownership,
+            final ChaAncestorRetentionPolicy ancestors,
+            final boolean pruneExternal) {
         Objects.requireNonNull(unit, "unit");
         Objects.requireNonNull(ownership, "ownership");
         final Set<ExternalMethodKey> methods = new LinkedHashSet<>();
@@ -81,13 +111,15 @@ final class ChaDispatchTargetPolicy {
                     normalizeOwner(point.getOwner()), point.getName(),
                     point.getNewDescriptor()));
         }
-        return new ChaDispatchTargetPolicy(true, methods, ownership);
+        return new ChaDispatchTargetPolicy(true, pruneExternal, methods,
+                ownership, unit.getChangedPathSelection(), ancestors);
     }
 
     /** @return compatibility policy that leaves all dispatch unchanged */
     static ChaDispatchTargetPolicy disabled() {
-        return new ChaDispatchTargetPolicy(false, Set.of(),
-                new ClassOwnershipIndex());
+        return new ChaDispatchTargetPolicy(false, false, Set.of(),
+                new ClassOwnershipIndex(), null,
+                ChaAncestorRetentionPolicy.disabled());
     }
 
     /**
@@ -96,18 +128,46 @@ final class ChaDispatchTargetPolicy {
      */
     boolean filters(final MethodReference declaredTarget) {
         Objects.requireNonNull(declaredTarget, "declaredTarget");
-        return enabled
-                && TypeReference.JavaLangObject.getName().equals(
+        return enabled && (externalPruning
+                || TypeReference.JavaLangObject.getName().equals(
+                declaredTarget.getDeclaringClass().getName())
+                && protectedSelector(declaredTarget.getSelector()));
+    }
+
+    /**
+     * @param declaredTarget declared call target
+     * @param target resolved CHA candidate
+     * @return whether the candidate remains in filtered dispatch
+     */
+    boolean retains(
+            final MethodReference declaredTarget,
+            final IMethod target) {
+        Objects.requireNonNull(declaredTarget, "declaredTarget");
+        Objects.requireNonNull(target, "target");
+        if (objectDispatch(declaredTarget)
+                && !retainsObjectDispatchTarget(target)) {
+            recordPrunedExternal(target);
+            return false;
+        }
+        if (!externalPruning || retainsExternalTarget(target)) {
+            return true;
+        }
+        recordPrunedExternal(target);
+        return false;
+    }
+
+    /** @return stable number of distinct pruned external method targets */
+    int prunedExternalMethodTargetCount() {
+        return prunedExternalTargets.size();
+    }
+
+    private boolean objectDispatch(final MethodReference declaredTarget) {
+        return TypeReference.JavaLangObject.getName().equals(
                 declaredTarget.getDeclaringClass().getName())
                 && protectedSelector(declaredTarget.getSelector());
     }
 
-    /**
-     * @param target resolved CHA candidate
-     * @return whether the candidate remains in filtered dispatch
-     */
-    boolean retains(final IMethod target) {
-        Objects.requireNonNull(target, "target");
+    private boolean retainsObjectDispatchTarget(final IMethod target) {
         final IClass declaringClass = target.getDeclaringClass();
         if (TypeReference.JavaLangObject.equals(
                 declaringClass.getReference())
@@ -138,6 +198,33 @@ final class ChaDispatchTargetPolicy {
                                     target.getDescriptor().toString())))
                     .orElse(false);
         };
+    }
+
+    private boolean retainsExternalTarget(final IMethod target) {
+        final IClass declaringClass = target.getDeclaringClass();
+        if (declaringClass instanceof SyntheticClass
+                || declaringClass.isSynthetic()
+                || target.isWalaSynthetic()) {
+            return true;
+        }
+        final ClassOwnership winner = ownership.ownershipOf(
+                declaringClass.getName().toString());
+        if (winner == null || winner.getOrigin() != CodeOrigin.DEPENDENCY) {
+            return true;
+        }
+        return ancestorRetention.retains(declaringClass)
+                || winner.getSource().artifact().map(selection::policyFor)
+                .orElse(DependencyMethodBodyPolicy.REAL_IR)
+                == DependencyMethodBodyPolicy.REAL_IR;
+    }
+
+    private void recordPrunedExternal(final IMethod target) {
+        final ClassOwnership winner = ownership.ownershipOf(
+                target.getDeclaringClass().getName().toString());
+        if (winner != null && winner.getOrigin() == CodeOrigin.DEPENDENCY) {
+            prunedExternalTargets.add(target.getReference().toString()
+                    + "|" + winner.getSource().stableKey());
+        }
     }
 
     private static boolean targetMethodSurvives(

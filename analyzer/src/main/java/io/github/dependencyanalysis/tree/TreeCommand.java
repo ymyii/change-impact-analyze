@@ -13,9 +13,13 @@ import io.github.dependencyanalysis.preflight
 import io.github.dependencyanalysis.preflight
         .PreflightReport;
 import io.github.dependencyanalysis.runtime
+        .CommandRunDirectory;
+import io.github.dependencyanalysis.runtime
         .MavenDependencyPluginRuntime;
 import io.github.dependencyanalysis.runtime
         .MavenRuntimeDescriptor;
+import io.github.dependencyanalysis.runtime
+        .ReportTaskCache;
 
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -141,22 +145,32 @@ public final class TreeCommand
                             inventory.getAnalysisPath());
             totalReactors = inventory.getReactors().size();
             console.analysisStarted(totalReactors);
-            reportSession = new TreeReportRenderer().start(
-                    metadata, totalReactors,
-                    output.toPath());
-            int index = 0;
-            for (ReactorDescriptor descriptor
-                    : inventory.getReactors()) {
-                index++;
-                console.reactorStarted(index, totalReactors,
-                        descriptor.getId());
-                final ReactorTreeResult result = analyzeReactor(
-                        context, descriptor, includedScopes, diagnostics);
-                reportSession.publish(result);
-                console.reactorCompleted(index,
-                        totalReactors, result);
+            try (ReportTaskCache reportCache = new ReportTaskCache(
+                    context.get(TreePreflightService.COMMAND_RUN,
+                            CommandRunDirectory.class), "tree")) {
+                reportSession = new TreeReportRenderer().start(
+                        metadata, totalReactors,
+                        output.toPath(), reportCache);
+                final TreeReportCacheSpiller spiller =
+                        new TreeReportCacheSpiller();
+                int index = 0;
+                for (ReactorDescriptor descriptor
+                        : inventory.getReactors()) {
+                    index++;
+                    console.reactorStarted(index, totalReactors,
+                            descriptor.getId());
+                    final ReactorTreeResult result = analyzeReactor(
+                            context, descriptor, includedScopes, diagnostics);
+                    final String cachePrefix = spiller.spill(
+                            result, reportCache);
+                    reportSession.publish(result);
+                    reportCache.discard(cachePrefix);
+                    console.reactorCompleted(index,
+                            totalReactors, result);
+                }
+                reportCache.complete();
+                reportSession.complete();
             }
-            reportSession.complete();
             final List<TreeAnalysisIssue> issues =
                     reportSession.getAnalysisIssues();
             final TreeReportState status =

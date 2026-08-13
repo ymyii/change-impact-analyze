@@ -2,6 +2,8 @@ package io.github.dependencyanalysis.impact;
 
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
 
 import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.CallGraphStrategyCapabilities;
@@ -20,6 +22,7 @@ import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.jar.IJarRepository;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
+import io.github.dependencyanalysis.runtime.ReportTaskCache;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -40,7 +43,7 @@ import java.util.UUID;
 final class CallGraphDiagnosticsExporter {
 
     /** Diagnostics JSON Schema version. */
-    static final int SCHEMA_VERSION = 7;
+    static final int SCHEMA_VERSION = 8;
 
     /** SHA-256 algorithm name. */
     private static final String SHA_256 = "SHA-256";
@@ -187,6 +190,12 @@ final class CallGraphDiagnosticsExporter {
                 boundary.noOpMethodNodes());
         json.writeNumberField("factoryMethodNodeCount",
                 boundary.factoryMethodNodes());
+        json.writeNumberField("ancestorRetainedExternalTypeCount",
+                boundary.ancestorRetainedExternalTypeCount());
+        json.writeNumberField("ancestorRetainedExternalMethodNodeCount",
+                boundary.ancestorRetainedExternalMethodNodeCount());
+        json.writeNumberField("prunedExternalMethodTargetCount",
+                boundary.prunedExternalMethodTargetCount());
         json.writeNumberField("dangerousTransferCount",
                 boundary.dangerousTransfers().size());
         json.writeNumberField("bodyBoundaryHitCount",
@@ -220,6 +229,101 @@ final class CallGraphDiagnosticsExporter {
         writeRanks(json, "topCallees", "CALLER", "topCallers", session,
                 topology.topCallees(), cache);
         json.writeEndObject();
+    }
+
+    /**
+     * Writes one live Module as a cache JSON record before session release.
+     *
+     * @param json fragment writer
+     * @param module live module result
+     * @throws IOException on JSON failure
+     */
+    void writeModuleRecord(
+            final JsonGenerator json,
+            final ModuleAnalysisResult module) throws IOException {
+        final ModuleCallGraphSession session = module.getSession();
+        if (session == null || session.getTopology().isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Module diagnostics requires live topology");
+        }
+        writeModule(json, module, session,
+                session.getTopology().orElseThrow());
+    }
+
+    /**
+     * Streams completed Module fragments into one atomic diagnostics file.
+     *
+     * @param output final diagnostics path
+     * @param algorithm Call Graph algorithm
+     * @param kObjDepth k-object depth
+     * @param reflectionOptions reflection selection
+     * @param dependencyScope requested dependency scope
+     * @param jdkModel JDK model
+     * @param fragments stable completed Module fragments
+     * @throws IOException on publication failure
+     */
+    void writeFragments(
+            final Path output,
+            final CallGraphAlgorithm algorithm,
+            final int kObjDepth,
+            final WalaReflectionOptions reflectionOptions,
+            final DependencyAnalysisScopeMode dependencyScope,
+            final JdkModelSelection jdkModel,
+            final List<ReportTaskCache.Fragment> fragments)
+            throws IOException {
+        final Path destination = output.toAbsolutePath().normalize();
+        Files.createDirectories(destination.getParent());
+        final Path temporary = destination.resolveSibling(
+                destination.getFileName() + ".tmp-" + UUID.randomUUID());
+        try {
+            try (JsonGenerator json = JSON_FACTORY.createGenerator(
+                    Files.newBufferedWriter(temporary,
+                            StandardCharsets.UTF_8))) {
+                json.useDefaultPrettyPrinter();
+                json.writeStartObject();
+                writeConfiguration(json, algorithm, kObjDepth,
+                        reflectionOptions, dependencyScope, jdkModel);
+                json.writeStringField("jdk", javaRuntime.getVersion());
+                json.writeArrayFieldStart("modules");
+                for (ReportTaskCache.Fragment fragment : fragments.stream()
+                        .filter(value -> "diagnostic-module".equals(
+                                value.kind()))
+                        .sorted(java.util.Comparator.comparing(
+                                ReportTaskCache.Fragment::stableKey))
+                        .toList()) {
+                    requireComplete(fragment);
+                    try (JsonParser parser = JSON_FACTORY.createParser(
+                            Files.newBufferedReader(fragment.path(),
+                                    StandardCharsets.UTF_8))) {
+                        if (parser.nextToken() != JsonToken.START_OBJECT) {
+                            throw new IOException(
+                                    "Invalid diagnostics fragment: "
+                                            + fragment.path());
+                        }
+                        json.copyCurrentStructure(parser);
+                        if (parser.nextToken() != null) {
+                            throw new IOException(
+                                    "Multiple diagnostics records: "
+                                            + fragment.path());
+                        }
+                    }
+                }
+                json.writeEndArray();
+                json.writeEndObject();
+            }
+            move(temporary, destination);
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    private void requireComplete(final ReportTaskCache.Fragment fragment)
+            throws IOException {
+        if (!Files.isRegularFile(fragment.path())
+                || !Files.isRegularFile(fragment.completeMarker())) {
+            throw new IOException(
+                    "Incomplete report cache fragment: " + fragment.path());
+        }
     }
 
     private void writeCapabilities(

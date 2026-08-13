@@ -68,12 +68,26 @@ case "$dependency_scope" in
     grep -q '<th>Status</th><td>Completed with coverage limitations</td>' "$report" \
       || fail "changed-paths Overall status is not INCONCLUSIVE"
     if [ "$algorithm" = cha ]; then
-      grep -q 'DEPENDENCY_BODY_BOUNDARY_REACHED' "$module_dir"/*.html \
-        || fail "CHA dependency body boundary evidence is missing"
+      ! grep -q 'DEPENDENCY_BODY_BOUNDARY_REACHED' "$module_dir"/*.html \
+        || fail "pruned CHA external target produced boundary evidence"
       grep -q '<th>No-op / factory method nodes</th><td>0 / 0</td>' "$report" \
         || fail "CHA unexpectedly produced no-op or factory nodes"
       grep -q '<th>Dangerous dependency transfers</th><td>0</td>' "$report" \
         || fail "CHA unexpectedly produced dangerous transfer evidence"
+      grep -q '<th>Ancestor-retained external types / methods</th><td>3 /' \
+        "$module_dir"/*.html \
+        || fail "CHA external ancestor retention metrics are missing"
+      grep -Eq '<th>Pruned external method targets</th><td>[1-9][0-9]*</td>' \
+        "$module_dir"/*.html \
+        || fail "CHA pruned external target metric is missing"
+      for retained_method in \
+          ExternalAncestor inheritedPublic helper \
+          ExternalGrandParent grandMethod \
+          ExternalContract interfaceMethod \
+          AncestorRetentionUseCase abstractMethod; do
+        grep -q "$retained_method" "$module_dir"/*-impact.html \
+          || fail "CHA ancestor-retained path element is missing: $retained_method"
+      done
     else
       grep -q 'CHANGED_INSTANCE_TO_NO_OP_DEPENDENCY' "$module_dir"/*.html \
         || fail "dangerous transfer evidence is missing"

@@ -14,7 +14,6 @@ import com.ibm.wala.types.TypeReference;
 import com.ibm.wala.util.CancelException;
 import com.ibm.wala.util.MonitorUtil.IProgressMonitor;
 
-import io.github.dependencyanalysis.impact.DependencyBodyBoundaryHit;
 import io.github.dependencyanalysis.impact.ModuleAnalysisReason;
 
 import java.util.ArrayList;
@@ -110,9 +109,6 @@ final class ChaCallGraphStrategy implements CallGraphAlgorithmStrategy {
         private final Map<String, DynamicCallEvidence> dynamicEvidence =
                 new LinkedHashMap<>();
 
-        /** Reached no-op methods. */
-        private final Set<IMethod> reachedNoOp = new LinkedHashSet<>();
-
         ChaContextInterpreter(final CallGraphBuildRequest value) {
             request = Objects.requireNonNull(value, "request");
             limitations.addAll(request.serviceLoaderIndex().limitations());
@@ -157,7 +153,6 @@ final class ChaCallGraphStrategy implements CallGraphAlgorithmStrategy {
                 return true;
             }
             if (request.dependencyBoundary().noOp(method)) {
-                reachedNoOp.add(method);
                 return true;
             }
             return false;
@@ -211,6 +206,10 @@ final class ChaCallGraphStrategy implements CallGraphAlgorithmStrategy {
                                 .getOrDefault(service, List.of());
                 for (ServiceLoaderProviderDefinition provider : providers) {
                     final IMethod constructor = provider.constructor();
+                    if (!request.chaDispatchTargets().retains(
+                            constructor.getReference(), constructor)) {
+                        continue;
+                    }
                     final int pc = syntheticPc(
                             site.getProgramCounter(), constructor);
                     final CallSiteReference providerSite =
@@ -309,30 +308,9 @@ final class ChaCallGraphStrategy implements CallGraphAlgorithmStrategy {
 
         DependencyBodyBoundaryMetadata boundaryMetadata(
                 final com.ibm.wala.ipa.callgraph.CallGraph graph) {
-            int real = 0;
-            for (CGNode node : graph) {
-                final ClassOwnership ownership = request.ownership()
-                        .ownershipOf(node.getMethod().getDeclaringClass()
-                                .getName().toString());
-                if (ownership == null
-                        || ownership.getOrigin() != CodeOrigin.DEPENDENCY) {
-                    continue;
-                }
-                if (!request.dependencyBoundary().noOp(node.getMethod())) {
-                    real++;
-                }
-            }
-            final List<DependencyBodyBoundaryHit> evidence = reachedNoOp
-                    .stream().map(method -> new DependencyBodyBoundaryHit(
-                            method.getReference().toString(),
-                            request.ownership().ownershipOf(
-                                    method.getDeclaringClass().getName()
-                                            .toString()).getSource()
-                                    .artifact().orElseThrow(),
-                            "Everywhere"))
-                    .sorted().toList();
-            return new DependencyBodyBoundaryMetadata(
-                    List.of(), List.of(), evidence, real, 0, 0);
+            return request.dependencyBoundary().metadata(graph,
+                    request.chaDispatchTargets()
+                            .prunedExternalMethodTargetCount());
         }
     }
 

@@ -54,6 +54,9 @@ class DependencyBodyBoundaryTest {
     /** Direct, array and varargs dangerous transfers. */
     private static final int DANGEROUS_TRANSFER_COUNT = 3;
 
+    /** Project/selected external superclass/interface ancestors. */
+    private static final int RETAINED_ANCESTOR_TYPE_COUNT = 4;
+
     /** Test filesystem root. */
     @TempDir
     private Path temporary;
@@ -70,11 +73,21 @@ class DependencyBodyBoundaryTest {
     /** Unselected ordinary no-op dependency. */
     private final ArtifactCoord plain = artifact("external-plain");
 
+    /** Unselected external superclass retained by the CHA exception. */
+    private final ArtifactCoord base = artifact("external-base");
+
+    /** Transitive unselected external superclass. */
+    private final ArtifactCoord grand = artifact("external-grand");
+
+    /** Unselected external interface with a default callback method. */
+    private final ArtifactCoord contract = artifact("external-contract");
+
     /** Compiled fixture. */
     private Fixture fixture;
 
     @BeforeEach
     void compileFixture() throws Exception {
+        final Path plainClasses = compilePlain();
         final Path apiClasses = compile("api", Map.of(
                 "api/ChangedValue.java", """
                         package api;
@@ -89,7 +102,16 @@ class DependencyBodyBoundaryTest {
                                 new ChangedValue().changed();
                             }
                         }
-                        """), List.of());
+                        """,
+                "api/SelectedChild.java", """
+                        package api;
+                        public class SelectedChild
+                                extends vendor.SelectedParent {
+                            protected void selectedCallback() {
+                                new ChangedValue().changed();
+                            }
+                        }
+                        """), List.of(plainClasses));
         final Path sinkClasses = compile("sink", Map.of(
                 "vendor/Sink.java", """
                         package vendor;
@@ -117,23 +139,43 @@ class DependencyBodyBoundaryTest {
                             }
                         }
                         """), List.of(apiClasses));
-        final Path plainClasses = compile("plain", Map.of(
-                "vendor/Plain.java", """
+        final Path grandClasses = compile("grand", Map.of(
+                "vendor/Grand.java", """
                         package vendor;
-                        public class Plain {
-                            static { helper(); }
-                            public Plain() { helper(); }
-                            public static void call() { helper(); }
-                            public static int primitive() {
-                                helper(); return 42;
-                            }
-                            public static Object reference() {
-                                helper(); return new Object();
-                            }
-                            private static void helper() { }
+                        public abstract class Grand {
+                            public void grandMethod() { abstractMethod(); }
+                            public abstract void abstractMethod();
                         }
                         """), List.of());
+        final Path contractClasses = compile("contract", Map.of(
+                "vendor/Contract.java", """
+                        package vendor;
+                        public interface Contract {
+                            default void interfaceMethod() {
+                                abstractMethod();
+                            }
+                            void abstractMethod();
+                        }
+                        """), List.of());
+        final Path baseClasses = compile("base", Map.of(
+                "vendor/Base.java", """
+                        package vendor;
+                        public abstract class Base extends Grand
+                                implements Contract {
+                            public void publicMethod() { helper(); }
+                            private void helper() { abstractMethod(); }
+                            public abstract void abstractMethod();
+                        }
+                        """), List.of(grandClasses, contractClasses));
         final Path project = compile("project", Map.of(
+                "app/Inherited.java", """
+                        package app;
+                        public class Inherited extends vendor.Base {
+                            public void abstractMethod() {
+                                new api.ChangedValue().changed();
+                            }
+                        }
+                        """,
                 "app/App.java", """
                         package app;
                         public class App {
@@ -155,16 +197,53 @@ class DependencyBodyBoundaryTest {
                                 if (ignored == 42 && reference != null) {
                                     vendor.Plain.call();
                                 }
+                                new api.SelectedChild()
+                                        .selectedParentMethod();
+                                new Inherited().publicMethod();
+                                new Inherited().grandMethod();
+                                new Inherited().interfaceMethod();
                             }
                         }
                         """), List.of(apiClasses, sinkClasses,
-                        factoryClasses, plainClasses));
+                        factoryClasses, plainClasses, baseClasses,
+                        grandClasses, contractClasses));
         final Map<ArtifactCoord, Path> jars = new LinkedHashMap<>();
         jars.put(api, jar("api", apiClasses));
         jars.put(sink, jar("sink", sinkClasses));
         jars.put(factory, jar("factory", factoryClasses));
         jars.put(plain, jar("plain", plainClasses));
+        jars.put(base, jar("base", baseClasses));
+        jars.put(grand, jar("grand", grandClasses));
+        jars.put(contract, jar("contract", contractClasses));
         fixture = new Fixture(project, jars);
+    }
+
+    private Path compilePlain() throws Exception {
+        return compile("plain", Map.of(
+                "vendor/Plain.java", """
+                        package vendor;
+                        public class Plain {
+                            static { helper(); }
+                            public Plain() { helper(); }
+                            public static void call() { helper(); }
+                            public static int primitive() {
+                                helper(); return 42;
+                            }
+                            public static Object reference() {
+                                helper(); return new Object();
+                            }
+                            private static void helper() { }
+                        }
+                        """,
+                "vendor/SelectedParent.java", """
+                        package vendor;
+                        public abstract class SelectedParent {
+                            public void selectedParentMethod() {
+                                selectedCallback();
+                            }
+                            protected abstract void selectedCallback();
+                        }
+                        """), List.of());
     }
 
     @Test
@@ -181,14 +260,41 @@ class DependencyBodyBoundaryTest {
                     assertThat(boundary.factories()).isEmpty();
                     assertThat(boundary.noOpMethodNodes()).isZero();
                     assertThat(boundary.factoryMethodNodes()).isZero();
-                    assertThat(boundary.bodyBoundaryHits())
-                            .isNotEmpty()
-                            .allMatch(value -> Set.of(
-                                    sink, factory, plain).contains(
-                                    value.calleeArtifact()));
+                    assertThat(boundary.bodyBoundaryHits()).isEmpty();
+                    assertThat(boundary
+                            .ancestorRetainedExternalTypeCount())
+                            .isEqualTo(RETAINED_ANCESTOR_TYPE_COUNT);
+                    assertThat(boundary
+                            .ancestorRetainedExternalMethodNodeCount())
+                            .isPositive();
+                    assertThat(boundary
+                            .prunedExternalMethodTargetCount())
+                            .isPositive();
                     assertThat(hasEdge(session, "api/IncludedType",
                             "afterFactory", "api/ChangedValue", "changed"))
                             .isTrue();
+                    assertThat(hasEdge(session, "vendor/Base",
+                            "publicMethod", "vendor/Base", "helper"))
+                            .isTrue();
+                    assertThat(hasEdge(session, "vendor/Base", "helper",
+                            "app/Inherited", "abstractMethod")).isTrue();
+                    assertThat(hasEdge(session, "app/Inherited",
+                            "abstractMethod", "api/ChangedValue", "changed"))
+                            .isTrue();
+                    assertThat(hasEdge(session, "vendor/Grand",
+                            "grandMethod", "app/Inherited",
+                            "abstractMethod")).isTrue();
+                    assertThat(hasEdge(session, "vendor/Contract",
+                            "interfaceMethod", "app/Inherited",
+                            "abstractMethod")).isTrue();
+                    assertThat(hasEdge(session, "vendor/SelectedParent",
+                            "selectedParentMethod", "api/SelectedChild",
+                            "selectedCallback")).isTrue();
+                    assertThat(hasEdge(session, "api/SelectedChild",
+                            "selectedCallback", "api/ChangedValue",
+                            "changed")).isTrue();
+                    assertThat(hasNode(session, "vendor/Plain", "call"))
+                            .isFalse();
                     assertThat(hasNode(session, "vendor/Plain", "helper"))
                             .isFalse();
                     continue;
@@ -260,7 +366,7 @@ class DependencyBodyBoundaryTest {
                         "old", "new"));
         final ModuleDependencyOccurrenceGraph graph = graph(module);
         final List<ArtifactCoord> artifacts =
-                List.of(api, sink, factory, plain);
+                List.of(api, sink, factory, plain, base, grand, contract);
         final List<DependencyNode> dependencies = artifacts.stream()
                 .map(value -> new DependencyNode(value,
                         DependencyScope.COMPILE, List.of()))
@@ -294,7 +400,8 @@ class DependencyBodyBoundaryTest {
         final List<ModuleDependencyOccurrenceGraph.Edge> edges =
                 new ArrayList<>();
         int index = 0;
-        for (ArtifactCoord artifact : List.of(api, sink, factory, plain)) {
+        for (ArtifactCoord artifact
+                : List.of(api, sink, factory, plain, base, grand, contract)) {
             final String id = "dependency-" + index++;
             nodes.add(new ModuleDependencyOccurrenceGraph.Occurrence(
                     id, artifact, DependencyScope.COMPILE, false, false));

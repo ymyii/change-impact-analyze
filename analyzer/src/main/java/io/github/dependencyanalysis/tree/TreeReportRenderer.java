@@ -4,8 +4,10 @@ import io.github.dependencyanalysis.preflight
         .PreflightResult;
 import io.github.dependencyanalysis.preflight
         .PreflightReport;
+import io.github.dependencyanalysis.runtime.ReportTaskCache;
 
 import java.io.IOException;
+import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -190,7 +192,32 @@ public final class TreeReportRenderer {
         initialize(metadata, normalized,
                 totalReactors);
         return new TreeReportSession(this, metadata,
-                normalized, totalReactors);
+                normalized, totalReactors, null);
+    }
+
+    /**
+     * Starts a production session with cache-backed conflict grouping.
+     *
+     * @param metadata run metadata
+     * @param totalReactors expected reactor count
+     * @param output output directory
+     * @param cache task-scoped report cache
+     * @return initialized report session
+     * @throws IOException on write failure
+     */
+    public TreeReportSession start(
+            final TreeReportMetadata metadata,
+            final int totalReactors,
+            final Path output,
+            final ReportTaskCache cache) throws IOException {
+        if (totalReactors < 0) {
+            throw new IllegalArgumentException(
+                    "Reactor count must not be negative");
+        }
+        final Path normalized = output.toAbsolutePath().normalize();
+        initialize(metadata, normalized, totalReactors);
+        return new TreeReportSession(this, metadata, normalized,
+                totalReactors, cache.root());
     }
 
     private void initialize(
@@ -214,11 +241,8 @@ public final class TreeReportRenderer {
                     CSS, StandardCharsets.UTF_8);
             Files.writeString(assets.resolve("report.js"),
                     JAVASCRIPT, StandardCharsets.UTF_8);
-            Files.writeString(staging.resolve("index.html"),
-                    indexPage(metadata, List.of(),
-                            totalReactors,
-                            TreeReportState.RUNNING, ""),
-                    StandardCharsets.UTF_8);
+            writeIndex(staging.resolve("index.html"), metadata, List.of(),
+                    totalReactors, TreeReportState.RUNNING, "", false);
             replaceOwnedOutputs(
                     staging.resolve("index.html"),
                     reportRoot,
@@ -234,14 +258,15 @@ public final class TreeReportRenderer {
             final Path output,
             final ReactorTreeResult result,
             final List<ReactorReportSummary> summaries,
-            final int totalReactors)
+            final int totalReactors,
+            final Path groupingCache)
             throws IOException {
         final String filename = filename(
                 result.getReactor().getId());
         final Path page = output.resolve(
                 "dependency-report/reactors")
                 .resolve(filename);
-        writeAtomically(page, reactorPage(result));
+        writeReactor(page, result, groupingCache);
         final ReactorReportSummary summary =
                 ReactorReportSummary.from(filename,
                         result);
@@ -261,21 +286,20 @@ public final class TreeReportRenderer {
             final TreeReportState state,
             final String failureReason)
             throws IOException {
-        writeAtomically(output.resolve("index.html"),
-                indexPage(metadata, summaries,
-                        totalReactors, state,
-                        failureReason));
+        writeIndex(output.resolve("index.html"), metadata, summaries,
+                totalReactors, state, failureReason, true);
     }
 
-    private String indexPage(
+    private void writeIndex(
+            final Path target,
             final TreeReportMetadata metadata,
             final List<ReactorReportSummary> summaries,
             final int totalReactors,
             final TreeReportState state,
-            final String failureReason) {
-        final StringBuilder body =
-                new StringBuilder();
-        body.append("<h1>Dependency Analyzer</h1>")
+            final String failureReason,
+            final boolean atomic) throws IOException {
+        final PageBody content = body -> {
+            body.append("<h1>Dependency Analyzer</h1>")
                 .append("<p class=\"muted\">Repository ")
                 .append("dependency tree report · ")
                 .append(escape(OffsetDateTime.now()
@@ -318,13 +342,19 @@ public final class TreeReportRenderer {
                     .append("</td></tr>");
         }
         body.append("</table>");
-        return page("Dependency Analyzer", body,
-                "dependency-report/assets/");
+        };
+        if (atomic) {
+            writePageAtomically(target, "Dependency Analyzer",
+                    "dependency-report/assets/", content);
+        } else {
+            writePage(target, "Dependency Analyzer",
+                    "dependency-report/assets/", content);
+        }
     }
 
     private String indexMetadata(
             final TreeReportMetadata metadata) {
-        final StringBuilder value = new StringBuilder();
+        final HtmlSink value = HtmlSink.memory();
         value.append("<section class=\"card\"><h2>Metadata</h2>")
                 .append("<table><thead><tr><th>Field</th>")
                 .append("<th>Value</th></tr></thead><tbody>")
@@ -394,16 +424,18 @@ public final class TreeReportRenderer {
                 + escape(value) + "</code></td></tr>";
     }
 
-    private String reactorPage(
-            final ReactorTreeResult reactor) {
+    private void writeReactor(
+            final Path target,
+            final ReactorTreeResult reactor,
+            final Path groupingCache) throws IOException {
         final Map<ModuleTreeResult, List<ConflictRow>> internal =
-                internalConflictRows(reactor);
+                internalConflictRows(reactor, groupingCache);
         final List<ConflictRow> crossModule =
-                crossModuleConflictRows(reactor);
+                crossModuleConflictRows(reactor, groupingCache);
         final List<IssueRow> issues = issueRows(reactor);
-        final StringBuilder body =
-                new StringBuilder();
-        body.append("<p><a href=\"../../index.html\">")
+        writePageAtomically(target, reactor.getReactor().getCoordinate(),
+                "../assets/", body -> {
+            body.append("<p><a href=\"../../index.html\">")
                 .append("← Repository</a></p><h1>")
                 .append(escape(reactor.getReactor()
                         .getCoordinate()))
@@ -422,9 +454,7 @@ public final class TreeReportRenderer {
         appendConflictTable(body, "跨模块依赖冲突",
                 crossModule, true);
         appendModuleTabs(body, reactor.getModules(), internal);
-        return page(reactor.getReactor()
-                        .getCoordinate(), body,
-                "../assets/");
+        });
     }
 
     private String reactorMetadata(
@@ -435,7 +465,7 @@ public final class TreeReportRenderer {
         final long dependencyCount = reactor.getModules()
                 .stream().mapToLong(module -> module
                         .getOccurrences().size()).sum();
-        final StringBuilder value = new StringBuilder();
+        final HtmlSink value = HtmlSink.memory();
         value.append("<section class=\"card\">")
                 .append("<h2>Reactor metadata</h2><table>")
                 .append("<thead><tr><th>Coordinate</th>")
@@ -470,7 +500,7 @@ public final class TreeReportRenderer {
             final Map<ModuleTreeResult,
                     List<ConflictRow>> internal,
             final List<ConflictRow> crossModule) {
-        final StringBuilder value = new StringBuilder();
+        final HtmlSink value = HtmlSink.memory();
         value.append("<section class=\"card\"><h2>Module metadata</h2>")
                 .append("<table><thead><tr><th>Module</th><th>POM</th>")
                 .append("<th>Status</th><th>Dependencies</th>")
@@ -504,7 +534,7 @@ public final class TreeReportRenderer {
     }
 
     private void appendModuleTabs(
-            final StringBuilder body,
+            final HtmlSink body,
             final List<ModuleTreeResult> modules,
             final Map<ModuleTreeResult,
                     List<ConflictRow>> conflicts) {
@@ -541,7 +571,7 @@ public final class TreeReportRenderer {
     }
 
     private void appendModulePanel(
-            final StringBuilder body,
+            final HtmlSink body,
             final ModuleTreeResult module,
             final List<ConflictRow> conflicts,
             final boolean selected) {
@@ -562,9 +592,9 @@ public final class TreeReportRenderer {
         } else if (module.getOccurrences().isEmpty()) {
             body.append("<p class=\"muted\">未发现 dependency。</p>");
         } else {
-            body.append("<pre class=\"dependency-tree\">")
-                    .append(escape(mavenTree(module)))
-                    .append("</pre>");
+            body.append("<pre class=\"dependency-tree\">");
+            appendMavenTree(body, module);
+            body.append("</pre>");
         }
         body.append("</section></section>");
     }
@@ -628,7 +658,9 @@ public final class TreeReportRenderer {
                 + module.getPom());
     }
 
-    private String mavenTree(final ModuleTreeResult module) {
+    private void appendMavenTree(
+            final HtmlSink result,
+            final ModuleTreeResult module) {
         final List<DependencyOccurrence> occurrences =
                 module.getOccurrences();
         String rootCoordinate = module.getCoordinate();
@@ -638,16 +670,13 @@ public final class TreeReportRenderer {
                 break;
             }
         }
-        final List<DependencyTreeLine> lines =
-                new ArrayList<>();
         List<String> previousPath = List.of();
-        for (DependencyOccurrence occurrence
-                : occurrences) {
-            List<String> path = occurrence.getPath();
-            if (path.isEmpty()) {
-                path = List.of(rootCoordinate,
-                        occurrence.coordinate());
-            }
+        for (int occurrenceIndex = 0;
+             occurrenceIndex < occurrences.size(); occurrenceIndex++) {
+            final DependencyOccurrence occurrence = occurrences.get(
+                    occurrenceIndex);
+            final List<String> path = occurrencePath(
+                    occurrence, rootCoordinate);
             final int common = commonPrefixLength(
                     previousPath, path);
             final int start = common == path.size()
@@ -656,20 +685,24 @@ public final class TreeReportRenderer {
                  index < path.size(); index++) {
                 final boolean terminal = index
                         == path.size() - 1;
-                lines.add(new DependencyTreeLine(
-                        List.copyOf(path.subList(0,
-                                index + 1)),
+                appendMavenLine(result,
+                        path.subList(0, index + 1),
                         terminal ? occurrence.coordinate()
                                 : path.get(index),
-                        terminal ? occurrence : null));
+                        terminal ? occurrence : null,
+                        occurrences, occurrenceIndex,
+                        rootCoordinate);
             }
             previousPath = path;
         }
-        final StringBuilder result = new StringBuilder();
-        for (int index = 0; index < lines.size(); index++) {
-            appendMavenLine(result, lines, index);
-        }
-        return result.toString();
+    }
+
+    private List<String> occurrencePath(
+            final DependencyOccurrence occurrence,
+            final String rootCoordinate) {
+        return occurrence.getPath().isEmpty()
+                ? List.of(rootCoordinate, occurrence.coordinate())
+                : occurrence.getPath();
     }
 
     private int commonPrefixLength(
@@ -686,46 +719,58 @@ public final class TreeReportRenderer {
     }
 
     private void appendMavenLine(
-            final StringBuilder body,
-            final List<DependencyTreeLine> lines,
-            final int index) {
-        final DependencyTreeLine line = lines.get(index);
-        final int depth = line.path().size() - 1;
+            final HtmlSink body,
+            final List<String> path,
+            final String coordinate,
+            final DependencyOccurrence occurrence,
+            final List<DependencyOccurrence> occurrences,
+            final int occurrenceIndex,
+            final String rootCoordinate) {
+        final int depth = path.size() - 1;
         for (int ancestor = 1;
              ancestor < depth; ancestor++) {
-            body.append(hasLaterSibling(lines, index,
-                    ancestor) ? "|  " : "   ");
+            body.append(hasLaterSibling(path, occurrences,
+                    occurrenceIndex, ancestor, rootCoordinate, false)
+                    ? "|  " : "   ");
         }
         if (depth > 0) {
-            body.append(hasLaterSibling(lines, index, depth)
+            body.append(hasLaterSibling(path, occurrences,
+                    occurrenceIndex, depth, rootCoordinate,
+                    occurrence != null)
                     ? "+- " : "\\- ");
         }
-        body.append(line.coordinate());
-        if (line.occurrence() != null) {
-            body.append(verboseAnnotation(line.occurrence()));
+        body.append(escape(coordinate));
+        if (occurrence != null) {
+            body.append(escape(verboseAnnotation(occurrence)));
         }
         body.append('\n');
     }
 
     private boolean hasLaterSibling(
-            final List<DependencyTreeLine> lines,
+            final List<String> current,
+            final List<DependencyOccurrence> occurrences,
             final int currentIndex,
-            final int depth) {
-        final List<String> current = lines.get(
-                currentIndex).path();
+            final int depth,
+            final String rootCoordinate,
+            final boolean terminal) {
         for (int index = currentIndex + 1;
-             index < lines.size(); index++) {
-            final List<String> candidate = lines.get(index)
-                    .path();
-            final int candidateDepth = candidate.size() - 1;
-            if (candidateDepth > depth) {
-                continue;
-            }
-            if (candidateDepth < depth) {
+             index < occurrences.size(); index++) {
+            final List<String> candidate = occurrencePath(
+                    occurrences.get(index), rootCoordinate);
+            if (candidate.size() <= depth) {
                 return false;
             }
-            return current.subList(0, depth).equals(
-                    candidate.subList(0, depth));
+            if (!current.subList(0, depth).equals(
+                    candidate.subList(0, depth))) {
+                return false;
+            }
+            if (current.get(depth).equals(candidate.get(depth))) {
+                if (terminal && candidate.size() == current.size()) {
+                    return true;
+                }
+                continue;
+            }
+            return true;
         }
         return false;
     }
@@ -772,7 +817,7 @@ public final class TreeReportRenderer {
         if (issues.isEmpty()) {
             return "";
         }
-        final StringBuilder value = new StringBuilder();
+        final HtmlSink value = HtmlSink.memory();
         value.append("<section class=\"card\"><h2>问题</h2><table>")
                 .append("<thead><tr><th>Severity</th><th>Code</th>")
                 .append("<th>Scope</th><th>Message</th>")
@@ -796,7 +841,7 @@ public final class TreeReportRenderer {
     }
 
     private void appendConflictTable(
-            final StringBuilder value,
+            final HtmlSink value,
             final String title,
             final List<ConflictRow> conflicts,
             final boolean crossModule) {
@@ -857,7 +902,7 @@ public final class TreeReportRenderer {
     }
 
     private void appendConflictControls(
-            final StringBuilder body,
+            final HtmlSink body,
             final List<ConflictRow> conflicts,
             final boolean crossModule) {
         final Set<String> modules = new LinkedHashSet<>();
@@ -905,13 +950,17 @@ public final class TreeReportRenderer {
 
     private Map<ModuleTreeResult, List<ConflictRow>>
             internalConflictRows(
-            final ReactorTreeResult reactor) {
+            final ReactorTreeResult reactor,
+            final Path groupingCache) throws IOException {
         final Map<ModuleTreeResult, List<ConflictRow>> result =
                 new LinkedHashMap<>();
         for (ModuleTreeResult module : reactor.getModules()) {
             final List<ConflictRow> rows = new ArrayList<>();
-            for (VersionMediationIssue issue
-                    : new ModuleVersionAnalyzer().analyze(module)) {
+            final List<VersionMediationIssue> issues = groupingCache == null
+                    ? new ModuleVersionAnalyzer().analyze(module)
+                    : new ModuleVersionAnalyzer().analyze(
+                            module, groupingCache);
+            for (VersionMediationIssue issue : issues) {
                 rows.add(moduleConflict(module, issue));
             }
             rows.sort(Comparator.comparing(
@@ -922,10 +971,14 @@ public final class TreeReportRenderer {
     }
 
     private List<ConflictRow> crossModuleConflictRows(
-            final ReactorTreeResult reactor) {
+            final ReactorTreeResult reactor,
+            final Path groupingCache) throws IOException {
         final List<ConflictRow> rows = new ArrayList<>();
-        for (CrossModuleVersionIssue issue
-                : new CrossModuleVersionAnalyzer().analyze(reactor)) {
+        final List<CrossModuleVersionIssue> issues = groupingCache == null
+                ? new CrossModuleVersionAnalyzer().analyze(reactor)
+                : new CrossModuleVersionAnalyzer().analyze(
+                        reactor, groupingCache);
+        for (CrossModuleVersionIssue issue : issues) {
             rows.add(crossModuleConflict(issue));
         }
         rows.sort(Comparator.comparing(ConflictRow::module)
@@ -936,8 +989,8 @@ public final class TreeReportRenderer {
     private ConflictRow moduleConflict(
             final ModuleTreeResult module,
             final VersionMediationIssue issue) {
-        final StringBuilder html = new StringBuilder();
-        final StringBuilder text = new StringBuilder();
+        final HtmlSink html = HtmlSink.memory();
+        final HtmlSink text = HtmlSink.memory();
         final Set<String> scopes = new LinkedHashSet<>();
         appendEvidenceTableStart(html, false);
         for (VersionPath path : issue.getPaths()) {
@@ -969,8 +1022,8 @@ public final class TreeReportRenderer {
         final Set<String> modules = new LinkedHashSet<>();
         final Set<String> scopes = new LinkedHashSet<>();
         final Set<String> versions = new LinkedHashSet<>();
-        final StringBuilder html = new StringBuilder();
-        final StringBuilder text = new StringBuilder();
+        final HtmlSink html = HtmlSink.memory();
+        final HtmlSink text = HtmlSink.memory();
         appendEvidenceTableStart(html, true);
         issue.getVersions().forEach(version -> {
             modules.add(version.getModule());
@@ -1003,7 +1056,7 @@ public final class TreeReportRenderer {
     }
 
     private void appendEvidenceTableStart(
-            final StringBuilder html,
+            final HtmlSink html,
             final boolean crossModule) {
         html.append("<table class=\"evidence-table\"><thead><tr>")
                 .append("<th>Source</th>");
@@ -1016,8 +1069,8 @@ public final class TreeReportRenderer {
     }
 
     private void appendEvidenceRow(
-            final StringBuilder html,
-            final StringBuilder text,
+            final HtmlSink html,
+            final HtmlSink text,
             final VersionEvidence source,
             final String module,
             final VersionPath path,
@@ -1111,8 +1164,7 @@ public final class TreeReportRenderer {
     private String preflightTable(
             final PreflightReport report,
             final String scopeId) {
-        final StringBuilder value =
-                new StringBuilder();
+        final HtmlSink value = HtmlSink.memory();
         value.append("<h2>Preflight</h2><table><tr>")
                 .append("<th>checkId</th><th>scope</th>")
                 .append("<th>status</th><th>decision</th>")
@@ -1142,20 +1194,6 @@ public final class TreeReportRenderer {
                     .append("</td></tr>");
         }
         return value.append("</table>").toString();
-    }
-
-    private String page(
-            final String title,
-            final StringBuilder body,
-            final String assetPrefix) {
-        return "<!DOCTYPE html><html lang=\"zh-CN\"><head>"
-                + "<meta charset=\"UTF-8\"><meta name=\"viewport\" "
-                + "content=\"width=device-width,initial-scale=1\">"
-                + "<title>" + escape(title) + "</title>"
-                + "<link rel=\"stylesheet\" href=\""
-                + assetPrefix + "report.css\"></head><body><main>"
-                + body + "</main><script src=\""
-                + assetPrefix + "report.js\"></script></body></html>";
     }
 
     private String term(
@@ -1192,8 +1230,7 @@ public final class TreeReportRenderer {
                     .getInstance("SHA-256")
                     .digest(value.getBytes(
                             StandardCharsets.UTF_8));
-            final StringBuilder result =
-                    new StringBuilder();
+            final HtmlSink result = HtmlSink.memory();
             for (int index = 0;
                  index < SHORT_HASH_BYTES;
                  index++) {
@@ -1302,18 +1339,92 @@ public final class TreeReportRenderer {
         moveOperation.move(source, target);
     }
 
-    private void writeAtomically(
+    private void writePageAtomically(
             final Path target,
-            final String content)
+            final String title,
+            final String assetPrefix,
+            final PageBody content)
             throws IOException {
         final Path temporary = Files.createTempFile(
                 target.getParent(), ".report-", ".tmp");
         try {
-            Files.writeString(temporary, content,
-                    StandardCharsets.UTF_8);
+            writePage(temporary, title, assetPrefix, content);
             move(temporary, target);
         } finally {
             Files.deleteIfExists(temporary);
+        }
+    }
+
+    private void writePage(
+            final Path target,
+            final String title,
+            final String assetPrefix,
+            final PageBody content) throws IOException {
+        try (Writer writer = Files.newBufferedWriter(
+                target, StandardCharsets.UTF_8)) {
+            final HtmlSink output = HtmlSink.writer(writer);
+            output.append("<!DOCTYPE html><html lang=\"zh-CN\"><head>")
+                    .append("<meta charset=\"UTF-8\"><meta ")
+                    .append("name=\"viewport\" content=\"width=device-")
+                    .append("width,initial-scale=1\"><title>")
+                    .append(escape(title))
+                    .append("</title><link rel=\"stylesheet\" href=\"")
+                    .append(assetPrefix)
+                    .append("report.css\"></head><body><main>");
+            content.write(output);
+            output.append("</main><script src=\"")
+                    .append(assetPrefix)
+                    .append("report.js\"></script></body></html>");
+        } catch (java.io.UncheckedIOException exception) {
+            throw exception.getCause();
+        }
+    }
+
+    /** Streaming page body callback. */
+    @FunctionalInterface
+    private interface PageBody {
+        void write(HtmlSink output);
+    }
+
+    /** Append facade that converts checked Writer failures to one runtime. */
+    private static final class HtmlSink {
+
+        /** Target appendable. */
+        private final Appendable target;
+
+        private HtmlSink(final Appendable value) {
+            target = value;
+        }
+
+        static HtmlSink memory() {
+            return new HtmlSink(new StringBuilder());
+        }
+
+        static HtmlSink writer(final Writer value) {
+            return new HtmlSink(value);
+        }
+
+        HtmlSink append(final Object value) {
+            try {
+                target.append(String.valueOf(value));
+                return this;
+            } catch (IOException exception) {
+                throw new java.io.UncheckedIOException(exception);
+            }
+        }
+
+        HtmlSink append(final char value) {
+            try {
+                target.append(value);
+                return this;
+            } catch (IOException exception) {
+                throw new java.io.UncheckedIOException(exception);
+            }
+        }
+
+        @Override
+        public String toString() {
+            return target.toString();
         }
     }
 
@@ -1406,16 +1517,4 @@ public final class TreeReportRenderer {
             String remediation) {
     }
 
-    /**
-     * One source-ordered line in the rendered Maven dependency tree.
-     *
-     * @param path full coordinate path through this line
-     * @param coordinate display coordinate
-     * @param occurrence terminal occurrence, or null for an ancestor
-     */
-    private record DependencyTreeLine(
-            List<String> path,
-            String coordinate,
-            DependencyOccurrence occurrence) {
-    }
 }

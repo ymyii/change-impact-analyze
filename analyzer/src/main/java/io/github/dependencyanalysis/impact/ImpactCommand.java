@@ -37,6 +37,8 @@ import io.github.dependencyanalysis.runtime
         .MavenRuntimeDescriptor;
 import io.github.dependencyanalysis.runtime
         .MavenDependencyPluginRuntime;
+import io.github.dependencyanalysis.runtime
+        .ReportTaskCache;
 import io.github.dependencyanalysis.workspace
         .WorkspaceResult;
 
@@ -268,64 +270,9 @@ public final class ImpactCommand
             if (report.blocksCommand()) {
                 return 1;
             }
-            final MavenRuntimeDescriptor mavenRuntime = context.get(
-                    ImpactPreflightService.MAVEN_RUNTIME,
-                    MavenRuntimeDescriptor.class);
-            final JavaRuntimeDescriptor targetJava = context.get(
-                    ImpactPreflightService.JAVA_RUNTIME,
-                    JavaRuntimeDescriptor.class);
-            final MavenDependencyPluginRuntime pluginRuntime = context.get(
-                    ImpactPreflightService.DEPENDENCY_PLUGIN_RUNTIME,
-                    MavenDependencyPluginRuntime.class);
-            final AnalysisRunResult result = new PerModuleImpactPipeline(
-                    diagnostics, kinds,
-                    mavenRuntime,
-                    pluginRuntime,
-                    context.get(
-                            ImpactPreflightService
-                                    .MAVEN_ARGS,
-                            List.class),
-                    targetJava,
-                    new PerModulePipelineOptions(
-                            callGraphTimeoutSeconds,
-                            analysisParallelism,
-                            new PipelineOutputPaths(context.get(
-                                    ImpactPreflightService.COMMAND_RUN,
-                                    CommandRunDirectory.class)
-                                    .getTemporaryDirectory(),
-                                    normalizedDiagnostics),
-                            entrypointSelection,
-                            callGraphAlgorithm,
-                            selectedKObjDepth,
-                            reflectionOptions,
-                            dependencyAnalysisScope,
-                            jdkModel,
-                            metrics.executors())).run(
-                    context.get(
-                            ImpactPreflightService
-                                    .WORKSPACE,
-                            WorkspaceResult.class));
-            final String reportPath = output.toPath().toAbsolutePath()
-                    .normalize().toString();
-            final DiagnosticContext reportContext = DiagnosticContext.of(
-                    "report", "publish");
-            diagnostics.startStage(reportContext,
-                    "Task started; path=" + reportPath);
-            try {
-                new PerModuleHtmlReportGenerator().generate(
-                        result, diagnostics.getEvents(), report,
-                        mavenRuntime, pluginRuntime,
-                        targetJava, output.toPath());
-                diagnostics.endStage(reportContext,
-                        "Task completed; path=" + reportPath);
-            } catch (Exception exception) {
-                diagnostics.failStage(reportContext,
-                        "Report publish failed: " + exception.getMessage()
-                                + "; path=" + reportPath);
-                throw exception;
-            }
-            emitSummary(diagnostics, result);
-            return successful(result.getStatus()) ? 0 : 2;
+            return analyzeAndReport(context, report, diagnostics, metrics,
+                    entrypointSelection, selectedKObjDepth,
+                    normalizedDiagnostics);
         } catch (EntrypointSelectionException exception) {
             diagnostics.error("entrypoint-selection", exception.getMessage());
             return 1;
@@ -336,6 +283,75 @@ public final class ImpactCommand
             diagnostics.transientException(
                     DiagnosticContext.stage("pipeline"), exception);
             return 2;
+        }
+    }
+
+    private int analyzeAndReport(
+            final PreflightContext context,
+            final PreflightReport report,
+            final DiagnosticLog diagnostics,
+            final RuntimeMetricsSession metrics,
+            final EntrypointSelection entrypointSelection,
+            final int selectedKObjDepth,
+            final java.nio.file.Path normalizedDiagnostics) throws Exception {
+        final MavenRuntimeDescriptor mavenRuntime = context.get(
+                ImpactPreflightService.MAVEN_RUNTIME,
+                MavenRuntimeDescriptor.class);
+        final JavaRuntimeDescriptor targetJava = context.get(
+                ImpactPreflightService.JAVA_RUNTIME,
+                JavaRuntimeDescriptor.class);
+        final MavenDependencyPluginRuntime pluginRuntime = context.get(
+                ImpactPreflightService.DEPENDENCY_PLUGIN_RUNTIME,
+                MavenDependencyPluginRuntime.class);
+        final CommandRunDirectory commandRun = context.get(
+                ImpactPreflightService.COMMAND_RUN,
+                CommandRunDirectory.class);
+        final AnalysisRunResult result;
+        try (ReportTaskCache reportCache = new ReportTaskCache(
+                commandRun, "impact")) {
+            result = new PerModuleImpactPipeline(
+                    diagnostics, kinds, mavenRuntime, pluginRuntime,
+                    context.get(ImpactPreflightService.MAVEN_ARGS, List.class),
+                    targetJava, new PerModulePipelineOptions(
+                    callGraphTimeoutSeconds, analysisParallelism,
+                    new PipelineOutputPaths(commandRun.getTemporaryDirectory(),
+                            normalizedDiagnostics), entrypointSelection,
+                    callGraphAlgorithm, selectedKObjDepth, reflectionOptions,
+                    dependencyAnalysisScope, jdkModel, metrics.executors(),
+                    reportCache)).run(context.get(
+                    ImpactPreflightService.WORKSPACE, WorkspaceResult.class));
+            reportCache.complete();
+            publishReport(result, report, diagnostics, mavenRuntime,
+                    pluginRuntime, targetJava);
+        }
+        emitSummary(diagnostics, result);
+        return successful(result.getStatus()) ? 0 : 2;
+    }
+
+    private void publishReport(
+            final AnalysisRunResult result,
+            final PreflightReport report,
+            final DiagnosticLog diagnostics,
+            final MavenRuntimeDescriptor mavenRuntime,
+            final MavenDependencyPluginRuntime pluginRuntime,
+            final JavaRuntimeDescriptor targetJava) {
+        final String reportPath = output.toPath().toAbsolutePath()
+                .normalize().toString();
+        final DiagnosticContext reportContext = DiagnosticContext.of(
+                "report", "publish");
+        diagnostics.startStage(reportContext,
+                "Task started; path=" + reportPath);
+        try {
+            new PerModuleHtmlReportGenerator().generate(
+                    result, diagnostics.getEvents(), report,
+                    mavenRuntime, pluginRuntime, targetJava, output.toPath());
+            diagnostics.endStage(reportContext,
+                    "Task completed; path=" + reportPath);
+        } catch (RuntimeException exception) {
+            diagnostics.failStage(reportContext,
+                    "Report publish failed: " + exception.getMessage()
+                            + "; path=" + reportPath);
+            throw exception;
         }
     }
 

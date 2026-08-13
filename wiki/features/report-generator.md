@@ -15,6 +15,10 @@ code_refs:
     desc: "run status、selected algorithm 与 metrics"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleAnalysisResult.java"
     desc: "Module detail result"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleCallGraphSnapshot.java"
+    desc: "不引用WALA session的report-safe Call Graph metrics"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/SnapshotQueryNode.java"
+    desc: "stable method/Context/node/sentinel path node"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleChangedPathSelection.java"
     desc: "requested/actual scope、fallback 与全部 dependency paths"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/DependencyBodyBoundaryMetadata.java"
@@ -27,13 +31,15 @@ code_refs:
 
 ## Summary
 
-`impact`只生成英文offline HTML。Report投影effective algorithm/JDK model、Reflection applied状态、terminal Evidence kind/mechanism、requested/actual dependency scope、changed dependency paths、method-body policy与coverage limitation。`tree`的repository/reactor HTML contract保持独立。
+`impact`只生成英文offline HTML。Renderer面向`Writer`逐段输出document header、navigation、section和footer，不构造完整页面字符串。Production path node与Call Graph metrics在Report前已脱离WALA session；Report投影effective algorithm/JDK model、Reflection applied状态、terminal Evidence kind/mechanism、requested/actual dependency scope、changed dependency paths、artifact-level method-body policy、type-level ancestor exception与coverage limitation。`tree`使用相同Writer原则，但保持独立repository/reactor contract。
 
 ## Design Decisions
 
 - Report只投影typed run/module/query结果；Algorithm、WALA ReflectionOptions、access decision与coverage reason不从Diagnostic/summary string反向解析。
 - `ACCESS_REMAINS_VALID`是用户可见的非影响结果：进入Dependency Changes，但不伪造Affected Call Chain。
 - `POTENTIALLY_INACCESSIBLE`与Structural Reference只描述potential compatibility risk，不宣称一定发生linkage error。
+- Existing Java caller继续使用`generate(AnalysisRunResult, ...)`；内部与production共用同一streaming rendering path。Compatibility adapter允许测试或直接caller保留in-memory domain result。
+- 完整HTML只存在于output同filesystem的staging file。小型row/card fragment可使用局部builder，但document级body不返回完整`String`。
 
 ## Actors / Entrypoints
 
@@ -44,6 +50,7 @@ code_refs:
 
 - Overall technical details展示effective Algorithm、JDK Method Model和WALA ReflectionOptions applied/not-applied状态。
 - Overall汇总 changed-paths/full/fallback Module 数量、real-IR/no-op external artifact 数量、no-op/factory method node、dangerous transfer与 `INCONCLUSIVE` 比例。
+- CHA Module同时展示ancestor-retained external type/method node与pruned external method target计数。Artifact-level `REAL_IR/NO_OP`列表不因type-level ancestor exception被误报为整个JAR使用真实IR。
 - Access narrowing member展示old/new access、typed decision/reason及代表性caller/reference evidence。
 - 全部coverage limitation保留；Module单一reason使用typed precedence。
 
@@ -64,7 +71,7 @@ Index 记录：
 
 ## Module Pages
 
-- Module Index：status/reason、scope、entrypoint selection、affected method/class/path/dependency/member counts、stage/worker/entry/call metrics、coverage limitations 和 sibling links。Dependency body section展示 requested/actual mode、fallback、每个 changed dependency 的全部到达路径、real-IR/no-op artifact列表和数量、real/no-op/factory method node数量、dangerous transfer表与flow-to-cast factory evidence。`Duplicate class resolution` 表展示 binary name、winner origin/logical source、shadowed logical source 与 precedence reason。
+- Module Index：status/reason、scope、entrypoint selection、affected method/class/path/dependency/member counts、stage/worker/entry/call metrics、coverage limitations和sibling links。Dependency body section展示requested/actual mode、fallback、每个changed dependency的全部到达路径、real-IR/no-op artifact列表和数量、real/no-op/factory method node数量、ancestor-retained type/method node、pruned external target、dangerous transfer表与flow-to-cast factory evidence。`Duplicate class resolution`表展示binary name、winner origin/logical source、shadowed logical source与precedence reason。
 - Affected Call Chains：一级按 changed JAR，二级按 changed member 与 affected application method；最终链展示 Java method sequence 及 `Direct dependency impact`/`Transitive dependency impact`。SSA-equivalent candidate chains 独立默认折叠。Structural Reference Chains 显示 PROJECT boundary 到 changed class 的完整关系；raw Context/edge evidence 位于 `Technical details`。Changed member 链接到 Dependency Changes anchor。
 - Dependency Changes：展示至少关联candidate/final Impact Path、Structural Reference Path，或disposition为`SHADOWED_BY_DUPLICATE`/`ACCESS_REMAINS_VALID`的changed member，按Maven coordinate/JAR分组。Access member展示`PUBLIC->PROTECTED`等transition、`ACCESSIBLE`/`INACCESSIBLE`/`POTENTIALLY_INACCESSIBLE` decision与representative evidence。其他raw changes只保留总数和未展示数；JAR diff failure转移到Module limitations/Diagnostics。
 - 每个相关 member 默认折叠，并使用 `Affected`、`Equivalent (filtered)`、`Structural impact`、`Shadowed by duplicate` badge。Shadowed member 明确说明未生成 Impact Path 的原因、actual winner 与 precedence；dependency winner 使用 logical coordinate，不展示 physical path。其他 member 的 `View code changes` 展示由 dependency bytecode 生成的 old/new Unified diff，明确标记为 `Decompiled Java representation`；反编译失败或文本相同时展示 ASM fallback/unavailable reason。
@@ -77,10 +84,12 @@ Index 记录：
 ## Publication
 
 - Staging 中先写每个非-skip Module 的三页，再写 Overall Index。
+- 每页通过UTF-8 `Writer`直接追加并关闭；一个path、change、occurrence或conflict完成escaping后立即写入staging，不把完整页面装入`StringBuilder`。
 - 最后 atomic move command-owned Module directory 和 Index；不支持 filesystem atomic move 时使用同 filesystem replace fallback。
 - Handled Module failure 仍发布 partial/all-failed Report。
 - Global preparation 或 report publication failure 不主动替换旧 Report；Module directory replace failure尝试恢复 backup。
 - 原 Module detail URL 的 base filename 保留为 Module Index；新增 `-impact`、`-changes` sibling。Module filename 由 sanitized coordinate + stable SHA-256 prefix 生成；owned directory 整体 replacement 会清理 stale page。
+- Atomic publication成功后立即清理task cache；analysis、render或publish failure同样清理。Cache cleanup失败作为command错误，外层owned run directory在close时再次回收。
 
 ## Format Contract
 
@@ -89,9 +98,9 @@ Index 记录：
 
 ## Core Flow
 
-1. 从immutable AnalysisRunResult归并Overall、Module、path、disposition、limitation与code evidence view。
-2. 在staging中生成Overall及每个非skip Module的三页HTML。
-3. 完整escaping、navigation与owned-file校验后原子替换旧Report。
+1. 从immutable AnalysisRunResult或production detached snapshot归并Overall、Module、path、disposition、limitation与code evidence view。
+2. 依次打开staging page Writer，逐段写每个非skip Module的三页，再写Overall。
+3. 完整escaping、navigation与owned-file校验后关闭全部Writer，原子替换旧Report并清理cache。
 
 ## Acceptance Criteria
 
@@ -102,11 +111,13 @@ Index 记录：
 - Given potential access reference；When发布Report；Then明确标注`Potential access incompatibility`且不改变Module status。
 - Given dangerous transfer或flow-to-cast factory；When发布Report；ThenModule reason为`INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY`并展示caller、callee、artifact、PC、typed proof/type与dependency path evidence。
 - Given occurrence graph recovery failure；When发布Report；Thenrequested mode保持`changed-paths`、actual mode显示`full`并展示stable fallback reason。
+- Given changed-paths CHA保留external祖先type；When发布Module Index；Thenartifact仍显示`NO_OP`，type-level exception与retained/pruned计数单独展示。
 
 ### Non-Functional
 
 - [ ] 所有页面offline、无JavaScript/CDN，dynamic text/href/anchor均escaping。
 - [ ] Publication使用staging与command-owned atomic replacement，handled Module failure仍可发布partial Report。
+- [ ] Renderer按单向顺序写入Writer；production report path不持有WALA `CGNode`、class hierarchy、analysis cache或session。
 
 ## Edge Cases
 

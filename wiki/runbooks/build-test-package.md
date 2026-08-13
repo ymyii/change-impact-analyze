@@ -123,7 +123,7 @@ java -jar target/dependency-analyzer.jar tree --help
 - 真实JDK 8 test完成JDK probe、WALA scope、默认CHA与显式四种非CHA strategy，不因缺少环境变量跳过。CHA验证JDK leaf不展开；非CHA继续验证JDK model callback dispatch。
 - CLI/config/report tests确认默认WALA ReflectionOptions为`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`，并可显式选择WALA原生enum value。
 - CLI/config/report tests确认默认组合为`cha + none`；非CHA默认`jdk8`且可显式`none`；`cha + jdk8`统一拒绝。四种非CHA algorithm各安装一次model，完整JDK 8 metadata为384/384/0且fixture hit非零。
-- 五种algorithm通过统一Evidence schema、ServiceLoader、Class.forName、lambda/`invokedynamic`与timeout regression；CHA额外覆盖local constant、JDK/no-op leaf和真实provider constructor protocol edge。
+- 五种algorithm通过统一Evidence schema、ServiceLoader、Class.forName、lambda/`invokedynamic`与timeout regression；CHA额外覆盖local constant、JDK leaf、路径外external target pruning、完整external祖先链和真实provider constructor protocol edge。
 - Entrypoint tests覆盖private nested class、constructor、static/instance method过滤；公开root调用的private method仍作为普通CGNode存在。
 - `target/dependency-analyzer.jar` 存在，manifest `Main-Class` 为 `io.github.dependencyanalysis.cli.DependencyAnalyzerCli`。
 - Analyzer JAR包含公共`JdkModels.class`、`Jdk8Models.class`和`jdk8-models.tsv`；help包含`--jdk-model`。

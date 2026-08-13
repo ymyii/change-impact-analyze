@@ -45,6 +45,8 @@ code_refs:
     desc: "private static递归到changed dependency fixture"
   - path: "benchmarks/impact-medium/fixtures/application/baseline/src/main/java/com/acme/benchmark/DynamicLoadingUseCase.java"
     desc: "Class.forName和ServiceLoader direct/local/same-phi/unsupported fixture"
+  - path: "benchmarks/impact-medium/fixtures/application/baseline/src/main/java/com/acme/benchmark/AncestorRetentionUseCase.java"
+    desc: "PROJECT override连接路径外external superclass/interface祖先链fixture"
   - path: "benchmarks/impact-medium/results/changed-paths/samples.tsv"
     desc: "最近一次成功 changed-paths suite 的 20 个正式样本"
   - path: "benchmarks/impact-medium/results/full/samples.tsv"
@@ -100,8 +102,9 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 - application direct `scenario-api:${scenario.api.version}` 是Maven winner；target为`2.0.0`，`path-a -> path-c`与`path-x -> path-y`继续请求`1.0.0`并在raw occurrence graph形成loser path。`changed-paths`必须将两条path都规范化到winner `2.0.0`并完整保留；reactor path也必须使用selected version。
 - direct dependency总数保持42：`vendor-lib-35`由`path-sibling`transitive引入；`vendor-lib-34`由`external-plain`transitive引入。Selected external classpath 规模与现有Call Graph baseline不变。
 - `scope-conflict-marker` 是direct `test` winner，`external-plain` 同时引入transitive `compile` duplicate。Schema v3 必须删除marker及其occurrence，offline repository中不存在marker JAR，因此任何误请求都会使benchmark失败。
-- `path-a` sibling、seed downstream、external sink/factory/plain 均不位于到达 seed 的 external path，`changed-paths` 将其 method body 设为 no-op 或 flow-to-cast factory。
-- CHA在`changed-paths`实际到达no-op dependency leaf时产生`DEPENDENCY_BODY_BOUNDARY_REACHED`，factory/dangerous transfer计数固定为零。其他algorithm继续验收`CHANGED_INSTANCE_TO_NO_OP_DEPENDENCY`和flow-to-cast factory。
+- `path-a` sibling、seed downstream、external sink/factory/plain均不位于到达seed的external path。CHA裁剪无关路径外external target；四种非CHA algorithm将其method body设为no-op或flow-to-cast factory。
+- `AncestorRetentionUseCase extends ExternalAncestor extends ExternalGrandParent implements ExternalContract`，PROJECT override调用`ScenarioApi.bodyChanged`。CHA `changed-paths`必须保留三个external祖先type的reachablepublic/private/default concrete method并连接abstract dispatch；同artifact的普通`ExternalPlain.call`仍裁剪。
+- CHA裁剪调用不产生`DEPENDENCY_BODY_BOUNDARY_REACHED`，ancestor-retained与pruned target计数必须非零，factory/dangerous transfer计数固定为零。其他algorithm继续验收`CHANGED_INSTANCE_TO_NO_OP_DEPENDENCY`和flow-to-cast factory。
 - `full`必须使用真实external body且不产生boundary approximation evidence。
 - 普通 no-op external call 不单独使 Module `INCONCLUSIVE`；reactor method 在 `changed-paths` 下始终使用真实 IR。
 - `JdkModelUseCase.execute`接收`Stream<String>`并经lazy`Stream.map`注册private`ChangedMapper.apply`，callback调用`ScenarioApi.bodyChanged`；默认`jdk8`必须报告该call chain，`none`按algorithm锁定真实JDK bytecode语义下的candidate/final baseline。
@@ -148,7 +151,7 @@ benchmarks/impact-medium/results/full/topology.tsv
 
 - `samples.tsv`每个formal run一行；CHA为默认`none`，其他algorithm为默认`jdk8`。
 - `summary.tsv`每个algorithm一行，记录`k_obj_depth`、`jdk8`、min/median/max、stable graph/body totals、successful sample与scope内相对`zero-cfa` ratio。
-- `topology.tsv`来自五种algorithm的effective-default warm-up；除Call Graph ranking/path外，保存`k_obj_depth`、model、requested/actual scope、fallback、real/no-op/factory counts和全部dependency path evidence。
+- `topology.tsv`来自五种algorithm的effective-default warm-up；Schema v8除Call Graph ranking/path外，保存`k_obj_depth`、model、requested/actual scope、fallback、real/no-op/factory counts、ancestor-retained/pruned target counts和全部dependency path evidence。
 - Raw run、topology JSON、candidate TSV 与 failure detail 保留在 `tmp-files/impact-medium-benchmark/`，不提交 Git。
 
 ## Atomic Publication

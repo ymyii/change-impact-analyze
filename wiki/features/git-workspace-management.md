@@ -19,6 +19,8 @@ code_refs:
     desc: "tree current checkout/local-ref repository snapshot"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/CommandRunDirectory.java"
     desc: "subcommand UUID run、owner marker、file lock 和 stale cleanup"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/ReportTaskCache.java"
+    desc: "owned temporary run下的report-cache安全边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/ReactorInventoryBuilder.java"
     desc: "tracked/non-ignored untracked POM 与 submodule filtering"
 ---
@@ -39,6 +41,7 @@ Git Workspace Management 为 `impact` 准备 baseline/target project workspace�
 - Git file discovery 使用 tracked + non-ignored untracked，并排除 stage mode `160000` Git submodule path。
 - 每次 command 使用 UUID run directory、有效 owner marker 和 `<config>/locks` file lock；cleanup 只能删除当前 owned run。
 - `impact` dependency evidence 只写 `impact/tmp/<run-id>/dependency-evidence/{baseline|target}/<nonce>`，不写 baseline、target 或 current source directory。
+- `impact`与`tree` Report中间数据只写当前`<command>/tmp/<run-id>/report-cache`。Cache复用同一run ID、owner marker、active lock与stale recovery，不创建第二套root或锁。
 - Current target 的 Maven compile 仍可在对应 workspace 生成 `target/`；该 build output 不属于 dependency evidence cache。
 - 启动时只回收 owner marker 有效且无法取得 active lock 的 stale run，随后执行 `git worktree prune` 清理对应 metadata；无 marker 目录和其他 run 不删除。
 
@@ -62,8 +65,10 @@ Git Workspace Management 为 `impact` 准备 baseline/target project workspace�
   locks/
   impact/workspaces/<run-id>/
   impact/tmp/<run-id>/
+    report-cache/
   tree/workspaces/<run-id>/
   tree/tmp/<run-id>/
+    report-cache/
 ```
 
 ## Core Flow
@@ -73,6 +78,8 @@ Git Workspace Management 为 `impact` 准备 baseline/target project workspace�
 - 将 relative analysis path 映射到 detached worktree；路径不存在时在 command Preflight 阻断。
 - Pipeline 复用 prepared path。
 - Dependency Analyzer 将 command tmp 作为 evidence cache parent，单次 Maven 调用完成后删除 nonce。
+- Report fragment使用stable-hash filename，先写temporary file，再atomic rename并写schema complete marker；未经验证的Module/reactor名称不进入filename。
+- Report发布成功或任一failure后显式删除`report-cache`。删除只允许当前owned UUID temporary directory下已验证的cache child；symbolic link与越界path拒绝。错误schema、run ID、command或complete marker使fragment读取/发布fail-fast。
 - Owner close 先清理 worktree，再删除当前 workspace/tmp run 和 lock。
 
 ## Acceptance Criteria
@@ -89,6 +96,8 @@ Git Workspace Management 为 `impact` 准备 baseline/target project workspace�
 - [ ] Worktree cleanup 对成功和 failure path 生效。
 - [ ] 并发 run 不能互删；active locked run 不能被 stale recovery 回收。
 - [ ] Maven 成功或失败后source repository均不出现dependency evidence JSON/GraphML中间产物。
+- [ ] 并发`impact`/`tree` run拥有不同UUID cache；一个run的cleanup不能读取或删除另一个run。
+- [ ] 显式cache cleanup失败作为command error；外层owner close仍回收整个run，进程异常退出由下次stale recovery回收。
 
 ## Edge Cases
 

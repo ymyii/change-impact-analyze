@@ -1,6 +1,6 @@
 # Impact Medium CallGraph Benchmark
 
-本 benchmark 对打包后的 `dependency-analyzer impact` 执行五种 Call Graph algorithm、两种 dependency analysis scope 和非 CHA 的`none` JDK Method Model semantic control。Fixture 固定包含42个direct dependencies、10类change、`Object.toString/hashCode`的Diff-related与unrelated override、`Class.forName`与ServiceLoader的direct/local/same-phi和unsupported场景、provider class删除、provider registration-only删除、private static递归调用changed dependency的路径，以及经`Stream.map` private `Function` callback调用changed dependency的model路径。target 以direct `scenario-api:2.0.0`作为winner，同时两条transitive path继续请求`1.0.0`，用于覆盖Maven mediation loser path。每个scope/model/algorithm/depth的candidate/final call chains由`expected-results.tsv`锁定；新fixture基线在未授权执行canonical matrix前标记为`PENDING`。
+本 benchmark 对打包后的 `dependency-analyzer impact` 执行五种 Call Graph algorithm、两种 dependency analysis scope 和非 CHA 的`none` JDK Method Model semantic control。Fixture 固定包含42个direct dependencies、10类change、`Object.toString/hashCode`的Diff-related与unrelated override、`Class.forName`与ServiceLoader的direct/local/same-phi和unsupported场景、provider class删除、provider registration-only删除、private static递归调用changed dependency的路径、经`Stream.map` private `Function` callback调用changed dependency的model路径，以及PROJECT class继承路径外external superclass/interface完整祖先链并覆盖abstract method的路径。target 以direct `scenario-api:2.0.0`作为winner，同时两条transitive path继续请求`1.0.0`，用于覆盖Maven mediation loser path。每个scope/model/algorithm/depth的candidate/final call chains由`expected-results.tsv`锁定；新fixture基线在未授权执行canonical matrix前标记为`PENDING`。
 
 ## Canonical suite
 
@@ -104,7 +104,7 @@ benchmarks/impact-medium/results/full/topology.tsv
 - Affected Call Chains包含`RecursiveCallUseCase.execute → RecursiveCallUseCase.recurse → ScenarioApi.bodyChanged`递归路径。
 - CHA Affected Call Chains包含`ObjectDispatchUseCase`到`ScenarioApi.toString/hashCode`的Diff-related路径，且不包含`UnrelatedObjectOverride`。
 - 非CHA默认`jdk8`的Affected Call Chains包含`JdkModelUseCase → JdkModelUseCase$ChangedMapper.apply → ScenarioApi.bodyChanged`路径；`none`按algorithm锁定真实JDK bytecode语义下的candidate/final baseline。
-- `changed-paths`包含三条到seed的path evidence与no-op sibling/downstream。CHA实际到达no-op leaf时只产生dependency boundary limitation，factory/dangerous transfer计数为零；其他algorithm保留dangerous transfer和flow-to-cast factory evidence。`full`不产生no-op/factory/boundary evidence。
+- `changed-paths`包含三条到seed的path evidence与no-op sibling/downstream。CHA裁剪无关路径外external target，不为裁剪调用生成dependency boundary limitation；`ExternalAncestor -> ExternalGrandParent + ExternalContract`祖先链使用真实方法体并dispatch到PROJECT override。其他algorithm保留dangerous transfer和flow-to-cast factory evidence。`full`不产生no-op/factory/boundary evidence。
 - Affected Call Chains 页面包含 Structural Reference Path 与 filtered candidate。
 - Dependency Changes 页面包含 final、filtered、structural badge 与反编译代码 evidence。
 - Overall、Module Index、Affected Call Chains、Dependency Changes 四页均存在。
@@ -126,6 +126,6 @@ benchmarks/impact-medium/scripts/compare-summaries.sh \
 - `<run>/logs/stderr.log`：Preflight、CLI、Runtime Metrics 与 pipeline failure。
 - `<run>/logs/verification.txt`：42 dependencies、22 raw changes、scope semantic baseline、Structural Reference Path、Evidence、Algorithm/ReflectionOptions failure。
 - `<run>/logs/metrics.tsv`：即使 run failure 也尽量保留的单样本指标。
-- `<run>/topology.json`：warm-up Schema v7 CGNode topology、strategy capabilities、reflection applied状态、Evidence汇总、局部常量计数、`kObjDepth`、model selection、dependency path、body policy、sentinel role、declared entrypoint/WALA sentinel reachability path、IMethod子榜、shortest chain、source与IR。
+- `<run>/topology.json`：warm-up Schema v8 CGNode topology、strategy capabilities、reflection applied状态、Evidence汇总、局部常量计数、`kObjDepth`、model selection、dependency path、body policy、ancestor-retained/pruned target计数、sentinel role、declared entrypoint/WALA sentinel reachability path、IMethod子榜、shortest chain、source与IR。
 - `<suite>-candidate-results/failure.txt`：suite Schema、环境或 topology drift failure。
 - `benchmark-report-changed-paths.html`、`benchmark-report-full.html`：成功或失败均更新；失败时明确说明 tracked TSV 未发布。
