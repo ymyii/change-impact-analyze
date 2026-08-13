@@ -16,7 +16,8 @@ final class ModuleCoverageReducer {
                     ModuleAnalysisReason.INCONCLUSIVE_INVOKEDYNAMIC_MODEL, 2,
                     ModuleAnalysisReason.INCONCLUSIVE_METHOD_HANDLE_MODEL, 3,
                     ModuleAnalysisReason.INCONCLUSIVE_SERVICE_LOADER, 4,
-                    ModuleAnalysisReason.INCONCLUSIVE_SCOPE_VALIDATION, 5);
+                    ModuleAnalysisReason.INCONCLUSIVE_REFLECTION, 5,
+                    ModuleAnalysisReason.INCONCLUSIVE_SCOPE_VALIDATION, 6);
 
     private ModuleCoverageReducer() {
     }

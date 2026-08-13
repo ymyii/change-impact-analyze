@@ -5,6 +5,8 @@ import io.github.dependencyanalysis.bytecode
 import io.github.dependencyanalysis.callgraph
         .CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph
+        .CallGraphPolicy;
+import io.github.dependencyanalysis.callgraph
         .EntrypointSelection;
 import io.github.dependencyanalysis.callgraph
         .JdkModelSelection;
@@ -112,11 +114,10 @@ public final class ImpactCommand
 
     /** Command-wide Call Graph algorithm. */
     @Option(names = "--call-graph-algorithm",
-            defaultValue = "rta",
+            defaultValue = "cha",
             converter = CallGraphAlgorithmConverter.class,
-            description = "Call Graph algorithm: rta, zero-cfa, "
-                    + "optimized-0-1-cfa, or k-obj; "
-                    + "default: rta.")
+            description = "Call Graph algorithm: cha, rta, zero-cfa, "
+                    + "optimized-0-1-cfa, or k-obj; default: cha.")
     private CallGraphAlgorithm callGraphAlgorithm;
 
     /** Optional command-wide k-object receiver allocation-string depth. */
@@ -127,10 +128,9 @@ public final class ImpactCommand
 
     /** Command-wide JDK Method Model selection. */
     @Option(names = "--jdk-model",
-            defaultValue = "jdk8",
             converter = JdkModelSelectionConverter.class,
             description = "JDK Method Model: jdk8 or none; "
-                    + "default: jdk8.")
+                    + "default: none for cha, jdk8 otherwise.")
     private JdkModelSelection jdkModel;
 
     /** Command-wide WALA ReflectionOptions. */
@@ -204,6 +204,9 @@ public final class ImpactCommand
         }
         final Integer selectedKObjDepth = selectedKObjDepth(diagnostics);
         if (selectedKObjDepth == null) {
+            return 1;
+        }
+        if (!resolveCallGraphPolicy(diagnostics)) {
             return 1;
         }
         final EntrypointSelection entrypointSelection;
@@ -333,6 +336,20 @@ public final class ImpactCommand
             diagnostics.transientException(
                     DiagnosticContext.stage("pipeline"), exception);
             return 2;
+        }
+    }
+
+    private boolean resolveCallGraphPolicy(
+            final DiagnosticLog diagnostics) {
+        if (jdkModel == null) {
+            jdkModel = CallGraphPolicy.defaultJdkModel(callGraphAlgorithm);
+        }
+        try {
+            CallGraphPolicy.validate(callGraphAlgorithm, jdkModel);
+            return true;
+        } catch (IllegalArgumentException exception) {
+            diagnostics.error("preflight", exception.getMessage());
+            return false;
         }
     }
 

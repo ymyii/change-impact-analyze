@@ -35,7 +35,7 @@ code_refs:
 - `impact-medium` canonical benchmark 的任一 scope、algorithm、topology、semantic baseline、HTML Report 或 snapshot publication gate 失败时，能力新增任务不得标记完成。
 - 单纯内部 refactor 且无可观察行为变化时可以不新增场景；现有benchmark regression仍受显式执行授权约束。
 - `changed-paths` 是当前默认 dependency analysis scope；`full` 是对应的完整分析对照。Canonical matrix 必须显式传入两种 scope，不能依赖 CLI 默认值。
-- `jdk8`是当前默认JDK Method Model；canonical warm-up/formal必须省略`--jdk-model`以验证默认值，每个scope/algorithm另执行一次显式`none` semantic control。Control不进入performance snapshot。
+- JDK Method Model默认依algorithm解析：CHA为`none`；四种非CHA algorithm为`jdk8`。Canonical CHA warm-up/formal同时省略algorithm/model，非CHA显式algorithm并省略model；仅非CHA增加显式`none`control。
 - `k-obj` canonical run必须省略`--k-obj-depth`以验证默认`1`；`k=2`由集成测试覆盖，不增加canonical JVM数量。
 
 ## Applicability
@@ -53,13 +53,13 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
   benchmarks/impact-medium/run-scope-matrix.sh
 ```
 
-该入口执行四种Call Graph algorithm、两种dependency analysis scope与两种JDK Method Model selection，共16组semantic baseline。每种scope包含4次默认`jdk8` warm-up、20次默认`jdk8` formal run与4次`none` control，双scope共56个独立Java Virtual Machine（JVM）进程。
+该入口执行五种Call Graph algorithm与两种dependency analysis scope，共18组scope/model/algorithm/depth semantic baseline。每种scope包含5次warm-up、25次formal和4次非CHA`none`control，双scope共68个独立Java Virtual Machine（JVM）进程。
 
 ## Completion Gate
 
-- 56个run全部成功。
+- 68个run全部成功。
 - 两种 scope 内 warm-up 与 formal topology 稳定。
-- 16组scope/model/algorithm/depth semantic baseline全部通过；所有组合必须包含private static递归到changed dependency的路径；默认`jdk8`还必须包含`Stream.map` private`Function` callback路径，`none`按algorithm验收真实JDK bytecode baseline。
+- 18组scope/model/algorithm/depth semantic baseline全部通过且不含`PENDING`；所有组合必须包含private static递归、Class.forName和ServiceLoader evidence；非CHA默认`jdk8`还必须包含`Stream.map` callback路径。
 - `benchmark-report-changed-paths.html` 与 `benchmark-report-full.html` 均成功生成。
 - 两组 tracked snapshot 通过同一个 matrix transaction 原子发布；任一 scope 失败时旧 snapshot 全部保留。
 

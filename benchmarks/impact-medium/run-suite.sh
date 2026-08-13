@@ -70,20 +70,29 @@ run_one() {
     "$script_dir/run-benchmark.sh" "$label" || suite_failed=1
 }
 
-# One scope: 4 warm-up + 20 formal + 4 none control JVM processes.
-for algorithm in rta zero-cfa optimized-0-1-cfa k-obj; do
-  run_one "$algorithm" warmup 0 0 1 jdk8
+# One scope: 5 warm-up + 25 formal + 4 non-CHA none controls.
+for algorithm in cha rta zero-cfa optimized-0-1-cfa k-obj; do
+  if [ "$algorithm" = cha ]; then
+    run_one "$algorithm" warmup 0 0 1 none
+  else
+    run_one "$algorithm" warmup 0 0 1 jdk8
+  fi
 done
 
 for round in 1 2 3 4 5; do
   case "$round" in
-    1|5) order="rta zero-cfa optimized-0-1-cfa k-obj" ;;
-    2) order="zero-cfa optimized-0-1-cfa k-obj rta" ;;
-    3) order="optimized-0-1-cfa k-obj rta zero-cfa" ;;
-    4) order="k-obj rta zero-cfa optimized-0-1-cfa" ;;
+    1) order="cha rta zero-cfa optimized-0-1-cfa k-obj" ;;
+    2) order="rta zero-cfa optimized-0-1-cfa k-obj cha" ;;
+    3) order="zero-cfa optimized-0-1-cfa k-obj cha rta" ;;
+    4) order="optimized-0-1-cfa k-obj cha rta zero-cfa" ;;
+    5) order="k-obj cha rta zero-cfa optimized-0-1-cfa" ;;
   esac
   for algorithm in $order; do
-    run_one "$algorithm" formal "$round" "$round" 0 jdk8
+    if [ "$algorithm" = cha ]; then
+      run_one "$algorithm" formal "$round" "$round" 0 none
+    else
+      run_one "$algorithm" formal "$round" "$round" 0 jdk8
+    fi
   done
 done
 

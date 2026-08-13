@@ -6,6 +6,10 @@ Coding Constraint
 
 - **应**在编码完成后维护wiki
 
+## Verification Order
+
+- 代码修改完成后，**应优先打包并产出可交付artifact**，使用户能够尽快在内网真实环境验证；完成打包后，再执行单元测试、集成测试及其他后续验证。该顺序不构成benchmark执行授权。
+
 ## Benchmark Execution
 
 - 用户未明确要求执行 benchmark 时，**禁止**运行任何 benchmark 命令或脚本。Wiki、runbook 或既有验收规则不能视为 benchmark 执行授权。

@@ -15,6 +15,7 @@ from typing import Any, Iterable
 
 
 ALGORITHMS = (
+    "cha",
     "rta",
     "zero-cfa",
     "optimized-0-1-cfa",
@@ -112,7 +113,7 @@ def load_topology(run_directory: Path) -> dict[str, Any]:
     path = run_directory / "topology.json"
     with path.open(encoding="utf-8") as stream:
         value = json.load(stream)
-    if value.get("schemaVersion") != 6:
+    if value.get("schemaVersion") != 7:
         raise ValueError(f"unsupported topology schema: {path}")
     return value
 
@@ -153,12 +154,12 @@ def validate(
     by_kind: dict[str, list[dict[str, str]]] = defaultdict(list)
     for row in rows:
         by_kind[row.get("run_kind", "")].append(row)
-    if len(rows) != 28:
-        errors.append(f"应有 28 个独立 CLI 进程，实际 {len(rows)} 个")
-    if len(by_kind["warmup"]) != 4:
-        errors.append(f"应有 4 个 warm-up，实际 {len(by_kind['warmup'])} 个")
-    if len(by_kind["formal"]) != 20:
-        errors.append(f"应有 20 个正式样本，实际 {len(by_kind['formal'])} 个")
+    if len(rows) != 34:
+        errors.append(f"应有 34 个独立 CLI 进程，实际 {len(rows)} 个")
+    if len(by_kind["warmup"]) != 5:
+        errors.append(f"应有 5 个 warm-up，实际 {len(by_kind['warmup'])} 个")
+    if len(by_kind["formal"]) != 25:
+        errors.append(f"应有 25 个正式样本，实际 {len(by_kind['formal'])} 个")
     if len(by_kind["control"]) != 4:
         errors.append(f"应有 4 个 none control，实际 {len(by_kind['control'])} 个")
     environment_fields = (
@@ -206,11 +207,18 @@ def validate(
             continue
         if len(formal) != 5:
             errors.append(f"{algorithm} 应有 5 个正式样本，实际 {len(formal)} 个")
-        if len(controls) != 1:
-            errors.append(f"{algorithm} 应有 1 个 none control，实际 {len(controls)} 个")
+        expected_controls = 0 if algorithm == "cha" else 1
+        if len(controls) != expected_controls:
+            errors.append(
+                f"{algorithm} 应有 {expected_controls} 个 none control，"
+                f"实际 {len(controls)} 个"
+            )
         default_rows = warmups + formal
-        if any(row.get("jdk_model") != "jdk8" for row in default_rows):
-            errors.append(f"{algorithm} warm-up/formal 未使用默认 jdk8 model")
+        expected_model = "none" if algorithm == "cha" else "jdk8"
+        if any(row.get("jdk_model") != expected_model for row in default_rows):
+            errors.append(
+                f"{algorithm} warm-up/formal 未使用默认 {expected_model} model"
+            )
         if any(row.get("jdk_model") != "none" for row in controls):
             errors.append(f"{algorithm} control 未使用 none model")
         topology = topologies.get(algorithm)
@@ -224,7 +232,12 @@ def validate(
             errors.append(f"{algorithm} topology kObjDepth 不匹配")
         if topology.get("reflectionOptions") != REFLECTION_DEFAULT:
             errors.append(f"{algorithm} topology ReflectionOptions 不匹配")
-        if topology.get("jdkModel") != "jdk8":
+        expected_reflection_applied = (
+            "not applied by cha" if algorithm == "cha" else "applied"
+        )
+        if topology.get("reflectionApplied") != expected_reflection_applied:
+            errors.append(f"{algorithm} topology reflectionApplied 不匹配")
+        if topology.get("jdkModel") != expected_model:
             errors.append(f"{algorithm} topology JDK model 不匹配")
         if topology.get("requestedDependencyAnalysisScope") != scope:
             errors.append(f"{algorithm} topology requested scope 不匹配")
@@ -657,8 +670,8 @@ main{max-width:1500px;margin:auto;padding:32px}h1,h2,h3,h4{line-height:1.25}sect
 table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{border:1px solid #dfe5ef;padding:8px 10px;text-align:right;white-space:nowrap}th:first-child,td:first-child{text-align:left}th{background:#eef3fa}code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#101827;color:#e7edf8;padding:14px;border-radius:8px;max-height:640px;overflow:auto}
 .cgnode{border-top:1px solid #dfe5ef;padding:12px 0}.badge{display:inline-block;background:#e8eef9;border-radius:999px;padding:2px 8px;font-size:.75rem}.cycle{background:#ffe0ad;color:#744400}.ok{color:#14733c}.bad,.warning{color:#a12626}.muted{color:#5b667a}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.metric{background:#f7f9fd;padding:12px;border-radius:8px}details{margin:10px 0}summary{cursor:pointer;font-weight:600}
 .tab-control{position:absolute;opacity:0;pointer-events:none}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:24px 0 0}.tabs label{cursor:pointer;border:1px solid #cbd6e6;background:#e8eef9;border-radius:9px 9px 0 0;padding:10px 16px;font-weight:650}.tab-panel{display:none;margin-top:0;border-radius:0 12px 12px 12px}.tab-control:focus+.tabs label{outline:2px solid #4f74b8}.tab-panels{margin-top:0}
-#tab-rta:checked~.tabs label[for="tab-rta"],#tab-zero-cfa:checked~.tabs label[for="tab-zero-cfa"],#tab-optimized-0-1-cfa:checked~.tabs label[for="tab-optimized-0-1-cfa"],#tab-k-obj:checked~.tabs label[for="tab-k-obj"],#tab-comparison:checked~.tabs label[for="tab-comparison"]{background:#fff;border-bottom-color:#fff;color:#0d4f9b}
-#tab-rta:checked~.tab-panels .panel-rta,#tab-zero-cfa:checked~.tab-panels .panel-zero-cfa,#tab-optimized-0-1-cfa:checked~.tab-panels .panel-optimized-0-1-cfa,#tab-k-obj:checked~.tab-panels .panel-k-obj,#tab-comparison:checked~.tab-panels .panel-comparison{display:block}
+#tab-cha:checked~.tabs label[for="tab-cha"],#tab-rta:checked~.tabs label[for="tab-rta"],#tab-zero-cfa:checked~.tabs label[for="tab-zero-cfa"],#tab-optimized-0-1-cfa:checked~.tabs label[for="tab-optimized-0-1-cfa"],#tab-k-obj:checked~.tabs label[for="tab-k-obj"],#tab-comparison:checked~.tabs label[for="tab-comparison"]{background:#fff;border-bottom-color:#fff;color:#0d4f9b}
+#tab-cha:checked~.tab-panels .panel-cha,#tab-rta:checked~.tab-panels .panel-rta,#tab-zero-cfa:checked~.tab-panels .panel-zero-cfa,#tab-optimized-0-1-cfa:checked~.tab-panels .panel-optimized-0-1-cfa,#tab-k-obj:checked~.tab-panels .panel-k-obj,#tab-comparison:checked~.tab-panels .panel-comparison{display:block}
 """
     parts = [
         "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">",
@@ -667,7 +680,7 @@ table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{bo
         f"<h1>CallGraph Benchmark 可观测性报告 — <code>{e(scope)}</code></h1>",
         f'<p>Suite status: <strong class="{"ok" if not errors else "bad"}">{status}</strong>。'
         "正式样本使用全新 Java Virtual Machine（JVM），warm-up 仅用于 topology 与缓存预热；"
-        "每个 algorithm 另有一个 <code>none</code> semantic control。</p>",
+        "四种非 CHA algorithm 另有一个 <code>none</code> semantic control。</p>",
     ]
     if errors:
         parts.append("<section><h2>Failure diagnostics</h2><ul>")
@@ -806,7 +819,7 @@ def main() -> int:
     errors.extend(validate(rows, topologies, args.scope))
     formal = [row for row in rows if row.get("run_kind") == "formal"]
     summary_rows: list[dict[str, str]] = []
-    if len(formal) == 20 and all(
+    if len(formal) == 25 and all(
             sum(row.get("algorithm") == algorithm for row in formal) == 5
             for algorithm in ALGORITHMS):
         try:

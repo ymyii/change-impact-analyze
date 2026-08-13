@@ -3,14 +3,20 @@ title: "Impact Tracing"
 type: feature
 relations:
   - path: "wiki/features/call-graph-engine.md"
-    desc: "live WALA graph、Context、model evidence 与 read-only boundary"
+    desc: "WALA topology、strategy artifacts、统一collector与冻结session"
   - path: "wiki/features/bytecode-diff-engine.md"
     desc: "BoundChangePoint 输入"
   - path: "wiki/features/report-generator.md"
     desc: "Impact Path、Structural Reference Path 与 code evidence 输出"
 code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleImpactTracer.java"
-    desc: "seed resolution、deterministic reverse BFS 与 representative path"
+    desc: "Evidence anchor驱动的deterministic reverse BFS与representative path"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ReferenceEvidence.java"
+    desc: "算法无关terminal evidence与stable key"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChangePointEvidenceCollector.java"
+    desc: "完成图的唯一reachable reference扫描与ChangePoint绑定"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChangePointEvidenceIndex.java"
+    desc: "每个BoundChangePoint恰有一个resolution的冻结index"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/JvmAccessChecker.java"
     desc: "algorithm-independent Java 8 JVM access policy"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/AccessReferenceEvidence.java"
@@ -25,8 +31,6 @@ code_refs:
     desc: "fixed-point 期间登记的 reachable bootstrap/handle evidence"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/StructuralReferenceIndex.java"
     desc: "构图前生成的immutable winner-only raw structural facts"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ReachableReferenceCollector.java"
-    desc: "一次性收集reachable IR reference facts"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChangePointSeedResolverRegistry.java"
     desc: "按ChangePointKind唯一选择typed seed resolver"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/AccessNarrowingSeedResolver.java"
@@ -51,14 +55,15 @@ code_refs:
 
 ## Summary
 
-Impact Tracing 在 target Call Graph 完成后执行 read-only query。它从 reachable WALA node/IR、构图期 typed dynamic evidence、dependency body boundary evidence 与 precomputed structural metadata解析结果。`changed-paths` 的 no-op/factory IR 已在 fixed point 中生效；query 不重放或补边。Dangerous transfer 与 factory evidence 作为 typed coverage limitation进入 Module status，同时保留对应 dependency path context。
+Impact Tracing只消费冻结的`ModuleCallGraphSession`。在Call Graph完成后、session冻结前，算法无关`ChangePointEvidenceCollector`扫描reachable method一次，将ordinary invoke、field/type、Class.forName、ServiceLoader、dynamic handle和raw structural/resource fact统一转换成`ReferenceEvidence`并绑定每个`BoundChangePoint`。Query不再扫描IR发现reference，只从Evidence method anchor执行deterministic reverse breadth-first search（BFS，广度优先搜索）。Removed subject永远是terminal，不进入WALA topology。
 
 ## Design Decisions
 
 - Access query假设pre-existing consumer bytecode在old dependency下合法，只用target CHA/IR判断new access；不构建baseline CHA/Call Graph。
 - `ACCESSIBLE`不建seed；`INACCESSIBLE`与`POTENTIALLY_INACCESSIBLE`保守建seed。Potential path不改变Module status，只有可能漏报的typed limitation才使Module `INCONCLUSIVE`。
 - Runtime package必须同时匹配class loader identity与package name；protected receiver只读取caller-local verifier type，不读取points-to dataflow。
-- Seed resolver只产生typed seed/observation/evidence/limitation；Structural Reference access filtering和最终disposition分别由独立对象处理，`ModuleImpactTracer`只负责编排与path materialization。
+- 构图strategy不得定义私有terminal evidence或绑定ChangePoint；dynamic observation必须在session冻结前转换为公共Evidence。
+- `ModuleImpactTracer`只负责Evidence anchor materialization、access decision、reverse BFS与disposition reduction。
 
 ## Actors / Entrypoints
 
@@ -67,20 +72,21 @@ Impact Tracing 在 target Call Graph 完成后执行 read-only query。它从 re
 
 ## Behavior Contract
 
-- 每个BoundChangePoint恰有一个最终disposition；path与observation携带typed evidence。
+- 每个BoundChangePoint在`ChangePointEvidenceIndex`中恰有一个`MATCHED|NONE|UNSUPPORTED|INCONCLUSIVE`resolution，并在query后恰有一个最终disposition。
 - Query resolution gap通过`QueryLimitation`回传pipeline，不改写scope validation或strategy metadata。
-- Boundary evidence由 Call Graph fixed point期间收集，query/report只读。普通 no-op没有dangerous/factory evidence时不自动产生coverage limitation。
+- Evidence anchor分为精确WALA Context的`MethodEvidenceAnchor`、structural class/member的`StructuralEvidenceAnchor`及service resource的`ResourceEvidenceAnchor`。
+- `EvidenceKind`固定为method、field、type、structural和resource reference；mechanism描述declaration、declared invoke、bytecode field/type、Class.forName local constant、ServiceLoader provider、invokedynamic、MethodHandle或structural metadata。
 
-## Seed Resolution
+## Unified Evidence Resolution
 
-- `METHOD_BODY_CHANGED`：按 new owner/name/descriptor 匹配全部 reachable `CGNode` Context。
-- `METHOD_REMOVED`/`METHOD_DESCRIPTOR_CHANGED`：扫描 reachable WALA IR 的 ordinary invoke `declaredTarget`，以 old owner/name/descriptor 建 caller terminal seed。
-- Lambda、method reference 与 unknown bootstrap 的 removed/descriptor-changed implementation：使用 `DynamicCallEvidenceIndex` 中 fixed-point 期间登记的 direct method-handle evidence。不存在的 implementation 不要求 callee node。Evidence stable key由caller method binary identity、bytecode PC、typed source/handle kind与target identity组成，不依赖`CGNode`编号或`Context.toString()`。
-- Field removal/descriptor change：扫描 reachable field access 的 declared field。
-- Class removal：扫描 allocation、cast、`instanceof`、array、metadata、method/field type reference。
-- Access narrowing：method/constructor扫描reachable invoke；field扫描reachable field access；class扫描reachable type reference并复用raw Structural Reference。Inherited member先经target CHA解析actual declaration，不能只比较symbolic owner。
+- `METHOD_BODY_CHANGED`：reachable target `CGNode`生成`METHOD_REFERENCE + METHOD_DECLARATION`。
+- Removed/descriptor-changed method：ordinary invoke生成`METHOD_REFERENCE + DECLARED_INVOKE`；dynamic handle转换为`INVOKEDYNAMIC_*`或`METHOD_HANDLE_TARGET`。
+- Removed/descriptor-changed field：field access生成`FIELD_REFERENCE + BYTECODE_FIELD_REFERENCE`。
+- Removed class：allocation、cast、`instanceof`、array、metadata和method/field descriptor生成`TYPE_REFERENCE + BYTECODE_TYPE_REFERENCE`；局部constant `Class.forName`生成`CLASS_FOR_NAME_LOCAL_CONSTANT`。
+- Service provider class与registration change：baseline service relation生成`SERVICE_LOADER_PROVIDER`，resource-only change附加`RESOURCE_REFERENCE`；reachable load caller另有method anchor用于Impact Path。
+- Access narrowing引用在collector阶段采集；target access legality、receiver type和最终decision在query阶段计算。Inherited member先经target CHA解析actual declaration。
 - Reachable `invokedynamic` bootstrap argument中的typed MethodHandle evidence按handle reference kind执行相同access check；普通`ldc CONSTANT_MethodHandle`用途与programmatic `MethodHandles.Lookup`不伪造确定结果。
-- `*_ADDED` 不触发 query，disposition 为 `CHANGE_KIND_NOT_ANALYZED`。
+- `*_ADDED` resolution为`UNSUPPORTED`，disposition为`CHANGE_KIND_NOT_ANALYZED`。
 - Dependency duplicate 判断使用 `ArtifactCoord` logical source。Changed coordinate 是 loser 时为 `SHADOWED_BY_DUPLICATE`；不把 loser bytecode 绑定到 winner WALA node。
 
 ## Reverse BFS and Representative Path
@@ -102,7 +108,7 @@ Impact Tracing 在 target Call Graph 完成后执行 read-only query。它从 re
 
 ## Structural Reference Path
 
-- Structural metadata在Call Graph前，从ownership winner的PROJECT/reactor directory与repository-backed dependency JAR收集；session只保存immutable `StructuralReferenceIndex`。Query先由`StructuralReferenceResolver`绑定ChangePoint，再执行target CHA access decision与path materialization。
+- Structural metadata在Call Graph前从ownership winner收集raw fact；统一collector绑定为`STRUCTURAL_REFERENCE + STRUCTURAL_METADATA`。Query不再执行ChangePoint绑定，只做target CHA access decision与path materialization。
 - superclass、interface、annotation、generic signature、method/field descriptor、throws reference在ASM visitor中直接形成typed `MetadataReference(kind, member, target, evidence)`，再投影为`StructuralReference`；kind/member不从evidence文字反向解析。
 - PROJECT metadata reference 直接展示 `application class/member -> structural relation -> changed dependency class`，不虚构 method call。
 - REACTOR_DEPENDENCY/DEPENDENCY reference 使用 live WALA graph 做同样的 read-only reverse BFS，恢复 PROJECT boundary。
@@ -148,7 +154,7 @@ Impact Tracing 在 target Call Graph 完成后执行 read-only query。它从 re
 
 ## Read-only Boundary
 
-Call Graph 完成后，Impact query 只读取 graph、IR、model metadata 与 precomputed structural metadata。禁止 post-build ServiceLoader overlay、post-build `invokedynamic` whole-scope ASM scan、node/edge mutation或第二张 target Call Graph。
+Session冻结后，Impact query只读取graph、`ChangePointEvidenceIndex`、strategy metadata与typed limitation。禁止扫描IR重新发现method/field/type/reflection/ServiceLoader reference、ServiceLoader overlay、`invokedynamic` whole-scope ASM scan、node/edge mutation或第二张target Call Graph。
 
 “未发现 Impact Path”只适用于公开 analysis model。`changed-paths` 的 `SUCCESS` 只表示 selected path 与已建模 boundary 内未发现路径，不代表 no-op dependency 内部不存在影响。Reflection target、Spring dynamic semantics、custom classloader 与未注册 bootstrap 同样不保证完整；明确 typed limitation 必须以 `INCONCLUSIVE` 表达。
 
@@ -162,7 +168,7 @@ Call Graph 完成后，Impact query 只读取 graph、IR、model metadata 与 pr
 
 ### Non-Functional
 
-- [ ] Query保持Call Graph、CHA、strategy metadata与raw structural index只读。
+- [ ] Query保持Call Graph、CHA、strategy metadata与Evidence index只读。
 - [ ] `TypeInference`按reachable node缓存，access checker不依赖algorithm或points-to value。
 - [ ] 相同输入的representative path、evidence与limitation排序稳定。
 
@@ -174,4 +180,4 @@ Call Graph 完成后，Impact query 只读取 graph、IR、model metadata 与 pr
 ## Implementation Boundaries
 
 - 不分析source compatibility、Reflection/JNI/custom ClassLoader access或Java 9 module exports。
-- Structural scanner只采集raw事实；access decision只在target CHA完成后执行。
+- Structural scanner只采集raw事实；统一collector负责绑定；access decision只在target CHA完成后执行。

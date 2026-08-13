@@ -9,7 +9,7 @@ relations:
   - path: "wiki/features/cli-preflight-diagnostics.md"
     desc: "JAR pair failure message、stack trace 与 retained/transient 边界"
   - path: "wiki/runbooks/impact-benchmark.md"
-    desc: "固定 9 类 raw ChangePoint 的持续 benchmark fixture"
+    desc: "固定10类raw ChangePoint与dynamic loading场景的benchmark fixture"
 code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/BytecodeDiffEngine.java"
     desc: "class/method/field diff"
@@ -18,7 +18,11 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/StableHashMethodVisitor.java"
     desc: "ASM MethodNode canonical encoder"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/ChangePoint.java"
-    desc: "old/new descriptor、hash 与 validated access transition"
+    desc: "bytecode或typed resource ChangePoint subject"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/ServiceLoaderResourceDiffEngine.java"
+    desc: "baseline/target META-INF/services resource Diff与deduplication"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/ServiceProviderRegistration.java"
+    desc: "service registration typed subject"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/JvmAccess.java"
     desc: "JVM visibility normalization 与 strict narrowing order"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/AccessTransition.java"
@@ -39,7 +43,7 @@ code_refs:
 
 ## Summary
 
-对唯一 logical `(oldCoordinate,newCoordinate)` pair 通过 `IJarRepository` 执行一次 ASM bytecode diff，生成的 immutable ChangePoint 由各 Module 的 `BoundChangePoint` 共享，不复制或改写。除结构、descriptor 与 method body 外，index保留 normalized `JvmAccess`，并检测 Java 8 pre-existing bytecode 的 class/method/constructor/field access narrowing。Pool 大小使用 `--analysis-parallelism`，再按 task 数计算 actual workers；merge 与排序 deterministic。physical path 不进入 domain key。
+对唯一logical `(oldCoordinate,newCoordinate)` pair执行ASM bytecode Diff和ServiceLoader resource Diff，生成的immutable ChangePoint由各Module的`BoundChangePoint`共享。除class/member结构、descriptor、method body与JVM access narrowing外，比较baseline/target的`META-INF/services/<service>`有效provider registration。Resource ChangePoint使用typed subject，physical path不进入domain key。
 
 ## Design Decisions
 
@@ -48,23 +52,36 @@ code_refs:
 - `AccessTransition`必须是 strict narrowing。三个 access kind必须携带该 Value Object，其他 kind禁止携带，避免成对 nullable old/new access。
 - Descriptor变化只保留既有 `*_DESCRIPTOR_CHANGED`，不猜测不同 descriptor 是同一 member；body与access同时变化时保留两个独立 ChangePoint。
 - Module binding只增加`DependencyUpgradeKey` provenance；`BoundChangePoint`要求ChangePoint artifact等于upgrade target artifact，不通过对象重建改变diff identity。
+- ServiceLoader resource只比较发生dependency upgrade的外部artifact，不扩展PROJECT source resource。
+- baseline provider必须存在、可解析并assignable给service，才参与registration removal判断。
 
 ## Actors / Entrypoints
 
 - `impact` pipeline 在 baseline/target dependency version变化后，以 logical coordinate pair触发JAR diff。
-- `--include-change-kinds` 可筛选输出；三个 access narrowing kind属于默认集合。
+- `--include-change-kinds`可筛选输出；三个access narrowing kind与`SERVICE_PROVIDER_REGISTRATION_REMOVED`属于默认集合。
 
 ## Behavior Contract
 
 - 相同输入JAR与include集合产生稳定排序、相同identity的ChangePoint。
 - Access narrowing只比较相同binary identity，且只描述target access相对baseline的strict narrowing。
 - 同一coordinate pair被多个Module引用时共享同一ChangePoint实例，descriptor、hash与`AccessTransition`保持不变。
+- service配置删除但provider class仍存在时生成`SERVICE_PROVIDER_REGISTRATION_REMOVED`；provider class和配置同时删除时只保留`CLASS_REMOVED`。
 
 ## Core Flow
 
 1. 通过command-scoped repository lease读取old/new JAR并建立class/member index。
 2. 比较class存在性、actual class access、method/field identity、descriptor、member access与method body hash。
-3. 创建validated immutable ChangePoint，按stable key排序并通过`BoundChangePoint`附加各Module的upgrade provenance。
+3. 读取双方`META-INF/services/*`，删除comment/空行，规范binary name、去重、稳定排序，并校验baseline provider存在性与assignability。
+4. 创建validated immutable bytecode/resource ChangePoint，完成class-removal deduplication，按stable key排序并附加Module upgrade provenance。
+
+## ServiceLoader Resource Diff
+
+- `ServiceProviderRegistration`包含resource path、service internal name、provider internal name和target `ArtifactCoord`。
+- provider class与配置行同时删除：只保留`CLASS_REMOVED`；baseline service relation稍后由统一collector生成`TYPE_REFERENCE + SERVICE_LOADER_PROVIDER`Evidence。
+- 仅配置行删除：生成`SERVICE_PROVIDER_REGISTRATION_REMOVED`，统一collector绑定`RESOURCE_REFERENCE + SERVICE_LOADER_PROVIDER`Evidence。
+- target仍声明removed、missing、non-assignable或非法provider：保留可用class-removal Evidence，并生成`SERVICE_LOADER_PROVIDER_INVALID`typed limitation。
+- 资源读取或解析失败生成`INCONCLUSIVE_SERVICE_LOADER`，不终止其他ChangePoint分析。
+- 同一service/provider/artifact只生成一个stable ChangePoint或Evidence。
 
 ## Stable Method Hash
 
@@ -110,6 +127,8 @@ code_refs:
 - Parallel/sequential fixture 的 ChangePoint 集合和排序一致。
 - Given相同binary identity发生strict visibility narrowing；When执行 diff；Then生成对应默认启用的 access ChangePoint并保留old/new access。
 - Given descriptor变化、access expansion或非法modifier组合；When执行diff/构造domain object；Then不猜测access narrowing或立即fail fast。
+- Given provider class与registration同时删除；When执行Diff；Then只生成`CLASS_REMOVED`。Given仅删除registration；Then生成typed resource ChangePoint。
+- Given配置包含comment、空行与duplicate；When执行Diff；Then规范化结果和stable key保持deterministic。
 
 ### Non-Functional
 

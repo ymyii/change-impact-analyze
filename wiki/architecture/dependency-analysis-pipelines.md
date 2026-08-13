@@ -26,15 +26,21 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/ModuleDependencyEvidence.java"
     desc: "per-Module dependency consumer 的唯一 merged evidence"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/DependencyBodyBoundary.java"
-    desc: "四种 algorithm 共享的 external method-body policy"
+    desc: "points-to algorithm 共享的 external method-body policy"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphAlgorithmStrategy.java"
-    desc: "Call Graph algorithm execution boundary"
+    desc: "Call Graph topology strategy与capability boundary"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphPolicy.java"
+    desc: "algorithm相关JDK Method Model默认值与统一校验"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/JdkModelSelection.java"
     desc: "command-wide jdk8/none policy"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/JdkModelInstallation.java"
     desc: "WALA defaults之后的single-graph model installation"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphBuildRequest.java"
     desc: "strategy input中的model selection"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChangePointEvidenceCollector.java"
+    desc: "Call Graph完成后的统一reference evidence采集和ChangePoint绑定"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChangePointEvidenceIndex.java"
+    desc: "冻结session内每个BoundChangePoint的完整evidence resolution"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleCoverageReducer.java"
     desc: "typed coverage limitation precedence"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
@@ -45,7 +51,7 @@ code_refs:
 
 ## Summary
 
-Root CLI 分发 `impact` 与 `tree`。`impact` 面向 Maven、Spring backend、JDK 8：只编译 target，只构建 target per-Module Call Graph；baseline 仅提供 merged dependency evidence、old artifact coordinate、old bytecode 和按需 old SSA。默认 `changed-paths` 从 target winner-normalized occurrence graph 恢复全部 `Module direct dependency -> changed dependency` 路径并集，只裁剪路径外 external method body；所有 classes、resources 与 selected JAR 仍进入 AnalysisScope 和 Class Hierarchy Analysis（CHA）。`tree` 保持独立 repository/reactor HTML pipeline及conflict report。
+Root CLI 分发 `impact` 与 `tree`。`impact` 面向 Maven、Spring backend、JDK 8：只编译 target，只构建 target per-Module Call Graph；baseline 仅提供 dependency evidence、old artifact、字节码、ServiceLoader resource和按需old SSA。默认配置固定为`cha + changed-paths + jdk-model none`。每个算法只负责Call Graph topology和protocol artifacts；图完成后由算法无关collector一次性绑定全部`ChangePointEvidence`，冻结session后再执行Impact Path查询。`tree`保持独立repository/reactor HTML pipeline及conflict report。
 
 ## Architecture Diagram
 
@@ -56,15 +62,17 @@ flowchart TD
   Front["parallel: baseline dependency + target compile"] --> TargetDep["target dependency"]
   TargetDep --> Evidence["Schema v3: selected winner + normalized occurrence + binding"]
   Evidence --> DepDiff["selected dependency diff + coordinate repository"]
-  DepDiff --> JarDiff["deduplicated parallel coordinate-pair JAR diff"]
+  DepDiff --> JarDiff["bytecode + ServiceLoader resource diff"]
   JarDiff --> Bind["BoundChangePoint per Module"]
   Bind --> PathPlan["all reverse paths to changed dependency; union or full fallback"]
   PathPlan --> EntrySelection["immutable target/classes entrypoint class index"]
   EntrySelection --> ModulePool["bounded Module pool; analysis parallelism"]
   ModulePool --> ScopeValidation["scope validation"]
-  ScopeValidation --> Strategy["Factory selects strategy + JDK model + dependency body policy"]
-  Strategy --> CFA["one per-Module WALA Call Graph + immutable metadata"]
-  CFA --> Query["read-only query + typed access resolution"]
+  ScopeValidation --> Strategy["Factory selects topology strategy + capabilities"]
+  Strategy --> CFA["one per-Module WALA Call Graph + strategy artifacts"]
+  CFA --> Collector["unified evidence collection + ChangePoint binding"]
+  Collector --> Session["freeze graph + evidence + limitations + metadata"]
+  Session --> Query["evidence-driven reverse BFS + typed access decision"]
   Query --> Coverage["typed limitation reduction"]
   Coverage --> SSA["global serial candidate-only SSA equivalence"]
   SSA --> Decompile["parallel path-related code comparison"]
@@ -76,26 +84,29 @@ flowchart TD
 - `front preparation`：并行执行 baseline dependency collection与target compile的command前半段。
 - `Module analysis`：每个 relevant target Module独立拥有scope、CHA、selected WALA graph与query session的阶段。
 - `command-scoped repository`：按`ArtifactCoord`提供validated JAR lease且不向业务domain暴露physical path的immutable repository。
+- `ChangePointEvidence`：算法无关的typed terminal reference；它不进入WALA Call Graph topology。
+- `frozen session`：包含Call Graph、统一evidence、coverage limitation、ownership与strategy metadata的只读Module结果。
 
 ## Architecture Decision Records
 
 - target每个Module只构建一张 selected Call Graph；baseline不compile也不构图，以控制CPU、heap和workspace成本。
-- `--call-graph-algorithm` command-wide选择 `rta`、`zero-cfa`、`optimized-0-1-cfa`或`k-obj`，默认`rta`；同一次command的全部Module使用一致analysis model，不自动fallback。`--k-obj-depth`只对`k-obj`合法，默认`1`且必须为正整数。
-- `--jdk-model` command-wide选择`jdk8`或`none`，默认`jdk8`；同一次command的全部Module一致。`jdk8`安装失败、Synthetic loader不支持或catalog不完整时Module失败，不fallback；`none`跳过catalog和selector。
+- `--call-graph-algorithm` command-wide选择`cha`、`rta`、`zero-cfa`、`optimized-0-1-cfa`或`k-obj`，默认`cha`；同一次command的全部Module使用一致analysis model，不自动fallback。`--k-obj-depth`只对`k-obj`合法，默认`1`且必须为正整数。
+- JDK Method Model默认值依algorithm解析：`cha`固定`none`；其他algorithm未指定时为`jdk8`。显式`cha + jdk8`在CLI、pipeline和直接Java API共用的capability validation中失败；其他algorithm仍可显式选择`none`。
 - `--dependency-analysis-scope` command-wide 选择 `changed-paths` 或 `full`，默认 `changed-paths`。Requested mode 与 per-Module actual mode 分开保存；occurrence graph 无法稳定恢复全部路径时，仅该 Module 自动 fallback 到 `full` 并记录 typed reason。
 - `changed-paths` 不删除 artifact：全部 target external JAR、resource、reactor classes 和 JDK 仍进入 scope/CHA/ownership/model resolution。Optimization 只影响 resolved external `IMethod` 的 IR policy。
-- 四种Call Graph实现通过唯一Factory选择独立strategy。`BasicRTABuilder`、两种`ZeroXCFABuilder`与纯`nObjBuilder(k, …)`只存在于对应strategy；pipeline依赖immutable request/result与统一metadata shape，不依赖builder capability adapter。
-- `--wala-reflection-options`同样command-wide，默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`；实际值穿过pipeline configuration、strategy、Diagnostic与Report，不由algorithm隐式覆盖。
-- Call Graph完成后所有Impact query只读，不允许overlay、第二张graph或whole-scope补扫，确保结果来源单一且可解释。
+- 五种Call Graph实现通过唯一、穷尽Factory选择独立strategy。Strategy只产生topology、protocol summary、typed limitation和标准metadata；不得创建/绑定`ChangePoint`、生成Impact Path或改变disposition/report规则。
+- `--wala-reflection-options`同样command-wide，默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。CHA不安装WALA Reflection expansion，Diagnostic和Report显式显示`not applied by cha`；其他algorithm应用实际选择。
+- raw structural fact可在构图前采集；所有reference必须在Call Graph完成后、session冻结前由统一collector绑定。冻结后的Impact query不得重扫IR发现reference、overlay、补边、构建第二张graph或whole-scope重扫。
+- Removed class、method、field与resource永远只作为evidence terminal；不得进入WALA Call Graph node/edge。`CallEdgeKind`只表示真实调用边或protocol edge。
 - Scope/model/query limitation通过统一`CoverageLimitation` contract单向汇入reducer；固定reason precedence不读取exception message、summary或HTML。
 
 ## Runtime Flow
 
 - Root CLI完成preflight与scope planning后，front preparation并行收集baseline dependency并编译target。
 - Baseline/target dependency collection分别产出`ModuleDependencyEvidence`。Maven resolved graph决定selected projection与winner；raw graph occurrence直接映射到retained winner，保留topology；Schema v3在同一Module evidence内绑定physical artifact。
-- Dependency diff和JAR diff完成后，ChangePoint按Module绑定。每个Module使用target evidence的normalized occurrence graph从所有matching winner seed沿全部parent edge反向恢复到Module root；路径、多occurrence和多seed取并集，禁止沿seed child edge扩展。
-- 每个Module依次执行path planning、scope validation、selected strategy build、read-only query与typed coverage reduction；strategy在WALA defaults后安装selected JDK model，fixed point后snapshot single-graph metadata。全局随后串行执行SSA equivalence，再并行生成code evidence。
-- Analysis result、Overall Report与optional diagnostics JSON携带algorithm及`jdk8`/`none` selection；仅`k-obj`携带实际深度。internal catalog/hit snapshot不跨入用户输出。diagnostics JSON为Schema v6。
+- Bytecode Diff与ServiceLoader resource Diff完成后，ChangePoint按Module绑定。每个Module使用target evidence的normalized occurrence graph从所有matching winner seed沿全部parent edge反向恢复到Module root；路径、多occurrence和多seed取并集，禁止沿seed child edge扩展。
+- 每个Module依次执行path planning、scope validation、strategy build、统一evidence collection、session freeze、read-only query与typed coverage reduction。全局随后串行执行SSA equivalence，再并行生成code evidence。
+- Analysis result、Overall Report与optional diagnostics JSON携带effective algorithm、JDK model、strategy capabilities、Reflection applied状态和Evidence汇总；仅`k-obj`携带实际深度。diagnostics JSON为Schema v7。
 - Overall与Module pages全部写入staging成功后，原子替换command-owned Report。
 
 ## Module Contract
@@ -135,14 +146,15 @@ flowchart TD
 
 ## Analysis Model Boundaries
 
-- Call Graph 是 selected WALA over-approximation：RTA按全局已实例化compatible class求virtual/interface reachability；ZeroCFA按class合并普通allocation并保留constant identity；optimized 0-1-CFA保留allocation-site/constant identity并smush高成本对象；`k-obj`保留最多`k`层receiver allocation string与精确allocation-site，不叠加call string且不smush。
+- Call Graph是selected WALA over-approximation：CHA按完整class hierarchy做context-insensitive dispatch；RTA按全局已实例化compatible class；ZeroCFA按class合并allocation；optimized 0-1-CFA保留allocation-site并smush高成本对象；`k-obj`保留最多`k`层receiver allocation string。
+- CHA不构建points-to、heap、跨方法或通用数据流fixed point。唯一值传播是从受支持API参数出发，在单个reachable caller SSA definition上有界回溯String/Class constant。
 - `changed-paths` 中路径外 external method 默认 summary 不包含内部 call、field read/write、callback、exception或thread行为。它保留 caller 到 resolved callee 的 edge，并按 return type返回正常默认值。
 - 当 invoke reference result 在同一 caller IR 中仅经 bounded direct/phi/pi flow 到达 concrete、可解析且处于真实 IR scope 的 `checkcast` target 时，factory summary 分配该类型并返回，不显式调用 constructor。该近似产生 typed evidence 和 `INCONCLUSIVE`。
 - Reachable no-op callee 收到可证明为 changed class 实例的 receiver、argument、array 或 varargs 元素时记录 dangerous transfer；只声明为 `Object` 且无法恢复实际类型时不猜测。
 - Entrypoint fake receiver/parameter只表达 declared interface/abstract type，不探索真实 implementation；因此 implementation-only path可能不可达。
-- Reflection使用command选择的WALA `ReflectionOptions`；默认是bounded `ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。三种points-to strategy由各自MethodHandle installer安装WALA extension，RTA installer仅使用reachable caller-local IR/DefUse推导已支持的`findStatic` target；resolution保存operation、caller stable identity、bytecode PC与resolved binary identity。
+- 非CHA algorithm使用command选择的WALA `ReflectionOptions`；CHA只用caller-local String constant识别精确`Class.forName(String)` terminal evidence，不创建removed class node、reflection edge或synthetic method。
 - `ServiceLoaderProtocolIndex`由engine在strategy前读取、验证并冻结一次；RTA、ZeroCFA、optimized与`k-obj` installer分别安装local checkcast、constant aggregate或allocation-site execution，不共享含algorithm分支的mutable execution state。`k-obj` ServiceLoader Context保留WALA提供的任意合法深度allocation string。
-- ServiceLoader 与注册的 `invokedynamic` 协议在 `makeCallGraph(...)` 前安装 WALA model，参与 points-to/call graph fixed point；构图后不允许 overlay 补图或 whole-scope JAR/classfile 重扫。
+- CHA对精确`ServiceLoader.load(Class)`回溯caller-local Class constant，并将target有效provider的真实public zero-argument constructor作为`SERVICE_LOADER` protocol edge加入构图；baseline/target registration removal仍只绑定公共Evidence terminal。
 - 非 constant ServiceLoader service type、非法 provider 与 reachable unknown bootstrap 产生 stable limitation，并使 Module `INCONCLUSIVE`。
 - Spring DI/AOP/annotation/XML/config、custom classloader 不完整建模。
 - 只允许 `PROVEN_EQUIVALENT` 删除 Impact Paths；`UNKNOWN` 保留路径。

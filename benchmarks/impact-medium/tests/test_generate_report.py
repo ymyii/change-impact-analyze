@@ -13,6 +13,7 @@ from pathlib import Path
 
 
 ALGORITHMS = (
+    "cha",
     "rta",
     "zero-cfa",
     "optimized-0-1-cfa",
@@ -57,6 +58,7 @@ SAMPLE_COLUMNS = (
     "maven",
 )
 GRAPH_COUNTS = {
+    "cha": (12, 18, 30),
     "rta": (12, 120, 240),
     "zero-cfa": (12, 24, 42),
     "optimized-0-1-cfa": (12, 30, 48),
@@ -95,9 +97,12 @@ class GenerateReportTest(unittest.TestCase):
                 encoding="utf-8", newline=""
             ) as stream:
                 samples = list(csv.DictReader(stream, delimiter="\t"))
-            self.assertEqual(20, len(samples))
+            self.assertEqual(25, len(samples))
             self.assertEqual({"formal"}, {row["run_kind"] for row in samples})
-            self.assertEqual({"jdk8"}, {row["jdk_model"] for row in samples})
+            self.assertEqual(
+                {"jdk8", "none"},
+                {row["jdk_model"] for row in samples},
+            )
             self.assertEqual(
                 {"1"},
                 {row["k_obj_depth"] for row in samples
@@ -114,7 +119,10 @@ class GenerateReportTest(unittest.TestCase):
             ) as stream:
                 summaries = list(csv.DictReader(stream, delimiter="\t"))
             self.assertEqual(list(ALGORITHMS), [row["algorithm"] for row in summaries])
-            self.assertEqual({"jdk8"}, {row["jdk_model"] for row in summaries})
+            self.assertEqual(
+                {"jdk8", "none"},
+                {row["jdk_model"] for row in summaries},
+            )
             self.assertEqual("1", summaries[-1]["k_obj_depth"])
             self.assertEqual({"5"}, {row["successful_samples"] for row in summaries})
 
@@ -124,9 +132,12 @@ class GenerateReportTest(unittest.TestCase):
                 reader = csv.DictReader(stream, delimiter="\t")
                 topology_columns = tuple(reader.fieldnames or ())
                 topology = list(reader)
-            self.assertEqual(32, len(topology))
+            self.assertEqual(40, len(topology))
             self.assertIn("sentinel_role", topology_columns)
-            self.assertEqual({"jdk8"}, {row["jdk_model"] for row in topology})
+            self.assertEqual(
+                {"jdk8", "none"},
+                {row["jdk_model"] for row in topology},
+            )
             self.assertEqual(
                 {"", "1"}, {row["k_obj_depth"] for row in topology}
             )
@@ -160,7 +171,7 @@ class GenerateReportTest(unittest.TestCase):
                 and "[FAKE_WORLD_CLINIT]" in row["shortest_path"]
                 for row in path_rows
             ))
-            self.assertEqual(8, len(path_rows))
+            self.assertEqual(10, len(path_rows))
             self.assertEqual(
                 {"DECLARED_ENTRYPOINT", "FAKE_ROOT"},
                 {row["path_root_kind"] for row in path_rows},
@@ -188,7 +199,7 @@ class GenerateReportTest(unittest.TestCase):
                     report,
                 )
                 self.assertIn(f'id="tab-{algorithm}"', report)
-            self.assertEqual(5, report.count('name="report-tab"'))
+            self.assertEqual(6, report.count('name="report-tab"'))
             self.assertIn('id="tab-comparison"', report)
             self.assertIn("Top 10 caller CGNode", report)
             self.assertIn("Top 10 callee CGNode", report)
@@ -203,14 +214,14 @@ class GenerateReportTest(unittest.TestCase):
             self.assertIn("WALA SYNTHETIC", report)
             self.assertIn("10 / 12 CGNode Context examples；omitted 2", report)
             self.assertEqual(
-                8, report.count("Declared entrypoint shortest CGNode chains")
+                10, report.count("Declared entrypoint shortest CGNode chains")
             )
             self.assertEqual(
-                8,
+                10,
                 report.count("<h5>WALA sentinel shortest CGNode chains</h5>"),
             )
             self.assertEqual(
-                4,
+                5,
                 report.count("请查看 WALA sentinel shortest CGNode chains"),
             )
             self.assertNotIn("UNREACHABLE_FROM_DECLARED_ENTRYPOINTS", report)
@@ -229,7 +240,7 @@ class GenerateReportTest(unittest.TestCase):
             self.assertIn(
                 "WALA sentinel shortest CGNode chains", caller_section
             )
-            self.assertEqual(20, report.count("<td>SUCCESS</td>"))
+            self.assertEqual(25, report.count("<td>SUCCESS</td>"))
             self.assertIn("Algorithm comparison", report)
             self.assertIn("Changed dependency paths", report)
             self.assertIn("changed-paths", report)
@@ -266,13 +277,13 @@ class GenerateReportTest(unittest.TestCase):
             for name, expected in tracked_snapshots.items():
                 self.assertEqual(expected, (tracked_dir / name).read_bytes())
 
-    def test_schema_v5_is_rejected(self) -> None:
+    def test_schema_v6_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             run_directories = self._write_suite(root / "runs")
             topology_path = run_directories[0] / "topology.json"
             topology = json.loads(topology_path.read_text(encoding="utf-8"))
-            topology["schemaVersion"] = 5
+            topology["schemaVersion"] = 6
             topology_path.write_text(json.dumps(topology), encoding="utf-8")
 
             result = self._generate(
@@ -302,7 +313,7 @@ class GenerateReportTest(unittest.TestCase):
 
             self.assertEqual(0, result.returncode, result.stderr)
             rows = list(csv.DictReader(result.stdout.splitlines(), delimiter="\t"))
-            self.assertEqual(24, len(rows))
+            self.assertEqual(30, len(rows))
             self.assertEqual({"0.000000"}, {row["absolute_change"] for row in rows})
             self.assertEqual({"1.000000"}, {row["ratio"] for row in rows})
 
@@ -451,7 +462,9 @@ class GenerateReportTest(unittest.TestCase):
         for algorithm in ALGORITHMS:
             warmup = root / f"warmup-{algorithm}"
             self._write_metrics(warmup, algorithm, "warmup", 0, 0,
-                                scope=scope)
+                                scope=scope,
+                                jdk_model=("none" if algorithm == "cha"
+                                           else "jdk8"))
             self._write_topology(warmup, algorithm, scope)
             run_directories.append(warmup)
         for sample in range(1, 6):
@@ -461,9 +474,12 @@ class GenerateReportTest(unittest.TestCase):
                 run = root / f"formal-{sample}-{algorithm}"
                 drift = algorithm == drift_algorithm and sample == 3
                 self._write_metrics(run, algorithm, "formal", sample, sample,
-                                    drift, scope)
+                                    drift, scope,
+                                    "none" if algorithm == "cha" else "jdk8")
                 run_directories.append(run)
         for algorithm in ALGORITHMS:
+            if algorithm == "cha":
+                continue
             control = root / f"control-{algorithm}"
             self._write_metrics(
                 control, algorithm, "control", 0, 0,
@@ -575,11 +591,14 @@ class GenerateReportTest(unittest.TestCase):
             "topCallers", False,
         )
         topology = {
-            "schemaVersion": 6,
+            "schemaVersion": 7,
             "algorithm": algorithm,
             "kObjDepth": 1 if algorithm == "k-obj" else None,
-            "jdkModel": "jdk8",
+            "jdkModel": "none" if algorithm == "cha" else "jdk8",
             "reflectionOptions": REFLECTION_OPTIONS,
+            "reflectionApplied": (
+                "not applied by cha" if algorithm == "cha" else "applied"
+            ),
             "requestedDependencyAnalysisScope": scope,
             "jdk": "1.8-test",
             "modules": [

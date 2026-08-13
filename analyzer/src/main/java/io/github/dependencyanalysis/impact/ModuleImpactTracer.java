@@ -13,8 +13,7 @@ import io.github.dependencyanalysis.callgraph.ClassOwnership;
 import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.DuplicateClassResolution;
-import io.github.dependencyanalysis.callgraph.DynamicCallEvidenceIndex;
-import io.github.dependencyanalysis.callgraph.EdgeKind;
+import io.github.dependencyanalysis.callgraph.CallEdgeKind;
 import io.github.dependencyanalysis.callgraph.MethodId;
 import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
 import io.github.dependencyanalysis.callgraph.SyntheticEdgeMetadata;
@@ -35,7 +34,7 @@ import java.util.Objects;
 import java.util.Queue;
 import java.util.Set;
 
-/** Single-thread direct query over a live per-module WALA graph. */
+/** Single-thread Impact Path query over a frozen per-module session. */
 public final class ModuleImpactTracer {
 
     /** Diagnostics. */
@@ -71,22 +70,16 @@ public final class ModuleImpactTracer {
                 new LinkedHashMap<>();
         final Set<QueryLimitation> limitations = new LinkedHashSet<>();
         final Map<QueryNode, ReverseTrace> traceCache = new HashMap<>();
-        final ReachableReferenceCollector reachableReferences =
-                new ReachableReferenceCollector(session);
         final ChangePointSeedResolverRegistry seedResolvers =
                 new ChangePointSeedResolverRegistry();
         final List<StructuralReferenceMatch> structuralReferences =
-                new StructuralReferenceResolver().resolve(
-                        unit.getChangePoints(),
-                        session.getStructuralReferences());
+                structuralReferences(session);
         final StructuralReferencePreparation.Result preparedStructures =
                 new StructuralReferencePreparation().prepare(
                         structuralReferences, session);
         final StructuralPathResult structures = materializeStructuralPaths(
                 unit.getModuleId(), preparedStructures,
                 session, traceCache);
-        final DynamicCallEvidenceIndex bootstrapEvidence =
-                session.getDynamicEvidence();
         structures.observations().forEach((point, values) ->
                 observations.put(point, values));
         limitations.addAll(structures.limitations());
@@ -108,7 +101,8 @@ public final class ModuleImpactTracer {
             final ChangePointSeedResolution resolution =
                     seedResolvers.resolve(new ChangePointSeedRequest(
                             unit.getModuleId(), change, session,
-                            bootstrapEvidence, reachableReferences));
+                            session.getChangePointEvidence()
+                                    .resolution(point)));
             final List<ImpactSeed> seeds = resolution.seeds();
             limitations.addAll(resolution.limitations());
             if (!resolution.evidence().isEmpty()) {
@@ -159,6 +153,28 @@ public final class ModuleImpactTracer {
         return new ModuleImpactQueryResult(
                 paths, structures.paths(), dispositions, observations,
                 limitations.stream().sorted().toList());
+    }
+
+    private List<StructuralReferenceMatch> structuralReferences(
+            final ModuleCallGraphSession session) {
+        final Set<StructuralReferenceMatch> result = new LinkedHashSet<>();
+        for (ChangePointEvidenceResolution resolution : session
+                .getChangePointEvidence().resolutions()) {
+            for (ReferenceEvidence evidence : resolution.evidence()) {
+                evidence.anchor()
+                        .filter(StructuralEvidenceAnchor.class::isInstance)
+                        .map(StructuralEvidenceAnchor.class::cast)
+                        .ifPresent(anchor -> result.add(
+                                new StructuralReferenceMatch(
+                                        resolution.changePoint(),
+                                        anchor.reference())));
+            }
+        }
+        return result.stream().sorted(Comparator
+                .comparing((StructuralReferenceMatch value) ->
+                        value.changePoint().stableKey())
+                .thenComparing(value -> value.reference().stableKey()))
+                .toList();
     }
 
     static ChangePointDisposition duplicateDisposition(
@@ -376,8 +392,8 @@ public final class ModuleImpactTracer {
                             ? ImpactClassification.DIRECT
                             : ImpactClassification.TRANSITIVE;
             final ImpactPath path = new ImpactPath(nodes, edges,
-                    new ChangePointTerminal(point, seed.kind(),
-                            seed.evidence()), classification);
+                    new ChangePointTerminal(point, seed.evidence()),
+                    classification);
             final String key = methodIdentity(
                     root.methodId());
             byAffectedMethod.putIfAbsent(key, path);
@@ -405,12 +421,12 @@ public final class ModuleImpactTracer {
                         site.getDeclaredTarget().toString()));
         if (sites.isEmpty()) {
             return new QueryEdge(caller, callee,
-                    EdgeKind.INVOKE_SPECIAL, "WALA_IMPLICIT",
+                    CallEdgeKind.INVOKE_SPECIAL, "WALA_IMPLICIT",
                     QueryEdge.UNKNOWN_PC);
         }
         final CallSiteReference site = sites.get(0);
         final SyntheticEdgeMetadata synthetic =
-                session.syntheticEdge(callerNode);
+                session.syntheticEdge(callerNode, site, calleeNode);
         if (synthetic != null) {
             return new QueryEdge(caller, callee, synthetic.kind(),
                     synthetic.evidence(), site.getProgramCounter());
@@ -536,18 +552,18 @@ public final class ModuleImpactTracer {
         return result.toString();
     }
 
-    private EdgeKind invocationKind(
+    private CallEdgeKind invocationKind(
             final IInvokeInstruction.IDispatch dispatch) {
         if (dispatch == IInvokeInstruction.Dispatch.STATIC) {
-            return EdgeKind.INVOKE_STATIC;
+            return CallEdgeKind.INVOKE_STATIC;
         }
         if (dispatch == IInvokeInstruction.Dispatch.SPECIAL) {
-            return EdgeKind.INVOKE_SPECIAL;
+            return CallEdgeKind.INVOKE_SPECIAL;
         }
         if (dispatch == IInvokeInstruction.Dispatch.INTERFACE) {
-            return EdgeKind.INVOKE_INTERFACE;
+            return CallEdgeKind.INVOKE_INTERFACE;
         }
-        return EdgeKind.INVOKE_VIRTUAL;
+        return CallEdgeKind.INVOKE_VIRTUAL;
     }
 
     private String methodIdentity(final MethodReference method) {

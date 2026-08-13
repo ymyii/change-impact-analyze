@@ -13,25 +13,43 @@ import java.util.Optional;
  * @param limitations typed fixed-point model limitations
  * @param serviceLoader ServiceLoader metadata
  * @param jdkModel installed JDK Method Model metadata
+ * @param capabilities declared strategy behavior
+ * @param boundaryOverride algorithm-owned body boundary metadata
  */
 record StrategyModelMetadata(
         DynamicCallEvidenceIndex dynamicEvidence,
         List<ModelLimitation> limitations,
         ServiceLoaderModelMetadata serviceLoader,
-        Optional<JdkModelMetadata> jdkModel) {
+        Optional<JdkModelMetadata> jdkModel,
+        CallGraphStrategyCapabilities capabilities,
+        Optional<DependencyBodyBoundaryMetadata> boundaryOverride) {
 
     StrategyModelMetadata {
         Objects.requireNonNull(dynamicEvidence, "dynamicEvidence");
         limitations = immutable(limitations, "limitations");
         Objects.requireNonNull(serviceLoader, "serviceLoader");
         Objects.requireNonNull(jdkModel, "jdkModel");
+        Objects.requireNonNull(capabilities, "capabilities");
+        Objects.requireNonNull(boundaryOverride, "boundaryOverride");
     }
 
     StrategyModelMetadata(
             final DynamicCallEvidenceIndex evidence,
             final List<ModelLimitation> modelLimitations,
             final ServiceLoaderModelMetadata loaderMetadata) {
-        this(evidence, modelLimitations, loaderMetadata, Optional.empty());
+        this(evidence, modelLimitations, loaderMetadata, Optional.empty(),
+                CallGraphStrategyCapabilities.propagation(),
+                Optional.empty());
+    }
+
+    StrategyModelMetadata(
+            final DynamicCallEvidenceIndex evidence,
+            final List<ModelLimitation> modelLimitations,
+            final ServiceLoaderModelMetadata loaderMetadata,
+            final Optional<JdkModelMetadata> installedJdkModel) {
+        this(evidence, modelLimitations, loaderMetadata, installedJdkModel,
+                CallGraphStrategyCapabilities.propagation(),
+                Optional.empty());
     }
 
     private static List<ModelLimitation> immutable(

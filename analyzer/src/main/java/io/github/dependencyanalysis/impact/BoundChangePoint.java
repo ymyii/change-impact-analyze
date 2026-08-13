@@ -54,7 +54,10 @@ public final class BoundChangePoint {
                 + String.valueOf(changePoint.getNewDescriptor()) + ":"
                 + changePoint.getAccessTransition()
                         .map(value -> value.stableKey())
-                        .orElse("NO_ACCESS_TRANSITION");
+                        .orElse("NO_ACCESS_TRANSITION") + ":"
+                + changePoint.getServiceRegistration()
+                        .map(value -> value.stableKey())
+                        .orElse("NO_SERVICE_REGISTRATION");
     }
 
     @Override

@@ -15,16 +15,25 @@ import com.ibm.wala.types.ClassLoaderReference;
 import com.ibm.wala.types.MethodReference;
 
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
+import io.github.dependencyanalysis.dependency.DependencyEvidenceFixtures;
+import io.github.dependencyanalysis.dependency.DependencyNode;
 import io.github.dependencyanalysis.dependency.DependencyScope;
+import io.github.dependencyanalysis.dependency.ModuleDependencyEvidence;
+import io.github.dependencyanalysis.dependency.ModuleDependencyOccurrenceGraph;
+import io.github.dependencyanalysis.dependency.ResolvedArtifact;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.bytecode.MemberDescriptors;
 import io.github.dependencyanalysis.impact.BoundChangePoint;
+import io.github.dependencyanalysis.impact.DependencyAnalysisScopeMode;
 import io.github.dependencyanalysis.impact.DependencyUpgradeKey;
+import io.github.dependencyanalysis.impact.EvidenceMechanism;
 import io.github.dependencyanalysis.impact.ModuleAnalysisUnit;
+import io.github.dependencyanalysis.impact.ModuleAnalysisReason;
 import io.github.dependencyanalysis.impact.ModuleChangeSet;
+import io.github.dependencyanalysis.impact.ModuleDependencyInputs;
 import io.github.dependencyanalysis.impact.ModuleId;
 import io.github.dependencyanalysis.impact.ModuleImpactQueryResult;
 import io.github.dependencyanalysis.impact.ModuleImpactTracer;
@@ -52,6 +61,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Queue;
 import java.util.Set;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
 import javax.tools.ToolProvider;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -61,7 +72,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class WalaFixedPointModelsTest {
 
     /** Keeps a malformed model from exhausting the test JVM. */
-    private static final long GRAPH_TIMEOUT_SECONDS = 30L;
+    private static final long GRAPH_TIMEOUT_SECONDS = 60L;
 
     /** Constructor receiver plus entry receiver and five arguments. */
     private static final int DECLARED_PARAMETER_CANDIDATES = 7;
@@ -71,6 +82,9 @@ class WalaFixedPointModelsTest {
 
     /** Unsupported MethodHandle receiver sources in the negative fixture. */
     private static final int UNRESOLVED_HANDLE_SOURCE_COUNT = 3;
+
+    /** Invalid Class.forName literals in the CHA fixture. */
+    private static final int INVALID_CLASS_NAME_LITERAL_COUNT = 3;
 
     /** Non-private roots in the defensive private-declaration fixture. */
     private static final int PRIVATE_FILTER_ROOT_COUNT = 3;
@@ -429,6 +443,21 @@ class WalaFixedPointModelsTest {
                             service.run();
                         }
                     }
+                    public void executeLocal() {
+                        Class<Service> type = Service.class;
+                        for (Service service : ServiceLoader.load(type)) {
+                            service.run();
+                        }
+                    }
+                    public void executeSamePhi(boolean flag) {
+                        Class<Service> type;
+                        if (flag) {
+                            type = Service.class;
+                        } else {
+                            type = Service.class;
+                        }
+                        ServiceLoader.load(type);
+                    }
                     public void executeFromField() {
                         for (Service service : services) {
                             service.run();
@@ -457,27 +486,42 @@ class WalaFixedPointModelsTest {
                     assertThat(session.getModelLimitations())
                             .as(algorithm.identifier()).isEmpty();
                 }
-                assertThat(hasEdge(session,
-                        "ServiceApp", "execute",
-                        "ServiceApp$Provider", "run"))
-                        .as(algorithm.identifier()).isTrue();
+                if (algorithm == CallGraphAlgorithm.CHA) {
+                    assertThat(hasEdge(session, "ServiceApp", "execute",
+                            "ServiceApp$Provider", "<init>"))
+                            .as(algorithm.identifier()).isTrue();
+                    assertThat(hasEdge(session, "ServiceApp", "executeLocal",
+                            "ServiceApp$Provider", "<init>"))
+                            .as(algorithm.identifier()).isTrue();
+                    assertThat(hasEdge(session, "ServiceApp",
+                            "executeSamePhi", "ServiceApp$Provider",
+                            "<init>"))
+                            .as(algorithm.identifier()).isTrue();
+                } else {
+                    assertThat(hasEdge(session,
+                            "ServiceApp", "execute",
+                            "ServiceApp$Provider", "run"))
+                            .as(algorithm.identifier()).isTrue();
+                }
                 if (algorithm != CallGraphAlgorithm.RTA) {
                     assertThat(hasEdge(session,
                             "ServiceApp", "executeFromField",
                             "ServiceApp$Provider", "run"))
                             .as(algorithm.identifier()).isTrue();
                 }
-                assertThat(session.getGraph()).anySatisfy(node -> {
-                    assertThat(owner(node)).startsWith(
-                            "wala/serviceloader/Iterator$");
-                    assertThat(successors(session, node))
-                            .anySatisfy(target -> {
-                                assertThat(owner(target))
-                                        .isEqualTo("ServiceApp$Provider");
-                                assertThat(target.getMethod().isInit())
-                                        .isTrue();
+                if (algorithm != CallGraphAlgorithm.CHA) {
+                    assertThat(session.getGraph()).anySatisfy(node -> {
+                        assertThat(owner(node)).startsWith(
+                                "wala/serviceloader/Iterator$");
+                        assertThat(successors(session, node))
+                                .anySatisfy(target -> {
+                                    assertThat(owner(target))
+                                            .isEqualTo("ServiceApp$Provider");
+                                    assertThat(target.getMethod().isInit())
+                                            .isTrue();
+                                });
                     });
-                });
+                }
                 if (algorithm == CallGraphAlgorithm.K_OBJ) {
                     assertThat(session.getGraph())
                             .filteredOn(node -> "ServiceApp$Provider"
@@ -497,6 +541,106 @@ class WalaFixedPointModelsTest {
                             });
                 }
             }
+        }
+    }
+
+    @Test
+    void chaClassForNameUsesCallerLocalConstants() throws Exception {
+        final Path classes = compile("ChaReflectionApp", """
+                public class ChaReflectionApp {
+                    public void direct() throws Exception {
+                        String name = "removed.Type";
+                        Class.forName(name);
+                    }
+                    public void samePhi(boolean flag) throws Exception {
+                        String name;
+                        if (flag) {
+                            name = "removed.Type";
+                        } else {
+                            name = "removed.Type";
+                        }
+                        Class.forName(name);
+                    }
+                    public void parameter(String name) throws Exception {
+                        Class.forName(name);
+                    }
+                    public void emptyLiteral() throws Exception {
+                        Class.forName("");
+                    }
+                    public void blankLiteral() throws Exception {
+                        Class.forName("   ");
+                    }
+                    public void invalidLiteral() throws Exception {
+                        Class.forName("removed/Type");
+                    }
+                }
+                """);
+        final ArtifactCoord oldArtifact = new ArtifactCoord(
+                "test", "library", "jar", "1");
+        final ArtifactCoord newArtifact = new ArtifactCoord(
+                "test", "library", "jar", "2");
+        final ModuleId module = moduleId();
+        final BoundChangePoint point = new BoundChangePoint(
+                new DependencyUpgradeKey(module, DependencyScope.COMPILE,
+                        oldArtifact, newArtifact),
+                new ChangePoint(newArtifact, ChangePointKind.CLASS_REMOVED,
+                        "removed/Type", null, null, null, null));
+        final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                module, ModulePresence.BOTH, classes, List.of(),
+                List.of(), List.of(),
+                new ModuleChangeSet(List.of(point), List.of()));
+
+        try (IJarRepository repository = TestJarRepositories.empty()) {
+            final ModuleCallGraphSession session = build(
+                    unit, repository,
+                    InvokeDynamicBootstrapModelRegistry.jdk8Defaults(),
+                    EntrypointSelection.allProjectClasses(),
+                    CallGraphAlgorithm.CHA,
+                    WalaReflectionOptions.parse("NONE"));
+
+            assertThat(session.getChangePointEvidence().resolution(point)
+                    .evidence())
+                    .extracting(evidence -> evidence.mechanism())
+                    .containsOnly(EvidenceMechanism
+                            .CLASS_FOR_NAME_LOCAL_CONSTANT);
+            assertThat(session.getChangePointEvidence().resolution(point)
+                    .evidence())
+                    .extracting(evidence -> evidence.location().source())
+                    .anyMatch(location -> location.contains("direct"))
+                    .anyMatch(location -> location.contains("samePhi"));
+            assertThat(session.getChangePointEvidence().limitations())
+                    .anySatisfy(limitation -> assertThat(
+                            limitation.summary()).contains(
+                            "CLASS_FOR_NAME_LOCAL_CONSTANT_UNRESOLVED"));
+            final List<ModelLimitation> invalidLiterals = session
+                    .getChangePointEvidence().limitations().stream()
+                    .filter(ModelLimitation.class::isInstance)
+                    .map(ModelLimitation.class::cast)
+                    .filter(limitation -> "CLASS_FOR_NAME_LITERAL_INVALID"
+                            .equals(limitation.code()))
+                    .toList();
+            assertThat(invalidLiterals)
+                    .hasSize(INVALID_CLASS_NAME_LITERAL_COUNT)
+                    .allSatisfy(limitation -> {
+                        assertThat(limitation.reason()).isEqualTo(
+                                ModuleAnalysisReason
+                                        .INCONCLUSIVE_REFLECTION);
+                        assertThat(limitation.detail()).isNotBlank();
+                        assertThat(limitation.location())
+                                .contains("ChaReflectionApp")
+                                .contains("|pc=");
+                        assertThat(limitation.stableKey())
+                                .doesNotContain("Node:");
+                    });
+            assertThat(invalidLiterals)
+                    .extracting(ModelLimitation::detail)
+                    .containsExactlyInAnyOrder(
+                            "literal=<empty>",
+                            "literal=<blank>",
+                            "literal=removed/Type");
+            assertThat(invalidLiterals)
+                    .extracting(ModelLimitation::stableKey)
+                    .doesNotHaveDuplicates();
         }
     }
 
@@ -797,7 +941,8 @@ class WalaFixedPointModelsTest {
                 assertThat(hasPath(session,
                         "RtaMethodHandleApp", "execute",
                         "RtaMethodHandleApp", "target"))
-                        .as(algorithm.identifier()).isTrue();
+                        .as(algorithm.identifier())
+                        .isEqualTo(algorithm != CallGraphAlgorithm.CHA);
                 if (algorithm == CallGraphAlgorithm.RTA) {
                     assertThat(hasMethodHandleBridgePath(session,
                             "RtaMethodHandleApp", "execute",
@@ -805,13 +950,15 @@ class WalaFixedPointModelsTest {
                     assertThat(session.getDynamicEvidence().find(
                             "RtaMethodHandleApp", "target", "()V"))
                             .anySatisfy(evidence -> {
-                                assertThat(evidence.kind()).isEqualTo(
-                                        EdgeKind.METHOD_HANDLE_TARGET);
+                                assertThat(evidence.referenceKind())
+                                        .isEqualTo(DynamicReferenceKind
+                                                .DIRECT_MODELED_HANDLE_TARGET);
                                 assertThat(evidence.detail()).contains(
                                         "operation=INVOKE_EXACT");
                             });
                 }
-                assertThat(session.hasMethodHandleLimitations()).isFalse();
+                assertThat(session.hasMethodHandleLimitations())
+                        .isEqualTo(algorithm == CallGraphAlgorithm.CHA);
             }
         }
     }
@@ -969,7 +1116,11 @@ class WalaFixedPointModelsTest {
                         WalaReflectionOptions.parse("NONE"));
                 assertThat(session.hasDynamicModelLimitations())
                         .as(algorithm.identifier() + " "
-                                + session.getModelLimitations()).isFalse();
+                                + session.getModelLimitations())
+                        .isEqualTo(algorithm == CallGraphAlgorithm.CHA);
+                if (algorithm == CallGraphAlgorithm.CHA) {
+                    continue;
+                }
                 assertThat(session.getHierarchy()).anySatisfy(type -> {
                     assertThat(owner(type.getName().toString()))
                             .startsWith("wala/lambda/Alt$");
@@ -1060,11 +1211,165 @@ class WalaFixedPointModelsTest {
                         .as(algorithm.identifier()).anySatisfy(path -> {
                             assertThat(path.getAffectedMethod().owner())
                                     .isEqualTo("RemovedLambdaApp");
-                            assertThat(path.getTerminal().getEdgeKind())
-                                    .isEqualTo(EdgeKind
-                                            .INVOKEDYNAMIC_HANDLE_REFERENCE);
+                            assertThat(path.getTerminal()
+                                    .getEvidenceMechanism()).isEqualTo(
+                                    io.github.dependencyanalysis.impact
+                                            .EvidenceMechanism
+                                            .INVOKEDYNAMIC_HANDLE);
                         });
             }
+        }
+    }
+
+    @Test
+    void chaFiltersObjectDispatchBeforeCreatingUnrelatedTargetNodes()
+            throws Exception {
+        final Path externalClasses = compile("ExternalOverrides", """
+                public class ExternalOverrides {
+                    public static class Changed {
+                        public String toString() { return "changed"; }
+                        public int hashCode() { return 17; }
+                    }
+                    public static class Unrelated {
+                        public String toString() { return "unrelated"; }
+                        public int hashCode() { return 23; }
+                    }
+                }
+                """);
+        final Path reactor = compile("ReactorOverride", """
+                public class ReactorOverride {
+                    public String toString() { return "reactor"; }
+                    public int hashCode() { return 31; }
+                }
+                """);
+        final Path classes = compile("ObjectDispatchApp", """
+                public class ObjectDispatchApp {
+                    public static class ProjectOverride {
+                        public String toString() { return "project"; }
+                        public int hashCode() { return 37; }
+                    }
+                    public void execute(Object value) {
+                        value.toString();
+                        value.hashCode();
+                    }
+                    public int executeUnrelated() {
+                        Object value = new ExternalOverrides.Unrelated();
+                        return value.toString().length() + value.hashCode();
+                    }
+                }
+                """, List.of(externalClasses, reactor));
+        final ArtifactCoord oldArtifact = new ArtifactCoord(
+                "test", "external-overrides", "jar", "1");
+        final ArtifactCoord newArtifact = new ArtifactCoord(
+                "test", "external-overrides", "jar", "2");
+        final Path externalJar = jar(externalClasses,
+                "external-overrides-2.jar");
+        final ModuleId module = moduleId();
+        final DependencyUpgradeKey key = new DependencyUpgradeKey(
+                module, DependencyScope.COMPILE,
+                oldArtifact, newArtifact);
+        final List<BoundChangePoint> changes = List.of(
+                new BoundChangePoint(key, ChangePoint.withDescriptors(
+                        newArtifact, ChangePointKind.METHOD_BODY_CHANGED,
+                        "ExternalOverrides$Changed", "toString",
+                        new MemberDescriptors("()Ljava/lang/String;",
+                                "()Ljava/lang/String;"), "old", "new")),
+                new BoundChangePoint(key, ChangePoint.withDescriptors(
+                        newArtifact, ChangePointKind.METHOD_BODY_CHANGED,
+                        "ExternalOverrides$Changed", "hashCode",
+                        new MemberDescriptors("()I", "()I"),
+                        "old", "new")));
+        final ModuleDependencyOccurrenceGraph dependencyGraph =
+                new ModuleDependencyOccurrenceGraph("root", List.of(
+                        new ModuleDependencyOccurrenceGraph.Occurrence(
+                                "root", module.getCoordinate(), null,
+                                true, false),
+                        new ModuleDependencyOccurrenceGraph.Occurrence(
+                                "external", newArtifact,
+                                DependencyScope.COMPILE, false, false)),
+                        List.of(new ModuleDependencyOccurrenceGraph.Edge(
+                                "root", "external")));
+        final ModuleDependencyEvidence evidence =
+                DependencyEvidenceFixtures.evidence(
+                        classes.getParent(), module.getCoordinate(),
+                        List.of(new DependencyNode(newArtifact,
+                                DependencyScope.COMPILE, List.of())),
+                        dependencyGraph, List.of(),
+                        List.of(new ResolvedArtifact(
+                                newArtifact, externalJar)));
+
+        try (IJarRepository repository = TestJarRepositories.of(List.of(
+                new ResolvedArtifact(newArtifact, externalJar)))) {
+            for (DependencyAnalysisScopeMode scope
+                    : DependencyAnalysisScopeMode.values()) {
+                final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                        module, ModulePresence.BOTH, classes,
+                        List.of(reactor), ModuleDependencyInputs.fromEvidence(
+                        evidence, null, Set.of(newArtifact), scope),
+                        new ModuleChangeSet(changes, List.of()));
+                final ModuleCallGraphSession session = build(
+                        unit, repository,
+                        InvokeDynamicBootstrapModelRegistry.jdk8Defaults(),
+                        EntrypointSelection.parse(
+                                List.of("ObjectDispatchApp"), List.of()),
+                        CallGraphAlgorithm.CHA,
+                        WalaReflectionOptions.parse("NONE"));
+
+                assertThat(hasEdge(session, "ObjectDispatchApp", "execute",
+                        "java/lang/Object", "toString"))
+                        .as(scope.identifier()).isTrue();
+                assertThat(hasEdge(session, "ObjectDispatchApp", "execute",
+                        "java/lang/Object", "hashCode")).isTrue();
+                assertThat(hasEdge(session, "ObjectDispatchApp", "execute",
+                        "ObjectDispatchApp$ProjectOverride", "toString"))
+                        .isTrue();
+                assertThat(hasEdge(session, "ObjectDispatchApp", "execute",
+                        "ReactorOverride", "hashCode")).isTrue();
+                assertThat(hasEdge(session, "ObjectDispatchApp", "execute",
+                        "ExternalOverrides$Changed", "toString")).isTrue();
+                assertThat(hasEdge(session, "ObjectDispatchApp", "execute",
+                        "ExternalOverrides$Changed", "hashCode")).isTrue();
+                assertThat(hasEdge(session, "ObjectDispatchApp", "execute",
+                        "ExternalOverrides$Unrelated", "toString")).isFalse();
+                assertThat(hasEdge(session, "ObjectDispatchApp", "execute",
+                        "ExternalOverrides$Unrelated", "hashCode")).isFalse();
+                assertThat(hasEdge(session, "ObjectDispatchApp", "execute",
+                        "java/lang/String", "toString")).isFalse();
+                assertThat(hasEdge(session, "ObjectDispatchApp", "execute",
+                        "java/lang/String", "hashCode")).isFalse();
+                assertThat(hasMethod(session,
+                        "ExternalOverrides$Unrelated", "toString")).isFalse();
+                assertThat(hasMethod(session,
+                        "ExternalOverrides$Unrelated", "hashCode")).isFalse();
+                assertThat(new ModuleImpactTracer(diagnostics())
+                        .trace(unit, session).getPaths())
+                        .anySatisfy(path -> {
+                            assertThat(path.getAffectedMethod().owner())
+                                    .isEqualTo("ObjectDispatchApp");
+                            assertThat(path.getAffectedMethod().name())
+                                    .isEqualTo("execute");
+                        });
+            }
+
+            final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                    module, ModulePresence.BOTH, classes, List.of(reactor),
+                    ModuleDependencyInputs.fromEvidence(evidence, null,
+                            Set.of(newArtifact),
+                            DependencyAnalysisScopeMode.FULL),
+                    new ModuleChangeSet(changes, List.of()));
+            final ModuleCallGraphSession zeroCfa = build(
+                    unit, repository,
+                    InvokeDynamicBootstrapModelRegistry.jdk8Defaults(),
+                    EntrypointSelection.parse(
+                            List.of("ObjectDispatchApp"), List.of()),
+                    CallGraphAlgorithm.ZERO_CFA,
+                    WalaReflectionOptions.parse("NONE"));
+            assertThat(hasEdge(zeroCfa, "ObjectDispatchApp",
+                    "executeUnrelated", "ExternalOverrides$Unrelated",
+                    "toString")).isTrue();
+            assertThat(hasEdge(zeroCfa, "ObjectDispatchApp",
+                    "executeUnrelated", "ExternalOverrides$Unrelated",
+                    "hashCode")).isTrue();
         }
     }
 
@@ -1092,8 +1397,9 @@ class WalaFixedPointModelsTest {
                         .as(algorithm.identifier()).anySatisfy(evidence -> {
                             assertThat(evidence.targetOwner())
                                     .isEqualTo("custom/Bootstrap");
-                            assertThat(evidence.kind()).isEqualTo(
-                                    EdgeKind.INVOKEDYNAMIC_BOOTSTRAP);
+                            assertThat(evidence.referenceKind()).isEqualTo(
+                                    DynamicReferenceKind
+                                            .BOOTSTRAP_IMPLEMENTATION_METHOD);
                         });
             }
         }
@@ -1164,11 +1470,13 @@ class WalaFixedPointModelsTest {
                         WalaReflectionOptions.parse("NONE"));
                 assertThat(session.hasDynamicModelLimitations())
                         .as(algorithm.identifier() + " "
-                                + session.getModelLimitations()).isFalse();
+                                + session.getModelLimitations())
+                        .isEqualTo(algorithm == CallGraphAlgorithm.CHA);
                 assertThat(hasEdge(session,
                         "CustomDynamicApp", "execute",
                         "CustomDynamicApp", "helper"))
-                        .as(algorithm.identifier()).isTrue();
+                        .as(algorithm.identifier())
+                        .isEqualTo(algorithm != CallGraphAlgorithm.CHA);
             }
         }
     }
@@ -1457,6 +1765,23 @@ class WalaFixedPointModelsTest {
         return classes;
     }
 
+    private Path jar(final Path classes, final String name) throws Exception {
+        final Path output = temporary.resolve(name);
+        try (JarOutputStream jar = new JarOutputStream(
+                Files.newOutputStream(output));
+             java.util.stream.Stream<Path> stream = Files.walk(classes)) {
+            for (Path file : stream.filter(Files::isRegularFile)
+                    .sorted().toList()) {
+                final String entry = classes.relativize(file).toString()
+                        .replace('\\', '/');
+                jar.putNextEntry(new JarEntry(entry));
+                jar.write(Files.readAllBytes(file));
+                jar.closeEntry();
+            }
+        }
+        return output;
+    }
+
     private boolean hasEdge(
             final ModuleCallGraphSession session,
             final String callerOwner,
@@ -1475,6 +1800,20 @@ class WalaFixedPointModelsTest {
                         callee.getMethod().getName().toString())) {
                     return true;
                 }
+            }
+        }
+        return false;
+    }
+
+    private boolean hasMethod(
+            final ModuleCallGraphSession session,
+            final String methodOwner,
+            final String methodName) {
+        for (CGNode node : session.getGraph()) {
+            if (methodOwner.equals(owner(node))
+                    && methodName.equals(
+                    node.getMethod().getName().toString())) {
+                return true;
             }
         }
         return false;

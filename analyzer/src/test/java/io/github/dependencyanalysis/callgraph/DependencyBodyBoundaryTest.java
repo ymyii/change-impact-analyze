@@ -176,6 +176,23 @@ class DependencyBodyBoundaryTest {
                 final DependencyBodyBoundaryMetadata boundary =
                         session.getDependencyBoundary();
 
+                if (algorithm == CallGraphAlgorithm.CHA) {
+                    assertThat(boundary.dangerousTransfers()).isEmpty();
+                    assertThat(boundary.factories()).isEmpty();
+                    assertThat(boundary.noOpMethodNodes()).isZero();
+                    assertThat(boundary.factoryMethodNodes()).isZero();
+                    assertThat(boundary.bodyBoundaryHits())
+                            .isNotEmpty()
+                            .allMatch(value -> Set.of(
+                                    sink, factory, plain).contains(
+                                    value.calleeArtifact()));
+                    assertThat(hasEdge(session, "api/IncludedType",
+                            "afterFactory", "api/ChangedValue", "changed"))
+                            .isTrue();
+                    assertThat(hasNode(session, "vendor/Plain", "helper"))
+                            .isFalse();
+                    continue;
+                }
                 assertThat(boundary.dangerousTransfers())
                         .as(algorithm.identifier())
                         .hasSize(DANGEROUS_TRANSFER_COUNT)

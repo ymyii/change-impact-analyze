@@ -5,7 +5,7 @@ relations:
   - path: "wiki/architecture/dependency-analysis-pipelines.md"
     desc: "command-wide selection、per-Module安装与metadata流"
   - path: "wiki/features/call-graph-engine.md"
-    desc: "四种 strategy 的统一 model installation point 与fixed-point metadata"
+    desc: "非CHA strategy的统一model installation point与fixed-point metadata"
   - path: "wiki/features/cli-preflight-diagnostics.md"
     desc: "--jdk-model contract、parse failure 与Console Diagnostic"
   - path: "wiki/project/dependency-analyzer.md"
@@ -71,7 +71,7 @@ code_refs:
 
 ## Summary
 
-JDK Method Models 由两个独立普通JAR组成。`models/jdk`提供可复用的WALA Synthetic Intermediate Representation（Synthetic IR）engine/API；`models/jdk8`提供精确JDK 8 catalog与安装façade。Analyzer通过dependency将两者打入uber JAR，`impact`与未显式选择model的`ModuleCallGraphEngine`默认在每张per-Module Call Graph启用`jdk8`。模型保留application receiver、points-to、容器元素、callback和serialization hook，同时避免Call Graph为高频JDK API深入大量内部实现。
+JDK Method Models由两个独立普通JAR组成。`models/jdk`提供可复用的WALA Synthetic Intermediate Representation（Synthetic IR）engine/API；`models/jdk8`提供精确JDK 8 catalog与安装façade。Analyzer仍将两者打入uber JAR。默认CHA固定使用`none`且永远不安装JDK Method Model；RTA、ZeroCFA、optimized 0-1-CFA与`k-obj`未显式选择时默认`jdk8`，保留既有callback、container和serialization语义。
 
 ## Design Decisions
 
@@ -81,11 +81,12 @@ JDK Method Models 由两个独立普通JAR组成。`models/jdk`提供可复用�
 - 使用 exact method target 和 conservative global family state。允许 points-to over-approximation，不使用 package ignore、whole-JDK exclusion 或通用 no-op fallback 丢失 application method。
 - 公共engine仍记录unavailable并对未替换target委托原selector；Analyzer的`jdk8`边界要求完整384-target catalog，任一unavailable均使当前Module失败，不允许降级到`none`。
 - 用户输出只保留command-wide selection。catalog/available/unavailable/hit metadata只在per-graph session内部用于验收，不进入Report、Console Diagnostic或diagnostics JSON。
+- CHA仍加载完整JDK classpath以构造hierarchy和JDK leaf method resolution，但不遍历JDK method body；因此model loading不参与CHA topology。
 
 ## Actors / Entrypoints
 
 - 版本专属 module 通过 `JdkModelDefinition` 提供稳定 model ID、resource anchor 与 absolute catalog resource。
-- `impact --jdk-model jdk8|none`选择command-wide policy；默认`jdk8`，大小写不敏感且不接受alias。`none`完全跳过catalog读取和selector安装。
+- `impact --jdk-model jdk8|none`选择command-wide policy；默认值由algorithm决定。CHA只允许`none`；其他algorithm默认`jdk8`并可显式`none`。大小写不敏感且不接受alias。
 - Call Graph strategy在配置WALA default selector/native bypass后通过`JdkModelInstallation`映射到`Jdk8Models.install(...)`或no-op。
 - 构图完成后调用 `JdkModelSession.snapshot()` 获取 catalog、available、unavailable 和 hit metadata。
 
@@ -104,7 +105,8 @@ JdkModelSession session = JdkModels.install(
 - 公共 coordinate：`io.github.dependencyanalysis:dependency-analyzer-jdk-models:0.1.0-SNAPSHOT`；package 为 `io.github.dependencyanalysis.models.jdk`。
 - JDK 8 coordinate：`io.github.dependencyanalysis:dependency-analyzer-jdk8-models:0.1.0-SNAPSHOT`；package 为 `io.github.dependencyanalysis.models.jdk8`；model ID 固定为 `jdk8`。
 - JDK 8 catalog 包含 384 个 JDK 8 public targets，不包含 Java 16 引入的 `Stream.toList()`。
-- `impact`与兼容`ModuleCallGraphEngine`constructor默认`jdk8`；显式`none`保留直接分析真实JDK bytecode的既有语义。
+- `impact`、pipeline与`ModuleCallGraphEngine`constructor统一使用`CallGraphPolicy`：CHA默认`none`且拒绝`jdk8`；其他algorithm默认`jdk8`。
+- CHA的`none`不是“分析真实JDK body”：CHA interpreter只保留caller到JDK leaf edge，call/new site为空。
 - Synthetic loader不支持、model安装异常或完整JDK 8存在unavailable catalog target时，当前Module构图失败；zero hit不是错误。
 - duplicate target、resolved static contract mismatch、callback target/dispatch mismatch、WALA `natives.xml` conflict、无法生成 Synthetic IR 和必要 serialization constructor 缺失均抛出 `JdkModelException`。
 - unavailable target 不被替换并委托原 selector；只有 available exact target 返回 `SummarizedMethod` 并计入 session hit。
@@ -138,7 +140,7 @@ Class/Reflection、Proxy、ClassLoader、ServiceLoader、MethodHandle 与 `invok
 - Given 配置的完整 JDK 8 `rt.jar`，When 安装 `Jdk8Models`，Then catalog/available 均为 384、unavailable 为 0，且没有 post-JDK 8 target。
 - Given 已安装 WALA default selector，When available target 被解析，Then 返回 `SummarizedMethod`、记录 deterministic hit，并保留 application points-to 与 callback edge。
 - Given Analyzer选择`jdk8`且target不存在于当前hierarchy，When安装model，Then该Module构图失败且不fallback；公共engine单独使用时仍记录unavailable并委托原selector。
-- Given collection、Stream、Temporal、async、resource或serialization fixture，When四种algorithm完成fixed point，Thenrequired application callback、business receiver与downstream method可达。
+- Given collection、Stream、Temporal、async、resource或serialization fixture，When四种非CHA algorithm完成fixed point，Thenrequired application callback、business receiver与downstream method可达。
 - Given lightweight同源fixture，When分别构建models-on和models-off Call Graph，Then models-on reachable application method set包含models-off集合。
 
 ### Non-Functional
@@ -147,7 +149,7 @@ Class/Reflection、Proxy、ClassLoader、ServiceLoader、MethodHandle 与 `invok
 - [x] model JAR不shade WALA，也不包含Analyzer class。
 - [x] host JDK `jrt:/` test验证公共engine没有`rt.jar` layout依赖。
 - [x] JDK 8 fixed-point test记录wall time、nodes、edges、JDK nodes和hit count，但不设置性能硬阈值。
-- [x] `impact`、四种strategy、CLI、pipeline、Diagnostic、Report和Schema v6已接入；用户输出展示model selection，`k-obj`额外展示实际深度。
+- [x] `impact`、五种strategy、CLI、pipeline、Diagnostic、Report和Schema v7已接入；用户输出展示effective model selection，`k-obj`额外展示实际深度。
 
 ## Edge Cases
 

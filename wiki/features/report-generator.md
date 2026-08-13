@@ -27,7 +27,7 @@ code_refs:
 
 ## Summary
 
-`impact` 只生成英文 offline HTML：用户 `--output` 是 Overall Index；同级 command-owned `<stem>-modules/` 为每个非 `SKIPPED` Module 保存 Module Index、Affected Call Chains、Dependency Changes 三页。Report投影 requested/actual dependency analysis scope、全部 changed dependency paths、external method-body policy、dangerous transfer、factory evidence 与 fallback。`tree` 的 repository/reactor HTML contract 保持独立。
+`impact`只生成英文offline HTML。Report投影effective algorithm/JDK model、Reflection applied状态、terminal Evidence kind/mechanism、requested/actual dependency scope、changed dependency paths、method-body policy与coverage limitation。`tree`的repository/reactor HTML contract保持独立。
 
 ## Design Decisions
 
@@ -42,7 +42,7 @@ code_refs:
 
 ## Behavior Contract
 
-- Overall technical details展示command实际使用的Algorithm与WALA ReflectionOptions。
+- Overall technical details展示effective Algorithm、JDK Method Model和WALA ReflectionOptions applied/not-applied状态。
 - Overall汇总 changed-paths/full/fallback Module 数量、real-IR/no-op external artifact 数量、no-op/factory method node、dangerous transfer与 `INCONCLUSIVE` 比例。
 - Access narrowing member展示old/new access、typed decision/reason及代表性caller/reference evidence。
 - 全部coverage limitation保留；Module单一reason使用typed precedence。
@@ -59,7 +59,7 @@ Index 记录：
 - Dependency changes、raw ChangePoints、candidate/equivalent-filtered/final paths、duplicate conflict/shadowed ChangePoint 与 SSA status counts。
 - 每 Module status/reason/link、candidate/filtered/final、direct/transitive、affected methods/classes、Structural Reference Paths、entrypoint selector/matching、scope、CG nodes/edges/contexts、SSA/limitation counts。
 - Preflight 与 Diagnostics 整体默认折叠。
-- Algorithm与WALA ReflectionOptions读取command-wide `AnalysisRunResult`：默认显示`rta`、global instantiated-compatible-class precision及`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`；显式ZeroX/Reflection配置展示实际选择。
+- Algorithm、JDK model与WALA ReflectionOptions读取command-wide`AnalysisRunResult`：默认显示`cha`、`none`与`not applied by cha`；非CHA显示实际Reflection选项。
 - Dependency analysis scope同时展示command requested mode与每个Module actual mode；默认requested为`changed-paths`，graph/path planning failure的Module显示`full`和fallback reason。
 
 ## Module Pages
@@ -97,7 +97,7 @@ Index 记录：
 
 ### Functional
 
-- Given default command configuration；When发布Report；Then technical details显示`rta`与`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。
+- Given default command configuration；When发布Report；Then technical details显示`cha`、`none`与`not applied by cha`，terminal显示Evidence kind/mechanism。
 - Given access reference全部仍合法；When发布Dependency Changes；Then显示`ACCESS_REMAINS_VALID`与old/new access，Affected Call Chains中不存在虚假path。
 - Given potential access reference；When发布Report；Then明确标注`Potential access incompatibility`且不改变Module status。
 - Given dangerous transfer或flow-to-cast factory；When发布Report；ThenModule reason为`INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY`并展示caller、callee、artifact、PC、typed proof/type与dependency path evidence。

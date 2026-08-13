@@ -2,6 +2,8 @@ package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
+import io.github.dependencyanalysis.bytecode.ServiceLoaderResourceIssue;
+import io.github.dependencyanalysis.bytecode.ServiceProviderRegistration;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -41,6 +43,18 @@ public final class ModuleAnalysisUnit {
 
     /** External dependency path selection and method-body policy. */
     private final ModuleChangedPathSelection changedPathSelection;
+
+    /** Valid baseline ServiceLoader registrations. */
+    private final List<ServiceProviderRegistration>
+            baselineServiceRegistrations;
+
+    /** Removed valid baseline ServiceLoader registrations. */
+    private final List<ServiceProviderRegistration>
+            removedServiceRegistrations;
+
+    /** Non-fatal ServiceLoader resource Diff issues. */
+    private final List<ServiceLoaderResourceIssue>
+            serviceLoaderResourceIssues;
 
     /**
      * Creates a module analysis unit.
@@ -93,6 +107,12 @@ public final class ModuleAnalysisUnit {
         dependencyChanges = immutable(changes.dependencyChanges());
         changePoints = immutable(changes.changePoints());
         jarDiffFailures = immutable(changes.jarDiffFailures());
+        baselineServiceRegistrations = immutable(
+                changes.baselineServiceRegistrations());
+        removedServiceRegistrations = immutable(
+                changes.removedServiceRegistrations());
+        serviceLoaderResourceIssues = immutable(
+                changes.serviceLoaderResourceIssues());
         changedPathSelection = Objects.requireNonNull(
                 dependencyInputs.changedPathSelection(), "pathSelection");
     }
@@ -156,5 +176,21 @@ public final class ModuleAnalysisUnit {
     /** @return dependency path selection and body policy */
     public ModuleChangedPathSelection getChangedPathSelection() {
         return changedPathSelection;
+    }
+
+    /** @return valid baseline ServiceLoader registrations */
+    public List<ServiceProviderRegistration>
+            getBaselineServiceRegistrations() {
+        return baselineServiceRegistrations;
+    }
+
+    /** @return removed ServiceLoader registrations */
+    public List<ServiceProviderRegistration> getRemovedServiceRegistrations() {
+        return removedServiceRegistrations;
+    }
+
+    /** @return non-fatal ServiceLoader resource Diff issues */
+    public List<ServiceLoaderResourceIssue> getServiceLoaderResourceIssues() {
+        return serviceLoaderResourceIssues;
     }
 }

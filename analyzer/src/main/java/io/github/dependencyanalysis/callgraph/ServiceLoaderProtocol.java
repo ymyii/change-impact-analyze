@@ -51,6 +51,13 @@ final class ServiceLoaderProtocol {
                 "(Ljava/lang/Class;)Ljava/util/ServiceLoader;");
     }
 
+    static boolean singleParameterLoad(final MethodReference method) {
+        return SERVICE_LOADER.equals(owner(method.getDeclaringClass()))
+                && "load".equals(method.getName().toString())
+                && "(Ljava/lang/Class;)Ljava/util/ServiceLoader;".equals(
+                method.getDescriptor().toString());
+    }
+
     static boolean iteratorMethod(final MethodReference method) {
         return SERVICE_LOADER.equals(owner(method.getDeclaringClass()))
                 && "iterator".equals(method.getName().toString())

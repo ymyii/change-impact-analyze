@@ -8,7 +8,6 @@ import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.EntrypointSelection;
-import io.github.dependencyanalysis.callgraph.EdgeKind;
 import io.github.dependencyanalysis.callgraph.ModuleCallGraphEngine;
 import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
 import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
@@ -151,8 +150,8 @@ class ModuleImpactTracerTest {
                                 .getChangePoint().equals(legal))
                         .anyMatch(path -> path.getTerminal()
                                 .getChangePoint().equals(illegal)
-                                && path.getTerminal().getImpactEvidence()
-                                instanceof AccessReferenceEvidence);
+                                && path.getTerminal().getEvidenceMechanism()
+                                == EvidenceMechanism.BYTECODE_TYPE_REFERENCE);
                 assertAccessObservation(result, legal,
                         AccessDecision.ACCESSIBLE,
                         AccessDecisionReason.SAME_RUNTIME_PACKAGE);
@@ -313,12 +312,11 @@ class ModuleImpactTracerTest {
                         .as(algorithm.identifier()).anySatisfy(path -> {
                             assertThat(path.getTerminal().getChangePoint())
                                     .isEqualTo(point);
-                            assertThat(path.getTerminal().getEdgeKind())
-                                    .isEqualTo(EdgeKind
-                                            .INVOKEDYNAMIC_HANDLE_REFERENCE);
+                            assertThat(path.getTerminal()
+                                    .getEvidenceMechanism()).isEqualTo(
+                                    EvidenceMechanism.INVOKEDYNAMIC_HANDLE);
                             assertThat(path.getTerminal().getImpactEvidence())
-                                    .isInstanceOf(
-                                            AccessReferenceEvidence.class);
+                                    .isInstanceOf(ReferenceEvidence.class);
                         });
             }
         }

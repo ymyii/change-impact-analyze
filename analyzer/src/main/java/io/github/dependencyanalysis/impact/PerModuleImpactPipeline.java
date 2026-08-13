@@ -6,6 +6,10 @@ import io.github.dependencyanalysis.build.ModuleBuildOutput;
 import io.github.dependencyanalysis.bytecode.BytecodeDiffEngine;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
+import io.github.dependencyanalysis.bytecode.ServiceLoaderResourceDiffEngine;
+import io.github.dependencyanalysis.bytecode.ServiceLoaderResourceDiffResult;
+import io.github.dependencyanalysis.bytecode.ServiceLoaderResourceIssue;
+import io.github.dependencyanalysis.bytecode.ServiceProviderRegistration;
 import io.github.dependencyanalysis.callgraph.CallGraphException;
 import io.github.dependencyanalysis.callgraph.CallGraphFailureKind;
 import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
@@ -652,7 +656,7 @@ final class PerModuleImpactPipeline {
             throws InterruptedException {
         if (groups.isEmpty()) {
             return new BindingResult(Map.of(), Set.of(), Map.of(),
-                    jarDiffWorkerLimit(), 0);
+                    Map.of(), Map.of(), Map.of(), jarDiffWorkerLimit(), 0);
         }
         final int configuredWorkers = jarDiffWorkerLimit();
         final int workers = Math.min(groups.size(), configuredWorkers);
@@ -670,6 +674,12 @@ final class PerModuleImpactPipeline {
         final Set<String> failedModules = new LinkedHashSet<>();
         final Map<String, List<JarDiffFailure>> failuresByModule =
                 new LinkedHashMap<>();
+        final Map<String, List<ServiceProviderRegistration>> baselineByPair =
+                new LinkedHashMap<>();
+        final Map<String, List<ServiceProviderRegistration>> removedByPair =
+                new LinkedHashMap<>();
+        final Map<String, List<ServiceLoaderResourceIssue>> issuesByPair =
+                new LinkedHashMap<>();
         try {
             for (Future<PairDiff> future : futures) {
                 final PairDiff pair;
@@ -682,6 +692,12 @@ final class PerModuleImpactPipeline {
                 }
                 if (pair.failure() == null) {
                     pairPoints.put(pair.key(), pair.points());
+                    baselineByPair.put(pair.key(),
+                            pair.baselineServiceRegistrations());
+                    removedByPair.put(pair.key(),
+                            pair.removedServiceRegistrations());
+                    issuesByPair.put(pair.key(),
+                            pair.serviceLoaderResourceIssues());
                 } else {
                     for (DependencyUpgradeKey key : groups.get(pair.key())) {
                         final String moduleKey = key.getModuleId()
@@ -698,6 +714,12 @@ final class PerModuleImpactPipeline {
         }
         final Map<String, List<BoundChangePoint>> byModule =
                 new LinkedHashMap<>();
+        final Map<String, List<ServiceProviderRegistration>>
+                baselineByModule = new LinkedHashMap<>();
+        final Map<String, List<ServiceProviderRegistration>>
+                removedByModule = new LinkedHashMap<>();
+        final Map<String, List<ServiceLoaderResourceIssue>> issuesByModule =
+                new LinkedHashMap<>();
         for (Map.Entry<String, List<DependencyUpgradeKey>> entry
                 : groups.entrySet()) {
             final List<ChangePoint> points = pairPoints.get(entry.getKey());
@@ -711,6 +733,18 @@ final class PerModuleImpactPipeline {
                 for (ChangePoint point : points) {
                     target.add(new BoundChangePoint(key, point));
                 }
+                final String moduleKey = key.getModuleId().coordinateKey();
+                baselineByModule.computeIfAbsent(moduleKey,
+                        ignored -> new ArrayList<>()).addAll(
+                        baselineByPair.getOrDefault(entry.getKey(),
+                                List.of()));
+                removedByModule.computeIfAbsent(moduleKey,
+                        ignored -> new ArrayList<>()).addAll(
+                        removedByPair.getOrDefault(entry.getKey(),
+                                List.of()));
+                issuesByModule.computeIfAbsent(moduleKey,
+                        ignored -> new ArrayList<>()).addAll(
+                        issuesByPair.getOrDefault(entry.getKey(), List.of()));
             }
         }
         byModule.values().forEach(values -> values.sort(
@@ -718,6 +752,7 @@ final class PerModuleImpactPipeline {
         failuresByModule.values().forEach(values -> values.sort(
                 Comparator.comparing(JarDiffFailure::stableKey)));
         return new BindingResult(byModule, failedModules, failuresByModule,
+                baselineByModule, removedByModule, issuesByModule,
                 configuredWorkers, workers);
     }
 
@@ -742,11 +777,19 @@ final class PerModuleImpactPipeline {
                     upgrade.getScope(), upgrade.getModuleId().stableKey());
             final List<ChangePoint> points = new BytecodeDiffEngine(kinds)
                     .diff(change, repository());
+            final ServiceLoaderResourceDiffResult services =
+                    new ServiceLoaderResourceDiffEngine(kinds).diff(
+                            upgrade, repository(), points);
+            final List<ChangePoint> combined = new ArrayList<>(points);
+            combined.addAll(services.changePoints());
             diagnostics.debug(context, "JAR comparison completed; changes="
-                    + points.size());
-            return new PairDiff(key, points, null);
+                    + combined.size());
+            return new PairDiff(key, combined,
+                    services.baselineRegistrations(),
+                    services.removedRegistrations(), services.issues(), null);
         } catch (Exception exception) {
-            return new PairDiff(key, List.of(),
+            return new PairDiff(key, List.of(), List.of(), List.of(),
+                    List.of(),
                     JarDiffFailureDiagnostic.emit(
                             diagnostics, context, exception));
         }
@@ -803,7 +846,13 @@ final class PerModuleImpactPipeline {
                     bindings.pointsByModule().getOrDefault(
                             key, List.of()),
                     bindings.failuresByModule().getOrDefault(
-                            key, List.of()));
+                            key, List.of()),
+                    bindings.baselineServiceRegistrationsByModule()
+                            .getOrDefault(key, List.of()),
+                    bindings.removedServiceRegistrationsByModule()
+                            .getOrDefault(key, List.of()),
+                    bindings.serviceLoaderResourceIssuesByModule()
+                            .getOrDefault(key, List.of()));
             result.add(new ModuleAnalysisUnit(identity, presence, classes,
                     reactorClasses, ModuleDependencyInputs.fromEvidence(
                     targetDependencies, baselineDependencies,
@@ -1234,11 +1283,17 @@ final class PerModuleImpactPipeline {
      *
      * @param key coordinate-pair key
      * @param points raw ChangePoints
+     * @param baselineServiceRegistrations valid baseline provider facts
+     * @param removedServiceRegistrations removed provider facts
+     * @param serviceLoaderResourceIssues non-fatal resource Diff issues
      * @param failure failure detail, nullable
      */
     private record PairDiff(
             String key,
             List<ChangePoint> points,
+            List<ServiceProviderRegistration> baselineServiceRegistrations,
+            List<ServiceProviderRegistration> removedServiceRegistrations,
+            List<ServiceLoaderResourceIssue> serviceLoaderResourceIssues,
             String failure) {
     }
 
@@ -1248,6 +1303,9 @@ final class PerModuleImpactPipeline {
      * @param pointsByModule points keyed by module coordinate key
      * @param failedModules modules with at least one failed pair
      * @param failuresByModule stable failed pair evidence per module
+     * @param baselineServiceRegistrationsByModule baseline provider facts
+     * @param removedServiceRegistrationsByModule removed provider facts
+     * @param serviceLoaderResourceIssuesByModule resource Diff issues
      * @param configuredWorkers configured JAR diff worker limit
      * @param actualWorkers actual JAR diff workers
      */
@@ -1255,6 +1313,12 @@ final class PerModuleImpactPipeline {
             Map<String, List<BoundChangePoint>> pointsByModule,
             Set<String> failedModules,
             Map<String, List<JarDiffFailure>> failuresByModule,
+            Map<String, List<ServiceProviderRegistration>>
+                    baselineServiceRegistrationsByModule,
+            Map<String, List<ServiceProviderRegistration>>
+                    removedServiceRegistrationsByModule,
+            Map<String, List<ServiceLoaderResourceIssue>>
+                    serviceLoaderResourceIssuesByModule,
             int configuredWorkers,
             int actualWorkers) {
     }

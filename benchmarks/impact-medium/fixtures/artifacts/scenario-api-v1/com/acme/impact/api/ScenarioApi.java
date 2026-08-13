@@ -15,4 +15,14 @@ public class ScenarioApi {
     public String descriptorChanged(final String value) {
         return value.trim();
     }
+
+    @Override
+    public String toString() {
+        return "scenario-v1";
+    }
+
+    @Override
+    public int hashCode() {
+        return 101;
+    }
 }

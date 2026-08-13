@@ -17,12 +17,20 @@ final class ServiceLoaderModelMetadata {
     /** Stable limitations. */
     private final List<ModelLimitation> limitations;
 
+    /** CHA-created provider constructor callsites. */
+    private final Map<ChaCallGraphStrategy.ServiceLoaderEdgeKey, String>
+            chaEdges;
+
     private ServiceLoaderModelMetadata(
             final Map<CGNode, String> nodes,
-            final List<ModelLimitation> values) {
+            final List<ModelLimitation> values,
+            final Map<ChaCallGraphStrategy.ServiceLoaderEdgeKey, String>
+                    providerEdges) {
         modeledNodes = Map.copyOf(Objects.requireNonNull(nodes, "nodes"));
         limitations = Objects.requireNonNull(values, "values").stream()
                 .distinct().sorted().toList();
+        chaEdges = Map.copyOf(Objects.requireNonNull(
+                providerEdges, "providerEdges"));
     }
 
     static ServiceLoaderModelMetadata snapshot(
@@ -35,7 +43,7 @@ final class ServiceLoaderModelMetadata {
                 nodes.put(node, model.serviceLabel(node));
             }
         }
-        return new ServiceLoaderModelMetadata(nodes, limitations);
+        return new ServiceLoaderModelMetadata(nodes, limitations, Map.of());
     }
 
     static ServiceLoaderModelMetadata snapshot(
@@ -48,7 +56,7 @@ final class ServiceLoaderModelMetadata {
                 nodes.put(node, model.serviceLabel(node));
             }
         }
-        return new ServiceLoaderModelMetadata(nodes, limitations);
+        return new ServiceLoaderModelMetadata(nodes, limitations, Map.of());
     }
 
     static ServiceLoaderModelMetadata snapshot(
@@ -61,7 +69,7 @@ final class ServiceLoaderModelMetadata {
                 nodes.put(node, model.serviceLabel(node));
             }
         }
-        return new ServiceLoaderModelMetadata(nodes, limitations);
+        return new ServiceLoaderModelMetadata(nodes, limitations, Map.of());
     }
 
     static ServiceLoaderModelMetadata snapshot(
@@ -74,12 +82,19 @@ final class ServiceLoaderModelMetadata {
                 nodes.put(node, model.serviceLabel(node));
             }
         }
-        return new ServiceLoaderModelMetadata(nodes, limitations);
+        return new ServiceLoaderModelMetadata(nodes, limitations, Map.of());
     }
 
     static ServiceLoaderModelMetadata empty(
             final List<ModelLimitation> limitations) {
-        return new ServiceLoaderModelMetadata(Map.of(), limitations);
+        return new ServiceLoaderModelMetadata(
+                Map.of(), limitations, Map.of());
+    }
+
+    static ServiceLoaderModelMetadata cha(
+            final Map<ChaCallGraphStrategy.ServiceLoaderEdgeKey, String>
+                    edges) {
+        return new ServiceLoaderModelMetadata(Map.of(), List.of(), edges);
     }
 
     List<ModelLimitation> limitations() {
@@ -92,5 +107,15 @@ final class ServiceLoaderModelMetadata {
 
     String serviceLabel(final CGNode node) {
         return modeledNodes.get(node);
+    }
+
+    String chaService(
+            final CGNode caller,
+            final com.ibm.wala.classLoader.CallSiteReference site,
+            final CGNode callee) {
+        return chaEdges.get(new ChaCallGraphStrategy.ServiceLoaderEdgeKey(
+                caller.getMethod().getReference().toString(),
+                site.getProgramCounter(),
+                callee.getMethod().getReference().toString()));
     }
 }

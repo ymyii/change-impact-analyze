@@ -17,7 +17,7 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 expected_results="$script_dir/../expected-results.tsv"
 
 case "$algorithm" in
-  rta|zero-cfa|optimized-0-1-cfa|k-obj) ;;
+  cha|rta|zero-cfa|optimized-0-1-cfa|k-obj) ;;
   *)
     echo "unsupported call graph algorithm: $algorithm" >&2
     exit 2
@@ -41,6 +41,8 @@ case "$jdk_model" in
   jdk8|none) ;;
   *) fail "unsupported JDK model: $jdk_model" ;;
 esac
+[ "$algorithm" != cha ] || [ "$jdk_model" = none ] \
+  || fail "CHA must use JDK model none"
 
 case "$dependency_scope" in
   changed-paths|full) ;;
@@ -60,15 +62,24 @@ changes_pages="$1 $2"
 
 case "$dependency_scope" in
   changed-paths)
-    required_change_kinds="CLASS_REMOVED METHOD_BODY_CHANGED FIELD_DESCRIPTOR_CHANGED"
+    required_change_kinds="CLASS_REMOVED METHOD_BODY_CHANGED FIELD_DESCRIPTOR_CHANGED SERVICE_PROVIDER_REGISTRATION_REMOVED"
     hidden_change_kinds="CLASS_ADDED METHOD_ADDED FIELD_ADDED METHOD_REMOVED METHOD_DESCRIPTOR_CHANGED FIELD_REMOVED"
     final_member_text="Method implementation changed"
     grep -q '<th>Status</th><td>Completed with coverage limitations</td>' "$report" \
       || fail "changed-paths Overall status is not INCONCLUSIVE"
-    grep -q 'CHANGED_INSTANCE_TO_NO_OP_DEPENDENCY' "$module_dir"/*.html \
-      || fail "dangerous transfer evidence is missing"
-    grep -q 'FLOW_TO_CAST_FACTORY' "$module_dir"/*.html \
-      || fail "flow-to-cast factory evidence is missing"
+    if [ "$algorithm" = cha ]; then
+      grep -q 'DEPENDENCY_BODY_BOUNDARY_REACHED' "$module_dir"/*.html \
+        || fail "CHA dependency body boundary evidence is missing"
+      grep -q '<th>No-op / factory method nodes</th><td>0 / 0</td>' "$report" \
+        || fail "CHA unexpectedly produced no-op or factory nodes"
+      grep -q '<th>Dangerous dependency transfers</th><td>0</td>' "$report" \
+        || fail "CHA unexpectedly produced dangerous transfer evidence"
+    else
+      grep -q 'CHANGED_INSTANCE_TO_NO_OP_DEPENDENCY' "$module_dir"/*.html \
+        || fail "dangerous transfer evidence is missing"
+      grep -q 'FLOW_TO_CAST_FACTORY' "$module_dir"/*.html \
+        || fail "flow-to-cast factory evidence is missing"
+    fi
     grep -q 'path-a.*path-c.*scenario-api:jar:2.0.0' \
       "$module_dir"/*.html \
       || fail "path-a/path-c dependency path is missing"
@@ -81,19 +92,24 @@ case "$dependency_scope" in
       || fail "seed downstream policy evidence is missing"
     ;;
   full)
-    required_change_kinds="CLASS_REMOVED METHOD_REMOVED METHOD_DESCRIPTOR_CHANGED METHOD_BODY_CHANGED FIELD_REMOVED FIELD_DESCRIPTOR_CHANGED"
+    required_change_kinds="CLASS_REMOVED METHOD_REMOVED METHOD_DESCRIPTOR_CHANGED METHOD_BODY_CHANGED FIELD_REMOVED FIELD_DESCRIPTOR_CHANGED SERVICE_PROVIDER_REGISTRATION_REMOVED"
     hidden_change_kinds="CLASS_ADDED METHOD_ADDED FIELD_ADDED"
     final_member_text="Method removed"
-    grep -q '<th>Status</th><td>Completed</td>' "$report" \
-      || fail "full Overall status is not Completed"
+    if [ "$algorithm" = cha ]; then
+      grep -q '<th>Status</th><td>Completed with coverage limitations</td>' "$report" \
+        || fail "full CHA Overall status is not INCONCLUSIVE"
+    else
+      grep -q '<th>Status</th><td>Completed</td>' "$report" \
+        || fail "full Overall status is not Completed"
+    fi
     grep -q '<th>No-op / factory method nodes</th><td>0 / 0</td>' "$report" \
       || fail "full mode unexpectedly produced no-op or factory nodes"
     grep -q '<th>Dangerous dependency transfers</th><td>0</td>' "$report" \
       || fail "full mode unexpectedly produced dangerous transfer evidence"
     ;;
 esac
-grep -q '<th>Raw changed members</th><td>18</td>' "$report" \
-  || fail "raw changed member count is not 18"
+grep -q '<th>Raw changed members</th><td>22</td>' "$report" \
+  || fail "raw changed member count is not 22"
 grep -F -q "<th>Algorithm</th><td>$algorithm</td>" "$report" \
   || fail "Call Graph algorithm does not match requested $algorithm"
 if [ "$algorithm" = k-obj ]; then
@@ -103,8 +119,13 @@ else
   ! grep -F -q '<th>k-object depth</th>' "$report" \
     || fail "non-k-obj report unexpectedly exposes k-object depth"
 fi
-grep -F -q "<th>WALA ReflectionOptions</th><td>$reflection_options</td>" "$report" \
-  || fail "WALA ReflectionOptions does not match requested $reflection_options"
+if [ "$algorithm" = cha ]; then
+  grep -F -q "<th>WALA ReflectionOptions</th><td>not applied by cha (configured: $reflection_options)</td>" "$report" \
+    || fail "CHA ReflectionOptions not-applied state is missing"
+else
+  grep -F -q "<th>WALA ReflectionOptions</th><td>$reflection_options</td>" "$report" \
+    || fail "WALA ReflectionOptions does not match requested $reflection_options"
+fi
 grep -F -q "<th>Requested dependency scope</th><td>$dependency_scope</td>" "$report" \
   || fail "dependency scope does not match requested $dependency_scope"
 grep -F -q "<th>JDK method model</th><td>$jdk_model</td>" "$report" \
@@ -121,6 +142,24 @@ grep -q 'RecursiveCallUseCase' "$module_dir"/*-impact.html \
   || fail "recursive call impact chain is missing"
 grep -q 'Structural reference chains' "$module_dir"/*-impact.html \
   || fail "structural reference chain is missing"
+grep -q 'CLASS_FOR_NAME_LOCAL_CONSTANT' "$module_dir"/*-impact.html \
+  || fail "Class.forName local-constant evidence is missing"
+grep -q 'SERVICE_LOADER_PROVIDER' "$module_dir"/*-impact.html \
+  || fail "ServiceLoader provider evidence is missing"
+if [ "$algorithm" = cha ]; then
+  grep -q 'ObjectDispatchUseCase' "$module_dir"/*-impact.html \
+    || fail "CHA Object dispatch Diff-related path is missing"
+  grep -q 'hashCode' "$module_dir"/*-impact.html \
+    || fail "CHA Object.hashCode Diff-related path is missing"
+  grep -q 'toString' "$module_dir"/*-impact.html \
+    || fail "CHA Object.toString Diff-related path is missing"
+  ! grep -q 'UnrelatedObjectOverride' "$module_dir"/*-impact.html \
+    || fail "CHA unrelated Object override entered impact paths"
+  grep -q 'CLASS_FOR_NAME_LOCAL_CONSTANT_UNRESOLVED' "$module_dir"/*.html \
+    || fail "unsupported Class.forName limitation is missing"
+  grep -q 'SERVICE_LOADER_LOCAL_CONSTANT_UNRESOLVED' "$module_dir"/*.html \
+    || fail "unsupported ServiceLoader limitation is missing"
+fi
 grep -q 'View candidate chains filtered as equivalent' "$module_dir"/*-impact.html \
   || fail "filtered candidate chain is missing"
 
@@ -176,8 +215,15 @@ expected=$(awk -F '\t' -v requested_scope="$dependency_scope" -v requested_model
 if [ -n "$expected" ]; then
   expected_candidate=$(printf '%s\n' "$expected" | awk -F '\t' '{print $1}')
   expected_final=$(printf '%s\n' "$expected" | awk -F '\t' '{print $2}')
-  grep -F -q "<th>Candidate / final call chains</th><td>$expected_candidate / $expected_final</td>" "$report" \
-    || fail "candidate/final call chains do not match $jdk_model/$algorithm baseline $expected_candidate / $expected_final"
+  if [ "$expected_candidate" = PENDING ] \
+      || [ "$expected_final" = PENDING ]; then
+    [ "${BENCHMARK_CALIBRATION:-0}" = 1 ] \
+      || fail "pending semantic baseline for $dependency_scope/$jdk_model/$algorithm; run an explicitly authorized calibration matrix"
+    echo "expected_count=PENDING_CALIBRATION"
+  else
+    grep -F -q "<th>Candidate / final call chains</th><td>$expected_candidate / $expected_final</td>" "$report" \
+      || fail "candidate/final call chains do not match $jdk_model/$algorithm baseline $expected_candidate / $expected_final"
+  fi
 elif [ "${BENCHMARK_CALIBRATION:-0}" != 1 ]; then
   fail "no locked expected count for $jdk_model/$algorithm; rerun only for review with BENCHMARK_CALIBRATION=1"
 else
@@ -186,11 +232,11 @@ fi
 
 echo "status=SUCCESS"
 echo "direct_dependencies=$dependency_count"
-echo "raw_change_kinds=9"
+echo "raw_change_kinds=10"
 echo "dependency_analysis_scope=$dependency_scope"
 echo "jdk_model=$jdk_model"
 echo "visible_change_kinds=$visible_change_kind_count"
-if [ -n "$expected" ]; then
+if [ -n "$expected" ] && [ "$expected_candidate" != PENDING ]; then
   echo "candidate_final_call_chains=$expected_candidate/$expected_final"
 fi
 echo "structural_impact=present"

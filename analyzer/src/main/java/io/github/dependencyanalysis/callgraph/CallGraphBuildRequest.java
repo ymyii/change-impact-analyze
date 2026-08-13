@@ -16,6 +16,8 @@ import java.util.Objects;
  * @param hierarchy target class hierarchy
  * @param entrypoints PROJECT entrypoints
  * @param cache target SSA cache
+ * @param ownership target binary-name ownership
+ * @param chaDispatchTargets CHA Diff-directed dispatch target policy
  * @param serviceLoaderIndex immutable validated ServiceLoader facts
  * @param dynamicModels invokedynamic model registry
  * @param jdkModel command-wide JDK Method Model selection
@@ -29,6 +31,8 @@ record CallGraphBuildRequest(
         IClassHierarchy hierarchy,
         List<Entrypoint> entrypoints,
         IAnalysisCacheView cache,
+        ClassOwnershipIndex ownership,
+        ChaDispatchTargetPolicy chaDispatchTargets,
         ServiceLoaderProtocolIndex serviceLoaderIndex,
         InvokeDynamicBootstrapModelRegistry dynamicModels,
         JdkModelSelection jdkModel,
@@ -43,6 +47,8 @@ record CallGraphBuildRequest(
         entrypoints = List.copyOf(Objects.requireNonNull(
                 entrypoints, "entrypoints"));
         Objects.requireNonNull(cache, "cache");
+        Objects.requireNonNull(ownership, "ownership");
+        Objects.requireNonNull(chaDispatchTargets, "chaDispatchTargets");
         Objects.requireNonNull(serviceLoaderIndex, "serviceLoaderIndex");
         Objects.requireNonNull(dynamicModels, "dynamicModels");
         Objects.requireNonNull(jdkModel, "jdkModel");
@@ -76,7 +82,9 @@ record CallGraphBuildRequest(
             final DependencyBodyBoundary boundary,
             final IProgressMonitor progressMonitor) {
         this(analysisScope, classHierarchy, projectEntrypoints, analysisCache,
-                services, invokedynamicModels,
+                new ClassOwnershipIndex(),
+                ChaDispatchTargetPolicy.disabled(), services,
+                invokedynamicModels,
                 JdkModelSelection.defaultSelection(), reflection, boundary,
                 CallGraphAlgorithm.defaultKObjDepth(),
                 progressMonitor);

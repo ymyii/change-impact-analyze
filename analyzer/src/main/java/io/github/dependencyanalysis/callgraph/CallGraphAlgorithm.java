@@ -8,6 +8,9 @@ import java.util.stream.Collectors;
 /** Supported command-wide WALA Call Graph algorithms. */
 public enum CallGraphAlgorithm {
 
+    /** Context-insensitive Class Hierarchy Analysis. */
+    CHA("cha"),
+
     /** Class-based Rapid Type Analysis. */
     RTA("rta"),
 
@@ -32,7 +35,7 @@ public enum CallGraphAlgorithm {
 
     /** @return command default algorithm */
     public static CallGraphAlgorithm defaultAlgorithm() {
-        return RTA;
+        return CHA;
     }
 
     /** @return default k-object receiver allocation-string depth */

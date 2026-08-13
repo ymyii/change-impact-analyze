@@ -16,4 +16,14 @@ public class ScenarioApi {
     public String addedMethod(final String value) {
         return "added:" + value;
     }
+
+    @Override
+    public String toString() {
+        return "scenario-v2";
+    }
+
+    @Override
+    public int hashCode() {
+        return 202;
+    }
 }

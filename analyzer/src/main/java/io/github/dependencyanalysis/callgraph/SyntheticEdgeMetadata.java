@@ -8,7 +8,7 @@ import java.util.Objects;
  * @param kind edge kind
  * @param evidence stable model evidence
  */
-public record SyntheticEdgeMetadata(EdgeKind kind, String evidence) {
+public record SyntheticEdgeMetadata(CallEdgeKind kind, String evidence) {
 
     /** Validates edge metadata. */
     public SyntheticEdgeMetadata {

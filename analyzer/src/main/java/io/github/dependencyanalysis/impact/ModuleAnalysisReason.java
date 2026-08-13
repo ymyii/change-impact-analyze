@@ -24,6 +24,9 @@ public enum ModuleAnalysisReason {
     /** ServiceLoader metadata could not be resolved completely. */
     INCONCLUSIVE_SERVICE_LOADER,
 
+    /** Reachable reflection target could not be resolved locally. */
+    INCONCLUSIVE_REFLECTION,
+
     /** Reachable invokedynamic bootstrap could not be modeled. */
     INCONCLUSIVE_INVOKEDYNAMIC_MODEL,
 

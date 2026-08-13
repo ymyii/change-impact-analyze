@@ -29,11 +29,6 @@ import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.callgraph.ClassOwnership;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
-import io.github.dependencyanalysis.callgraph.DynamicCallEvidence;
-import io.github.dependencyanalysis.callgraph.DynamicCallEvidenceIndex;
-import io.github.dependencyanalysis.callgraph.DynamicReferenceKind;
-import io.github.dependencyanalysis.callgraph.EdgeKind;
-import io.github.dependencyanalysis.callgraph.MethodHandleReferenceKind;
 import io.github.dependencyanalysis.callgraph.MethodId;
 import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
 
@@ -46,7 +41,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-/** Resolves access-narrowing seeds from reachable and dynamic references. */
+/** Resolves access-narrowing seeds from the frozen evidence index. */
 final class AccessNarrowingSeedResolver
         implements ChangePointSeedResolver {
 
@@ -61,9 +56,6 @@ final class AccessNarrowingSeedResolver
         final ModuleId moduleId = request.moduleId();
         final ChangePoint point = request.point();
         final ModuleCallGraphSession session = request.session();
-        final DynamicCallEvidenceIndex dynamicEvidence =
-                request.dynamicEvidence();
-        final ReachableReferenceCollector reachable = request.reachable();
         if (!point.getKind().isAccessNarrowing()) {
             throw new IllegalArgumentException(
                     "Access resolver requires an access ChangePoint");
@@ -75,17 +67,9 @@ final class AccessNarrowingSeedResolver
                 moduleId, point, session,
                 new JvmAccessChecker(session.getHierarchy()),
                 seeds, evidence, limitations, new HashMap<>());
-        for (ReachableReferenceCollector.ReachableInstruction fact
-                : reachable.instructions()) {
-            observeInstruction(context, fact.caller(), fact.instruction());
+        for (ReferenceEvidence reference : request.evidence().evidence()) {
+            observeReference(context, reference);
         }
-        final List<DynamicCallEvidence> matchingDynamicEvidence =
-                point.getKind() == ChangePointKind.CLASS_ACCESS_NARROWED
-                ? dynamicEvidence.findOwner(point.getOwner())
-                : dynamicEvidence.find(point.getOwner(), point.getName(),
-                        point.getNewDescriptor());
-        matchingDynamicEvidence.forEach(value ->
-                observeDynamicAccess(context, value));
         final List<ImpactSeed> ordered = seeds.stream()
                 .sorted(seedComparator()).toList();
         final List<ImpactEvidence> observations = evidence.values().stream()
@@ -100,28 +84,48 @@ final class AccessNarrowingSeedResolver
                 limitations.stream().sorted().toList());
     }
 
+    private void observeReference(
+            final AccessSeedContext context,
+            final ReferenceEvidence evidence) {
+        final EvidenceAnchor rawAnchor = evidence.anchor().orElse(null);
+        final MethodEvidenceAnchor anchor = rawAnchor
+                instanceof MethodEvidenceAnchor method ? method : null;
+        if (anchor == null) {
+            return;
+        }
+        final SSAInstruction instruction = anchor.instruction().orElse(null);
+        if (instruction != null) {
+            observeInstruction(context, anchor.node(), instruction,
+                    evidence);
+            return;
+        }
+        observeDynamicAccess(context, anchor.node(), evidence);
+    }
+
     private void observeInstruction(
             final AccessSeedContext context,
             final CGNode node,
-            final SSAInstruction instruction) {
+            final SSAInstruction instruction,
+            final ReferenceEvidence evidence) {
         final ChangePointKind kind = context.point().getKind();
         if (kind == ChangePointKind.METHOD_ACCESS_NARROWED
                 && instruction
                 instanceof SSAAbstractInvokeInstruction invoke) {
-            observeMethodAccess(context, node, invoke);
+            observeMethodAccess(context, node, invoke, evidence);
         } else if (kind == ChangePointKind.FIELD_ACCESS_NARROWED
                 && instruction instanceof SSAFieldAccessInstruction field) {
-            observeFieldAccess(context, node, field);
+            observeFieldAccess(context, node, field, evidence);
         } else if (kind == ChangePointKind.CLASS_ACCESS_NARROWED
                 && referencesType(instruction, context.point().getOwner())) {
-            observeClassAccess(context, node);
+            observeClassAccess(context, node, evidence);
         }
     }
 
     private void observeMethodAccess(
             final AccessSeedContext context,
             final CGNode node,
-            final SSAAbstractInvokeInstruction invoke) {
+            final SSAAbstractInvokeInstruction invoke,
+            final ReferenceEvidence evidence) {
         final IMethod declaration = context.session().getHierarchy()
                 .resolveMethod(invoke.getDeclaredTarget());
         if (declaration == null) {
@@ -162,14 +166,15 @@ final class AccessNarrowingSeedResolver
                         : receiverType(context, node, invoke.getReceiver(),
                                 invoke.isSpecial()
                                         && !declaration.isInit()),
-                EdgeKind.DECLARED_INVOKE_REFERENCE,
+                evidence,
                 methodIdentity(invoke.getDeclaredTarget())));
     }
 
     private void observeFieldAccess(
             final AccessSeedContext context,
             final CGNode node,
-            final SSAFieldAccessInstruction instruction) {
+            final SSAFieldAccessInstruction instruction,
+            final ReferenceEvidence evidence) {
         final IField declaration = context.session().getHierarchy()
                 .resolveField(instruction.getDeclaredField());
         if (declaration == null) {
@@ -210,13 +215,14 @@ final class AccessNarrowingSeedResolver
                 instruction.isStatic() ? ReceiverType.notApplicable()
                         : receiverType(context, node,
                                 instruction.getRef(), false),
-                EdgeKind.FIELD_REFERENCE,
+                evidence,
                 instruction.getDeclaredField().toString()));
     }
 
     private void observeClassAccess(
             final AccessSeedContext context,
-            final CGNode node) {
+            final CGNode node,
+            final ReferenceEvidence evidence) {
         final IClass target = lookupClass(
                 context.session(), context.point().getOwner());
         if (target == null) {
@@ -230,51 +236,51 @@ final class AccessNarrowingSeedResolver
         observeAccess(context, node, target, target,
                 new AccessReference(JvmReferenceKind.CLASS,
                         ReceiverType.notApplicable(),
-                        EdgeKind.TYPE_REFERENCE,
+                        evidence,
                         context.point().getOwner()));
     }
 
     private void observeDynamicAccess(
             final AccessSeedContext context,
-            final DynamicCallEvidence evidence) {
+            final CGNode node,
+            final ReferenceEvidence evidence) {
+        final ReferenceTarget target = evidence.target();
         final IClass symbolicOwner = lookupClass(
-                context.session(), evidence.targetOwner());
+                context.session(), target.owner());
         if (symbolicOwner == null) {
             context.limitations().add(queryLimitation(
                     "ACCESS_TARGET_TYPE_UNRESOLVED",
                     changeLocation(context.point()),
                     "Dynamic symbolic owner is absent: "
-                            + evidence.targetOwner()));
+                            + target.owner()));
             return;
         }
         if (context.point().getKind()
                 == ChangePointKind.CLASS_ACCESS_NARROWED) {
-            observeAccess(context, evidence.caller(), symbolicOwner,
+            observeAccess(context, node, symbolicOwner,
                     symbolicOwner, new AccessReference(
                     JvmReferenceKind.CLASS,
-                    ReceiverType.notApplicable(), evidence.kind(),
+                    ReceiverType.notApplicable(), evidence,
                     evidence.detail()));
             return;
         }
-        final MethodHandleReferenceKind handleKind = evidence
-                .methodHandleKind().orElse(null);
         if (context.point().getKind()
                 == ChangePointKind.FIELD_ACCESS_NARROWED) {
-            if (handleKind != null && handleKind.isField()) {
-                observeDynamicField(context, evidence, symbolicOwner,
-                        handleKind);
+            if (evidence.kind() == EvidenceKind.FIELD_REFERENCE) {
+                observeDynamicField(context, node, evidence,
+                        symbolicOwner);
             }
             return;
         }
         if (context.point().getKind()
                 != ChangePointKind.METHOD_ACCESS_NARROWED
-                || handleKind != null && handleKind.isField()) {
+                || evidence.kind() != EvidenceKind.METHOD_REFERENCE) {
             return;
         }
         final MethodReference reference = MethodReference.findOrCreate(
                 symbolicOwner.getReference(),
-                Atom.findOrCreateUnicodeAtom(evidence.targetName()),
-                Descriptor.findOrCreateUTF8(evidence.targetDescriptor()));
+                Atom.findOrCreateUnicodeAtom(target.name()),
+                Descriptor.findOrCreateUTF8(target.descriptor()));
         final IMethod declaration = context.session().getHierarchy()
                 .resolveMethod(reference);
         if (declaration == null) {
@@ -289,28 +295,32 @@ final class AccessNarrowingSeedResolver
                 context.point().getNewDescriptor())) {
             return;
         }
-        final JvmReferenceKind referenceKind = dynamicMethodKind(
-                evidence.referenceKind(), handleKind);
-        observeAccess(context, evidence.caller(),
+        final JvmReferenceKind referenceKind = declaration.isInit()
+                ? JvmReferenceKind.CONSTRUCTOR
+                : declaration.isStatic()
+                ? JvmReferenceKind.METHOD_STATIC
+                : JvmReferenceKind.METHOD_INSTANCE;
+        observeAccess(context, node,
                 declaration.getDeclaringClass(), symbolicOwner,
                 new AccessReference(referenceKind,
                         referenceKind.isInstance()
                                 ? ReceiverType.unknown()
                                 : ReceiverType.notApplicable(),
-                        evidence.kind(), evidence.detail()));
+                        evidence, evidence.detail()));
     }
 
     private void observeDynamicField(
             final AccessSeedContext context,
-            final DynamicCallEvidence evidence,
-            final IClass symbolicOwner,
-            final MethodHandleReferenceKind handleKind) {
+            final CGNode node,
+            final ReferenceEvidence evidence,
+            final IClass symbolicOwner) {
+        final ReferenceTarget target = evidence.target();
         final TypeReference fieldType = TypeReference.findOrCreate(
                 symbolicOwner.getClassLoader().getReference(),
-                TypeName.string2TypeName(evidence.targetDescriptor()));
+                TypeName.string2TypeName(target.descriptor()));
         final FieldReference reference = FieldReference.findOrCreate(
                 symbolicOwner.getReference(),
-                Atom.findOrCreateUnicodeAtom(evidence.targetName()),
+                Atom.findOrCreateUnicodeAtom(target.name()),
                 fieldType);
         final IField declaration = context.session().getHierarchy()
                 .resolveField(reference);
@@ -325,16 +335,16 @@ final class AccessNarrowingSeedResolver
                 declaration.getDeclaringClass().getReference()))) {
             return;
         }
-        final JvmReferenceKind referenceKind = handleKind.isStatic()
+        final JvmReferenceKind referenceKind = declaration.isStatic()
                 ? JvmReferenceKind.FIELD_STATIC
                 : JvmReferenceKind.FIELD_INSTANCE;
-        observeAccess(context, evidence.caller(),
+        observeAccess(context, node,
                 declaration.getDeclaringClass(), symbolicOwner,
                 new AccessReference(referenceKind,
                         referenceKind.isInstance()
                                 ? ReceiverType.unknown()
                                 : ReceiverType.notApplicable(),
-                        evidence.kind(), evidence.detail()));
+                        evidence, evidence.detail()));
     }
 
     private void observeAccess(
@@ -362,7 +372,7 @@ final class AccessNarrowingSeedResolver
         if (result.decision() != AccessDecision.ACCESSIBLE) {
             context.seeds().add(new ImpactSeed(queryNode(
                     context.moduleId(), node, context.session()),
-                    reference.edgeKind(), detail));
+                    reference.evidence()));
         }
     }
 
@@ -390,21 +400,6 @@ final class AccessNarrowingSeedResolver
             return ReceiverType.cone(cone.getType());
         }
         return ReceiverType.unknown();
-    }
-
-    private JvmReferenceKind dynamicMethodKind(
-            final DynamicReferenceKind dynamicKind,
-            final MethodHandleReferenceKind handleKind) {
-        if (dynamicKind
-                == DynamicReferenceKind.BOOTSTRAP_IMPLEMENTATION_METHOD
-                || handleKind == MethodHandleReferenceKind.REF_INVOKE_STATIC) {
-            return JvmReferenceKind.METHOD_STATIC;
-        }
-        if (handleKind
-                == MethodHandleReferenceKind.REF_NEW_INVOKE_SPECIAL) {
-            return JvmReferenceKind.CONSTRUCTOR;
-        }
-        return JvmReferenceKind.METHOD_INSTANCE;
     }
 
     private boolean referencesType(
@@ -554,7 +549,7 @@ final class AccessNarrowingSeedResolver
         return Comparator.comparing((ImpactSeed seed) ->
                         methodIdentity(seed.node().methodId()))
                 .thenComparingInt(seed -> queryNodeNumber(seed.node()))
-                .thenComparing(seed -> seed.kind().name());
+                .thenComparing(seed -> seed.evidence().stableKey());
     }
 
     private int queryNodeNumber(final QueryNode node) {
@@ -617,13 +612,13 @@ final class AccessNarrowingSeedResolver
      *
      * @param kind JVM reference kind
      * @param receiver verifier-level receiver type
-     * @param edgeKind terminal edge kind
+     * @param evidence terminal reference evidence
      * @param identity symbolic reference identity
      */
     private record AccessReference(
             JvmReferenceKind kind,
             ReceiverType receiver,
-            EdgeKind edgeKind,
+            ReferenceEvidence evidence,
             String identity) {
     }
 }

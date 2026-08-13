@@ -3,12 +3,12 @@ package io.github.dependencyanalysis.impact;
 import io.github.dependencyanalysis.bytecode.AccessTransition;
 import io.github.dependencyanalysis.bytecode.JvmAccess;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
-import io.github.dependencyanalysis.callgraph.EdgeKind;
 import io.github.dependencyanalysis.callgraph.MethodId;
 
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -19,8 +19,12 @@ class ChangePointSeedResolutionTest {
             new TestQueryNode(new MethodId(
                     "example/Caller", "run", "()V", "app", "app"),
                     CodeOrigin.PROJECT),
-            EdgeKind.DECLARED_INVOKE_REFERENCE,
-            new TextImpactEvidence("reference"));
+            new ReferenceEvidence(Optional.empty(),
+                    new ReferenceTarget("example/Api", "call", "()V"),
+                    EvidenceKind.METHOD_REFERENCE,
+                    EvidenceMechanism.DECLARED_INVOKE,
+                    new EvidenceLocation("example/Caller#run()V", 0),
+                    "reference"));
 
     /** Accessible typed observation. */
     private final AccessReferenceEvidence accessible =

@@ -7,7 +7,7 @@ relations:
   - path: "wiki/features/report-generator.md"
     desc: "Preflight 与 diagnostics 输出"
   - path: "wiki/features/jdk-method-models.md"
-    desc: "--jdk-model默认值、关闭语义与严格失败"
+    desc: "algorithm相关--jdk-model默认值、关闭语义与严格失败"
   - path: "wiki/features/bytecode-diff-engine.md"
     desc: "JAR pair failure isolation与异常诊断"
 code_refs:
@@ -19,6 +19,8 @@ code_refs:
     desc: "jdk8/none精确标识符parse与CLI error"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/JdkModelSelection.java"
     desc: "public selection与defaultSelection"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphPolicy.java"
+    desc: "CLI、pipeline与Java API共享的algorithm/model policy"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/preflight/PreflightRunner.java"
     desc: "check DAG"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/diagnostic/DiagnosticContext.java"
@@ -76,10 +78,10 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - `--path <path>`：reactor root 或 leaf Module。
 - `--analysis-target spring-backend`：默认且唯一 target。
 - `--analysis-parallelism <N>`：默认 `2`，必须 `>=1`；统一控制 Module analysis、JAR diff、反编译 pool，不按 CPU 数静默截断，超过 CPU 输出 warning。
-- `--call-graph-algorithm <rta|zero-cfa|optimized-0-1-cfa|k-obj>`：默认`rta`，command-wide应用到全部Module；大小写不敏感，不接受alias或自动fallback；旧`1-object-1-call-site`标识直接拒绝。
+- `--call-graph-algorithm <cha|rta|zero-cfa|optimized-0-1-cfa|k-obj>`：默认`cha`，command-wide应用到全部Module；大小写不敏感，不接受alias或自动fallback；旧`1-object-1-call-site`标识直接拒绝。
 - `--k-obj-depth <正整数>`：只可与`k-obj`同时使用，默认`1`，不设置人为上限；零值、负值及与其他算法组合均在Preflight前作为参数错误返回。
-- `--jdk-model <jdk8|none>`：默认`jdk8`，command-wide应用到全部Module；大小写不敏感，只接受精确标识符。`none`跳过JDK model catalog与selector，保留真实JDK bytecode分析。非法值由Picocli在Preflight前以exit code`1`拒绝。
-- `--wala-reflection-options <enum-name>`：默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`，接受WALA `ReflectionOptions` enum name；`--reflection-options`为alias。
+- `--jdk-model <jdk8|none>`：默认依algorithm解析。未指定algorithm/model或显式`cha`但未指定model时为`none`；其他algorithm未指定model时为`jdk8`。显式`cha + jdk8`在Preflight前exit code`1`；其他algorithm仍可显式`none`。
+- `--wala-reflection-options <enum-name>`：默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`，接受WALA `ReflectionOptions` enum name；`--reflection-options`为alias。CHA保留配置值但不应用，Report显示`not applied by cha`。
 - `--entrypoint-include '<class-path-pattern>'` 与 `--entrypoint-exclude ...`：可重复；直接匹配 slash-separated JVM internal class path，include 取并集，exclude 优先。普通 segment支持 `*`、`?`；`**` 只能作为最后一个完整 segment。Colon/dot旧语法、leading/trailing slash、空 segment与嵌入式 `**` 在 CLI validation阶段 exit `1`。
 - `--call-graph-timeout-seconds <N>`：默认 `0`；按 Module、从实际 WALA build 开始计时。
 - `--call-graph-diagnostics-output <json>`：可选benchmark-only只读输出；未设置时不执行CGNode ranking、IMethod子榜、shortest path、IR capture或decompilation。路径不得与`--output`相同。
@@ -101,7 +103,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - Reactor/leaf mode、Module coordinate collision、physical artifact ambiguity 属于 preparation failure。
 - entrypoint selector 使用当前 Module `target/classes` 的 immutable index；interface、annotation、private nested class与private method/constructor不进入root范围。Filtered门禁与Call Graph roots复用同一index；privacy过滤不从scope删除class/method。Relevant Module无可执行root时为`SKIPPED_USER_ENTRYPOINT_SCOPE`；所有relevant Module均无匹配时command exit `1`，不替换旧Report。
 - `PROJECT`/`REACTOR_DEPENDENCY` excluded JDK reference、scope I/O/scanner failure 与 Call Graph failure 属于 handled failed Module result，可产生 partial Report。外部 `DEPENDENCY` reference 只产生 `INCONCLUSIVE` warning。
-- 默认`jdk8`的Synthetic loader、安装或catalog completeness failure属于Call Graph failed Module；不转换为coverage limitation，也不fallback到`none`。zero model hit不失败。
+- 非CHA默认`jdk8`的Synthetic loader、安装或catalog completeness failure属于Call Graph failed Module；不转换为coverage limitation，也不fallback到`none`。CHA固定跳过安装。
 
 ## Diagnostics
 
@@ -115,7 +117,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - 外部 dependency scope warning 使用 `[scope-validation][module][module=…][artifact=…]` context；每个 artifact 一条，warning text 同时进入 Module `Coverage limitations`。
 - Analyzer Diagnostic event 默认 retained，可进入 `impact` HTML Diagnostics。Preflight evidence/fallback、Maven output、exception stack trace 与 Runtime Metrics 是 transient，只进入 Console。
 - Console 与 HTML Report 对 retained event 共用 `DiagnosticLogFormatter`，包含同一 event timestamp 和 prefix；Module Diagnostics 只按 `DiagnosticEvent.module` 精确归属。
-- Call Graph completion message包含`jdkModel=jdk8|none`，并仅在`k-obj`时包含实际`kObjDepth`。HTML遵循同一条件展示；Schema v6 diagnostics JSON在`k-obj`时输出正整数`kObjDepth`，其他算法输出`null`。用户输出不展示model available/hit count或target列表。
+- Call Graph completion message包含effective`algorithm`与`jdkModel=jdk8|none`，并仅在`k-obj`时包含实际`kObjDepth`。HTML展示CHA Reflection not-applied。Schema v7 diagnostics额外输出strategy capabilities、reflection applied状态、Evidence resolution/kind/mechanism汇总和local constant resolution计数；Evidence不作为topology node/edge输出。
 
 示例：
 

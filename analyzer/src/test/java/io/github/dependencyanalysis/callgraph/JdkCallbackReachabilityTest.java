@@ -157,7 +157,8 @@ class JdkCallbackReachabilityTest {
     }
 
     @Test
-    void allAlgorithmsInstallAndUseDefaultJdk8Model() throws Exception {
+    void propagationAlgorithmsInstallAndUseDefaultJdk8Model()
+            throws Exception {
         final Path classes = compileModelFixture();
         final JavaRuntimeDescriptor runtime = new Jdk8RuntimeProvider()
                 .probe(Path.of(System.getenv("TEST_JDK8_HOME")));
@@ -170,6 +171,9 @@ class JdkCallbackReachabilityTest {
                 List.of(MODEL_APP), List.of());
 
         for (CallGraphAlgorithm algorithm : CallGraphAlgorithm.values()) {
+            if (algorithm == CallGraphAlgorithm.CHA) {
+                continue;
+            }
             try (var repository = TestJarRepositories.empty()) {
                 final ModuleCallGraphSession session =
                         new ModuleCallGraphEngine(

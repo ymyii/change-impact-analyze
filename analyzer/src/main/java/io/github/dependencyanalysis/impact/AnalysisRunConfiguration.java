@@ -1,6 +1,7 @@
 package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
+import io.github.dependencyanalysis.callgraph.CallGraphPolicy;
 import io.github.dependencyanalysis.callgraph.EntrypointSelection;
 import io.github.dependencyanalysis.callgraph.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
@@ -34,6 +35,7 @@ public record AnalysisRunConfiguration(
         Objects.requireNonNull(dependencyAnalysisScope,
                 "dependencyAnalysisScope");
         Objects.requireNonNull(jdkModel, "jdkModel");
+        CallGraphPolicy.validate(callGraphAlgorithm, jdkModel);
     }
 
     /** Compatibility constructor using the default JDK model. */
@@ -55,7 +57,7 @@ public record AnalysisRunConfiguration(
             final DependencyAnalysisScopeMode dependencyScope) {
         this(selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
                 reflection, dependencyScope,
-                JdkModelSelection.defaultSelection());
+                CallGraphPolicy.defaultJdkModel(algorithm));
     }
 
     /**
@@ -70,7 +72,7 @@ public record AnalysisRunConfiguration(
         this(selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
                 WalaReflectionOptions.defaultOptions(),
                 DependencyAnalysisScopeMode.defaultMode(),
-                JdkModelSelection.defaultSelection());
+                CallGraphPolicy.defaultJdkModel(algorithm));
     }
 
     /** Compatibility constructor using the default dependency scope. */
@@ -81,6 +83,6 @@ public record AnalysisRunConfiguration(
         this(selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
                 reflection,
                 DependencyAnalysisScopeMode.defaultMode(),
-                JdkModelSelection.defaultSelection());
+                CallGraphPolicy.defaultJdkModel(algorithm));
     }
 }

@@ -1,5 +1,8 @@
 package io.github.dependencyanalysis.impact;
 
+import io.github.dependencyanalysis.callgraph.ModelKind;
+import io.github.dependencyanalysis.callgraph.ModelLimitation;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -62,6 +65,20 @@ class PerModuleImpactPipelineTest {
                         .INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY))))
                 .isEqualTo(ModuleAnalysisReason
                         .INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY);
+    }
+
+    @Test
+    void invalidClassForNameLiteralMakesModuleInconclusive() {
+        final ModelLimitation limitation = new ModelLimitation(
+                ModelKind.REFLECTION,
+                "CLASS_FOR_NAME_LITERAL_INVALID",
+                ModuleAnalysisReason.INCONCLUSIVE_REFLECTION,
+                "LExample.invalid()V|pc=1",
+                "literal=<empty>");
+
+        assertThat(ModuleCoverageReducer.reduce(false,
+                List.of(limitation))).isEqualTo(
+                ModuleAnalysisReason.INCONCLUSIVE_REFLECTION);
     }
 
     private CoverageLimitation limitation(

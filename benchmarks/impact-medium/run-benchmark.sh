@@ -26,9 +26,9 @@ case "$BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE" in
 esac
 
 case "$BENCHMARK_CALL_GRAPH_ALGORITHM" in
-  rta|zero-cfa|optimized-0-1-cfa|k-obj) ;;
+  cha|rta|zero-cfa|optimized-0-1-cfa|k-obj) ;;
   *)
-    echo "BENCHMARK_CALL_GRAPH_ALGORITHM must be rta, zero-cfa, optimized-0-1-cfa, or k-obj" >&2
+    echo "BENCHMARK_CALL_GRAPH_ALGORITHM must be cha, rta, zero-cfa, optimized-0-1-cfa, or k-obj" >&2
     exit 2
     ;;
 esac
@@ -45,6 +45,11 @@ case "$BENCHMARK_JDK_MODEL" in
     exit 2
     ;;
 esac
+if [ "$BENCHMARK_CALL_GRAPH_ALGORITHM" = cha ] \
+    && [ "$BENCHMARK_JDK_MODEL" != none ]; then
+  echo "CHA benchmark runs must use JDK model none" >&2
+  exit 2
+fi
 
 BENCHMARK_WALA_REFLECTION_OPTIONS=${BENCHMARK_WALA_REFLECTION_OPTIONS:-ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD}
 case "$BENCHMARK_WALA_REFLECTION_OPTIONS" in

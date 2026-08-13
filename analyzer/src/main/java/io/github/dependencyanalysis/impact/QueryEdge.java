@@ -1,6 +1,6 @@
 package io.github.dependencyanalysis.impact;
 
-import io.github.dependencyanalysis.callgraph.EdgeKind;
+import io.github.dependencyanalysis.callgraph.CallEdgeKind;
 
 import java.util.Objects;
 
@@ -17,7 +17,7 @@ public final class QueryEdge {
     private final QueryNode callee;
 
     /** Edge kind. */
-    private final EdgeKind kind;
+    private final CallEdgeKind kind;
 
     /** Stable evidence. */
     private final String evidence;
@@ -37,7 +37,7 @@ public final class QueryEdge {
     public QueryEdge(
             final QueryNode source,
             final QueryNode target,
-            final EdgeKind edgeKind,
+            final CallEdgeKind edgeKind,
             final String detail,
             final int pc) {
         caller = Objects.requireNonNull(source, "caller");
@@ -58,7 +58,7 @@ public final class QueryEdge {
     }
 
     /** @return edge kind */
-    public EdgeKind getKind() {
+    public CallEdgeKind getKind() {
         return kind;
     }
 

@@ -1,0 +1,2 @@
+# target keeps only the valid stable provider
+com.acme.impact.api.StableProvider

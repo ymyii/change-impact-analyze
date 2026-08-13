@@ -10,6 +10,7 @@ from pathlib import Path
 
 
 ALGORITHMS = (
+    "cha",
     "rta",
     "zero-cfa",
     "optimized-0-1-cfa",
@@ -47,7 +48,9 @@ def rows(path: Path, expected_scope: str) -> dict[str, dict[str, str]]:
     if any(value.get("dependency_analysis_scope") != expected_scope
            for value in values):
         raise ValueError(f"scope mismatch: {path}")
-    if any(value.get("jdk_model") != "jdk8" for value in values):
+    if any(value.get("jdk_model")
+           != ("none" if value.get("algorithm") == "cha" else "jdk8")
+           for value in values):
         raise ValueError(f"JDK model mismatch: {path}")
     return result
 

@@ -132,6 +132,11 @@ compile_sources() {
   else
     "$javac_bin" -source 8 -target 8 -d "$classes_root" "@$source_list"
   fi
+  find "$source_root" -type f ! -name '*.java' -print | while IFS= read -r resource; do
+    relative_resource=${resource#"$source_root"/}
+    mkdir -p "$classes_root/$(dirname "$relative_resource")"
+    cp "$resource" "$classes_root/$relative_resource"
+  done
   "$jar_bin" cf "$output_jar" -C "$classes_root" .
 }
 

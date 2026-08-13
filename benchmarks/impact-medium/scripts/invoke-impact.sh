@@ -16,7 +16,7 @@ set -eu
 : "${BENCHMARK_CAPTURE_TOPOLOGY:?BENCHMARK_CAPTURE_TOPOLOGY is required}"
 
 case "$BENCHMARK_CALL_GRAPH_ALGORITHM" in
-  rta|zero-cfa|optimized-0-1-cfa|k-obj) ;;
+  cha|rta|zero-cfa|optimized-0-1-cfa|k-obj) ;;
   *)
     echo "unsupported call graph algorithm: $BENCHMARK_CALL_GRAPH_ALGORITHM" >&2
     exit 2
@@ -45,14 +45,18 @@ set -- \
   --format html \
   --analysis-target spring-backend \
   --analysis-parallelism 2 \
-  --call-graph-algorithm "$BENCHMARK_CALL_GRAPH_ALGORITHM" \
   --wala-reflection-options "$BENCHMARK_WALA_REFLECTION_OPTIONS" \
   --dependency-analysis-scope "$BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE" \
-  --include-change-kinds CLASS_ADDED,CLASS_REMOVED,METHOD_ADDED,METHOD_REMOVED,METHOD_DESCRIPTOR_CHANGED,METHOD_BODY_CHANGED,FIELD_ADDED,FIELD_REMOVED,FIELD_DESCRIPTOR_CHANGED \
+  --include-change-kinds CLASS_ADDED,CLASS_REMOVED,CLASS_ACCESS_NARROWED,METHOD_ADDED,METHOD_REMOVED,METHOD_DESCRIPTOR_CHANGED,METHOD_BODY_CHANGED,METHOD_ACCESS_NARROWED,FIELD_ADDED,FIELD_REMOVED,FIELD_DESCRIPTOR_CHANGED,FIELD_ACCESS_NARROWED,SERVICE_PROVIDER_REGISTRATION_REMOVED \
   --call-graph-timeout-seconds 120
 
-# jdk8 intentionally exercises the CLI default; none is the semantic control.
-if [ "$BENCHMARK_JDK_MODEL" = none ]; then
+# CHA intentionally omits both options to exercise cha + none defaults.
+# Other algorithms are explicit and omit jdk8; none remains their control.
+if [ "$BENCHMARK_CALL_GRAPH_ALGORITHM" != cha ]; then
+  set -- "$@" --call-graph-algorithm "$BENCHMARK_CALL_GRAPH_ALGORITHM"
+fi
+if [ "$BENCHMARK_CALL_GRAPH_ALGORITHM" != cha ] \
+    && [ "$BENCHMARK_JDK_MODEL" = none ]; then
   set -- "$@" --jdk-model none
 fi
 

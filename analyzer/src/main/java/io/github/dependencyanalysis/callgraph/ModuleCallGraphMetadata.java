@@ -3,6 +3,7 @@ package io.github.dependencyanalysis.callgraph;
 import java.util.Objects;
 
 import io.github.dependencyanalysis.impact.StructuralReferenceIndex;
+import io.github.dependencyanalysis.impact.ChangePointEvidenceIndex;
 
 /**
  * Immutable metrics and fixed-point model output from one graph build.
@@ -12,6 +13,7 @@ import io.github.dependencyanalysis.impact.StructuralReferenceIndex;
  * @param strategyModels immutable algorithm model metadata
  * @param dependencyBoundary dependency body boundary metadata
  * @param structuralReferences pre-graph raw structural metadata index
+ * @param changePointEvidence post-graph frozen terminal evidence
  * @param topology optional read-only benchmark topology capture
  */
 record ModuleCallGraphMetadata(
@@ -20,6 +22,7 @@ record ModuleCallGraphMetadata(
         StrategyModelMetadata strategyModels,
         DependencyBodyBoundaryMetadata dependencyBoundary,
         StructuralReferenceIndex structuralReferences,
+        ChangePointEvidenceIndex changePointEvidence,
         CallGraphTopologySnapshot topology) {
 
     ModuleCallGraphMetadata {
@@ -28,5 +31,6 @@ record ModuleCallGraphMetadata(
         Objects.requireNonNull(strategyModels, "strategyModels");
         Objects.requireNonNull(dependencyBoundary, "dependencyBoundary");
         Objects.requireNonNull(structuralReferences, "structuralReferences");
+        Objects.requireNonNull(changePointEvidence, "changePointEvidence");
     }
 }

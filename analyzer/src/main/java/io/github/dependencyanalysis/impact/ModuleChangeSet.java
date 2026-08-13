@@ -1,6 +1,8 @@
 package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.dependency.DependencyChange;
+import io.github.dependencyanalysis.bytecode.ServiceLoaderResourceIssue;
+import io.github.dependencyanalysis.bytecode.ServiceProviderRegistration;
 
 import java.util.List;
 
@@ -10,11 +12,17 @@ import java.util.List;
  * @param dependencyChanges complete module dependency changes
  * @param changePoints module-bound ChangePoints
  * @param jarDiffFailures coordinate-pair JAR diff failure evidence
+ * @param baselineServiceRegistrations valid baseline provider facts
+ * @param removedServiceRegistrations removed provider facts
+ * @param serviceLoaderResourceIssues non-fatal resource Diff issues
  */
 public record ModuleChangeSet(
         List<DependencyChange> dependencyChanges,
         List<BoundChangePoint> changePoints,
-        List<JarDiffFailure> jarDiffFailures) {
+        List<JarDiffFailure> jarDiffFailures,
+        List<ServiceProviderRegistration> baselineServiceRegistrations,
+        List<ServiceProviderRegistration> removedServiceRegistrations,
+        List<ServiceLoaderResourceIssue> serviceLoaderResourceIssues) {
 
     /**
      * Creates an immutable deterministic module change set.
@@ -27,6 +35,12 @@ public record ModuleChangeSet(
         dependencyChanges = List.copyOf(dependencyChanges);
         changePoints = List.copyOf(changePoints);
         jarDiffFailures = List.copyOf(jarDiffFailures);
+        baselineServiceRegistrations = List.copyOf(
+                baselineServiceRegistrations);
+        removedServiceRegistrations = List.copyOf(
+                removedServiceRegistrations);
+        serviceLoaderResourceIssues = List.copyOf(
+                serviceLoaderResourceIssues);
     }
 
     /**
@@ -38,6 +52,15 @@ public record ModuleChangeSet(
     public ModuleChangeSet(
             final List<BoundChangePoint> points,
             final List<JarDiffFailure> failures) {
-        this(List.of(), points, failures);
+        this(List.of(), points, failures, List.of(), List.of(), List.of());
+    }
+
+    /** Compatibility constructor without ServiceLoader resource facts. */
+    public ModuleChangeSet(
+            final List<DependencyChange> dependencies,
+            final List<BoundChangePoint> points,
+            final List<JarDiffFailure> failures) {
+        this(dependencies, points, failures,
+                List.of(), List.of(), List.of());
     }
 }

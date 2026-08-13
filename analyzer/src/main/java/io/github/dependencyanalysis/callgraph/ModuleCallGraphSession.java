@@ -13,6 +13,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 import io.github.dependencyanalysis.impact.StructuralReferenceIndex;
+import io.github.dependencyanalysis.impact.ChangePointEvidenceIndex;
 import io.github.dependencyanalysis.impact.ModuleAnalysisReason;
 import io.github.dependencyanalysis.impact.CoverageLimitation;
 import io.github.dependencyanalysis.models.jdk.JdkModelMetadata;
@@ -47,6 +48,9 @@ public final class ModuleCallGraphSession {
     /** Stable fixed-point model limitations. */
     private final List<ModelLimitation> modelLimitations;
 
+    /** Immutable strategy capability declaration. */
+    private final CallGraphStrategyCapabilities strategyCapabilities;
+
     /** Immutable ServiceLoader fixed-point metadata. */
     private final ServiceLoaderModelMetadata serviceLoaderMetadata;
 
@@ -58,6 +62,9 @@ public final class ModuleCallGraphSession {
 
     /** Structural metadata indexed before Call Graph construction. */
     private final StructuralReferenceIndex structuralReferences;
+
+    /** Frozen terminal evidence collected after graph completion. */
+    private final ChangePointEvidenceIndex changePointEvidence;
 
     /** Optional read-only benchmark topology capture. */
     private final CallGraphTopologySnapshot topology;
@@ -92,8 +99,10 @@ public final class ModuleCallGraphSession {
         dynamicEvidence = strategy.dynamicEvidence();
         serviceLoaderMetadata = strategy.serviceLoader();
         jdkModelMetadata = strategy.jdkModel();
+        strategyCapabilities = strategy.capabilities();
         dependencyBoundary = values.dependencyBoundary();
         structuralReferences = values.structuralReferences();
+        changePointEvidence = values.changePointEvidence();
         topology = values.topology();
         modelLimitations = strategy.limitations();
     }
@@ -160,13 +169,13 @@ public final class ModuleCallGraphSession {
 
     /** @return stable fixed-point model limitations */
     public List<String> getModelLimitations() {
-        return modelLimitations.stream()
+        return allCoverageLimitations().stream()
                 .map(ModelLimitation::summary).toList();
     }
 
     /** @return typed immutable fixed-point coverage limitations */
     public List<ModelLimitation> getCoverageLimitations() {
-        return modelLimitations;
+        return allCoverageLimitations();
     }
 
     /** @return internal installed JDK Method Model metadata */
@@ -185,12 +194,13 @@ public final class ModuleCallGraphSession {
                 new java.util.ArrayList<>();
         result.addAll(dependencyBoundary.dangerousTransfers());
         result.addAll(dependencyBoundary.factories());
+        result.addAll(dependencyBoundary.bodyBoundaryHits());
         return List.copyOf(result);
     }
 
     /** @return true when a fixed-point model reported a limitation */
     public boolean isModelInconclusive() {
-        return !modelLimitations.isEmpty();
+        return !allCoverageLimitations().isEmpty();
     }
 
     /** @return true when invokedynamic modeling was incomplete */
@@ -211,13 +221,33 @@ public final class ModuleCallGraphSession {
     }
 
     private boolean hasReason(final ModuleAnalysisReason reason) {
-        return modelLimitations.stream()
+        return allCoverageLimitations().stream()
                 .anyMatch(value -> value.reason() == reason);
+    }
+
+    private List<ModelLimitation> allCoverageLimitations() {
+        final java.util.LinkedHashSet<ModelLimitation> result =
+                new java.util.LinkedHashSet<>(modelLimitations);
+        changePointEvidence.limitations().stream()
+                .filter(ModelLimitation.class::isInstance)
+                .map(ModelLimitation.class::cast)
+                .forEach(result::add);
+        return result.stream().sorted().toList();
     }
 
     /** @return pre-graph immutable structural evidence */
     public StructuralReferenceIndex getStructuralReferences() {
         return structuralReferences;
+    }
+
+    /** @return frozen complete ChangePoint evidence index */
+    public ChangePointEvidenceIndex getChangePointEvidence() {
+        return changePointEvidence;
+    }
+
+    /** @return immutable strategy capability declaration */
+    public CallGraphStrategyCapabilities getStrategyCapabilities() {
+        return strategyCapabilities;
     }
 
     /** @return topology capture when explicitly enabled */
@@ -229,13 +259,40 @@ public final class ModuleCallGraphSession {
      * Returns metadata when the caller is a synthetic ServiceLoader model.
      *
      * @param caller WALA caller
+     * @param site exact caller-to-callee callsite
+     * @param callee WALA callee
+     * @return synthetic edge metadata, or null
+     */
+    public SyntheticEdgeMetadata syntheticEdge(
+            final CGNode caller,
+            final com.ibm.wala.classLoader.CallSiteReference site,
+            final CGNode callee) {
+        final String chaService = serviceLoaderMetadata.chaService(
+                caller, site, callee);
+        if (chaService != null) {
+            return new SyntheticEdgeMetadata(CallEdgeKind.SERVICE_LOADER,
+                    "SERVICE_LOADER|CHA_LOCAL_CONSTANT|service="
+                            + chaService);
+        }
+        if (!serviceLoaderMetadata.models(caller)) {
+            return null;
+        }
+        return new SyntheticEdgeMetadata(CallEdgeKind.SERVICE_LOADER,
+                "SERVICE_LOADER|FIXED_POINT|service="
+                        + serviceLoaderMetadata.serviceLabel(caller));
+    }
+
+    /**
+     * Compatibility lookup for strategy summary caller nodes.
+     *
+     * @param caller WALA caller
      * @return synthetic edge metadata, or null
      */
     public SyntheticEdgeMetadata syntheticEdge(final CGNode caller) {
         if (!serviceLoaderMetadata.models(caller)) {
             return null;
         }
-        return new SyntheticEdgeMetadata(EdgeKind.SERVICE_LOADER,
+        return new SyntheticEdgeMetadata(CallEdgeKind.SERVICE_LOADER,
                 "SERVICE_LOADER|FIXED_POINT|service="
                         + serviceLoaderMetadata.serviceLabel(caller));
     }

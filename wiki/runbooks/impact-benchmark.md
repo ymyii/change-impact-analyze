@@ -7,7 +7,7 @@ relations:
   - path: "wiki/features/call-graph-engine.md"
     desc: "Call Graph topology、dependency body policy 与 boundary evidence"
   - path: "wiki/features/jdk-method-models.md"
-    desc: "默认jdk8与none semantic control的验收contract"
+    desc: "CHA默认none、非CHA默认jdk8与none control的验收contract"
   - path: "wiki/features/cli-preflight-diagnostics.md"
     desc: "100 ms heap observation 与 command final peak summary"
   - path: "wiki/features/impact-tracing.md"
@@ -24,11 +24,11 @@ code_refs:
   - path: "benchmarks/impact-medium/run-scope-matrix.sh"
     desc: "changed-paths/full canonical matrix 与双 scope 原子发布"
   - path: "benchmarks/impact-medium/run-suite.sh"
-    desc: "单scope的4 warm-up + 20 formal + 4 none control suite"
+    desc: "单scope的5 warm-up + 25 formal + 4非CHA none control suite"
   - path: "benchmarks/impact-medium/run-benchmark.sh"
     desc: "单 JVM fixture preparation、资源采样、impact 执行与校验"
   - path: "benchmarks/impact-medium/scripts/invoke-impact.sh"
-    desc: "显式scope与none control、默认jdk8的固定CLI invocation"
+    desc: "CHA省略algorithm/model与非CHA algorithm相关model默认值的固定CLI invocation"
   - path: "benchmarks/impact-medium/scripts/verify-report.sh"
     desc: "42 dependencies、scope baseline、path 与 boundary evidence 验收"
   - path: "benchmarks/impact-medium/scripts/generate-report.py"
@@ -43,6 +43,8 @@ code_refs:
     desc: "Stream.map private Function callback到changed dependency fixture"
   - path: "benchmarks/impact-medium/fixtures/application/baseline/src/main/java/com/acme/benchmark/RecursiveCallUseCase.java"
     desc: "private static递归到changed dependency fixture"
+  - path: "benchmarks/impact-medium/fixtures/application/baseline/src/main/java/com/acme/benchmark/DynamicLoadingUseCase.java"
+    desc: "Class.forName和ServiceLoader direct/local/same-phi/unsupported fixture"
   - path: "benchmarks/impact-medium/results/changed-paths/samples.tsv"
     desc: "最近一次成功 changed-paths suite 的 20 个正式样本"
   - path: "benchmarks/impact-medium/results/full/samples.tsv"
@@ -53,7 +55,7 @@ code_refs:
 
 ## Summary
 
-Canonical入口显式执行`changed-paths`与`full`两种dependency analysis scope。每种scope对`rta`、`zero-cfa`、`optimized-0-1-cfa`与`k-obj`分别执行1次默认`jdk8` warm-up、5次默认`jdk8` formal sample和1次`none` semantic control，共28个独立Java Virtual Machine（JVM）进程；双scope合计56个JVM。Canonical `k-obj`固定使用CLI默认深度`1`，`k=2`由集成测试覆盖。输出两份只包含默认`jdk8` performance数据的self-contained HTML Report，并以一个transaction发布两组tracked snapshot。
+Canonical入口显式执行`changed-paths`与`full`两种dependency analysis scope。每种scope对`cha`、`rta`、`zero-cfa`、`optimized-0-1-cfa`与`k-obj`分别执行1次warm-up、5次formal sample；四种非CHA algorithm另各执行1次`none`control，共34个独立Java Virtual Machine（JVM）进程。双scope合计68个JVM。CHA省略algorithm/model以验收默认`cha + none`；非CHA显式algorithm并省略model以验收默认`jdk8`。本runbook只定义执行contract；未获用户明确授权时禁止运行matrix。
 
 ## Prerequisites
 
@@ -82,29 +84,30 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 
 ## Schedule
 
-- `changed-paths`：4次默认`jdk8` warm-up、20次默认`jdk8` formal run和4次`none` control；共28个JVM。
-- `full`：同样28个JVM。
-- 双scope共56个JVM，其中48个默认`jdk8` run与8个`none` control。每个run使用全新进程。
+- `changed-paths`：5次warm-up、25次formal和4次非CHA`none`control；共34个JVM。
+- `full`：同样34个JVM。
+- 双scope共68个JVM：10个CHA默认`none`、48个非CHA默认`jdk8`、8个非CHA`none`control。每个run使用全新进程。
 - 每种 scope 的 algorithm 列表按 round 循环左移，降低固定顺序偏差。
 - Warm-up 启用 `--call-graph-diagnostics-output`，采集 topology、source、IR 与 dependency path evidence。
 - Formal 不启用 diagnostics capture，只采集语义、性能与 graph totals。
-- Control显式传`--jdk-model none`且不启用diagnostics capture；warm-up/formal省略option以验证CLI默认`jdk8`。
+- CHA warm-up/formal同时省略algorithm/model；非CHA warm-up/formal显式algorithm并省略model；control显式传非CHAalgorithm和`--jdk-model none`。
 - 每种 scope 内 Entrypoint、CGNode、CGEdge、body-policy counts 和 dependency path topology 必须在 warm-up/formal 间稳定。
 
 ## Fixture and Semantic Contract
 
 - application POM 固定 42 个 direct dependencies；增加 path、sink、factory 或 scope-conflict fixture 时以等量 direct vendor dependency 替换，避免规模变化干扰 scope 对比。
-- `scenario-api:1.0.0 -> 2.0.0` 固定产生 9 类 raw change。
+- `scenario-api:1.0.0 -> 2.0.0`固定产生10类raw change，包含provider registration-only removal。
 - application direct `scenario-api:${scenario.api.version}` 是Maven winner；target为`2.0.0`，`path-a -> path-c`与`path-x -> path-y`继续请求`1.0.0`并在raw occurrence graph形成loser path。`changed-paths`必须将两条path都规范化到winner `2.0.0`并完整保留；reactor path也必须使用selected version。
 - direct dependency总数保持42：`vendor-lib-35`由`path-sibling`transitive引入；`vendor-lib-34`由`external-plain`transitive引入。Selected external classpath 规模与现有Call Graph baseline不变。
 - `scope-conflict-marker` 是direct `test` winner，`external-plain` 同时引入transitive `compile` duplicate。Schema v3 必须删除marker及其occurrence，offline repository中不存在marker JAR，因此任何误请求都会使benchmark失败。
 - `path-a` sibling、seed downstream、external sink/factory/plain 均不位于到达 seed 的 external path，`changed-paths` 将其 method body 设为 no-op 或 flow-to-cast factory。
-- dangerous transfer 必须产生 `CHANGED_INSTANCE_TO_NO_OP_DEPENDENCY` 并使 Module 为 `INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY`。
-- factory `Object` result 经 PROJECT assignment/checkcast 必须产生 factory evidence 和 included target reachability；`full` 必须使用真实 factory body且不产生 approximation evidence。
+- CHA在`changed-paths`实际到达no-op dependency leaf时产生`DEPENDENCY_BODY_BOUNDARY_REACHED`，factory/dangerous transfer计数固定为零。其他algorithm继续验收`CHANGED_INSTANCE_TO_NO_OP_DEPENDENCY`和flow-to-cast factory。
+- `full`必须使用真实external body且不产生boundary approximation evidence。
 - 普通 no-op external call 不单独使 Module `INCONCLUSIVE`；reactor method 在 `changed-paths` 下始终使用真实 IR。
 - `JdkModelUseCase.execute`接收`Stream<String>`并经lazy`Stream.map`注册private`ChangedMapper.apply`，callback调用`ScenarioApi.bodyChanged`；默认`jdk8`必须报告该call chain，`none`按algorithm锁定真实JDK bytecode语义下的candidate/final baseline。
-- `RecursiveCallUseCase.execute`进入private static递归，终止分支调用`ScenarioApi.bodyChanged`；四种algorithm、两种scope与两种JDK Method Model selection均必须报告该impact chain。
-- `expected-results.tsv`以`dependency_analysis_scope + jdk_model + call_graph_algorithm + k_obj_depth`为key，维护16组semantic baseline；非`k-obj`深度列为空，`k-obj`为`1`。
+- `RecursiveCallUseCase.execute`进入private static递归，终止分支调用`ScenarioApi.bodyChanged`；五种algorithm和两种scope均必须报告该impact chain。
+- `DynamicLoadingUseCase`覆盖Class.forName和ServiceLoader direct/local/same-value phi，以及concat/field/return等unsupported输入；fixture同时覆盖provider class删除和registration-only删除。
+- `expected-results.tsv`以`dependency_analysis_scope + jdk_model + call_graph_algorithm + k_obj_depth`为key，维护18组semantic baseline；未授权执行新matrix前为`PENDING`，normal verifier拒绝发布，只有显式calibration run可生成review candidate。
 - Verifier 同时要求fixture source repository 不存在`dep-tree-cia-*`、`resolved-artifacts-cia-*`或`module-*.json` evidence 中间产物；Maven `target/` 仍是current target compile的允许例外。
 
 ## Metrics Contract
@@ -143,18 +146,18 @@ benchmarks/impact-medium/results/full/summary.tsv
 benchmarks/impact-medium/results/full/topology.tsv
 ```
 
-- `samples.tsv`每个默认`jdk8` formal run一行，并记录model与`k_obj_depth`。
+- `samples.tsv`每个formal run一行；CHA为默认`none`，其他algorithm为默认`jdk8`。
 - `summary.tsv`每个algorithm一行，记录`k_obj_depth`、`jdk8`、min/median/max、stable graph/body totals、successful sample与scope内相对`zero-cfa` ratio。
-- `topology.tsv`来自默认`jdk8` warm-up；除Call Graph ranking/path外，保存`k_obj_depth`、model、requested/actual scope、fallback、real/no-op/factory counts和全部dependency path evidence。
+- `topology.tsv`来自五种algorithm的effective-default warm-up；除Call Graph ranking/path外，保存`k_obj_depth`、model、requested/actual scope、fallback、real/no-op/factory counts和全部dependency path evidence。
 - Raw run、topology JSON、candidate TSV 与 failure detail 保留在 `tmp-files/impact-medium-benchmark/`，不提交 Git。
 
 ## Atomic Publication
 
 只有以下条件全部满足，matrix 才发布 tracked snapshot：
 
-- 两种scope的56个run全部成功。
+- 两种scope的68个run全部成功。
 - 每种 scope 内 warm-up 与 formal topology 稳定。
-- 16组scope/model/algorithm/depth semantic baseline全部通过。
+- 18组scope/model/algorithm/depth semantic baseline全部通过且不含`PENDING`。
 - 两份 HTML Report 均成功生成并完成 cross-scope comparison 注入。
 - 两个 candidate result directory 均通过 Schema 与 scope validation。
 
@@ -162,9 +165,9 @@ Publication 一次替换 `results/changed-paths` 与 `results/full`。任一 sco
 
 ## Success Criteria
 
-- 56个独立JVM全部返回semantic success。
-- 每个scope的4次默认`jdk8` warm-up和20次formal sample topology稳定；4次`none` control只验收语义。
-- `expected-results.tsv`中16组`scope + model + algorithm + k_obj_depth` baseline全部通过。
+- 68个独立JVM全部返回semantic success。
+- 每个scope的5次warm-up和25次formal sample topology稳定；4次非CHA`none`control只验收语义。
+- `expected-results.tsv`中18组`scope + model + algorithm + k_obj_depth` baseline全部通过。
 - 两份 self-contained HTML Report 存在，包含5个formal sample、body-policy metrics、semantic result、path evidence与cross-scope comparison。
 - `results/changed-paths` 与 `results/full` 同时发布，candidate/failure detail保留在`tmp-files/`。
 

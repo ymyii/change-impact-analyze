@@ -131,9 +131,9 @@ class DependencyAnalyzerCliTest {
                 .contains("--entrypoint-exclude")
                 .contains("--analysis-target");
         assertThat(impactText.toString().replaceAll("\\s+", " "))
-                .contains("Call Graph algorithm: rta, zero-cfa, "
+                .contains("Call Graph algorithm: cha, rta, zero-cfa, "
                         + "optimized-0-1-cfa, or k-obj; "
-                        + "default: rta.");
+                        + "default: cha.");
         assertThat(treeText.toString())
                 .contains("-p, --path")
                 .contains("-r, --ref")
@@ -249,7 +249,7 @@ class DependencyAnalyzerCliTest {
                         "K-OBJ", "--k-obj-depth", "2");
 
         assertThat(algorithm(defaultResult))
-                .isEqualTo(CallGraphAlgorithm.RTA);
+                .isEqualTo(CallGraphAlgorithm.CHA);
         assertThat(algorithm(zeroCfaResult))
                 .isEqualTo(CallGraphAlgorithm.ZERO_CFA);
         assertThat(algorithm(optimizedResult))
@@ -309,7 +309,7 @@ class DependencyAnalyzerCliTest {
     }
 
     @Test
-    void jdkModelDefaultsToJdk8AndParsesNoneCaseInsensitively() {
+    void jdkModelIsResolvedFromAlgorithmAndParsesNone() {
         final CommandLine defaultCommand = DependencyAnalyzerCli
                 .newCommandLine(new DependencyAnalyzerCli());
         final CommandLine noneCommand = DependencyAnalyzerCli
@@ -322,8 +322,10 @@ class DependencyAnalyzerCliTest {
                 "impact", "--baseline", "HEAD",
                 "--output", "report.html", "--jdk-model", "NONE");
 
-        assertThat(jdkModel(defaultResult)).isEqualTo(
-                JdkModelSelection.JDK8);
+        assertThat(jdkModel(defaultResult)).isNull();
+        assertThat(io.github.dependencyanalysis.callgraph.CallGraphPolicy
+                .defaultJdkModel(algorithm(defaultResult))).isEqualTo(
+                JdkModelSelection.NONE);
         assertThat(jdkModel(noneResult)).isEqualTo(
                 JdkModelSelection.NONE);
     }

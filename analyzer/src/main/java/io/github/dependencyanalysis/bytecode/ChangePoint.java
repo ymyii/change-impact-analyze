@@ -7,10 +7,8 @@ import java.util.Optional;
 
 // Wiki: wiki/features/bytecode-diff-engine.md - Single bytecode change point
 /**
- * Immutable bytecode change point
- * describing a single structural
- * or behavioral difference between
- * old and new class files.
+ * Immutable change point describing one bytecode or supported resource
+ * difference between baseline and target artifacts.
  */
 public final class ChangePoint {
 
@@ -41,6 +39,9 @@ public final class ChangePoint {
     /** Strict access narrowing, present only for access kinds. */
     private final AccessTransition accessTransition;
 
+    /** Typed ServiceLoader registration subject. */
+    private final ServiceProviderRegistration serviceRegistration;
+
     /**
      * Creates a new change point.
      *
@@ -62,7 +63,7 @@ public final class ChangePoint {
             final String nh) {
         this(art, kd, own, nam,
                 new ChangeDetails(new MemberDescriptors(desc, desc),
-                        oh, nh, null));
+                        oh, nh, null, null));
     }
 
     /**
@@ -102,9 +103,16 @@ public final class ChangePoint {
         this.oldHash = details.oldHash();
         this.newHash = details.newHash();
         this.accessTransition = details.accessTransition();
+        this.serviceRegistration = details.serviceRegistration();
         if (kind.isAccessNarrowing() != (accessTransition != null)) {
             throw new IllegalArgumentException(
                     "Access narrowing kind and transition must agree");
+        }
+        if ((kind == ChangePointKind
+                .SERVICE_PROVIDER_REGISTRATION_REMOVED)
+                != (serviceRegistration != null)) {
+            throw new IllegalArgumentException(
+                    "Service registration kind and subject must agree");
         }
     }
 
@@ -129,7 +137,7 @@ public final class ChangePoint {
             final String oh,
             final String nh) {
         return new ChangePoint(art, kd, own, nam,
-                new ChangeDetails(descriptors, oh, nh, null));
+                new ChangeDetails(descriptors, oh, nh, null, null));
     }
 
     /**
@@ -158,7 +166,25 @@ public final class ChangePoint {
                 new ChangeDetails(
                         new MemberDescriptors(descriptor, descriptor),
                         null, null, Objects.requireNonNull(
-                                transition, "transition")));
+                                transition, "transition"), null));
+    }
+
+    /**
+     * Creates a removed ServiceLoader provider registration ChangePoint.
+     *
+     * @param registration typed removed registration
+     * @return resource ChangePoint owned by the target artifact
+     */
+    public static ChangePoint serviceProviderRegistrationRemoved(
+            final ServiceProviderRegistration registration) {
+        final ServiceProviderRegistration value = Objects.requireNonNull(
+                registration, "registration");
+        return new ChangePoint(value.targetArtifact(),
+                ChangePointKind.SERVICE_PROVIDER_REGISTRATION_REMOVED,
+                value.serviceInternalName(), value.providerInternalName(),
+                new ChangeDetails(new MemberDescriptors(
+                        value.resourcePath(), null), null, null, null,
+                        value));
     }
 
     /**
@@ -256,6 +282,11 @@ public final class ChangePoint {
         return Optional.ofNullable(accessTransition);
     }
 
+    /** @return typed ServiceLoader registration subject when applicable */
+    public Optional<ServiceProviderRegistration> getServiceRegistration() {
+        return Optional.ofNullable(serviceRegistration);
+    }
+
     /**
      * Canonical optional ChangePoint details.
      *
@@ -263,12 +294,14 @@ public final class ChangePoint {
      * @param oldHash old method body hash
      * @param newHash new method body hash
      * @param accessTransition strict access narrowing
+     * @param serviceRegistration typed ServiceLoader resource subject
      */
     private record ChangeDetails(
             MemberDescriptors descriptors,
             String oldHash,
             String newHash,
-            AccessTransition accessTransition) {
+            AccessTransition accessTransition,
+            ServiceProviderRegistration serviceRegistration) {
 
         ChangeDetails {
             Objects.requireNonNull(descriptors, "descriptors");
@@ -302,7 +335,9 @@ public final class ChangePoint {
                 && Objects.equals(
                         newHash, that.newHash)
                 && Objects.equals(accessTransition,
-                        that.accessTransition);
+                        that.accessTransition)
+                && Objects.equals(serviceRegistration,
+                        that.serviceRegistration);
     }
 
     @Override
@@ -311,7 +346,7 @@ public final class ChangePoint {
                 artifact, kind, owner,
                 name, oldDescriptor,
                 newDescriptor,
-                oldHash, newHash, accessTransition);
+                oldHash, newHash, accessTransition, serviceRegistration);
     }
 
     @Override
@@ -337,6 +372,8 @@ public final class ChangePoint {
                 .append(newHash)
                 .append(", accessTransition=")
                 .append(accessTransition)
+                .append(", serviceRegistration=")
+                .append(serviceRegistration)
                 .append('}');
         return sb.toString();
     }

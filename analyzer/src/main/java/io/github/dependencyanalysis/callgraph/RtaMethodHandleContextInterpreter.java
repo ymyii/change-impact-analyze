@@ -100,7 +100,7 @@ final class RtaMethodHandleContextInterpreter
         state.addEvidence(new DynamicCallEvidence(
                 resolution.targetOwner(), resolution.targetName(),
                 resolution.targetDescriptor(), caller,
-                resolution.bytecodePc(), EdgeKind.METHOD_HANDLE_TARGET,
+                resolution.bytecodePc(),
                 DynamicReferenceKind.DIRECT_MODELED_HANDLE_TARGET,
                 Optional.of(MethodHandleReferenceKind.REF_INVOKE_STATIC),
                 "RTA_METHOD_HANDLE_LOCAL_TARGET|operation="

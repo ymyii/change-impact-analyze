@@ -27,6 +27,11 @@ final class OptimizedZeroOneCfaCallGraphStrategy
     }
 
     @Override
+    public CallGraphStrategyCapabilities capabilities() {
+        return CallGraphStrategyCapabilities.propagation();
+    }
+
+    @Override
     public CallGraphStrategyResult build(final CallGraphBuildRequest request)
             throws Exception {
         final AnalysisOptions options = options(request);

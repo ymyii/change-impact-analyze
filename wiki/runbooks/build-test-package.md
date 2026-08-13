@@ -120,10 +120,10 @@ java -jar target/dependency-analyzer.jar tree --help
 - Plugin reactor 输出 `0 Checkstyle violations`，tests 全部通过，Plugin class major 不超过 `52`。Graph tests 覆盖scope-conflict pruning、multi-path winner normalization、missing winner fail-fast；output tests 覆盖owner/path/symlink 与 atomic publication。
 - Plugin repository ZIP 只有 Maven layout 下当前 version 的 JAR 与 consumer POM，不包含项目生成的 checksum sidecar。
 - Analyzer `mvn clean verify` 的 Surefire 与 Failsafe tests 全部通过且 `Skipped: 0`。
-- 真实 JDK 8 test 完成 JDK probe、WALA scope、CHA、默认 RTA 与显式三种points-to strategy，不因缺少环境变量跳过。RTA与两种ZeroX strategy以完整target JDK 8共同验证Stream/Optional、Collection/Map、Executor/CompletableFuture与Thread dispatch；`k-obj`以最小Java 8 Primordial `Thread.run()` bytecode验证focused callback dispatch。`AccessController.doPrivileged`按JDK 8 native边界单独验证WALA内置native model。
+- 真实JDK 8 test完成JDK probe、WALA scope、默认CHA与显式四种非CHA strategy，不因缺少环境变量跳过。CHA验证JDK leaf不展开；非CHA继续验证JDK model callback dispatch。
 - CLI/config/report tests确认默认WALA ReflectionOptions为`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`，并可显式选择WALA原生enum value。
-- CLI/config/report tests确认默认JDK Method Model为`jdk8`，可显式选择`none`；四种algorithm各安装一次model，完整JDK 8 metadata为384/384/0且fixture hit非零。真实JDK callback regression显式使用`none`。
-- 四种algorithm共同通过constant ServiceLoader、capturing `altMetafactory`与MethodHandle target path regression；RTA MethodHandle path必须经过stable application bridge summary。高精度MethodHandle case使用最小Java 8 Primordial bytecode隔离完整JDK状态空间。`k-obj` precision fixture验证`k=1/2`的`ALLOCATION_STRING_KEY`长度并断言不存在`CALL_STRING`；直接与相互static递归同样在短timeout内收敛并保留cycle edge。
+- CLI/config/report tests确认默认组合为`cha + none`；非CHA默认`jdk8`且可显式`none`；`cha + jdk8`统一拒绝。四种非CHA algorithm各安装一次model，完整JDK 8 metadata为384/384/0且fixture hit非零。
+- 五种algorithm通过统一Evidence schema、ServiceLoader、Class.forName、lambda/`invokedynamic`与timeout regression；CHA额外覆盖local constant、JDK/no-op leaf和真实provider constructor protocol edge。
 - Entrypoint tests覆盖private nested class、constructor、static/instance method过滤；公开root调用的private method仍作为普通CGNode存在。
 - `target/dependency-analyzer.jar` 存在，manifest `Main-Class` 为 `io.github.dependencyanalysis.cli.DependencyAnalyzerCli`。
 - Analyzer JAR包含公共`JdkModels.class`、`Jdk8Models.class`和`jdk8-models.tsv`；help包含`--jdk-model`。
@@ -132,7 +132,7 @@ java -jar target/dependency-analyzer.jar tree --help
 - Analyzer integration tests 覆盖空格/中文 cache path、scope-conflict missing `test` binary，以及 Maven 成功/失败后 source repository 无 evidence 中间文件。
 - 最新 duplicate class precedence tests、report tests 与 `PackagedJarCliIT` 全部通过。
 - Root/两个 subcommand help 列出当前 option；CLI `--version` 与 Maven build metadata 一致。
-- Analyzer能力新增或行为扩展时，必须同步新增/更新benchmark fixture、verification与expected baseline。只有用户明确要求执行benchmark时才运行`JAVA8_HOME=/absolute/path/to/jdk8 benchmarks/impact-medium/run-scope-matrix.sh`；获得授权后，56个JVM、16组scope/model/algorithm semantic baseline和两份HTML Report必须全部成功。Performance snapshot只发布48个默认`jdk8` run中的20个formal sample/每scope。
+- Analyzer能力新增或行为扩展时，必须同步新增/更新benchmark fixture、verification与expected baseline。只有用户明确要求执行benchmark时才运行matrix；获得授权后，68个JVM、18组semantic baseline和两份HTML Report必须全部成功。当前`PENDING`baseline必须先经授权calibration和人工review锁定。
 
 ## Failure Entrypoints
 

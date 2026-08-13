@@ -1,0 +1,5 @@
+# baseline providers
+com.acme.impact.api.RemovedProvider
+com.acme.impact.api.RegistrationOnlyProvider
+com.acme.impact.api.StableProvider
+com.acme.impact.api.StableProvider

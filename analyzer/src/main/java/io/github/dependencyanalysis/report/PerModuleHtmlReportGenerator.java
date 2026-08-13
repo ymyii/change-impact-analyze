@@ -266,7 +266,11 @@ public final class PerModuleHtmlReportGenerator {
                         == CallGraphAlgorithm.K_OBJ
                         ? row("k-object depth", run.getKObjDepth()) : "")
                 .append(row("WALA ReflectionOptions",
-                        run.getReflectionOptions().identifier()))
+                        run.getCallGraphAlgorithm() == CallGraphAlgorithm.CHA
+                                ? "not applied by cha (configured: "
+                                + run.getReflectionOptions().identifier()
+                                + ")"
+                                : run.getReflectionOptions().identifier()))
                 .append(row("JDK method model",
                         run.getJdkModel().identifier()))
                 .append(row("WALA", walaVersion()))
@@ -517,6 +521,23 @@ public final class PerModuleHtmlReportGenerator {
     private void appendBoundaryEvidence(
             final StringBuilder body,
             final DependencyBodyBoundaryMetadata metadata) {
+        body.append("<h3>Reached dependency body boundaries</h3>");
+        if (metadata.bodyBoundaryHits().isEmpty()) {
+            body.append("<p>No reachable no-op dependency body boundary ")
+                    .append("was found.</p>");
+        } else {
+            body.append("<table><tr><th>Callee</th><th>Artifact</th>")
+                    .append("<th>Context</th></tr>");
+            metadata.bodyBoundaryHits().forEach(value -> body
+                    .append("<tr><td><code>")
+                    .append(escape(value.calleeMethod()))
+                    .append("</code></td><td><code>")
+                    .append(escape(value.calleeArtifact().toString()))
+                    .append("</code></td><td><code>")
+                    .append(escape(value.context()))
+                    .append("</code></td></tr>"));
+            body.append("</table>");
+        }
         body.append("<h3>Dangerous transfers</h3>");
         if (metadata.dangerousTransfers().isEmpty()) {
             body.append("<p>No typed changed-instance transfer to a no-op ")
@@ -739,7 +760,11 @@ public final class PerModuleHtmlReportGenerator {
                         .append(escape(edge.getEvidence())).append("</li>");
             }
             body.append("<li>Terminal evidence: ")
-                    .append(escape(path.getTerminal().getEdgeKind().name()))
+                    .append(escape(path.getTerminal().getEvidenceKind()
+                            .name()))
+                    .append(" / ")
+                    .append(escape(path.getTerminal().getEvidenceMechanism()
+                            .name()))
                     .append("; ")
                     .append(escape(path.getTerminal().getEvidence()))
                     .append("</li></ul></details></div>");
@@ -1112,6 +1137,10 @@ public final class PerModuleHtmlReportGenerator {
 
     private String algorithmTerm(final CallGraphAlgorithm algorithm) {
         return switch (algorithm) {
+            case CHA -> term("CHA", "Class Hierarchy Analysis resolves "
+                    + "possible calls from declared types and the target "
+                    + "class hierarchy. It does not build points-to facts "
+                    + "or traverse JDK method bodies.");
             case RTA -> term("RTA", "Rapid Type Analysis uses the global "
                     + "set of instantiated compatible classes for virtual "
                     + "and interface reachability. It does not track "
@@ -1257,6 +1286,8 @@ public final class PerModuleHtmlReportGenerator {
             case FIELD_REMOVED -> "Field removed";
             case FIELD_DESCRIPTOR_CHANGED -> "Field type changed";
             case FIELD_ACCESS_NARROWED -> "Field access narrowed";
+            case SERVICE_PROVIDER_REGISTRATION_REMOVED ->
+                    "Service provider registration removed";
         };
     }
 

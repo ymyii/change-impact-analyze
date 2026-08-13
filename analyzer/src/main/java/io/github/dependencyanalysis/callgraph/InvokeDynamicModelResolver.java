@@ -82,6 +82,45 @@ final class InvokeDynamicModelResolver {
                 Optional.empty(), captured.evidence(), limitations);
     }
 
+    /**
+     * Captures reachable invokedynamic metadata without executing a model.
+     * Used by CHA, whose contract retains WALA lambda support only.
+     *
+     * @param caller exact reachable caller
+     * @param site exact callsite
+     * @return metadata-only evidence and typed limitation
+     */
+    static InvokeDynamicResolution inspectForCha(
+            final CGNode caller,
+            final CallSiteReference site) {
+        final SSAInvokeDynamicInstruction instruction = instruction(
+                caller, site);
+        if (instruction == null) {
+            return new InvokeDynamicResolution(
+                    InvokeDynamicResolution.Disposition.DELEGATE,
+                    Optional.empty(), List.of(), List.of());
+        }
+        final BootstrapMethod bootstrap = instruction.getBootstrap();
+        final InvokeDynamicBootstrapKey key = new InvokeDynamicBootstrapKey(
+                bootstrap.methodClass(), bootstrap.methodName(),
+                bootstrap.methodType());
+        final CapturedMetadata captured = capture(caller, site, bootstrap);
+        if (METAFACTORY.equals(key)) {
+            return new InvokeDynamicResolution(
+                    InvokeDynamicResolution.Disposition.DELEGATE,
+                    Optional.empty(), captured.evidence(),
+                    captured.limitations());
+        }
+        final ArrayList<ModelLimitation> limitations =
+                new ArrayList<>(captured.limitations());
+        limitations.add(limitation(
+                "CHA_INVOKEDYNAMIC_UNSUPPORTED", caller, site,
+                "bootstrap=" + key));
+        return new InvokeDynamicResolution(
+                InvokeDynamicResolution.Disposition.DELEGATE,
+                Optional.empty(), captured.evidence(), limitations);
+    }
+
     private static SSAInvokeDynamicInstruction instruction(
             final CGNode caller,
             final CallSiteReference site) {
@@ -106,7 +145,6 @@ final class InvokeDynamicModelResolver {
         evidence.add(new DynamicCallEvidence(
                 bootstrap.methodClass(), bootstrap.methodName(),
                 bootstrap.methodType(), caller, site.getProgramCounter(),
-                EdgeKind.INVOKEDYNAMIC_BOOTSTRAP,
                 DynamicReferenceKind.BOOTSTRAP_IMPLEMENTATION_METHOD,
                 Optional.empty(), "bootstrap=" + bootstrap));
         for (int index = 0;
@@ -129,7 +167,6 @@ final class InvokeDynamicModelResolver {
                 evidence.add(new DynamicCallEvidence(
                         owner, name, descriptor, caller,
                         site.getProgramCounter(),
-                        EdgeKind.INVOKEDYNAMIC_HANDLE_REFERENCE,
                         DynamicReferenceKind
                                 .BOOTSTRAP_ARGUMENT_METHOD_HANDLE,
                         Optional.of(referenceKind),

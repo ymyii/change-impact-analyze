@@ -40,6 +40,8 @@ public record ModelLimitation(
                     .INCONCLUSIVE_METHOD_HANDLE_MODEL;
             case SERVICE_LOADER -> ModuleAnalysisReason
                     .INCONCLUSIVE_SERVICE_LOADER;
+            case REFLECTION -> ModuleAnalysisReason
+                    .INCONCLUSIVE_REFLECTION;
         };
         if (reason != expected) {
             throw new IllegalArgumentException(

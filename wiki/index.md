@@ -15,7 +15,7 @@ code_refs: []
 ## Architecture
 
 ### [Dependency Analysis Pipelines](architecture/dependency-analysis-pipelines.md)
-- Summary: Root CLI、dependency occurrence path planning、method-body boundary 与独立 `impact`/`tree` pipeline 的结构和数据流。
+- Summary: Root CLI、dependency/resource Diff、Call Graph strategy、统一Evidence collection、冻结query session与独立`impact`/`tree` pipeline。
 
 ## Features
 
@@ -44,16 +44,16 @@ code_refs: []
 - Summary: `ArtifactCoord` 是 dependency JAR logical identity；repository deterministic 选择 Resolver binding，并以 tracked `JarLease` 隔离 physical handle。
 
 ### [Bytecode Diff Engine](features/bytecode-diff-engine.md)
-- Summary: logical coordinate pair 经 repository lease 并行去重 diff；除stable method hash外，默认检测class/method/constructor/field Java 8 JVM access narrowing。
+- Summary: logical coordinate pair经repository lease并行去重Diff；检测bytecode、JVM access narrowing与ServiceLoader registration removal。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
-- Summary: 每Module构建一张WALA Call Graph；支持可配置纯`k-obj`、默认`jdk8` model、changed-paths body boundary、`none`对照与Schema v6 diagnostics。
+- Summary: CHA为默认构图strategy；Object.toString/hashCode Diff-directed dispatch、固定JDK leaf、caller-local SSA constant、ServiceLoader protocol edge、五种algorithm capability与Schema v7 diagnostics。
 
 ### [JDK Method Models](features/jdk-method-models.md)
-- Summary: 独立`models/jdk`公共engine与`models/jdk8`精确catalog已默认接入`impact`四种algorithm；CLI可显式选择`none`且安装严格失败。
+- Summary: CHA固定`none`；四种非CHA algorithm默认接入独立`models/jdk8`精确catalog，并允许显式`none`。
 
 ### [Impact Tracing](features/impact-tracing.md)
-- Summary: 构图后 read-only 解析 call/structural/access reference，并结合 dangerous transfer、factory evidence 与 deterministic reverse BFS 生成结果。
+- Summary: 构图后统一collector绑定公共`ReferenceEvidence`；冻结session上的query只按anchor执行deterministic reverse BFS与access decision。
 
 ### [Report Generator](features/report-generator.md)
 - Summary: `impact` 原子生成英文 Overall 与 Module 三页；展示 requested/actual dependency scope、全部到达路径、body policy 与 boundary evidence。
@@ -81,6 +81,6 @@ code_refs: []
 - Summary: Maven Versions/Enforcer驱动四个独立artifact的Snapshot iteration、Stable release、commit与component Git tag。
 
 ### [Impact Benchmark](runbooks/impact-benchmark.md)
-- Summary: changed-paths/full各执行24个默认`jdk8` run与4个`none` control；56个JVM和16组semantic baseline通过后原子发布默认model snapshot。
+- Summary: changed-paths/full各执行5次warm-up、25次formal与4次非CHA`none`control；68个JVM和18组semantic baseline通过后原子发布。
 
 ## Glossary

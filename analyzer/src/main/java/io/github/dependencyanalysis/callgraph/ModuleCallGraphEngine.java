@@ -23,6 +23,8 @@ import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 import io.github.dependencyanalysis.impact.ModuleAnalysisUnit;
 import io.github.dependencyanalysis.impact.StructuralImpactScanner;
 import io.github.dependencyanalysis.impact.StructuralReferenceIndex;
+import io.github.dependencyanalysis.impact.ChangePointEvidenceIndex;
+import io.github.dependencyanalysis.impact.ChangePointEvidenceCollector;
 import io.github.dependencyanalysis.jar.IJarRepository;
 import io.github.dependencyanalysis.jar.JarLease;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
@@ -162,7 +164,8 @@ public final class ModuleCallGraphEngine {
             final IJarRepository repository) {
         this(collector, runtime, selection, selectedAlgorithm,
                 selectedReflectionOptions,
-                JdkModelSelection.defaultSelection(), repository);
+                CallGraphPolicy.defaultJdkModel(selectedAlgorithm),
+                repository);
     }
 
     /**
@@ -273,7 +276,8 @@ public final class ModuleCallGraphEngine {
         this(collector, runtime, selection, selectedAlgorithm,
                 selectedReflectionOptions, repository,
                 new CallGraphModelConfiguration(
-                        JdkModelSelection.defaultSelection(), models));
+                        CallGraphPolicy.defaultJdkModel(selectedAlgorithm),
+                        models));
     }
 
     /**
@@ -329,6 +333,7 @@ public final class ModuleCallGraphEngine {
         Objects.requireNonNull(modelConfiguration, "modelConfiguration");
         jdkModel = Objects.requireNonNull(
                 modelConfiguration.jdkModel(), "jdkModel");
+        CallGraphPolicy.validate(algorithm, jdkModel);
         jarRepository = Objects.requireNonNull(repository, "repository");
         dynamicModels = Objects.requireNonNull(
                 modelConfiguration.dynamicModels(), "dynamicModels");
@@ -422,6 +427,9 @@ public final class ModuleCallGraphEngine {
                         .create(algorithm)
                         .build(new CallGraphBuildRequest(
                                 scope, hierarchy, entrypoints, cache,
+                                ownership,
+                                ChaDispatchTargetPolicy.create(
+                                        unit, ownership),
                                 serviceLoaderIndex, dynamicModels,
                                 jdkModel, reflectionOptions,
                                 dependencyBoundary,
@@ -438,6 +446,15 @@ public final class ModuleCallGraphEngine {
             }
             final com.ibm.wala.ipa.callgraph.CallGraph graph =
                     strategyResult.graph();
+            final ChangePointEvidenceIndex changePointEvidence =
+                    new ChangePointEvidenceCollector().collect(
+                            unit, graph, ownership,
+                            strategyResult.metadata().dynamicEvidence(),
+                            structuralReferences,
+                            strategyResult.metadata().capabilities(),
+                            method -> bodyAvailable(method, ownership,
+                                    strategyResult.metadata().capabilities(),
+                                    dependencyBoundary));
             final CallGraphStats stats = new CallGraphStats(
                     graph.getNumberOfNodes(), edgeCount(graph),
                     System.currentTimeMillis() - start,
@@ -454,7 +471,10 @@ public final class ModuleCallGraphEngine {
                     + (algorithm == CallGraphAlgorithm.K_OBJ
                     ? "; kObjDepth=" + kObjDepth : "")
                     + "; reflectionOptions="
-                    + reflectionOptions.identifier() + "; jdkModel="
+                    + (algorithm == CallGraphAlgorithm.CHA
+                    ? "not applied by cha (configured: "
+                    + reflectionOptions.identifier() + ")"
+                    : reflectionOptions.identifier()) + "; jdkModel="
                     + jdkModel.identifier() + "; nodes="
                     + stats.methodCount() + "; edges="
                     + stats.edgeCount() + "; entrypoints="
@@ -466,8 +486,11 @@ public final class ModuleCallGraphEngine {
                             selectedClasses, entrypoints.size(),
                             parameterCandidates),
                             strategyResult.metadata(),
-                            dependencyBoundary.metadata(graph),
-                            structuralReferences, topology));
+                            strategyResult.metadata().boundaryOverride()
+                                    .orElseGet(() -> dependencyBoundary
+                                            .metadata(graph)),
+                            structuralReferences, changePointEvidence,
+                            topology));
         } catch (CallGraphException exception) {
             diagnostics.failStage(context, exception.getMessage());
             throw exception;
@@ -494,6 +517,21 @@ public final class ModuleCallGraphEngine {
         return ClassLoaderReference.Primordial.equals(loader)
                 || ClassLoaderReference.Extension.equals(loader)
                 ? CodeOrigin.JDK : CodeOrigin.SYNTHETIC;
+    }
+
+    private boolean bodyAvailable(
+            final IMethod method,
+            final ClassOwnershipIndex ownership,
+            final CallGraphStrategyCapabilities capabilities,
+            final DependencyBodyBoundary dependencyBoundary) {
+        final ClassOwnership source = ownership.ownershipOf(
+                method.getDeclaringClass().getName().toString());
+        final CodeOrigin origin = source == null
+                ? originOf(ownership, method.getDeclaringClass())
+                : source.getOrigin();
+        return (origin != CodeOrigin.JDK
+                || capabilities.jdkBodiesTraversed())
+                && !dependencyBoundary.noOp(method);
     }
 
     private ClassOwnershipIndex ownership(final ModuleAnalysisUnit unit)

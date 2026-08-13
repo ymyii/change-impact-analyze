@@ -18,6 +18,8 @@ class CallGraphAlgorithmTest {
     void factorySelectsOneIndependentStrategyPerAlgorithm() {
         final CallGraphStrategyFactory factory =
                 new CallGraphStrategyFactory();
+        final CallGraphAlgorithmStrategy cha = factory.create(
+                CallGraphAlgorithm.CHA);
         final CallGraphAlgorithmStrategy rta = factory.create(
                 CallGraphAlgorithm.RTA);
         final CallGraphAlgorithmStrategy zeroCfa = factory.create(
@@ -28,6 +30,10 @@ class CallGraphAlgorithmTest {
                 factory.create(
                         CallGraphAlgorithm.K_OBJ);
 
+        assertThat(cha).isInstanceOf(ChaCallGraphStrategy.class);
+        assertThat(cha.algorithm()).isEqualTo(CallGraphAlgorithm.CHA);
+        assertThat(cha.capabilities().pointsToAnalysis()).isFalse();
+        assertThat(cha.capabilities().callerLocalConstants()).isTrue();
         assertThat(rta)
                 .isInstanceOf(RtaCallGraphStrategy.class);
         assertThat(rta.algorithm()).isEqualTo(CallGraphAlgorithm.RTA);
@@ -46,7 +52,9 @@ class CallGraphAlgorithmTest {
     @Test
     void parsesOnlyStableIdentifiersCaseInsensitively() {
         assertThat(CallGraphAlgorithm.defaultAlgorithm())
-                .isEqualTo(CallGraphAlgorithm.RTA);
+                .isEqualTo(CallGraphAlgorithm.CHA);
+        assertThat(CallGraphAlgorithm.parse("CHA"))
+                .isEqualTo(CallGraphAlgorithm.CHA);
         assertThat(CallGraphAlgorithm.parse("RTA"))
                 .isEqualTo(CallGraphAlgorithm.RTA);
         assertThat(CallGraphAlgorithm.parse("ZERO-CFA"))
@@ -61,7 +69,7 @@ class CallGraphAlgorithmTest {
         assertThatThrownBy(() -> CallGraphAlgorithm.parse("zerocfa"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining(
-                        "rta, zero-cfa, optimized-0-1-cfa, "
+                        "cha, rta, zero-cfa, optimized-0-1-cfa, "
                                 + "k-obj");
     }
 
@@ -80,6 +88,18 @@ class CallGraphAlgorithmTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> JdkModelSelection.parse(" jdk8"))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void jdkModelPolicyIsAlgorithmDependent() {
+        assertThat(CallGraphPolicy.defaultJdkModel(CallGraphAlgorithm.CHA))
+                .isEqualTo(JdkModelSelection.NONE);
+        assertThat(CallGraphPolicy.defaultJdkModel(CallGraphAlgorithm.RTA))
+                .isEqualTo(JdkModelSelection.JDK8);
+        assertThatThrownBy(() -> CallGraphPolicy.validate(
+                CallGraphAlgorithm.CHA, JdkModelSelection.JDK8))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cha");
     }
 
     @Test
@@ -157,6 +177,7 @@ class CallGraphAlgorithmTest {
                     .INCONCLUSIVE_METHOD_HANDLE_MODEL;
             case SERVICE_LOADER -> ModuleAnalysisReason
                     .INCONCLUSIVE_SERVICE_LOADER;
+            case REFLECTION -> ModuleAnalysisReason.INCONCLUSIVE_REFLECTION;
         };
         return new ModelLimitation(model, code, reason, location, "detail");
     }

@@ -38,7 +38,7 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
     desc: "tree pipeline 编排"
   - path: "benchmarks/impact-medium/run-suite.sh"
-    desc: "单scope四种algorithm、jdk8/none benchmark suite"
+    desc: "单scope五种algorithm、algorithm相关JDK model benchmark suite"
 ---
 
 # Project: Dependency Analyzer
@@ -51,19 +51,19 @@ Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer
 
 ## Design Decisions
 
-- Analyzer `2.0.0` 与 Dependency Evidence Plugin `3.0.0` 独立使用 SemVer。
+- Analyzer开发版本`3.0.0-SNAPSHOT`与Dependency Evidence Plugin`3.0.0`独立使用SemVer。
 - 日常开发在下一次 release 前复用同一个 `X.Y.Z-SNAPSHOT`；只有 release 决策才切换 stable version、commit 并创建 Git tag。
 - Dependency Evidence Plugin 以 Java 8 bytecode 发布；执行 Plugin reactor 的 Maven JVM 可以使用 Java 8 以上版本。Analyzer 使用 Java 17 构建和运行；root POM 的 `test.jdk8.home` 提供完整 JDK 8 默认值，Surefire/Failsafe 将其作为 `TEST_JDK8_HOME` 注入 test JVM，其他环境可通过 `-Dtest.jdk8.home=...` 覆盖。
 - Analyzer JAR 将 Maven Dependency Plugin 和 Dependency Evidence Plugin 内嵌为两个独立 Maven repository ZIP；runtime 不安装 loose JAR/POM，也不维护项目自有 checksum/fingerprint。
 - `impact` 通过 Maven API 结构化采集 resolved/raw graph，Schema v3 JSON 在 command cache 内交付 selected tree、occurrence topology、reactor keys 和 physical bindings；`impact` 不读 GraphML。`tree` 使用 verbose text 采集面向人的 dependency occurrence。
-- `impact`只构建target per-Module selected Call Graph；`rta`为默认algorithm，`zero-cfa`、`optimized-0-1-cfa`与可配置深度的`k-obj`可显式选择；WALA ReflectionOptions command-wide可配置，默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`；baseline不compile、不构建Call Graph。
-- `impact`与兼容engine constructor默认`jdk8` Method Model；`--jdk-model none`保留真实JDK bytecode语义。Analyzer通过`dependency-analyzer-jdk8-models`传递引入公共engine，并将class/catalog打入uber JAR。
+- `impact`只构建target per-Module selected Call Graph；`cha`为默认algorithm，其他四种algorithm可显式选择。五种strategy共享统一Evidence collector和Impact query。
+- CHA固定`jdk-model none`、不应用WALA ReflectionOptions且不遍历JDK body；其他algorithm默认`jdk8`并可显式`none`。Analyzer仍将JDK model class/catalog打入uber JAR。
 - 两个 subcommand 共享 Maven runtime 和 preflight Schema，但分别组装检查 DAG；pipeline 只消费 preflight decision。
 
 ## Module Map
 
 - `pom.xml` - Analyzer reactor parent/aggregator，只包含 `analyzer/`。
-- `analyzer/` - GAV `io.github.dependencyanalysis:dependency-analyzer:2.0.0`；Java 17 CLI/application，兼容输出为 `target/dependency-analyzer.jar`。
+- `analyzer/` - GAV `io.github.dependencyanalysis:dependency-analyzer:3.0.0-SNAPSHOT`；Java 17 CLI/application，输出为`target/dependency-analyzer.jar`。
 - `analyzer/src/main/java/io/github/dependencyanalysis/runtime/` - 内嵌或用户指定 Maven runtime、两个 Plugin repository cache 与 settings overlay。
 - `analyzer/src/main/java/io/github/dependencyanalysis/preflight/` - DAG preflight framework 和结果 Schema。
 - `analyzer/src/main/java/io/github/dependencyanalysis/impact/` - `impact` command、pipeline 和影响追踪 domain。
@@ -74,7 +74,7 @@ Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer
 - `plugins/artifact-path-resolver/` - GAV `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:3.0.0`；Java 8 `collect-dependency-evidence` goal 与 attached `repository` ZIP。
 - `models/jdk/` - GAV`io.github.dependencyanalysis:dependency-analyzer-jdk-models:0.1.0-SNAPSHOT`；公共Synthetic IR engine/API。
 - `models/jdk8/` - GAV`io.github.dependencyanalysis:dependency-analyzer-jdk8-models:0.1.0-SNAPSHOT`；384-target catalog与安装façade。
-- `benchmarks/impact-medium/` - 可复现的中型impact fixture、每scope 28进程CallGraph suite、HTML报告与Git管理的默认`jdk8` TSV snapshot。
+- `benchmarks/impact-medium/` - 可复现的中型impact fixture、每scope 34进程Call Graph suite、HTML报告与Git管理的effective-default TSV snapshot。
 
 ## Technical Stack
 

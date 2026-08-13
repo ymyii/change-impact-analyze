@@ -1,7 +1,5 @@
 package io.github.dependencyanalysis.impact;
 
-import io.github.dependencyanalysis.callgraph.EdgeKind;
-
 import java.util.Objects;
 
 /** Synthetic path terminal representing one BoundChangePoint. */
@@ -10,39 +8,19 @@ public final class ChangePointTerminal {
     /** Bound change. */
     private final BoundChangePoint changePoint;
 
-    /** Terminal evidence kind. */
-    private final EdgeKind edgeKind;
-
     /** Stable evidence. */
-    private final ImpactEvidence evidence;
-
-    /**
-     * Creates a terminal.
-     *
-     * @param point bound change
-     * @param kind terminal edge kind
-     * @param detail stable evidence
-     */
-    public ChangePointTerminal(
-            final BoundChangePoint point,
-            final EdgeKind kind,
-            final String detail) {
-        this(point, kind, new TextImpactEvidence(detail));
-    }
+    private final ReferenceEvidence evidence;
 
     /**
      * Creates a terminal with typed evidence.
      *
      * @param point bound change
-     * @param kind terminal edge kind
      * @param detail typed evidence
      */
     public ChangePointTerminal(
             final BoundChangePoint point,
-            final EdgeKind kind,
-            final ImpactEvidence detail) {
+            final ReferenceEvidence detail) {
         changePoint = Objects.requireNonNull(point, "changePoint");
-        edgeKind = Objects.requireNonNull(kind, "edgeKind");
         evidence = Objects.requireNonNull(detail, "evidence");
     }
 
@@ -51,9 +29,14 @@ public final class ChangePointTerminal {
         return changePoint;
     }
 
-    /** @return terminal edge kind */
-    public EdgeKind getEdgeKind() {
-        return edgeKind;
+    /** @return terminal evidence kind */
+    public EvidenceKind getEvidenceKind() {
+        return evidence.kind();
+    }
+
+    /** @return terminal discovery mechanism */
+    public EvidenceMechanism getEvidenceMechanism() {
+        return evidence.mechanism();
     }
 
     /** @return stable evidence */
@@ -62,7 +45,7 @@ public final class ChangePointTerminal {
     }
 
     /** @return typed evidence */
-    public ImpactEvidence getImpactEvidence() {
+    public ReferenceEvidence getImpactEvidence() {
         return evidence;
     }
 
@@ -76,12 +59,11 @@ public final class ChangePointTerminal {
         }
         final ChangePointTerminal that = (ChangePointTerminal) other;
         return changePoint.equals(that.changePoint)
-                && edgeKind == that.edgeKind
                 && evidence.equals(that.evidence);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(changePoint, edgeKind, evidence);
+        return Objects.hash(changePoint, evidence);
     }
 }

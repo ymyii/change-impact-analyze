@@ -46,13 +46,17 @@ public enum ChangePointKind {
     FIELD_DESCRIPTOR_CHANGED,
 
     /** A field access narrowed. */
-    FIELD_ACCESS_NARROWED;
+    FIELD_ACCESS_NARROWED,
+
+    /** A valid ServiceLoader provider registration was removed. */
+    SERVICE_PROVIDER_REGISTRATION_REMOVED;
 
     /**
      * Default set of included change
-     * point kinds. Contains the 6
+     * point kinds. Contains the ten
      * non-ADDED kinds that represent
-     * removals and modifications.
+     * removals, modifications and a
+     * removed service registration.
      */
     public static final Set<ChangePointKind>
             DEFAULT_INCLUDED_KINDS;
@@ -69,7 +73,8 @@ public enum ChangePointKind {
                                 METHOD_ACCESS_NARROWED,
                                 FIELD_REMOVED,
                                 FIELD_DESCRIPTOR_CHANGED,
-                                FIELD_ACCESS_NARROWED));
+                                FIELD_ACCESS_NARROWED,
+                                SERVICE_PROVIDER_REGISTRATION_REMOVED));
     }
 
     /** @return true for strict JVM access narrowing kinds */

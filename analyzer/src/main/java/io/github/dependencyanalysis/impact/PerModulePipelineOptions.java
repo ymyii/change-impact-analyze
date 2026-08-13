@@ -1,6 +1,7 @@
 package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
+import io.github.dependencyanalysis.callgraph.CallGraphPolicy;
 import io.github.dependencyanalysis.callgraph.EntrypointSelection;
 import io.github.dependencyanalysis.callgraph.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
@@ -63,7 +64,8 @@ record PerModulePipelineOptions(
         this(timeoutSeconds, parallelism, paths, selection, algorithm,
                 CallGraphAlgorithm.defaultKObjDepth(), reflection,
                 dependencyScope,
-                JdkModelSelection.defaultSelection(), executorRegistry);
+                CallGraphPolicy.defaultJdkModel(algorithm),
+                executorRegistry);
     }
 
     PerModulePipelineOptions(
@@ -79,7 +81,8 @@ record PerModulePipelineOptions(
                 selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
                 reflection,
                 DependencyAnalysisScopeMode.defaultMode(),
-                JdkModelSelection.defaultSelection(), executorRegistry);
+                CallGraphPolicy.defaultJdkModel(algorithm),
+                executorRegistry);
     }
 
     PerModulePipelineOptions(
@@ -94,7 +97,8 @@ record PerModulePipelineOptions(
                 selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
                 WalaReflectionOptions.defaultOptions(),
                 DependencyAnalysisScopeMode.defaultMode(),
-                JdkModelSelection.defaultSelection(), executorRegistry);
+                CallGraphPolicy.defaultJdkModel(algorithm),
+                executorRegistry);
     }
 
     /** @return command temporary directory */

@@ -14,6 +14,7 @@ final class CallGraphStrategyFactory {
     CallGraphStrategyFactory() {
         final EnumMap<CallGraphAlgorithm, CallGraphAlgorithmStrategy> values =
                 new EnumMap<>(CallGraphAlgorithm.class);
+        register(values, new ChaCallGraphStrategy());
         register(values, new RtaCallGraphStrategy());
         register(values, new ZeroCfaCallGraphStrategy());
         register(values, new OptimizedZeroOneCfaCallGraphStrategy());

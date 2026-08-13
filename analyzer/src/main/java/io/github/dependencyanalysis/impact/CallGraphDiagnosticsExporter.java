@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
 
 import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
+import io.github.dependencyanalysis.callgraph.CallGraphStrategyCapabilities;
 import io.github.dependencyanalysis.callgraph.CallGraphMethodIdentity;
 import io.github.dependencyanalysis.callgraph.CallGraphNodeIdentity;
 import io.github.dependencyanalysis.callgraph.CallGraphNodeIr;
@@ -39,7 +40,7 @@ import java.util.UUID;
 final class CallGraphDiagnosticsExporter {
 
     /** Diagnostics JSON Schema version. */
-    static final int SCHEMA_VERSION = 6;
+    static final int SCHEMA_VERSION = 7;
 
     /** SHA-256 algorithm name. */
     private static final String SHA_256 = "SHA-256";
@@ -152,6 +153,9 @@ final class CallGraphDiagnosticsExporter {
         }
         json.writeStringField("reflectionOptions",
                 reflectionOptions.identifier());
+        json.writeStringField("reflectionApplied",
+                algorithm == CallGraphAlgorithm.CHA
+                        ? "not applied by cha" : "applied");
         json.writeStringField("jdkModel", jdkModel.identifier());
         json.writeStringField("requestedDependencyAnalysisScope",
                 dependencyScope.identifier());
@@ -185,6 +189,10 @@ final class CallGraphDiagnosticsExporter {
                 boundary.factoryMethodNodes());
         json.writeNumberField("dangerousTransferCount",
                 boundary.dangerousTransfers().size());
+        json.writeNumberField("bodyBoundaryHitCount",
+                boundary.bodyBoundaryHits().size());
+        writeCapabilities(json, session.getStrategyCapabilities());
+        writeEvidenceSummary(json, session.getChangePointEvidence());
         final List<ArtifactCoord> externalArtifacts = module.getUnit()
                 .getTargetArtifacts().stream().distinct()
                 .sorted(java.util.Comparator.comparing(ArtifactCoord::toString))
@@ -212,6 +220,56 @@ final class CallGraphDiagnosticsExporter {
         writeRanks(json, "topCallees", "CALLER", "topCallers", session,
                 topology.topCallees(), cache);
         json.writeEndObject();
+    }
+
+    private void writeCapabilities(
+            final JsonGenerator json,
+            final CallGraphStrategyCapabilities capabilities)
+            throws IOException {
+        json.writeObjectFieldStart("strategyCapabilities");
+        json.writeBooleanField("pointsToAnalysis",
+                capabilities.pointsToAnalysis());
+        json.writeBooleanField("jdkModelSupported",
+                capabilities.jdkModelSupported());
+        json.writeBooleanField("jdkBodiesTraversed",
+                capabilities.jdkBodiesTraversed());
+        json.writeBooleanField("callerLocalConstants",
+                capabilities.callerLocalConstants());
+        json.writeStringField("reflection",
+                capabilities.reflection().name());
+        json.writeStringField("serviceLoader",
+                capabilities.serviceLoader().name());
+        json.writeStringField("methodHandle",
+                capabilities.methodHandle().name());
+        json.writeStringField("invokeDynamic",
+                capabilities.invokeDynamic().name());
+        json.writeEndObject();
+    }
+
+    private void writeEvidenceSummary(
+            final JsonGenerator json,
+            final ChangePointEvidenceIndex evidence) throws IOException {
+        final Map<String, Long> resolutions = evidence.resolutions().stream()
+                .collect(java.util.stream.Collectors.groupingBy(value ->
+                        value.status().name(), java.util.TreeMap::new,
+                        java.util.stream.Collectors.counting()));
+        final Map<String, Long> kinds = evidence.resolutions().stream()
+                .flatMap(value -> value.evidence().stream())
+                .collect(java.util.stream.Collectors.groupingBy(value ->
+                        value.kind().name(), java.util.TreeMap::new,
+                        java.util.stream.Collectors.counting()));
+        final Map<String, Long> mechanisms = evidence.resolutions().stream()
+                .flatMap(value -> value.evidence().stream())
+                .collect(java.util.stream.Collectors.groupingBy(value ->
+                        value.mechanism().name(), java.util.TreeMap::new,
+                        java.util.stream.Collectors.counting()));
+        json.writeObjectField("evidenceResolutionSummary", resolutions);
+        json.writeObjectField("evidenceKindSummary", kinds);
+        json.writeObjectField("evidenceMechanismSummary", mechanisms);
+        json.writeNumberField("localConstantResolutionSuccessCount",
+                evidence.localConstantSuccessCount());
+        json.writeNumberField("localConstantResolutionUnresolvedCount",
+                evidence.localConstantUnresolvedCount());
     }
 
     private void writeRanks(

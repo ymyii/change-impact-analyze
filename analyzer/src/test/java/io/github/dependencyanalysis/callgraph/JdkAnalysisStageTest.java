@@ -38,9 +38,6 @@ class JdkAnalysisStageTest {
     /** Minimum expected classes in a complete JDK 8 scope. */
     private static final int MINIMUM_JDK_CLASSES = 10_000;
 
-    /** JDK 8 model catalog target count. */
-    private static final int MODEL_CATALOG_TARGETS = 384;
-
     /** Temporary JDK archive directory. */
     @TempDir
     private Path temporary;
@@ -125,13 +122,9 @@ class JdkAnalysisStageTest {
             assertThat(session.getEntrypointCount()).isPositive();
             assertThat(session.getStats().methodCount()).isPositive();
             assertThat(session.getStats().edgeCount()).isPositive();
-            assertThat(session.jdkModelMetadata()).hasValueSatisfying(
-                    metadata -> {
-                        assertThat(metadata.modelId()).isEqualTo("jdk8");
-                        assertThat(metadata.catalogTargetCount())
-                                .isEqualTo(MODEL_CATALOG_TARGETS);
-                        assertThat(metadata.unavailableTargetCount()).isZero();
-                    });
+            assertThat(session.jdkModelMetadata()).isEmpty();
+            assertThat(session.getStrategyCapabilities()
+                    .jdkBodiesTraversed()).isFalse();
         } finally {
             System.setErr(original);
         }

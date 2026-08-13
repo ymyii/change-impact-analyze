@@ -21,7 +21,6 @@ import io.github.dependencyanalysis.callgraph.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
 import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
-import io.github.dependencyanalysis.callgraph.EdgeKind;
 import io.github.dependencyanalysis.callgraph.MethodId;
 import io.github.dependencyanalysis.callgraph.ScopeValidationWarning;
 import io.github.dependencyanalysis.impact.ChangePointTerminal;
@@ -48,6 +47,11 @@ import io.github.dependencyanalysis.impact.ChangePointDisposition;
 import io.github.dependencyanalysis.impact.DependencyUpgradeKey;
 import io.github.dependencyanalysis.impact.DependencyAnalysisScopeMode;
 import io.github.dependencyanalysis.impact.JarDiffFailure;
+import io.github.dependencyanalysis.impact.EvidenceKind;
+import io.github.dependencyanalysis.impact.EvidenceLocation;
+import io.github.dependencyanalysis.impact.EvidenceMechanism;
+import io.github.dependencyanalysis.impact.ReferenceEvidence;
+import io.github.dependencyanalysis.impact.ReferenceTarget;
 import io.github.dependencyanalysis.preflight.PreflightReport;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 import io.github.dependencyanalysis.runtime.MavenDependencyPluginRuntime;
@@ -63,6 +67,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Stream;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -251,8 +256,9 @@ class PerModuleHtmlReportGeneratorTest {
                 "example/app/Controller", "handle", "()V", "app",
                 "/secret/work/classes"), CodeOrigin.PROJECT);
         final ImpactPath candidate = new ImpactPath(List.of(root), List.of(),
-                new ChangePointTerminal(affected, EdgeKind.METHOD_CHANGE,
-                        "fixture"), ImpactClassification.TRANSITIVE);
+                new ChangePointTerminal(affected, referenceEvidence(
+                        EvidenceMechanism.METHOD_DECLARATION, "fixture")),
+                ImpactClassification.TRANSITIVE);
         final CodeComparisonEvidence code = new CodeComparisonEvidence(
                 CodeComparisonStatus.AVAILABLE,
                 List.of(new UnifiedDiffHunk(1, 1, 1, 1,
@@ -483,15 +489,15 @@ class PerModuleHtmlReportGeneratorTest {
     }
 
     @Test
-    void rendersDefaultRtaAlgorithmAndTerminology() {
-        final Path output = temporary.resolve("rta.html");
+    void rendersDefaultChaAlgorithmAndTerminology() {
+        final Path output = temporary.resolve("cha.html");
         final AnalysisRunResult run = new AnalysisRunResult(
                 AnalysisMode.REACTOR, AnalysisStatus.SUCCESS, List.of(),
                 List.of(), new AnalysisConcurrency(1, 0, 0, 0),
                 Map.of(), EntrypointSelection.allProjectClasses());
         final MavenDependencyPluginRuntime plugin =
                 new MavenDependencyPluginRuntimeManager().prepare(
-                        temporary.resolve("config-rta"),
+                        temporary.resolve("config-cha"),
                         List.of(), null);
 
         new PerModuleHtmlReportGenerator().generate(run, List.of(),
@@ -499,16 +505,15 @@ class PerModuleHtmlReportGeneratorTest {
                 java(), output);
 
         assertThat(output).content()
-                .contains("<th>Algorithm</th><td>rta</td>")
+                .contains("<th>Algorithm</th><td>cha</td>")
                 .contains("<th>WALA ReflectionOptions</th><td>"
-                        + "ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD</td>")
-                .contains("<th>JDK method model</th><td>jdk8</td>")
+                        + "not applied by cha (configured: "
+                        + "ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD)")
+                .contains("<th>JDK method model</th><td>none</td>")
                 .doesNotContain("availableTarget", "unavailableTarget",
                         "hitTarget")
-                .contains("RTA")
-                .contains("global set of instantiated compatible classes")
-                .contains("does not track allocation-site or value "
-                        + "points-to dataflow")
+                .contains("CHA")
+                .contains("does not build points-to facts")
                 .doesNotContain("ZeroCFA")
                 .doesNotContain("Optimized 0-1-CFA");
     }
@@ -689,7 +694,9 @@ class PerModuleHtmlReportGeneratorTest {
                 "app/classes"), CodeOrigin.PROJECT);
         final ImpactPath path = new ImpactPath(List.of(root), List.of(),
                 new ChangePointTerminal(access,
-                        EdgeKind.DECLARED_INVOKE_REFERENCE, evidence),
+                        referenceEvidence(
+                                EvidenceMechanism.DECLARED_INVOKE,
+                                evidence.render())),
                 ImpactClassification.TRANSITIVE);
         final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
                 moduleId, ModulePresence.BOTH,
@@ -775,5 +782,14 @@ class PerModuleHtmlReportGeneratorTest {
     private JavaRuntimeDescriptor java() {
         return new JavaRuntimeDescriptor(temporary, temporary,
                 "1.8.0", TARGET_MAJOR, List.of(), List.of());
+    }
+
+    private ReferenceEvidence referenceEvidence(
+            final EvidenceMechanism mechanism,
+            final String detail) {
+        return new ReferenceEvidence(Optional.empty(),
+                new ReferenceTarget("example/library/Api", "changed",
+                        "()V"), EvidenceKind.METHOD_REFERENCE, mechanism,
+                new EvidenceLocation("report-fixture", 0), detail);
     }
 }

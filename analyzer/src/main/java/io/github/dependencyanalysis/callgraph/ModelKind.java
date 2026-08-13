@@ -10,5 +10,8 @@ public enum ModelKind {
     METHOD_HANDLE,
 
     /** java.util.ServiceLoader model. */
-    SERVICE_LOADER
+    SERVICE_LOADER,
+
+    /** java.lang.Class reflection model. */
+    REFLECTION
 }

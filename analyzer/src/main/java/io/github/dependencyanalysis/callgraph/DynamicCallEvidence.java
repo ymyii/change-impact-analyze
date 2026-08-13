@@ -13,7 +13,6 @@ import java.util.Optional;
  * @param targetDescriptor referenced method descriptor
  * @param caller reachable caller Context
  * @param bytecodePc invokedynamic bytecode PC
- * @param kind evidence kind
  * @param referenceKind typed dynamic reference source
  * @param methodHandleKind class-file handle kind when applicable
  * @param detail stable detail
@@ -24,7 +23,6 @@ public record DynamicCallEvidence(
         String targetDescriptor,
         CGNode caller,
         int bytecodePc,
-        EdgeKind kind,
         DynamicReferenceKind referenceKind,
         Optional<MethodHandleReferenceKind> methodHandleKind,
         String detail) {
@@ -35,7 +33,6 @@ public record DynamicCallEvidence(
         Objects.requireNonNull(targetName, "targetName");
         Objects.requireNonNull(targetDescriptor, "targetDescriptor");
         Objects.requireNonNull(caller, "caller");
-        Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(referenceKind, "referenceKind");
         methodHandleKind = Objects.requireNonNull(
                 methodHandleKind, "methodHandleKind");
@@ -45,18 +42,6 @@ public record DynamicCallEvidence(
         if (handle != methodHandleKind.isPresent()) {
             throw new IllegalArgumentException(
                     "Dynamic reference and MethodHandle kind must agree");
-        }
-        final EdgeKind expected = switch (referenceKind) {
-            case BOOTSTRAP_IMPLEMENTATION_METHOD ->
-                    EdgeKind.INVOKEDYNAMIC_BOOTSTRAP;
-            case BOOTSTRAP_ARGUMENT_METHOD_HANDLE ->
-                    EdgeKind.INVOKEDYNAMIC_HANDLE_REFERENCE;
-            case DIRECT_MODELED_HANDLE_TARGET ->
-                    EdgeKind.METHOD_HANDLE_TARGET;
-        };
-        if (kind != expected) {
-            throw new IllegalArgumentException(
-                    "Dynamic reference and edge kind must agree");
         }
     }
 

@@ -24,10 +24,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class CallGraphDiagnosticsExporterTest {
 
     /** Expected diagnostics JSON Schema version. */
-    private static final int EXPECTED_SCHEMA_VERSION = 6;
+    private static final int EXPECTED_SCHEMA_VERSION = 7;
 
     @Test
-    void writesSchemaV6ConfigurationAndTypedSentinelPath() throws Exception {
+    void writesSchemaV7ConfigurationAndTypedSentinelPath() throws Exception {
         final CallGraphNodeIdentity fakeRoot = node(
                 0, "com.ibm.wala.FakeRoot", "fakeRootMethod",
                 CallGraphNodeSentinelRole.FAKE_ROOT);
@@ -60,7 +60,8 @@ class CallGraphDiagnosticsExporterTest {
         assertThat(CallGraphDiagnosticsExporter.SCHEMA_VERSION)
                 .isEqualTo(EXPECTED_SCHEMA_VERSION);
         assertThat(output.toString())
-                .contains("\"schemaVersion\":6")
+                .contains("\"schemaVersion\":7")
+                .contains("\"reflectionApplied\":\"applied\"")
                 .contains("\"kObjDepth\":null")
                 .contains("\"jdkModel\":\"jdk8\"")
                 .contains("\"reachabilityPaths\"")
@@ -91,6 +92,27 @@ class CallGraphDiagnosticsExporterTest {
         assertThat(output.toString())
                 .contains("\"algorithm\":\"k-obj\"")
                 .contains("\"kObjDepth\":2");
+    }
+
+    @Test
+    void writesChaReflectionNotAppliedAndNoneModel() throws Exception {
+        final StringWriter output = new StringWriter();
+
+        try (JsonGenerator json = new JsonFactory().createGenerator(output)) {
+            json.writeStartObject();
+            CallGraphDiagnosticsExporter.writeConfiguration(
+                    json, CallGraphAlgorithm.CHA,
+                    CallGraphAlgorithm.defaultKObjDepth(),
+                    WalaReflectionOptions.defaultOptions(),
+                    DependencyAnalysisScopeMode.CHANGED_PATHS,
+                    JdkModelSelection.NONE);
+            json.writeEndObject();
+        }
+
+        assertThat(output.toString())
+                .contains("\"algorithm\":\"cha\"")
+                .contains("\"reflectionApplied\":\"not applied by cha\"")
+                .contains("\"jdkModel\":\"none\"");
     }
 
     private CallGraphNodeIdentity node(

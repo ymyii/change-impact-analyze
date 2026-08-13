@@ -276,7 +276,8 @@ class PackagedJarCliIT {
                         + "dependency-evidence-v3");
         assertThat(impactReport).content()
                 .contains("Impact Analysis Report")
-                .contains("<th>JDK method model</th><td>jdk8</td>")
+                .contains("<th>Algorithm</th><td>cha</td>")
+                .contains("<th>JDK method model</th><td>none</td>")
                 .contains("Preflight")
                 .contains("impact.java-runtime");
     }
