@@ -1,9 +1,7 @@
 package io.github.dependencyanalysis.impact;
 
-import com.ibm.wala.classLoader.CallSiteReference;
 import com.ibm.wala.classLoader.IMethod;
 import com.ibm.wala.ipa.callgraph.CGNode;
-import com.ibm.wala.shrike.shrikeBT.IInvokeInstruction;
 import com.ibm.wala.types.MethodReference;
 import com.ibm.wala.types.TypeReference;
 
@@ -13,10 +11,8 @@ import io.github.dependencyanalysis.callgraph.ClassOwnership;
 import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
 import io.github.dependencyanalysis.callgraph.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.DuplicateClassResolution;
-import io.github.dependencyanalysis.callgraph.CallEdgeKind;
 import io.github.dependencyanalysis.callgraph.MethodId;
 import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
-import io.github.dependencyanalysis.callgraph.SyntheticEdgeMetadata;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 
@@ -34,6 +30,7 @@ import java.util.Objects;
 import java.util.Queue;
 import java.util.Set;
 
+// Wiki: wiki/features/impact-tracing.md - Node-only reverse query entrypoint
 /** Single-thread Impact Path query over a frozen per-module session. */
 public final class ModuleImpactTracer {
 
@@ -63,6 +60,20 @@ public final class ModuleImpactTracer {
                 "module-analysis", "impact-query").withModule(
                 unit.getModuleId().stableKey());
         diagnostics.startStage(context);
+        try (SeedProgressReporter seedProgress =
+                     SeedProgressReporter.open(diagnostics, context)) {
+            final ModuleImpactQueryResult result = trace(
+                    unit, session, context, seedProgress);
+            diagnostics.endStage(context);
+            return result;
+        }
+    }
+
+    private ModuleImpactQueryResult trace(
+            final ModuleAnalysisUnit unit,
+            final ModuleCallGraphSession session,
+            final DiagnosticContext context,
+            final SeedProgressReporter seedProgress) {
         final List<ImpactPath> paths = new ArrayList<>();
         final Map<BoundChangePoint, ChangePointDisposition> dispositions =
                 new LinkedHashMap<>();
@@ -79,7 +90,7 @@ public final class ModuleImpactTracer {
                         structuralReferences, session);
         final StructuralPathResult structures = materializeStructuralPaths(
                 unit.getModuleId(), preparedStructures,
-                session, traceCache);
+                session, traceCache, seedProgress);
         structures.observations().forEach((point, values) ->
                 observations.put(point, values));
         limitations.addAll(structures.limitations());
@@ -120,20 +131,28 @@ public final class ModuleImpactTracer {
                 final Map<String, ImpactPath> representative =
                         new LinkedHashMap<>();
                 for (ImpactSeed seed : seeds) {
-                    final ReverseTrace reverse = traceCache.computeIfAbsent(
-                            seed.node(), node -> reverse(
-                                    unit.getModuleId(), node, session));
-                    for (ImpactPath path : materialize(
-                            unit.getModuleId(), point,
-                            seed, reverse, session)) {
-                        final String affected = methodIdentity(
-                                path.getAffectedMethod());
-                        final ImpactPath previous = representative.get(
-                                affected);
-                        if (previous == null || representativePathComparator()
-                                .compare(path, previous) < 0) {
-                            representative.put(affected, path);
+                    try (SeedProgressTracker tracker =
+                                 seedProgress.startOrdinary(point, seed)) {
+                        final ReverseTrace reverse = traceCache
+                                .computeIfAbsent(seed.node(), node -> reverse(
+                                        unit.getModuleId(), node, session,
+                                        tracker));
+                        tracker.reverseCompleted(reverse.visited().size());
+                        for (ImpactPath path : materialize(
+                                point, seed, reverse, tracker)) {
+                            tracker.representativeSelection(
+                                    path.getNodes().get(0));
+                            final String affected = methodIdentity(
+                                    path.getAffectedMethod());
+                            final ImpactPath previous = representative.get(
+                                    affected);
+                            if (previous == null
+                                    || representativePathComparator()
+                                    .compare(path, previous) < 0) {
+                                representative.put(affected, path);
+                            }
                         }
+                        tracker.complete();
                     }
                 }
                 paths.addAll(representative.values());
@@ -149,7 +168,6 @@ public final class ModuleImpactTracer {
         diagnostics.info(context, "candidatePaths=" + paths.size()
                 + "; structuralPaths=" + structures.paths().size()
                 + "; reverseBfs=" + traceCache.size());
-        diagnostics.endStage(context);
         return new ModuleImpactQueryResult(
                 paths, structures.paths(), dispositions, observations,
                 limitations.stream().sorted().toList());
@@ -198,7 +216,8 @@ public final class ModuleImpactTracer {
             final ModuleId moduleId,
             final StructuralReferencePreparation.Result prepared,
             final ModuleCallGraphSession session,
-            final Map<QueryNode, ReverseTrace> traceCache) {
+            final Map<QueryNode, ReverseTrace> traceCache,
+            final SeedProgressReporter seedProgress) {
         final Map<String, StructuralReferencePath> selected =
                 new LinkedHashMap<>();
         final Set<BoundChangePoint> unreachable = new LinkedHashSet<>();
@@ -207,7 +226,7 @@ public final class ModuleImpactTracer {
             if (reference.getOrigin() == CodeOrigin.PROJECT) {
                 final StructuralReferencePath path =
                         new StructuralReferencePath(match.changePoint(),
-                                reference, List.of(), List.of(),
+                                reference, List.of(),
                                 ImpactClassification.DIRECT);
                 selected.putIfAbsent(referenceKey(match), path);
                 continue;
@@ -215,19 +234,29 @@ public final class ModuleImpactTracer {
             boolean recovered = false;
             for (QueryNode seed : structuralSeeds(
                     moduleId, reference, session)) {
-                final ReverseTrace reverse = traceCache.computeIfAbsent(
-                        seed, node -> reverse(moduleId, node, session));
-                for (StructuralReferencePath path : materializeStructural(
-                        match.changePoint(), reference, reverse, session)) {
-                    recovered = true;
-                    final String key = referenceKey(match) + "|"
-                            + methodIdentity(path.getAffectedMethod());
-                    final StructuralReferencePath existing = selected.get(key);
-                    if (existing == null
-                            || structuralPathComparator().compare(
-                            path, existing) < 0) {
-                        selected.put(key, path);
+                try (SeedProgressTracker tracker =
+                             seedProgress.startStructural(match, seed)) {
+                    final ReverseTrace reverse = traceCache.computeIfAbsent(
+                            seed, node -> reverse(moduleId, node, session,
+                                    tracker));
+                    tracker.reverseCompleted(reverse.visited().size());
+                    for (StructuralReferencePath path : materializeStructural(
+                            match.changePoint(), reference, reverse,
+                            tracker)) {
+                        tracker.representativeSelection(
+                                path.getNodes().get(0));
+                        recovered = true;
+                        final String key = referenceKey(match) + "|"
+                                + methodIdentity(path.getAffectedMethod());
+                        final StructuralReferencePath existing = selected.get(
+                                key);
+                        if (existing == null
+                                || structuralPathComparator().compare(
+                                path, existing) < 0) {
+                            selected.put(key, path);
+                        }
                     }
+                    tracker.complete();
                 }
             }
             if (!recovered) {
@@ -282,48 +311,40 @@ public final class ModuleImpactTracer {
             final BoundChangePoint point,
             final StructuralReference reference,
             final ReverseTrace reverse,
-            final ModuleCallGraphSession session) {
+            final SeedProgressTracker tracker) {
         final Map<String, StructuralReferencePath> result =
                 new LinkedHashMap<>();
         for (QueryNode root : reverse.visited().stream()
                 .filter(node -> node.origin() == CodeOrigin.PROJECT)
                 .sorted(queryNodeComparator()).toList()) {
-            final List<QueryNode> nodes = pathNodes(root, reverse);
+            final List<QueryNode> nodes = pathNodes(root, reverse, tracker);
             if (nodes.isEmpty()) {
                 continue;
             }
-            final List<QueryEdge> edges = pathEdges(nodes, session);
             result.putIfAbsent(methodIdentity(root.methodId()),
                     new StructuralReferencePath(point, reference,
-                            nodes, edges, ImpactClassification.TRANSITIVE));
+                            nodes, ImpactClassification.TRANSITIVE));
         }
         return List.copyOf(result.values());
     }
 
     private List<QueryNode> pathNodes(
-            final QueryNode root, final ReverseTrace reverse) {
+            final QueryNode root,
+            final ReverseTrace reverse,
+            final SeedProgressTracker tracker) {
         final List<QueryNode> nodes = new ArrayList<>();
         QueryNode current = root;
+        tracker.pathMaterialization(current);
         nodes.add(current);
         while (!current.equals(reverse.seed())) {
             current = reverse.next().get(current);
             if (current == null) {
                 return List.of();
             }
+            tracker.pathMaterialization(current);
             nodes.add(current);
         }
         return nodes;
-    }
-
-    private List<QueryEdge> pathEdges(
-            final List<QueryNode> nodes,
-            final ModuleCallGraphSession session) {
-        final List<QueryEdge> edges = new ArrayList<>();
-        for (int index = 0; index + 1 < nodes.size(); index++) {
-            edges.add(queryEdge(nodes.get(index), nodes.get(index + 1),
-                    session));
-        }
-        return edges;
     }
 
     private String referenceKey(final StructuralReferenceMatch match) {
@@ -334,14 +355,17 @@ public final class ModuleImpactTracer {
     private ReverseTrace reverse(
             final ModuleId moduleId,
             final QueryNode seed,
-            final ModuleCallGraphSession session) {
+            final ModuleCallGraphSession session,
+            final SeedProgressTracker tracker) {
         final Map<QueryNode, QueryNode> next = new HashMap<>();
         final Queue<QueryNode> queue = new ArrayDeque<>();
         final Set<QueryNode> visited = new HashSet<>();
         queue.add(seed);
         visited.add(seed);
+        tracker.reverseProgress(seed, visited.size());
         while (!queue.isEmpty()) {
             final QueryNode current = queue.remove();
+            tracker.reverseProgress(current, visited.size());
             final List<QueryNode> predecessors = predecessors(
                     moduleId, current, session);
             predecessors.sort(queryNodeComparator());
@@ -349,6 +373,7 @@ public final class ModuleImpactTracer {
                 if (visited.add(predecessor)) {
                     next.put(predecessor, current);
                     queue.add(predecessor);
+                    tracker.visited(visited.size());
                 }
             }
         }
@@ -356,11 +381,10 @@ public final class ModuleImpactTracer {
     }
 
     private List<ImpactPath> materialize(
-            final ModuleId moduleId,
             final BoundChangePoint point,
             final ImpactSeed seed,
             final ReverseTrace reverse,
-            final ModuleCallGraphSession session) {
+            final SeedProgressTracker tracker) {
         final Map<String, ImpactPath> byAffectedMethod =
                 new LinkedHashMap<>();
         final List<QueryNode> candidates = reverse.visited().stream()
@@ -368,30 +392,15 @@ public final class ModuleImpactTracer {
                 .sorted(queryNodeComparator())
                 .toList();
         for (QueryNode root : candidates) {
-            final List<QueryNode> nodes = new ArrayList<>();
-            QueryNode current = root;
-            nodes.add(current);
-            while (!current.equals(reverse.seed())) {
-                current = reverse.next().get(current);
-                if (current == null) {
-                    break;
-                }
-                nodes.add(current);
-            }
-            if (!nodes.get(nodes.size() - 1)
-                    .equals(reverse.seed())) {
+            final List<QueryNode> nodes = pathNodes(root, reverse, tracker);
+            if (nodes.isEmpty()) {
                 continue;
-            }
-            final List<QueryEdge> edges = new ArrayList<>();
-            for (int index = 0; index + 1 < nodes.size(); index++) {
-                edges.add(queryEdge(nodes.get(index), nodes.get(index + 1),
-                        session));
             }
             final ImpactClassification classification =
                     seed.node().origin() == CodeOrigin.PROJECT
                             ? ImpactClassification.DIRECT
                             : ImpactClassification.TRANSITIVE;
-            final ImpactPath path = new ImpactPath(nodes, edges,
+            final ImpactPath path = new ImpactPath(nodes,
                     new ChangePointTerminal(point, seed.evidence()),
                     classification);
             final String key = methodIdentity(
@@ -399,42 +408,6 @@ public final class ModuleImpactTracer {
             byAffectedMethod.putIfAbsent(key, path);
         }
         return List.copyOf(byAffectedMethod.values());
-    }
-
-    private QueryEdge queryEdge(
-            final QueryNode caller,
-            final QueryNode callee,
-            final ModuleCallGraphSession session) {
-        if (!(caller instanceof WalaQueryNode)
-                || !(callee instanceof WalaQueryNode)) {
-            throw new IllegalStateException(
-                    "Impact paths must contain WALA graph nodes");
-        }
-        final CGNode callerNode = ((WalaQueryNode) caller).walaNode();
-        final CGNode calleeNode = ((WalaQueryNode) callee).walaNode();
-        final List<CallSiteReference> sites = iteratorList(
-                session.getGraph().getPossibleSites(
-                        callerNode, calleeNode));
-        sites.sort(Comparator
-                .comparingInt(CallSiteReference::getProgramCounter)
-                .thenComparing(site ->
-                        site.getDeclaredTarget().toString()));
-        if (sites.isEmpty()) {
-            return new QueryEdge(caller, callee,
-                    CallEdgeKind.INVOKE_SPECIAL, "WALA_IMPLICIT",
-                    QueryEdge.UNKNOWN_PC);
-        }
-        final CallSiteReference site = sites.get(0);
-        final SyntheticEdgeMetadata synthetic =
-                session.syntheticEdge(callerNode, site, calleeNode);
-        if (synthetic != null) {
-            return new QueryEdge(caller, callee, synthetic.kind(),
-                    synthetic.evidence(), site.getProgramCounter());
-        }
-        return new QueryEdge(caller, callee,
-                invocationKind(site.getInvocationCode()),
-                "declaredTarget=" + site.getDeclaredTarget(),
-                site.getProgramCounter());
     }
 
     private WalaQueryNode queryNode(
@@ -499,29 +472,17 @@ public final class ModuleImpactTracer {
     private Comparator<ImpactPath> representativePathComparator() {
         return Comparator
                 .comparingInt((ImpactPath path) ->
-                        path.getOrderedEdges().size())
-                .thenComparing(this::impactPathStableKey);
-    }
-
-    private String impactPathStableKey(final ImpactPath path) {
-        final StringBuilder result = new StringBuilder();
-        for (QueryNode node : path.getNodes()) {
-            result.append(methodIdentity(node.methodId())).append('|')
-                    .append(queryNodeNumber(node)).append('|');
-        }
-        for (QueryEdge edge : path.getOrderedEdges()) {
-            result.append(edge.getBytecodePc()).append(':')
-                    .append(edge.getKind()).append(':')
-                    .append(edge.getEvidence()).append('|');
-        }
-        return result.toString();
+                        path.getNodes().size() - 1)
+                .thenComparing((left, right) -> compareNodeSequences(
+                        left.getNodes(), right.getNodes()));
     }
 
     private Comparator<StructuralReferencePath> structuralPathComparator() {
         return Comparator
                 .comparingInt((StructuralReferencePath path) ->
-                        path.getOrderedEdges().size())
-                .thenComparing(this::structuralPathStableKey);
+                        Math.max(0, path.getNodes().size() - 1))
+                .thenComparing((left, right) -> compareNodeSequences(
+                        left.getNodes(), right.getNodes()));
     }
 
     private Comparator<StructuralReferencePath> structuralReportComparator() {
@@ -530,7 +491,8 @@ public final class ModuleImpactTracer {
                         path.getChangePoint().stableKey())
                 .thenComparing(path -> path.getReference().stableKey())
                 .thenComparing(this::affectedMethodKey)
-                .thenComparing(this::structuralPathStableKey);
+                .thenComparing((left, right) -> compareNodeSequences(
+                        left.getNodes(), right.getNodes()));
     }
 
     private String affectedMethodKey(final StructuralReferencePath path) {
@@ -538,32 +500,26 @@ public final class ModuleImpactTracer {
                 : methodIdentity(path.getAffectedMethod());
     }
 
-    private String structuralPathStableKey(
-            final StructuralReferencePath path) {
-        final StringBuilder result = new StringBuilder();
-        for (QueryNode node : path.getNodes()) {
-            result.append(methodIdentity(node.methodId())).append('|');
+    private int compareNodeSequences(
+            final List<QueryNode> left,
+            final List<QueryNode> right) {
+        final Comparator<QueryNode> comparator = Comparator
+                .comparing((QueryNode node) -> node.methodId().owner())
+                .thenComparing(node -> node.methodId().name())
+                .thenComparing(node -> node.methodId().descriptor())
+                .thenComparing(node -> node.methodId().module())
+                .thenComparing(node -> node.methodId().sourceId())
+                .thenComparing(QueryNode::origin)
+                .thenComparingInt(this::queryNodeNumber);
+        final int size = Math.min(left.size(), right.size());
+        for (int index = 0; index < size; index++) {
+            final int result = comparator.compare(
+                    left.get(index), right.get(index));
+            if (result != 0) {
+                return result;
+            }
         }
-        for (QueryEdge edge : path.getOrderedEdges()) {
-            result.append(edge.getBytecodePc()).append(':')
-                    .append(edge.getKind()).append(':')
-                    .append(edge.getEvidence()).append('|');
-        }
-        return result.toString();
-    }
-
-    private CallEdgeKind invocationKind(
-            final IInvokeInstruction.IDispatch dispatch) {
-        if (dispatch == IInvokeInstruction.Dispatch.STATIC) {
-            return CallEdgeKind.INVOKE_STATIC;
-        }
-        if (dispatch == IInvokeInstruction.Dispatch.SPECIAL) {
-            return CallEdgeKind.INVOKE_SPECIAL;
-        }
-        if (dispatch == IInvokeInstruction.Dispatch.INTERFACE) {
-            return CallEdgeKind.INVOKE_INTERFACE;
-        }
-        return CallEdgeKind.INVOKE_VIRTUAL;
+        return Integer.compare(left.size(), right.size());
     }
 
     private String methodIdentity(final MethodReference method) {

@@ -10,16 +10,12 @@ import java.util.Objects;
 /**
  * Immutable single impact path
  * from an affected root method
- * to a change point via call
- * edges.
+ * to a change point.
  */
 public final class ImpactPath {
 
     /** Exact ordered query nodes. */
     private final List<QueryNode> nodes;
-
-    /** Exact ordered query edges. */
-    private final List<QueryEdge> orderedEdges;
 
     /** Synthetic ChangePoint terminal. */
     private final ChangePointTerminal terminal;
@@ -31,36 +27,18 @@ public final class ImpactPath {
      * Creates a Context-preserving path materialized directly from WALA.
      *
      * @param orderedNodes path nodes from PROJECT method to seed
-     * @param pathEdges call edges between ordered nodes
      * @param changeTerminal synthetic ChangePoint terminal
      * @param impactClassification direct or transitive classification
      */
     public ImpactPath(
             final List<QueryNode> orderedNodes,
-            final List<QueryEdge> pathEdges,
             final ChangePointTerminal changeTerminal,
             final ImpactClassification impactClassification) {
         if (orderedNodes.isEmpty()) {
             throw new IllegalArgumentException("orderedNodes is empty");
         }
-        if (pathEdges.size() != orderedNodes.size() - 1) {
-            throw new IllegalArgumentException(
-                    "pathEdges must connect every ordered node");
-        }
-        for (int index = 0; index < pathEdges.size(); index++) {
-            final QueryEdge edge = pathEdges.get(index);
-            if (!orderedNodes.get(index).equals(edge.getCaller())
-                    || !orderedNodes.get(index + 1)
-                    .equals(edge.getCallee())) {
-                throw new IllegalArgumentException(
-                        "path edge does not match ordered nodes at "
-                                + index);
-            }
-        }
         nodes = Collections.unmodifiableList(
                 new ArrayList<>(orderedNodes));
-        orderedEdges = Collections.unmodifiableList(
-                new ArrayList<>(pathEdges));
         terminal = Objects.requireNonNull(
                 changeTerminal, "changeTerminal");
         classification = Objects.requireNonNull(
@@ -81,11 +59,6 @@ public final class ImpactPath {
     /** @return exact ordered query nodes */
     public List<QueryNode> getNodes() {
         return nodes;
-    }
-
-    /** @return exact ordered query edges */
-    public List<QueryEdge> getOrderedEdges() {
-        return orderedEdges;
     }
 
     /** @return synthetic terminal */
@@ -110,15 +83,13 @@ public final class ImpactPath {
         final ImpactPath that =
                 (ImpactPath) o;
         return nodes.equals(that.nodes)
-                && orderedEdges.equals(that.orderedEdges)
                 && terminal.equals(that.terminal)
                 && classification == that.classification;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(nodes, orderedEdges,
-                terminal, classification);
+        return Objects.hash(nodes, terminal, classification);
     }
 
     @Override
@@ -130,8 +101,8 @@ public final class ImpactPath {
                 .append(getAffectedMethod())
                 .append(", cp=")
                 .append(terminal.getChangePoint())
-                .append(", edges=")
-                .append(orderedEdges.size())
+                .append(", hops=")
+                .append(nodes.size() - 1)
                 .append('}');
         return sb.toString();
     }

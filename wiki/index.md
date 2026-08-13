@@ -53,7 +53,7 @@ code_refs: []
 - Summary: CHA固定`none`；四种非CHA algorithm默认接入独立`models/jdk8`精确catalog，并允许显式`none`。
 
 ### [Impact Tracing](features/impact-tracing.md)
-- Summary: 构图后统一collector绑定公共`ReferenceEvidence`；冻结session上的query只按anchor执行deterministic reverse BFS与access decision。
+- Summary: 构图后统一collector绑定公共`ReferenceEvidence`；冻结session上的query生成node-only path与完整terminal，并在`-vv`下提供单seed独立10秒心跳。
 
 ### [Report Generator](features/report-generator.md)
 - Summary: `impact`通过Writer原子生成英文Overall与Module三页；使用WALA-detached snapshot并展示artifact policy、ancestor exception与pruned target metrics。
@@ -65,6 +65,9 @@ code_refs: []
 
 ### [Process Command Resolution](rules/process-command-resolution.md)
 - Summary: 所有 production external process token 在 `ProcessBuilder` 前必须经过 `CommandResolver.resolve()`。
+
+### [Operational Evidence Design](rules/operational-evidence-design.md)
+- Summary: 所有功能设计必须覆盖指标监控、进度跟踪与审计日志；运行证据可复用，但高成本生成只能在对应详细级别启用后执行。
 
 ### [Benchmark Scenario Coverage](rules/benchmark-scenario-coverage.md)
 - Summary: Analyzer能力新增必须同步维护semantic benchmark场景；canonical matrix仅在用户明确授权后执行。

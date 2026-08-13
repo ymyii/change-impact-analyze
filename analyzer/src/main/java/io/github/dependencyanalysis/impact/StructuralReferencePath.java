@@ -19,9 +19,6 @@ public final class StructuralReferencePath {
     /** Ordered call nodes, empty for a direct PROJECT class-level reference. */
     private final List<QueryNode> nodes;
 
-    /** Ordered call edges. */
-    private final List<QueryEdge> edges;
-
     /** Direct or transitive classification. */
     private final ImpactClassification classification;
 
@@ -31,35 +28,18 @@ public final class StructuralReferencePath {
      * @param point changed class
      * @param structuralReference terminal metadata reference
      * @param orderedNodes PROJECT-to-reference call nodes
-     * @param orderedEdges call edges between nodes
      * @param value direct or transitive classification
      */
     public StructuralReferencePath(
             final BoundChangePoint point,
             final StructuralReference structuralReference,
             final List<QueryNode> orderedNodes,
-            final List<QueryEdge> orderedEdges,
             final ImpactClassification value) {
-        if (orderedEdges.size() != Math.max(0, orderedNodes.size() - 1)) {
-            throw new IllegalArgumentException(
-                    "orderedEdges must connect every ordered node");
-        }
-        for (int index = 0; index < orderedEdges.size(); index++) {
-            final QueryEdge edge = orderedEdges.get(index);
-            if (!orderedNodes.get(index).equals(edge.getCaller())
-                    || !orderedNodes.get(index + 1)
-                    .equals(edge.getCallee())) {
-                throw new IllegalArgumentException(
-                        "Structural path edge does not match ordered nodes");
-            }
-        }
         changePoint = Objects.requireNonNull(point, "point");
         reference = Objects.requireNonNull(
                 structuralReference, "structuralReference");
         nodes = Collections.unmodifiableList(
                 new ArrayList<>(orderedNodes));
-        edges = Collections.unmodifiableList(
-                new ArrayList<>(orderedEdges));
         classification = Objects.requireNonNull(value, "classification");
     }
 
@@ -76,11 +56,6 @@ public final class StructuralReferencePath {
     /** @return ordered call nodes, possibly empty */
     public List<QueryNode> getNodes() {
         return nodes;
-    }
-
-    /** @return ordered call edges */
-    public List<QueryEdge> getOrderedEdges() {
-        return edges;
     }
 
     /** @return direct or transitive classification */

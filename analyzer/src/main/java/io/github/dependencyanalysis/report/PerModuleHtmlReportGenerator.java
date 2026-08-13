@@ -24,7 +24,6 @@ import io.github.dependencyanalysis.impact.MethodEquivalenceResult;
 import io.github.dependencyanalysis.impact.MethodEquivalenceStatus;
 import io.github.dependencyanalysis.impact.ModuleAnalysisResult;
 import io.github.dependencyanalysis.impact.ModuleAnalysisStatus;
-import io.github.dependencyanalysis.impact.QueryEdge;
 import io.github.dependencyanalysis.impact.QueryNode;
 import io.github.dependencyanalysis.impact.StructuralReferencePath;
 import io.github.dependencyanalysis.impact.WalaQueryNode;
@@ -767,12 +766,8 @@ public final class PerModuleHtmlReportGenerator {
                     .append(escape(memberLabel(point.getChangePoint())))
                     .append("</code></li></ol><details><summary>Technical ")
                     .append("details</summary><ul>");
-            for (QueryEdge edge : path.getOrderedEdges()) {
-                body.append("<li>").append(escape(edge.getKind().name()))
-                        .append("; bytecode PC=")
-                        .append(edge.getBytecodePc()).append("; ")
-                        .append(escape(edge.getEvidence())).append("</li>");
-            }
+            final io.github.dependencyanalysis.impact.ReferenceEvidence
+                    terminal = path.getTerminal().getImpactEvidence();
             body.append("<li>Terminal evidence: ")
                     .append(escape(path.getTerminal().getEvidenceKind()
                             .name()))
@@ -781,6 +776,15 @@ public final class PerModuleHtmlReportGenerator {
                             .name()))
                     .append("; ")
                     .append(escape(path.getTerminal().getEvidence()))
+                    .append("</li><li>Terminal target: ")
+                    .append(escape(terminal.target().stableKey()))
+                    .append("</li><li>Terminal location: ")
+                    .append(escape(terminal.location().source()))
+                    .append("; bytecode PC=")
+                    .append(terminal.location().bytecodePc() < 0
+                            ? "N/A" : terminal.location().bytecodePc())
+                    .append("</li><li>Terminal detail: ")
+                    .append(escape(terminal.detail()))
                     .append("</li></ul></details></div>");
         }
         body.append("</section>");

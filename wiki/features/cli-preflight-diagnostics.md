@@ -10,6 +10,8 @@ relations:
     desc: "algorithm相关--jdk-model默认值、关闭语义与严格失败"
   - path: "wiki/features/bytecode-diff-engine.md"
     desc: "JAR pair failure isolation与异常诊断"
+  - path: "wiki/rules/operational-evidence-design.md"
+    desc: "功能设计必须遵守的运行证据、信息级别与输出成本规则"
 code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/cli/DependencyAnalyzerCli.java"
     desc: "Root CLI"

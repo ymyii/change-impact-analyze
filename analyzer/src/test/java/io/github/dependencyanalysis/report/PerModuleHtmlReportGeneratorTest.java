@@ -255,7 +255,7 @@ class PerModuleHtmlReportGeneratorTest {
         final QueryNode root = new ReportQueryNode(new MethodId(
                 "example/app/Controller", "handle", "()V", "app",
                 "/secret/work/classes"), CodeOrigin.PROJECT);
-        final ImpactPath candidate = new ImpactPath(List.of(root), List.of(),
+        final ImpactPath candidate = new ImpactPath(List.of(root),
                 new ChangePointTerminal(affected, referenceEvidence(
                         EvidenceMechanism.METHOD_DECLARATION, "fixture")),
                 ImpactClassification.TRANSITIVE);
@@ -692,7 +692,7 @@ class PerModuleHtmlReportGeneratorTest {
         final QueryNode root = new ReportQueryNode(new MethodId(
                 "example/app/Controller", "handle", "()V", "app",
                 "app/classes"), CodeOrigin.PROJECT);
-        final ImpactPath path = new ImpactPath(List.of(root), List.of(),
+        final ImpactPath path = new ImpactPath(List.of(root),
                 new ChangePointTerminal(access,
                         referenceEvidence(
                                 EvidenceMechanism.DECLARED_INVOKE,
@@ -738,6 +738,9 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("Potential access incompatibility")
                 .contains("decision=POTENTIALLY_INACCESSIBLE")
                 .contains("reason=PROTECTED_RECEIVER_UNKNOWN")
+                .contains("Terminal target: example/library/Api#changed()V")
+                .contains("Terminal location: report-fixture; bytecode PC=0")
+                .contains("Terminal detail:")
                 .doesNotContain("IllegalAccessError");
     }
 

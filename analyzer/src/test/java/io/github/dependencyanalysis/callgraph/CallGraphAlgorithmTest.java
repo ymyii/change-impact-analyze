@@ -148,13 +148,10 @@ class CallGraphAlgorithmTest {
                 ModelKind.SERVICE_LOADER, "service", "c");
         final StrategyModelMetadata metadata = new StrategyModelMetadata(
                 new DynamicCallEvidenceIndex(List.of()),
-                List.of(service, dynamic, handle, dynamic),
-                ServiceLoaderModelMetadata.empty(List.of(service, service)));
+                List.of(service, dynamic, handle, dynamic));
 
         assertThat(metadata.limitations()).containsExactly(
                 dynamic, handle, service);
-        assertThat(metadata.serviceLoader().limitations()).containsExactly(
-                service);
     }
 
     @Test

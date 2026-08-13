@@ -68,8 +68,6 @@ final class ChaCallGraphStrategy implements CallGraphAlgorithmStrategy {
                         new DynamicCallEvidenceIndex(
                                 interpreter.dynamicEvidence()),
                         interpreter.limitations(),
-                        ServiceLoaderModelMetadata.cha(
-                                interpreter.serviceEdges()),
                         java.util.Optional.empty(), capabilities(),
                         java.util.Optional.of(
                                 interpreter.boundaryMetadata(graph))));
@@ -96,10 +94,6 @@ final class ChaCallGraphStrategy implements CallGraphAlgorithmStrategy {
         /** Bounded local service class recovery. */
         private final LocalConstantResolver constants =
                 new LocalConstantResolver();
-
-        /** Synthetic ServiceLoader edges keyed by caller/site/constructor. */
-        private final Map<ServiceLoaderEdgeKey, String> serviceEdges =
-                new LinkedHashMap<>();
 
         /** Fixed build limitations. */
         private final Set<ModelLimitation> limitations =
@@ -217,11 +211,6 @@ final class ChaCallGraphStrategy implements CallGraphAlgorithmStrategy {
                                     constructor.getReference(),
                                     IInvokeInstruction.Dispatch.SPECIAL);
                     sites.add(providerSite);
-                    serviceEdges.put(new ServiceLoaderEdgeKey(
-                                    caller.getMethod().getReference()
-                                            .toString(), pc,
-                                    constructor.getReference().toString()),
-                            service.toString());
                 }
             }
         }
@@ -302,29 +291,12 @@ final class ChaCallGraphStrategy implements CallGraphAlgorithmStrategy {
                             DynamicCallEvidence::stableKey)).toList();
         }
 
-        Map<ServiceLoaderEdgeKey, String> serviceEdges() {
-            return Map.copyOf(serviceEdges);
-        }
-
         DependencyBodyBoundaryMetadata boundaryMetadata(
                 final com.ibm.wala.ipa.callgraph.CallGraph graph) {
             return request.dependencyBoundary().metadata(graph,
                     request.chaDispatchTargets()
                             .prunedExternalMethodTargetCount());
         }
-    }
-
-    /**
-     * Stable key for one CHA-created provider constructor callsite.
-     *
-     * @param caller stable caller identity
-     * @param bytecodePc synthetic provider callsite PC
-     * @param callee provider constructor identity
-     */
-    record ServiceLoaderEdgeKey(
-            String caller,
-            int bytecodePc,
-            String callee) {
     }
 
     /** Unchecked bridge because CHAContextInterpreter cannot throw cancel. */

@@ -48,7 +48,7 @@ final class ZeroCfaCallGraphStrategy implements CallGraphAlgorithmStrategy {
         limitations.addAll(serviceLoader.limitations());
         return new CallGraphStrategyResult(graph,
                 new StrategyModelMetadata(dynamic.evidence(),
-                        limitations, serviceLoader.metadata(graph),
+                        limitations,
                         jdkModel.snapshot()));
     }
 

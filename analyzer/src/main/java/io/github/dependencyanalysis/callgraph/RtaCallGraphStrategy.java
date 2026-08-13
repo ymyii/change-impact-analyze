@@ -80,7 +80,6 @@ final class RtaCallGraphStrategy implements CallGraphAlgorithmStrategy {
                 new StrategyModelMetadata(
                         new DynamicCallEvidenceIndex(evidence),
                         limitations,
-                        serviceLoader.metadata(graph),
                         jdkModel.snapshot()));
     }
 }

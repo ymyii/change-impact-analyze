@@ -3,7 +3,6 @@ package io.github.dependencyanalysis.callgraph;
 import com.ibm.wala.classLoader.IClass;
 import com.ibm.wala.classLoader.SyntheticClass;
 import com.ibm.wala.ipa.callgraph.AnalysisScope;
-import com.ibm.wala.ipa.callgraph.CGNode;
 import com.ibm.wala.ipa.callgraph.IAnalysisCacheView;
 import com.ibm.wala.ipa.cha.IClassHierarchy;
 import com.ibm.wala.types.ClassLoaderReference;
@@ -51,9 +50,6 @@ public final class ModuleCallGraphSession {
     /** Immutable strategy capability declaration. */
     private final CallGraphStrategyCapabilities strategyCapabilities;
 
-    /** Immutable ServiceLoader fixed-point metadata. */
-    private final ServiceLoaderModelMetadata serviceLoaderMetadata;
-
     /** Installed JDK Method Model metadata. */
     private final Optional<JdkModelMetadata> jdkModelMetadata;
 
@@ -97,7 +93,6 @@ public final class ModuleCallGraphSession {
         entrypointMetrics = values.entrypoints();
         final StrategyModelMetadata strategy = values.strategyModels();
         dynamicEvidence = strategy.dynamicEvidence();
-        serviceLoaderMetadata = strategy.serviceLoader();
         jdkModelMetadata = strategy.jdkModel();
         strategyCapabilities = strategy.capabilities();
         dependencyBoundary = values.dependencyBoundary();
@@ -253,48 +248,6 @@ public final class ModuleCallGraphSession {
     /** @return topology capture when explicitly enabled */
     public Optional<CallGraphTopologySnapshot> getTopology() {
         return Optional.ofNullable(topology);
-    }
-
-    /**
-     * Returns metadata when the caller is a synthetic ServiceLoader model.
-     *
-     * @param caller WALA caller
-     * @param site exact caller-to-callee callsite
-     * @param callee WALA callee
-     * @return synthetic edge metadata, or null
-     */
-    public SyntheticEdgeMetadata syntheticEdge(
-            final CGNode caller,
-            final com.ibm.wala.classLoader.CallSiteReference site,
-            final CGNode callee) {
-        final String chaService = serviceLoaderMetadata.chaService(
-                caller, site, callee);
-        if (chaService != null) {
-            return new SyntheticEdgeMetadata(CallEdgeKind.SERVICE_LOADER,
-                    "SERVICE_LOADER|CHA_LOCAL_CONSTANT|service="
-                            + chaService);
-        }
-        if (!serviceLoaderMetadata.models(caller)) {
-            return null;
-        }
-        return new SyntheticEdgeMetadata(CallEdgeKind.SERVICE_LOADER,
-                "SERVICE_LOADER|FIXED_POINT|service="
-                        + serviceLoaderMetadata.serviceLabel(caller));
-    }
-
-    /**
-     * Compatibility lookup for strategy summary caller nodes.
-     *
-     * @param caller WALA caller
-     * @return synthetic edge metadata, or null
-     */
-    public SyntheticEdgeMetadata syntheticEdge(final CGNode caller) {
-        if (!serviceLoaderMetadata.models(caller)) {
-            return null;
-        }
-        return new SyntheticEdgeMetadata(CallEdgeKind.SERVICE_LOADER,
-                "SERVICE_LOADER|FIXED_POINT|service="
-                        + serviceLoaderMetadata.serviceLabel(caller));
     }
 
     /**

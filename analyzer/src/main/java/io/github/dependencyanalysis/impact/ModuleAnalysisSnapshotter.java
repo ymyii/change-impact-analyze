@@ -5,7 +5,6 @@ import com.ibm.wala.ipa.callgraph.CGNode;
 import io.github.dependencyanalysis.callgraph.CallGraphNodeSentinelRole;
 import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
 
-import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,8 +51,8 @@ final class ModuleAnalysisSnapshotter {
         final List<QueryNode> nodes = path.getNodes().stream()
                 .map(node -> snapshot(node, session, snapshots))
                 .map(QueryNode.class::cast).toList();
-        return new ImpactPath(nodes, edges(path.getOrderedEdges(), nodes),
-                path.getTerminal(), path.getClassification());
+        return new ImpactPath(nodes, path.getTerminal(),
+                path.getClassification());
     }
 
     private StructuralReferencePath structural(
@@ -65,21 +64,7 @@ final class ModuleAnalysisSnapshotter {
                 .map(QueryNode.class::cast).toList();
         return new StructuralReferencePath(path.getChangePoint(),
                 path.getReference(), nodes,
-                edges(path.getOrderedEdges(), nodes),
                 path.getClassification());
-    }
-
-    private List<QueryEdge> edges(
-            final List<QueryEdge> source,
-            final List<QueryNode> nodes) {
-        final List<QueryEdge> result = new ArrayList<>();
-        for (int index = 0; index < source.size(); index++) {
-            final QueryEdge edge = source.get(index);
-            result.add(new QueryEdge(nodes.get(index), nodes.get(index + 1),
-                    edge.getKind(), edge.getEvidence(),
-                    edge.getBytecodePc()));
-        }
-        return List.copyOf(result);
     }
 
     private SnapshotQueryNode snapshot(

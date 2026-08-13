@@ -3,7 +3,6 @@ package io.github.dependencyanalysis.callgraph;
 import com.ibm.wala.classLoader.CallSiteReference;
 import com.ibm.wala.classLoader.IClass;
 import com.ibm.wala.classLoader.IMethod;
-import com.ibm.wala.ipa.callgraph.CallGraph;
 import com.ibm.wala.ipa.callgraph.CGNode;
 import com.ibm.wala.ipa.callgraph.Context;
 import com.ibm.wala.ipa.callgraph.ContextItem;
@@ -71,11 +70,6 @@ final class KObjServiceLoaderInstaller {
             result.addAll(selector.limitations());
         }
         return result.stream().sorted().toList();
-    }
-
-    ServiceLoaderModelMetadata metadata(final CallGraph graph) {
-        return ServiceLoaderModelMetadata.snapshot(
-                graph, model, limitations());
     }
 
     /** k-object allocation-site contract propagation. */

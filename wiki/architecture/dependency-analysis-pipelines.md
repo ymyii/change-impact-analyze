@@ -12,6 +12,8 @@ relations:
     desc: "Schema v3 structured evidence 与 command-scoped repository"
   - path: "wiki/features/report-generator.md"
     desc: "impact/tree 的 HTML 输出边界"
+  - path: "wiki/rules/operational-evidence-design.md"
+    desc: "pipeline功能设计的运行证据、信息级别与输出成本约束"
   - path: "wiki/rules/benchmark-scenario-coverage.md"
     desc: "Analyzer 能力的 semantic benchmark coverage gate"
 code_refs:
@@ -107,7 +109,7 @@ flowchart TD
 - 五种Call Graph实现通过唯一、穷尽Factory选择独立strategy。Strategy只产生topology、protocol summary、typed limitation和标准metadata；不得创建/绑定`ChangePoint`、生成Impact Path或改变disposition/report规则。
 - `--wala-reflection-options`同样command-wide，默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。CHA不安装WALA Reflection expansion，Diagnostic和Report显式显示`not applied by cha`；其他algorithm应用实际选择。
 - raw structural fact可在构图前采集；所有reference必须在Call Graph完成后、session冻结前由统一collector绑定。冻结后的Impact query不得重扫IR发现reference、overlay、补边、构建第二张graph或whole-scope重扫。
-- Removed class、method、field与resource永远只作为evidence terminal；不得进入WALA Call Graph node/edge。`CallEdgeKind`只表示真实调用边或protocol edge。
+- Removed class、method、field与resource永远只作为evidence terminal，不得进入WALA Call Graph topology。Report path只快照有序方法节点与完整terminal evidence，不物化中间callsite edge。
 - Scope/model/query limitation通过统一`CoverageLimitation` contract单向汇入reducer；固定reason precedence不读取exception message、summary或HTML。
 - `impact`与`tree`共用`ReportTaskCache`，不另建cache root或锁协议。Fragment采用UTF-8、stable-hash filename、temporary write、atomic rename与complete marker；manifest保存schema、run ID、command、完成状态和稳定排序引用。
 - Report成功原子发布、analysis/report/publication失败都会显式清理`report-cache`；清理失败作为command错误。外层`CommandRunDirectory.close()`仍回收整个owned UUID目录，异常退出由下次stale recovery清理。

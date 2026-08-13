@@ -11,7 +11,6 @@ import java.util.Optional;
  *
  * @param dynamicEvidence reachable dynamic-call evidence
  * @param limitations typed fixed-point model limitations
- * @param serviceLoader ServiceLoader metadata
  * @param jdkModel installed JDK Method Model metadata
  * @param capabilities declared strategy behavior
  * @param boundaryOverride algorithm-owned body boundary metadata
@@ -19,7 +18,6 @@ import java.util.Optional;
 record StrategyModelMetadata(
         DynamicCallEvidenceIndex dynamicEvidence,
         List<ModelLimitation> limitations,
-        ServiceLoaderModelMetadata serviceLoader,
         Optional<JdkModelMetadata> jdkModel,
         CallGraphStrategyCapabilities capabilities,
         Optional<DependencyBodyBoundaryMetadata> boundaryOverride) {
@@ -27,7 +25,6 @@ record StrategyModelMetadata(
     StrategyModelMetadata {
         Objects.requireNonNull(dynamicEvidence, "dynamicEvidence");
         limitations = immutable(limitations, "limitations");
-        Objects.requireNonNull(serviceLoader, "serviceLoader");
         Objects.requireNonNull(jdkModel, "jdkModel");
         Objects.requireNonNull(capabilities, "capabilities");
         Objects.requireNonNull(boundaryOverride, "boundaryOverride");
@@ -35,9 +32,8 @@ record StrategyModelMetadata(
 
     StrategyModelMetadata(
             final DynamicCallEvidenceIndex evidence,
-            final List<ModelLimitation> modelLimitations,
-            final ServiceLoaderModelMetadata loaderMetadata) {
-        this(evidence, modelLimitations, loaderMetadata, Optional.empty(),
+            final List<ModelLimitation> modelLimitations) {
+        this(evidence, modelLimitations, Optional.empty(),
                 CallGraphStrategyCapabilities.propagation(),
                 Optional.empty());
     }
@@ -45,9 +41,8 @@ record StrategyModelMetadata(
     StrategyModelMetadata(
             final DynamicCallEvidenceIndex evidence,
             final List<ModelLimitation> modelLimitations,
-            final ServiceLoaderModelMetadata loaderMetadata,
             final Optional<JdkModelMetadata> installedJdkModel) {
-        this(evidence, modelLimitations, loaderMetadata, installedJdkModel,
+        this(evidence, modelLimitations, installedJdkModel,
                 CallGraphStrategyCapabilities.propagation(),
                 Optional.empty());
     }
