@@ -2,9 +2,10 @@
 
 Telegraph style.
 
-Coding Constraint
+## Coding Constraint
 
 - **应**在编码完成后维护wiki
+- 执行编码任务时，**应**从 `wiki/index.md` 检索并遵循适用的编码规范
 
 ## Verification Order
 

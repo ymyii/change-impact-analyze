@@ -75,6 +75,9 @@ code_refs: []
 ### [Package Boundaries](rules/package-boundaries.md)
 - Summary: 按职责分包、单向依赖、algorithm隔离、无兼容壳与测试镜像production package，由ArchUnit持续强制。
 
+### [Code and Concept Reuse](rules/code-concept-reuse.md)
+- Summary: 同一含义复用统一概念，同一职责与不变量复用canonical implementation；新增抽象必须具有明确语义边界和所有者。
+
 ## Runbooks
 
 ### [Build, Test, Package](runbooks/build-test-package.md)

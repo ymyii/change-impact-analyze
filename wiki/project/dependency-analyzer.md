@@ -10,6 +10,8 @@ relations:
     desc: "外部命令执行的跨平台约束"
   - path: "wiki/rules/release-versioning.md"
     desc: "四个独立artifact的SemVer与Git tag约束"
+  - path: "wiki/rules/code-concept-reuse.md"
+    desc: "Repository-wide代码与概念复用约束"
   - path: "wiki/runbooks/build-test-package.md"
     desc: "构建、测试、打包和本地验证操作"
   - path: "wiki/runbooks/version-and-distribution.md"

@@ -6,6 +6,8 @@ relations:
     desc: "impact 与 Call Graph 的单向 pipeline 依赖"
   - path: "wiki/features/call-graph-engine.md"
     desc: "Call Graph package 与 strategy capability 边界"
+  - path: "wiki/rules/code-concept-reuse.md"
+    desc: "共享抽象必须保持职责归属与单向依赖边界"
   - path: "wiki/runbooks/build-test-package.md"
     desc: "ArchUnit package gate 与交付验证"
 code_refs:
