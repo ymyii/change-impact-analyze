@@ -29,6 +29,7 @@ SAMPLE_COLUMNS = (
     "algorithm",
     "k_obj_depth",
     "jdk_model",
+    "result_refinement_algorithms",
     "wala_reflection_options",
     "total_wall_seconds",
     "call_graph_seconds",
@@ -104,6 +105,10 @@ class GenerateReportTest(unittest.TestCase):
                 {row["jdk_model"] for row in samples},
             )
             self.assertEqual(
+                {"ssa-equivalence"},
+                {row["result_refinement_algorithms"] for row in samples},
+            )
+            self.assertEqual(
                 {"1"},
                 {row["k_obj_depth"] for row in samples
                  if row["algorithm"] == "k-obj"},
@@ -123,6 +128,10 @@ class GenerateReportTest(unittest.TestCase):
                 {"jdk8", "none"},
                 {row["jdk_model"] for row in summaries},
             )
+            self.assertEqual(
+                {"ssa-equivalence"},
+                {row["result_refinement_algorithms"] for row in summaries},
+            )
             self.assertEqual("1", summaries[-1]["k_obj_depth"])
             self.assertEqual({"5"}, {row["successful_samples"] for row in summaries})
 
@@ -137,6 +146,10 @@ class GenerateReportTest(unittest.TestCase):
             self.assertEqual(
                 {"jdk8", "none"},
                 {row["jdk_model"] for row in topology},
+            )
+            self.assertEqual(
+                {"ssa-equivalence"},
+                {row["result_refinement_algorithms"] for row in topology},
             )
             self.assertEqual(
                 {"", "1"}, {row["k_obj_depth"] for row in topology}
@@ -484,12 +497,14 @@ class GenerateReportTest(unittest.TestCase):
                                     "none" if algorithm == "cha" else "jdk8")
                 run_directories.append(run)
         for algorithm in ALGORITHMS:
-            if algorithm == "cha":
-                continue
             control = root / f"control-{algorithm}"
             self._write_metrics(
                 control, algorithm, "control", 0, 0,
                 scope=scope, jdk_model="none",
+                result_refinements=(
+                    "cha-local-receiver-inference"
+                    if algorithm == "cha" else "ssa-equivalence"
+                ),
             )
             run_directories.append(control)
         return run_directories
@@ -504,6 +519,7 @@ class GenerateReportTest(unittest.TestCase):
         drift: bool = False,
         scope: str = "changed-paths",
         jdk_model: str = "jdk8",
+        result_refinements: str = "ssa-equivalence",
     ) -> None:
         logs = run_directory / "logs"
         logs.mkdir(parents=True, exist_ok=True)
@@ -520,6 +536,7 @@ class GenerateReportTest(unittest.TestCase):
             "algorithm": algorithm,
             "k_obj_depth": "1" if algorithm == "k-obj" else "",
             "jdk_model": jdk_model,
+            "result_refinement_algorithms": result_refinements,
             "wala_reflection_options": REFLECTION_OPTIONS,
             "total_wall_seconds": f"{4 + algorithm_offset + sample / 10:.3f}",
             "call_graph_seconds": f"{1 + algorithm_offset + sample / 100:.3f}",
@@ -597,10 +614,11 @@ class GenerateReportTest(unittest.TestCase):
             "topCallers", False,
         )
         topology = {
-            "schemaVersion": 8,
+            "schemaVersion": 9,
             "algorithm": algorithm,
             "kObjDepth": 1 if algorithm == "k-obj" else None,
             "jdkModel": "none" if algorithm == "cha" else "jdk8",
+            "resultRefinementAlgorithms": ["ssa-equivalence"],
             "reflectionOptions": REFLECTION_OPTIONS,
             "reflectionApplied": (
                 "not applied by cha" if algorithm == "cha" else "applied"

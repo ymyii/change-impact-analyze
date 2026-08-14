@@ -47,6 +47,9 @@ public final class ModuleAnalysisResult {
     /** Typed access/reference observations. */
     private final Map<BoundChangePoint, List<ImpactEvidence>> observations;
 
+    /** Query-time CHA local-receiver refinement summary. */
+    private final ChaLocalReceiverRefinementSummary receiverRefinement;
+
     /** SSA comparison results. */
     private final Map<BoundChangePoint,
             MethodEquivalenceResult> equivalenceResults;
@@ -83,6 +86,8 @@ public final class ModuleAnalysisResult {
         builder.observations.forEach((point, values) ->
                 evidence.put(point, immutable(values)));
         observations = immutableMap(evidence);
+        receiverRefinement = Objects.requireNonNull(
+                builder.receiverRefinement, "receiverRefinement");
         equivalenceResults = immutableMap(builder.equivalenceResults);
         codeComparisons = immutableMap(builder.codeComparisons);
         duplicateClassResolutions = immutable(
@@ -162,6 +167,11 @@ public final class ModuleAnalysisResult {
         return observations;
     }
 
+    /** @return query-time CHA local-receiver refinement summary */
+    public ChaLocalReceiverRefinementSummary getReceiverRefinement() {
+        return receiverRefinement;
+    }
+
     /** @return SSA comparison results */
     public Map<BoundChangePoint, MethodEquivalenceResult>
             getEquivalenceResults() {
@@ -211,6 +221,7 @@ public final class ModuleAnalysisResult {
                 .structuralPaths(structuralPaths)
                 .dispositions(dispositions)
                 .observations(observations)
+                .receiverRefinement(receiverRefinement)
                 .equivalenceResults(equivalenceResults)
                 .codeComparisons(codeComparisons)
                 .duplicateClassResolutions(duplicateClassResolutions)
@@ -256,6 +267,10 @@ public final class ModuleAnalysisResult {
         /** Typed observations. */
         private Map<BoundChangePoint, List<ImpactEvidence>> observations =
                 Map.of();
+
+        /** Query-time CHA local-receiver refinement summary. */
+        private ChaLocalReceiverRefinementSummary receiverRefinement =
+                ChaLocalReceiverRefinementSummary.notSelected();
 
         /** Equivalence results. */
         private Map<BoundChangePoint, MethodEquivalenceResult>
@@ -370,6 +385,16 @@ public final class ModuleAnalysisResult {
             values.forEach((point, evidence) ->
                     copy.put(point, List.copyOf(evidence)));
             observations = Map.copyOf(copy);
+            return this;
+        }
+
+        /**
+         * @param value query-time receiver refinement summary
+         * @return this builder
+         */
+        public Builder receiverRefinement(
+                final ChaLocalReceiverRefinementSummary value) {
+            receiverRefinement = Objects.requireNonNull(value, "value");
             return this;
         }
 

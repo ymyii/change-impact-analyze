@@ -8,7 +8,7 @@ fi
 
 baseline=$1
 candidate=$2
-expected_header=$(printf 'dependency_analysis_scope\talgorithm\tk_obj_depth\tjdk_model\twala_reflection_options\tsamples\tmin_total_wall_seconds\tmedian_total_wall_seconds\tmax_total_wall_seconds\tmin_call_graph_seconds\tmedian_call_graph_seconds\tmax_call_graph_seconds\tmin_peak_heap_used_mib\tmedian_peak_heap_used_mib\tmax_peak_heap_used_mib\tmin_peak_heap_committed_mib\tmedian_peak_heap_committed_mib\tmax_peak_heap_committed_mib\tmin_heap_max_mib\tmedian_heap_max_mib\tmax_heap_max_mib\tmin_process_tree_peak_rss_kib\tmedian_process_tree_peak_rss_kib\tmax_process_tree_peak_rss_kib\tentrypoint_count\tcg_node_count\tcg_edge_count\treal_external_artifact_count\tno_op_external_artifact_count\treal_external_method_node_count\tno_op_method_node_count\tfactory_method_node_count\tdangerous_transfer_count\tsuccessful_samples\twall_vs_zero_cfa\theap_vs_zero_cfa\tnode_vs_zero_cfa\tedge_vs_zero_cfa')
+expected_header=$(printf 'dependency_analysis_scope\talgorithm\tk_obj_depth\tjdk_model\tresult_refinement_algorithms\twala_reflection_options\tsamples\tmin_total_wall_seconds\tmedian_total_wall_seconds\tmax_total_wall_seconds\tmin_call_graph_seconds\tmedian_call_graph_seconds\tmax_call_graph_seconds\tmin_peak_heap_used_mib\tmedian_peak_heap_used_mib\tmax_peak_heap_used_mib\tmin_peak_heap_committed_mib\tmedian_peak_heap_committed_mib\tmax_peak_heap_committed_mib\tmin_heap_max_mib\tmedian_heap_max_mib\tmax_heap_max_mib\tmin_process_tree_peak_rss_kib\tmedian_process_tree_peak_rss_kib\tmax_process_tree_peak_rss_kib\tentrypoint_count\tcg_node_count\tcg_edge_count\treal_external_artifact_count\tno_op_external_artifact_count\treal_external_method_node_count\tno_op_method_node_count\tfactory_method_node_count\tdangerous_transfer_count\tsuccessful_samples\twall_vs_zero_cfa\theap_vs_zero_cfa\tnode_vs_zero_cfa\tedge_vs_zero_cfa')
 
 for summary in "$baseline" "$candidate"; do
   [ -f "$summary" ] || {
@@ -24,20 +24,21 @@ done
 awk -F '\t' '
   BEGIN {
     OFS = "\t"
-    print "algorithm", "k_obj_depth", "jdk_model", "wala_reflection_options", "metric", "baseline", "candidate", "absolute_change", "ratio"
-    metric[1] = "median_total_wall_seconds"; column[1] = 8
-    metric[2] = "median_call_graph_seconds"; column[2] = 11
-    metric[3] = "median_peak_heap_used_mib"; column[3] = 14
-    metric[4] = "median_process_tree_peak_rss_kib"; column[4] = 23
-    metric[5] = "cg_node_count"; column[5] = 26
-    metric[6] = "cg_edge_count"; column[6] = 27
+    print "algorithm", "k_obj_depth", "jdk_model", "result_refinement_algorithms", "wala_reflection_options", "metric", "baseline", "candidate", "absolute_change", "ratio"
+    metric[1] = "median_total_wall_seconds"; column[1] = 9
+    metric[2] = "median_call_graph_seconds"; column[2] = 12
+    metric[3] = "median_peak_heap_used_mib"; column[3] = 15
+    metric[4] = "median_process_tree_peak_rss_kib"; column[4] = 24
+    metric[5] = "cg_node_count"; column[5] = 27
+    metric[6] = "cg_edge_count"; column[6] = 28
   }
   NR == FNR {
     if (FNR > 1) {
       scope[$2] = $1
       depth[$2] = $3
       model[$2] = $4
-      reflection[$2] = $5
+      refinement[$2] = $5
+      reflection[$2] = $6
       baseline_seen[$2] = 1
       for (metric_index = 1; metric_index <= 6; metric_index++) {
         old[$2, metric_index] = $(column[metric_index])
@@ -68,7 +69,12 @@ awk -F '\t' '
       failed = 1
       next
     }
-    if (reflection[algorithm] != $5) {
+    if (refinement[algorithm] != $5) {
+      print "result refinement differs for " algorithm > "/dev/stderr"
+      failed = 1
+      next
+    }
+    if (reflection[algorithm] != $6) {
       print "WALA ReflectionOptions differ for " algorithm > "/dev/stderr"
       failed = 1
       next
@@ -78,7 +84,7 @@ awk -F '\t' '
       after = $(column[metric_index])
       change = after - before
       relative = before == 0 ? "UNAVAILABLE" : sprintf("%.6f", after / before)
-      printf "%s\t%s\t%s\t%s\t%s\t%.6f\t%.6f\t%.6f\t%s\n", algorithm, $3, $4, $5, metric[metric_index], before, after, change, relative
+      printf "%s\t%s\t%s\t%s\t%s\t%s\t%.6f\t%.6f\t%.6f\t%s\n", algorithm, $3, $4, $5, $6, metric[metric_index], before, after, change, relative
     }
   }
   END {

@@ -24,6 +24,9 @@ public final class ModuleImpactQueryResult {
     /** Typed query coverage limitations. */
     private final List<QueryLimitation> limitations;
 
+    /** Query-time CHA local-receiver refinement summary. */
+    private final ChaLocalReceiverRefinementSummary receiverRefinement;
+
     /**
      * Creates a module query result.
      *
@@ -75,6 +78,30 @@ public final class ModuleImpactQueryResult {
             final Map<BoundChangePoint,
                     List<ImpactEvidence>> pointObservations,
             final List<QueryLimitation> queryLimitations) {
+        this(impactPaths, structures, pointDispositions, pointObservations,
+                queryLimitations,
+                ChaLocalReceiverRefinementSummary.notSelected());
+    }
+
+    /**
+     * Creates a complete typed query result with refinement evidence.
+     *
+     * @param impactPaths candidate paths
+     * @param structures structural impacts
+     * @param pointDispositions point dispositions
+     * @param pointObservations typed evidence by ChangePoint
+     * @param queryLimitations query coverage limitations
+     * @param refinement query-time CHA receiver refinement summary
+     */
+    ModuleImpactQueryResult(
+            final List<ImpactPath> impactPaths,
+            final List<StructuralReferencePath> structures,
+            final Map<BoundChangePoint,
+                    ChangePointDisposition> pointDispositions,
+            final Map<BoundChangePoint,
+                    List<ImpactEvidence>> pointObservations,
+            final List<QueryLimitation> queryLimitations,
+            final ChaLocalReceiverRefinementSummary refinement) {
         paths = Collections.unmodifiableList(
                 new ArrayList<>(impactPaths));
         structuralPaths = Collections.unmodifiableList(
@@ -87,6 +114,8 @@ public final class ModuleImpactQueryResult {
                 evidence.put(point, List.copyOf(values)));
         observations = Collections.unmodifiableMap(evidence);
         limitations = queryLimitations.stream().distinct().sorted().toList();
+        receiverRefinement = java.util.Objects.requireNonNull(
+                refinement, "refinement");
     }
 
     /** @return candidate Impact Paths */
@@ -112,5 +141,10 @@ public final class ModuleImpactQueryResult {
     /** @return typed query coverage limitations */
     public List<QueryLimitation> getLimitations() {
         return limitations;
+    }
+
+    /** @return query-time CHA local-receiver refinement summary */
+    public ChaLocalReceiverRefinementSummary getReceiverRefinement() {
+        return receiverRefinement;
     }
 }

@@ -12,6 +12,10 @@ public class ImpactFacade {
             new FieldDescriptorUseCase().executeOldDescriptor(),
             new RemovedClassUseCase().execute(),
             new RecursiveCallUseCase().execute(value.length()),
+            new ChaLocalReceiverUseCase()
+                    .changedReceiverPath(value.length()),
+            new ChaLocalReceiverUseCase()
+                    .unrelatedReceiverPath(value.length()),
             new BoundaryUseCase().exercise(),
             new AncestorRetentionUseCase().exercise(value.length())
         };

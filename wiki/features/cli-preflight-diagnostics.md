@@ -17,6 +17,10 @@ code_refs:
     desc: "Root CLI"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactCommand.java"
     desc: "spring-backend options、validation、exit code"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ResultRefinementSelectionConverter.java"
+    desc: "result refinement列表parse与CLI error"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChaLocalReceiverRefinementSummary.java"
+    desc: "Module级应用状态、metrics与bounded examples"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/JdkModelSelectionConverter.java"
     desc: "jdk8/none精确标识符parse与CLI error"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/JdkModelSelection.java"
@@ -84,7 +88,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - `--k-obj-depth <正整数>`：只可与`k-obj`同时使用，默认`1`，不设置人为上限；零值、负值及与其他算法组合均在Preflight前作为参数错误返回。
 - `--jdk-model <jdk8|none>`：默认依algorithm解析。未指定algorithm/model或显式`cha`但未指定model时为`none`；其他algorithm未指定model时为`jdk8`。显式`cha + jdk8`在Preflight前exit code`1`；其他algorithm仍可显式`none`。
 - `--wala-reflection-options <enum-name>`：默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`，接受WALA `ReflectionOptions` enum name；`--reflection-options`为alias。CHA保留配置值但不应用，Report显示`not applied by cha`。
-- `--experimental-bytecode-semantic-comparison`：无参数command-wide opt-in；默认关闭试验性的normalized SSA semantic comparison。该开关不关闭基础Bytecode Diff、ChangePoint、Impact query或code evidence。
+- `--result-refinement-algorithms <selection>`：command-wide选择`none`、`cha-local-receiver-inference`、`ssa-equivalence`或两者逗号组合，默认`none`。标识符大小写不敏感、逗号两侧空白忽略、重复去重，输出按local-first固定顺序；空项、unknown及`none`与其他值混用在Preflight前exit code`1`。旧`--experimental-bytecode-semantic-comparison`不保留alias。
 - `--entrypoint-include '<class-path-pattern>'` 与 `--entrypoint-exclude ...`：可重复；直接匹配 slash-separated JVM internal class path，include 取并集，exclude 优先。普通 segment支持 `*`、`?`；`**` 只能作为最后一个完整 segment。Colon/dot旧语法、leading/trailing slash、空 segment与嵌入式 `**` 在 CLI validation阶段 exit `1`。
 - `--call-graph-timeout-seconds <N>`：默认 `0`；按 Module、从实际 WALA build 开始计时。
 - `--call-graph-diagnostics-output <json>`：可选benchmark-only只读输出；未设置时不执行CGNode ranking、IMethod子榜、shortest path、IR capture或decompilation。路径不得与`--output`相同。
@@ -120,7 +124,8 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - 外部 dependency scope warning 使用 `[scope-validation][module][module=…][artifact=…]` context；每个 artifact 一条，warning text 同时进入 Module `Coverage limitations`。
 - Analyzer Diagnostic event 默认 retained，可进入 `impact` HTML Diagnostics。Preflight evidence/fallback、Maven output、exception stack trace 与 Runtime Metrics 是 transient，只进入 Console。
 - Console 与 HTML Report 对 retained event 共用 `DiagnosticLogFormatter`，包含同一 event timestamp 和 prefix；Module Diagnostics 只按 `DiagnosticEvent.module` 精确归属。
-- Call Graph completion message包含effective`algorithm`与`jdkModel=jdk8|none`，并仅在`k-obj`时包含实际`kObjDepth`。HTML展示CHA Reflection not-applied。Schema v8 diagnostics额外输出strategy capabilities、reflection applied状态、Evidence resolution/kind/mechanism、local constant resolution和CHA ancestor-retained/pruned target计数；Evidence不作为topology node/edge输出。
+- Call Graph completion message包含effective`algorithm`与`jdkModel=jdk8|none`，并仅在`k-obj`时包含实际`kObjDepth`。HTML展示CHA Reflection not-applied。Schema v9 diagnostics在command保存有序`resultRefinementAlgorithms`，在Module按算法保存applied状态、metrics与最多10条稳定example；同时保留strategy capabilities、Evidence resolution/kind/mechanism、local constant resolution和CHA ancestor-retained/pruned target计数。Evidence与query-time pruned edge均不作为topology node/edge输出。
+- `impact-query` INFO completion只输出Module级local receiver applied状态和计数；`-vv`额外输出bounded edge examples。Receiver unknown仍保留原CHA edge，不改变Module status或生成coverage limitation。
 - 每个Module的`impact-query` INFO start包含`seeds`、去重后`queryNodes`与该Module worker上限。`-vv` QueryNode事件使用`query-node-started|progress|completed`，并携带stable ordinal、evidence seed数、phase、elapsed、recent node和QueryNode-local visited。
 - JAR diff aggregate INFO completion包含成功logical pair的唯一`changes`总数、logical `pairs`、`failedPairs`与实际`workers`；空diff固定输出`changes=0; pairs=0; failedPairs=0; workers=0`。
 

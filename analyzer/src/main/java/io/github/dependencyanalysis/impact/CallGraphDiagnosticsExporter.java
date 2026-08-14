@@ -43,7 +43,7 @@ import java.util.UUID;
 final class CallGraphDiagnosticsExporter {
 
     /** Diagnostics JSON Schema version. */
-    static final int SCHEMA_VERSION = 8;
+    static final int SCHEMA_VERSION = 9;
 
     /** SHA-256 algorithm name. */
     private static final String SHA_256 = "SHA-256";
@@ -80,21 +80,13 @@ final class CallGraphDiagnosticsExporter {
      * Writes diagnostics for every successfully captured module graph.
      *
      * @param output destination JSON
-     * @param algorithm Call Graph algorithm
-     * @param kObjDepth k-object receiver allocation-string depth
-     * @param reflectionOptions WALA ReflectionOptions
-     * @param dependencyScope requested dependency method-body scope
-     * @param jdkModel JDK Method Model selection
+     * @param configuration command-wide analysis configuration
      * @param modules module analysis results
      * @throws IOException on publication failure
      */
     void write(
             final Path output,
-            final CallGraphAlgorithm algorithm,
-            final int kObjDepth,
-            final WalaReflectionOptions reflectionOptions,
-            final DependencyAnalysisScopeMode dependencyScope,
-            final JdkModelSelection jdkModel,
+            final AnalysisRunConfiguration configuration,
             final List<ModuleAnalysisResult> modules) throws IOException {
         final Path destination = output.toAbsolutePath().normalize();
         Files.createDirectories(destination.getParent());
@@ -104,8 +96,7 @@ final class CallGraphDiagnosticsExporter {
             try (JsonGenerator json = JSON_FACTORY.createGenerator(
                     Files.newBufferedWriter(temporary,
                             StandardCharsets.UTF_8))) {
-                writeDocument(json, algorithm, kObjDepth, reflectionOptions,
-                        dependencyScope, jdkModel, modules);
+                writeDocument(json, configuration, modules);
             }
             move(temporary, destination);
         } finally {
@@ -115,16 +106,14 @@ final class CallGraphDiagnosticsExporter {
 
     private void writeDocument(
             final JsonGenerator json,
-            final CallGraphAlgorithm algorithm,
-            final int kObjDepth,
-            final WalaReflectionOptions reflectionOptions,
-            final DependencyAnalysisScopeMode dependencyScope,
-            final JdkModelSelection jdkModel,
+            final AnalysisRunConfiguration configuration,
             final List<ModuleAnalysisResult> modules) throws IOException {
         json.useDefaultPrettyPrinter();
         json.writeStartObject();
-        writeConfiguration(json, algorithm, kObjDepth, reflectionOptions,
-                dependencyScope, jdkModel);
+        writeConfiguration(json, configuration.callGraphAlgorithm(),
+                configuration.kObjDepth(), configuration.reflectionOptions(),
+                configuration.dependencyAnalysisScope(),
+                configuration.jdkModel(), configuration.resultRefinements());
         json.writeStringField("jdk", javaRuntime.getVersion());
         json.writeArrayFieldStart("modules");
         for (ModuleAnalysisResult module : modules) {
@@ -133,7 +122,8 @@ final class CallGraphDiagnosticsExporter {
                 continue;
             }
             writeModule(json, module, session,
-                    session.getTopology().orElseThrow());
+                    session.getTopology().orElseThrow(),
+                    configuration.resultRefinements());
         }
         json.writeEndArray();
         json.writeEndObject();
@@ -145,7 +135,8 @@ final class CallGraphDiagnosticsExporter {
             final int kObjDepth,
             final WalaReflectionOptions reflectionOptions,
             final DependencyAnalysisScopeMode dependencyScope,
-            final JdkModelSelection jdkModel) throws IOException {
+            final JdkModelSelection jdkModel,
+            final ResultRefinementSelection refinements) throws IOException {
         json.writeNumberField("schemaVersion", SCHEMA_VERSION);
         json.writeStringField("algorithm", algorithm.identifier());
         if (algorithm == CallGraphAlgorithm.K_OBJ) {
@@ -162,13 +153,19 @@ final class CallGraphDiagnosticsExporter {
         json.writeStringField("jdkModel", jdkModel.identifier());
         json.writeStringField("requestedDependencyAnalysisScope",
                 dependencyScope.identifier());
+        json.writeArrayFieldStart("resultRefinementAlgorithms");
+        for (String identifier : refinements.identifiers()) {
+            json.writeString(identifier);
+        }
+        json.writeEndArray();
     }
 
     private void writeModule(
             final JsonGenerator json,
             final ModuleAnalysisResult module,
             final ModuleCallGraphSession session,
-            final CallGraphTopologySnapshot topology) throws IOException {
+            final CallGraphTopologySnapshot topology,
+            final ResultRefinementSelection refinements) throws IOException {
         final Map<SourceKey, CallGraphMethodSource> cache =
                 new LinkedHashMap<>();
         json.writeStartObject();
@@ -202,6 +199,7 @@ final class CallGraphDiagnosticsExporter {
                 boundary.bodyBoundaryHits().size());
         writeCapabilities(json, session.getStrategyCapabilities());
         writeEvidenceSummary(json, session.getChangePointEvidence());
+        writeResultRefinements(json, module, refinements);
         final List<ArtifactCoord> externalArtifacts = module.getUnit()
                 .getTargetArtifacts().stream().distinct()
                 .sorted(java.util.Comparator.comparing(ArtifactCoord::toString))
@@ -236,39 +234,33 @@ final class CallGraphDiagnosticsExporter {
      *
      * @param json fragment writer
      * @param module live module result
+     * @param refinements command-wide result-refinement selection
      * @throws IOException on JSON failure
      */
     void writeModuleRecord(
             final JsonGenerator json,
-            final ModuleAnalysisResult module) throws IOException {
+            final ModuleAnalysisResult module,
+            final ResultRefinementSelection refinements) throws IOException {
         final ModuleCallGraphSession session = module.getSession();
         if (session == null || session.getTopology().isEmpty()) {
             throw new IllegalArgumentException(
                     "Module diagnostics requires live topology");
         }
         writeModule(json, module, session,
-                session.getTopology().orElseThrow());
+                session.getTopology().orElseThrow(), refinements);
     }
 
     /**
      * Streams completed Module fragments into one atomic diagnostics file.
      *
      * @param output final diagnostics path
-     * @param algorithm Call Graph algorithm
-     * @param kObjDepth k-object depth
-     * @param reflectionOptions reflection selection
-     * @param dependencyScope requested dependency scope
-     * @param jdkModel JDK model
+     * @param configuration command-wide analysis configuration
      * @param fragments stable completed Module fragments
      * @throws IOException on publication failure
      */
     void writeFragments(
             final Path output,
-            final CallGraphAlgorithm algorithm,
-            final int kObjDepth,
-            final WalaReflectionOptions reflectionOptions,
-            final DependencyAnalysisScopeMode dependencyScope,
-            final JdkModelSelection jdkModel,
+            final AnalysisRunConfiguration configuration,
             final List<ReportTaskCache.Fragment> fragments)
             throws IOException {
         final Path destination = output.toAbsolutePath().normalize();
@@ -281,8 +273,12 @@ final class CallGraphDiagnosticsExporter {
                             StandardCharsets.UTF_8))) {
                 json.useDefaultPrettyPrinter();
                 json.writeStartObject();
-                writeConfiguration(json, algorithm, kObjDepth,
-                        reflectionOptions, dependencyScope, jdkModel);
+                writeConfiguration(json, configuration.callGraphAlgorithm(),
+                        configuration.kObjDepth(),
+                        configuration.reflectionOptions(),
+                        configuration.dependencyAnalysisScope(),
+                        configuration.jdkModel(),
+                        configuration.resultRefinements());
                 json.writeStringField("jdk", javaRuntime.getVersion());
                 json.writeArrayFieldStart("modules");
                 for (ReportTaskCache.Fragment fragment : fragments.stream()
@@ -315,6 +311,69 @@ final class CallGraphDiagnosticsExporter {
         } finally {
             Files.deleteIfExists(temporary);
         }
+    }
+
+    private void writeResultRefinements(
+            final JsonGenerator json,
+            final ModuleAnalysisResult module,
+            final ResultRefinementSelection refinements) throws IOException {
+        json.writeObjectFieldStart("resultRefinements");
+        json.writeObjectFieldStart("cha-local-receiver-inference");
+        final ChaLocalReceiverRefinementSummary receiver =
+                module.getReceiverRefinement();
+        json.writeStringField("status", receiver.status().label());
+        final ChaLocalReceiverRefinementSummary.Metrics metrics =
+                receiver.metrics();
+        json.writeNumberField("predecessorEdgeRequests",
+                metrics.predecessorEdgeRequests());
+        json.writeNumberField("uniqueEvaluatedEdges",
+                metrics.uniqueEvaluatedEdges());
+        json.writeNumberField("cacheHits", metrics.cacheHits());
+        json.writeNumberField("callsitesChecked", metrics.callsitesChecked());
+        json.writeNumberField("invokeInstancesChecked",
+                metrics.invokeInstancesChecked());
+        json.writeNumberField("prunedEdges", metrics.prunedEdges());
+        json.writeNumberField("retainedFeasibleEdges",
+                metrics.retainedFeasibleEdges());
+        json.writeNumberField("retainedUnknownEdges",
+                metrics.retainedUnknownEdges());
+        json.writeNumberField("notApplicableEdges",
+                metrics.notApplicableEdges());
+        json.writeNumberField("exactResolutions",
+                metrics.exactResolutions());
+        json.writeNumberField("upperBoundResolutions",
+                metrics.upperBoundResolutions());
+        json.writeNumberField("noNormalTargetResolutions",
+                metrics.noNormalTargetResolutions());
+        json.writeNumberField("unknownResolutions",
+                metrics.unknownResolutions());
+        json.writeArrayFieldStart("examples");
+        for (ChaLocalReceiverRefinementSummary.EdgeExample example
+                : receiver.examples()) {
+            json.writeStartObject();
+            json.writeStringField("caller", example.caller());
+            json.writeStringField("callee", example.callee());
+            json.writeNumberField("programCounter",
+                    example.programCounter());
+            json.writeStringField("invocationKind",
+                    example.invocationKind());
+            json.writeStringField("decision", example.decision());
+            json.writeStringField("reason", example.reason());
+            json.writeStringField("receiverSummary",
+                    example.receiverSummary());
+            json.writeEndObject();
+        }
+        json.writeEndArray();
+        json.writeEndObject();
+        json.writeObjectFieldStart("ssa-equivalence");
+        final boolean ssaSelected = refinements.isEnabled(
+                ResultRefinementAlgorithm.SSA_EQUIVALENCE);
+        json.writeStringField("status", ssaSelected
+                ? "applied" : "not selected");
+        json.writeNumberField("comparisonCount",
+                module.getEquivalenceResults().size());
+        json.writeEndObject();
+        json.writeEndObject();
     }
 
     private void requireComplete(final ReportTaskCache.Fragment fragment)
@@ -367,13 +426,24 @@ final class CallGraphDiagnosticsExporter {
                 .collect(java.util.stream.Collectors.groupingBy(value ->
                         value.mechanism().name(), java.util.TreeMap::new,
                         java.util.stream.Collectors.counting()));
-        json.writeObjectField("evidenceResolutionSummary", resolutions);
-        json.writeObjectField("evidenceKindSummary", kinds);
-        json.writeObjectField("evidenceMechanismSummary", mechanisms);
+        writeCountMap(json, "evidenceResolutionSummary", resolutions);
+        writeCountMap(json, "evidenceKindSummary", kinds);
+        writeCountMap(json, "evidenceMechanismSummary", mechanisms);
         json.writeNumberField("localConstantResolutionSuccessCount",
                 evidence.localConstantSuccessCount());
         json.writeNumberField("localConstantResolutionUnresolvedCount",
                 evidence.localConstantUnresolvedCount());
+    }
+
+    static void writeCountMap(
+            final JsonGenerator json,
+            final String field,
+            final Map<String, Long> values) throws IOException {
+        json.writeObjectFieldStart(field);
+        for (Map.Entry<String, Long> entry : values.entrySet()) {
+            json.writeNumberField(entry.getKey(), entry.getValue());
+        }
+        json.writeEndObject();
     }
 
     private void writeRanks(

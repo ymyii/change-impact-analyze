@@ -492,7 +492,7 @@ public final class ModuleCallGraphEngine {
             diagnostics.endStage(context);
             return new ModuleCallGraphSession(graph, hierarchy, scope,
                     ownership, cache, new ModuleCallGraphMetadata(
-                            stats, new EntrypointSelectionMetrics(
+                            algorithm, stats, new EntrypointSelectionMetrics(
                             selectedClasses, entrypoints.size(),
                             parameterCandidates),
                             strategyResult.metadata(),

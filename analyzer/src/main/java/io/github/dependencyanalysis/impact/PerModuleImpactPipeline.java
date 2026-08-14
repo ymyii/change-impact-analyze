@@ -121,8 +121,8 @@ final class PerModuleImpactPipeline {
     /** Command-wide JDK Method Model selection. */
     private final JdkModelSelection jdkModel;
 
-    /** Experimental normalized SSA semantic comparison toggle. */
-    private final boolean experimentalBytecodeSemanticComparisonEnabled;
+    /** Command-wide result-refinement selection. */
+    private final ResultRefinementSelection resultRefinements;
 
     /** Command temporary directory. */
     private final Path temporaryDirectory;
@@ -180,8 +180,8 @@ final class PerModuleImpactPipeline {
                 options.dependencyAnalysisScope(),
                 "dependencyAnalysisScope");
         jdkModel = Objects.requireNonNull(options.jdkModel(), "jdkModel");
-        experimentalBytecodeSemanticComparisonEnabled =
-                options.experimentalBytecodeSemanticComparisonEnabled();
+        resultRefinements = Objects.requireNonNull(
+                options.resultRefinements(), "resultRefinements");
     }
 
     /**
@@ -255,7 +255,8 @@ final class PerModuleImpactPipeline {
         final List<ModuleAnalysisResult> filtered = analyzed.modules();
         elapsed.put("module-analysis",
                 System.currentTimeMillis() - modulesStart);
-        if (experimentalBytecodeSemanticComparisonEnabled) {
+        if (resultRefinements.isEnabled(
+                ResultRefinementAlgorithm.SSA_EQUIVALENCE)) {
             elapsed.put("ssa-equivalence", filtered.stream()
                     .mapToLong(value -> value.getStageElapsedMillis()
                             .getOrDefault("ssa-equivalence", 0L)).sum());
@@ -264,18 +265,22 @@ final class PerModuleImpactPipeline {
         final CodeEvidenceResult codeEvidence = buildCodeComparisons(filtered);
         elapsed.put("code-comparison",
                 System.currentTimeMillis() - codeStart);
+        final AnalysisRunConfiguration configuration =
+                new AnalysisRunConfiguration(
+                        entrypointSelection, callGraphAlgorithm,
+                        kObjDepth, reflectionOptions,
+                        dependencyAnalysisScope, jdkModel,
+                        resultRefinements);
         if (callGraphDiagnosticsOutput != null && reportCache != null) {
             new CallGraphDiagnosticsExporter(
                     diagnostics, javaRuntime, repository()).writeFragments(
-                    callGraphDiagnosticsOutput, callGraphAlgorithm,
-                    kObjDepth, reflectionOptions, dependencyAnalysisScope,
-                    jdkModel, reportCache.fragments());
+                    callGraphDiagnosticsOutput, configuration,
+                    reportCache.fragments());
         } else if (callGraphDiagnosticsOutput != null) {
             new CallGraphDiagnosticsExporter(
                     diagnostics, javaRuntime, repository()).write(
-                    callGraphDiagnosticsOutput, callGraphAlgorithm,
-                    kObjDepth, reflectionOptions, dependencyAnalysisScope,
-                    jdkModel, codeEvidence.modules());
+                    callGraphDiagnosticsOutput, configuration,
+                    codeEvidence.modules());
         }
         return new AnalysisRunResult(targetScope.getMode(),
                 overallStatus(codeEvidence.modules()), changes,
@@ -284,12 +289,7 @@ final class PerModuleImpactPipeline {
                         bindings.actualWorkers(),
                         analyzed.actualImpactQueryWorkers(),
                         codeEvidence.actualWorkers()), elapsed,
-                new AnalysisRunConfiguration(
-                        entrypointSelection, callGraphAlgorithm,
-                        kObjDepth,
-                        reflectionOptions, dependencyAnalysisScope,
-                        jdkModel,
-                        experimentalBytecodeSemanticComparisonEnabled));
+                configuration);
         } finally {
             jarRepository = null;
         }
@@ -978,8 +978,8 @@ final class PerModuleImpactPipeline {
                 "impact-query", analysisParallelism);
         final ExecutorService queryExecutor = managed.executor();
         final AtomicInteger actualImpactQueryWorkers = new AtomicInteger();
-        final SsaEquivalenceEngine ssa =
-                experimentalBytecodeSemanticComparisonEnabled
+        final SsaEquivalenceEngine ssa = resultRefinements.isEnabled(
+                ResultRefinementAlgorithm.SSA_EQUIVALENCE)
                 ? new SsaEquivalenceEngine(
                         diagnostics, javaRuntime, repository()) : null;
         final ModuleAnalysisSnapshotter snapshotter =
@@ -1013,7 +1013,8 @@ final class PerModuleImpactPipeline {
                     reportCache.writeJsonLines("diagnostic-module",
                             module.getModuleId().stableKey(),
                             List.of(jsonRecord(json -> diagnosticsExporter
-                                    .writeModuleRecord(json, live))));
+                                    .writeModuleRecord(json, live,
+                                            resultRefinements))));
                 }
                 if (reportCache != null) {
                     module = snapshotter.detach(module);
@@ -1116,6 +1117,54 @@ final class PerModuleImpactPipeline {
                 module.getStructuralPaths().size());
         json.writeBooleanField("walaSessionRetained",
                 module.getSession() != null);
+        final ChaLocalReceiverRefinementSummary refinement =
+                module.getReceiverRefinement();
+        json.writeObjectFieldStart("chaLocalReceiverRefinement");
+        json.writeStringField("status", refinement.status().label());
+        final ChaLocalReceiverRefinementSummary.Metrics receiverMetrics =
+                refinement.metrics();
+        json.writeNumberField("predecessorEdgeRequests",
+                receiverMetrics.predecessorEdgeRequests());
+        json.writeNumberField("uniqueEvaluatedEdges",
+                receiverMetrics.uniqueEvaluatedEdges());
+        json.writeNumberField("cacheHits", receiverMetrics.cacheHits());
+        json.writeNumberField("callsitesChecked",
+                receiverMetrics.callsitesChecked());
+        json.writeNumberField("invokeInstancesChecked",
+                receiverMetrics.invokeInstancesChecked());
+        json.writeNumberField("prunedEdges", receiverMetrics.prunedEdges());
+        json.writeNumberField("retainedFeasibleEdges",
+                receiverMetrics.retainedFeasibleEdges());
+        json.writeNumberField("retainedUnknownEdges",
+                receiverMetrics.retainedUnknownEdges());
+        json.writeNumberField("notApplicableEdges",
+                receiverMetrics.notApplicableEdges());
+        json.writeNumberField("exactResolutions",
+                receiverMetrics.exactResolutions());
+        json.writeNumberField("upperBoundResolutions",
+                receiverMetrics.upperBoundResolutions());
+        json.writeNumberField("noNormalTargetResolutions",
+                receiverMetrics.noNormalTargetResolutions());
+        json.writeNumberField("unknownResolutions",
+                receiverMetrics.unknownResolutions());
+        json.writeArrayFieldStart("examples");
+        for (ChaLocalReceiverRefinementSummary.EdgeExample example
+                : refinement.examples()) {
+            json.writeStartObject();
+            json.writeStringField("caller", example.caller());
+            json.writeStringField("callee", example.callee());
+            json.writeNumberField("programCounter",
+                    example.programCounter());
+            json.writeStringField("invocationKind",
+                    example.invocationKind());
+            json.writeStringField("decision", example.decision());
+            json.writeStringField("reason", example.reason());
+            json.writeStringField("receiverSummary",
+                    example.receiverSummary());
+            json.writeEndObject();
+        }
+        json.writeEndArray();
+        json.writeEndObject();
         if (module.getCallGraphSnapshot() != null) {
             json.writeNumberField("callGraphNodeCount",
                     module.getCallGraphSnapshot().stats().methodCount());
@@ -1264,7 +1313,8 @@ final class PerModuleImpactPipeline {
                     new ModuleImpactTracer(diagnostics, queryExecutor,
                             analysisParallelism, workers ->
                             actualImpactQueryWorkers.accumulateAndGet(
-                                    workers, Math::max)).trace(unit, session);
+                                    workers, Math::max),
+                            resultRefinements).trace(unit, session);
             stageElapsed.put("call-graph-query",
                     System.currentTimeMillis() - stageStart);
             final List<String> limitations = new ArrayList<>(
@@ -1304,6 +1354,7 @@ final class PerModuleImpactPipeline {
                     .structuralPaths(query.getStructuralPaths())
                     .dispositions(query.getDispositions())
                     .observations(query.getObservations())
+                    .receiverRefinement(query.getReceiverRefinement())
                     .limitations(limitations)
                     .elapsedMillis(System.currentTimeMillis() - start)
                     .stageElapsedMillis(stageElapsed)

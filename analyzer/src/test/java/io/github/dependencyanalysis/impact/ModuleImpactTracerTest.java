@@ -55,6 +55,9 @@ class ModuleImpactTracerTest {
     @TempDir
     private Path temporary;
 
+    /** Maximum retained Receiver refinement examples. */
+    private static final int RECEIVER_EXAMPLE_LIMIT = 10;
+
     @Test
     void classifiesOnlyLoserChangePointAsShadowed() throws Exception {
         final Path winner = temporary.resolve("project");
@@ -366,6 +369,139 @@ class ModuleImpactTracerTest {
         }
     }
 
+    @Test
+    void chaLocalReceiverInferencePrunesOnlyInfeasibleCallerEdge()
+            throws Exception {
+        final Path dependencies = compile("receiver-dependency", Map.of(
+                "dep/ChangedApi.java", """
+                        package dep;
+                        public class ChangedApi {
+                            public static void changed() { }
+                        }
+                        """), List.of());
+        final Path project = compile("receiver-project", Map.of(
+                "app/DispatchTarget.java", """
+                        package app;
+                        public interface DispatchTarget { void call(); }
+                        """,
+                "app/ChangedReceiver.java", """
+                        package app;
+                        public class ChangedReceiver
+                                implements DispatchTarget {
+                            public void call() { dep.ChangedApi.changed(); }
+                        }
+                        """,
+                "app/UnrelatedReceiver.java", """
+                        package app;
+                        public class UnrelatedReceiver
+                                implements DispatchTarget {
+                            public void call() { }
+                        }
+                        """,
+                "app/ReceiverUseCase.java", """
+                        package app;
+                        public class ReceiverUseCase {
+                            public void reachable() {
+                                DispatchTarget value = new ChangedReceiver();
+                                value.call();
+                            }
+                            public void falsePositive() {
+                                DispatchTarget value =
+                                        new UnrelatedReceiver();
+                                value.call();
+                            }
+                            public void incompatibleCast() {
+                                Object value = new UnrelatedReceiver();
+                                ((DispatchTarget) value).call();
+                            }
+                            public void nullOnly() {
+                                DispatchTarget value = null;
+                                value.call();
+                            }
+                            public void nullable(boolean changed) {
+                                DispatchTarget value = changed
+                                        ? new ChangedReceiver() : null;
+                                if (value != null) { value.call(); }
+                            }
+                            public void unknown(DispatchTarget value) {
+                                value.call();
+                            }
+                            public void mixed(boolean useNew,
+                                    DispatchTarget input) {
+                                DispatchTarget value = useNew
+                                        ? new UnrelatedReceiver() : input;
+                                value.call();
+                            }
+                        }
+                        """), List.of(dependencies));
+        final ModuleId moduleId = new ModuleId(new ArtifactCoord(
+                "example", "app", "jar", "1"), Path.of("app"));
+        final ArtifactCoord oldArtifact = new ArtifactCoord(
+                "example", "dependency", "jar", "1");
+        final ArtifactCoord newArtifact = new ArtifactCoord(
+                "example", "dependency", "jar", "2");
+        final BoundChangePoint point = bodyPoint(moduleId,
+                oldArtifact, newArtifact, "dep/ChangedApi", "changed");
+        final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                moduleId, ModulePresence.BOTH, project,
+                List.of(dependencies), List.of(), List.of(),
+                new ModuleChangeSet(List.of(point), List.of()));
+        final DiagnosticLog diagnostics = new DiagnosticLog(
+                new PrintStream(new ByteArrayOutputStream()),
+                LogVerbosity.TRACE);
+        final JavaRuntimeDescriptor runtime =
+                new Jdk8RuntimeProvider().probe(Path.of(
+                        System.getenv("TEST_JDK8_HOME")));
+
+        try (IJarRepository repository = TestJarRepositories.empty()) {
+            final ModuleCallGraphSession session =
+                    new ModuleCallGraphEngine(
+                            diagnostics, runtime,
+                            EntrypointSelection.allProjectClasses(),
+                            CallGraphAlgorithm.CHA,
+                            WalaReflectionOptions.parse("NONE"),
+                            repository).build(unit, 0L);
+            final long originalEdges = session.getStats().edgeCount();
+            final ModuleImpactQueryResult original =
+                    new ModuleImpactTracer(diagnostics).trace(unit, session);
+            final ModuleImpactQueryResult refined = new ModuleImpactTracer(
+                    diagnostics, ResultRefinementSelection.of(
+                    ResultRefinementAlgorithm
+                            .CHA_LOCAL_RECEIVER_INFERENCE))
+                    .trace(unit, session);
+
+            assertThat(affectedNames(original)).contains("reachable",
+                    "falsePositive", "incompatibleCast", "nullOnly",
+                    "nullable", "unknown", "mixed", "call");
+            assertThat(affectedNames(refined)).contains("reachable",
+                    "nullable", "unknown", "mixed", "call")
+                    .doesNotContain("falsePositive", "incompatibleCast",
+                            "nullOnly");
+            assertThat(refined.getReceiverRefinement().status()).isEqualTo(
+                    ChaLocalReceiverRefinementSummary.Status.APPLIED);
+            assertThat(refined.getReceiverRefinement().metrics()
+                    .prunedEdges()).isPositive();
+            assertThat(refined.getReceiverRefinement().metrics()
+                    .exactResolutions()).isPositive();
+            assertThat(refined.getReceiverRefinement().metrics()
+                    .noNormalTargetResolutions()).isPositive();
+            assertThat(refined.getReceiverRefinement().metrics()
+                    .unknownResolutions()).isPositive();
+            assertThat(refined.getReceiverRefinement().examples())
+                    .hasSizeLessThanOrEqualTo(RECEIVER_EXAMPLE_LIMIT)
+                    .anyMatch(example -> example.decision().equals(
+                            "proven-infeasible"));
+            assertThat(session.getStats().edgeCount()).isEqualTo(
+                    originalEdges);
+        }
+    }
+
+    private List<String> affectedNames(
+            final ModuleImpactQueryResult result) {
+        return result.getPaths().stream()
+                .map(path -> path.getAffectedMethod().name()).toList();
+    }
+
     private BoundChangePoint bound(final ArtifactCoord newArtifact) {
         final ModuleId moduleId = new ModuleId(new ArtifactCoord(
                 "example", "app", "jar", "1"), Path.of("app"));
@@ -409,6 +545,20 @@ class ModuleImpactTracerTest {
                         "dep/MemberApi", name, descriptor,
                         new AccessTransition(JvmAccess.PUBLIC,
                                 JvmAccess.PRIVATE)));
+    }
+
+    private BoundChangePoint bodyPoint(
+            final ModuleId moduleId,
+            final ArtifactCoord oldArtifact,
+            final ArtifactCoord newArtifact,
+            final String owner,
+            final String name) {
+        return new BoundChangePoint(new DependencyUpgradeKey(
+                moduleId, DependencyScope.COMPILE,
+                oldArtifact, newArtifact),
+                new ChangePoint(newArtifact,
+                        ChangePointKind.METHOD_BODY_CHANGED,
+                        owner, name, "()V", "old", "new"));
     }
 
     private void assertAccessObservation(

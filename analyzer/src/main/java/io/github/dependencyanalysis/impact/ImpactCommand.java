@@ -161,12 +161,15 @@ public final class ImpactCommand
                     + "or full; default: changed-paths.")
     private DependencyAnalysisScopeMode dependencyAnalysisScope;
 
-    /** Experimental normalized SSA semantic comparison. */
-    // Wiki: wiki/features/impact-tracing.md - Experimental SSA opt-in boundary
-    @Option(names = "--experimental-bytecode-semantic-comparison",
-            description = "Experimental normalized SSA semantic comparison "
-                    + "for changed method bodies; disabled by default.")
-    private boolean experimentalBytecodeSemanticComparisonEnabled;
+    /** Experimental result-refinement algorithms. */
+    // Wiki: wiki/features/impact-tracing.md - Result-refinement opt-in boundary
+    @Option(names = "--result-refinement-algorithms",
+            defaultValue = "none",
+            converter = ResultRefinementSelectionConverter.class,
+            description = "Experimental result refinements: "
+                    + "cha-local-receiver-inference, ssa-equivalence, "
+                    + "or none; comma-separated; default: none.")
+    private ResultRefinementSelection resultRefinements;
 
     /** Included PROJECT entrypoint classes. */
     @Option(names = "--entrypoint-include",
@@ -285,7 +288,8 @@ public final class ImpactCommand
                         : normalizedDiagnostics)
                         + (callGraphAlgorithm == CallGraphAlgorithm.K_OBJ
                         ? "; kObjDepth=" + selectedKObjDepth : "")
-                        + "; jdkModel=" + jdkModel.identifier());
+                        + "; jdkModel=" + jdkModel.identifier()
+                        + "; resultRefinements=" + resultRefinements);
         try (PreflightContext context =
                      new PreflightContext()) {
             final PreflightReport report =
@@ -346,7 +350,7 @@ public final class ImpactCommand
                             normalizedDiagnostics), entrypointSelection,
                     callGraphAlgorithm, selectedKObjDepth, reflectionOptions,
                     dependencyAnalysisScope, jdkModel,
-                    experimentalBytecodeSemanticComparisonEnabled,
+                    resultRefinements,
                     metrics.executors(), reportCache)).run(context.get(
                     ImpactPreflightService.WORKSPACE, WorkspaceResult.class));
             reportCache.complete();

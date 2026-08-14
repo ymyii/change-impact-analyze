@@ -19,6 +19,10 @@ relations:
 code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactCommand.java"
     desc: "impact CLI 编排"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ResultRefinementSelection.java"
+    desc: "command-wide result refinement selection"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChaLocalReceiverEdgeRefiner.java"
+    desc: "read-only query-time CHA edge refinement"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
     desc: "串行per-Module pipeline、阶段级bounded pool与cache spill"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleAnalysisSnapshotter.java"
@@ -61,7 +65,7 @@ code_refs:
 
 ## Summary
 
-Root CLI 分发 `impact` 与 `tree`。`impact`只编译target并构建target per-Module Call Graph；baseline仅提供dependency evidence、old artifact、字节码、ServiceLoader resource和按需old SSA。默认配置固定为`cha + changed-paths + jdk-model none + bytecode semantic comparison disabled`。Relevant Module按stable key严格串行；一个Module完成Call Graph、QueryNode并发impact-query、可选SSA、diagnostics、snapshot detach与cache spill后才开始下一个。`tree`逐行解析Maven output，使用cache-backed external grouping并在每个Reactor发布后释放其明细。两条pipeline都通过task-scoped cache和Writer流式Report限制峰值内存。
+Root CLI 分发 `impact` 与 `tree`。`impact`只编译target并构建target per-Module Call Graph；baseline仅提供dependency evidence、old artifact、字节码、ServiceLoader resource和按需old SSA。默认配置固定为`cha + changed-paths + jdk-model none + result refinement none`。Relevant Module按stable key严格串行；一个Module完成Call Graph、QueryNode并发impact-query、可选SSA、diagnostics、snapshot detach与cache spill后才开始下一个。`tree`逐行解析Maven output，使用cache-backed external grouping并在每个Reactor发布后释放其明细。两条pipeline都通过task-scoped cache和Writer流式Report限制峰值内存。
 
 ## Architecture Diagram
 
@@ -82,8 +86,8 @@ flowchart TD
   Strategy --> CFA["one per-Module WALA Call Graph + strategy artifacts"]
   CFA --> Collector["unified evidence collection + ChangePoint binding"]
   Collector --> Session["freeze graph + evidence + limitations + metadata"]
-  Session --> Query["bounded QueryNode reverse BFS + typed access decision"]
-  Query --> Semantic{"experimental semantic comparison?"}
+  Session --> Query["bounded QueryNode reverse BFS + optional CHA local receiver edge refinement"]
+  Query --> Semantic{"ssa-equivalence selected?"}
   Semantic -->|enabled| SSA["coordinator serial SSA equivalence"]
   Semantic -->|disabled| Spill["JSON Lines snapshot; release WALA session"]
   SSA --> Spill
@@ -107,11 +111,11 @@ flowchart TD
 - `--call-graph-algorithm` command-wide选择`cha`、`rta`、`zero-cfa`、`optimized-0-1-cfa`或`k-obj`，默认`cha`；同一次command的全部Module使用一致analysis model，不自动fallback。`--k-obj-depth`只对`k-obj`合法，默认`1`且必须为正整数。
 - JDK Method Model默认值依algorithm解析：`cha`固定`none`；其他algorithm未指定时为`jdk8`。显式`cha + jdk8`在CLI、pipeline和直接Java API共用的capability validation中失败；其他algorithm仍可显式选择`none`。
 - `--dependency-analysis-scope` command-wide 选择 `changed-paths` 或 `full`，默认 `changed-paths`。Requested mode 与 per-Module actual mode 分开保存；occurrence graph 无法稳定恢复全部路径时，仅该 Module 自动 fallback 到 `full` 并记录 typed reason。
-- `--experimental-bytecode-semantic-comparison` command-wide控制试验性的normalized SSA semantic comparison，默认关闭。关闭时candidate path直接成为final path，不构建old-side SSA/Class Hierarchy；基础JAR/bytecode Diff、ChangePoint、Impact query和code comparison始终执行。
+- `--result-refinement-algorithms` command-wide选择试验性的`cha-local-receiver-inference`、`ssa-equivalence`或两者，默认`none`。固定先在reverse BFS执行local edge refinement，再对剩余candidate path执行SSA equivalence。非CHA保留local配置但不应用；基础JAR/bytecode Diff、ChangePoint、Impact query和code comparison始终执行。
 - `changed-paths`不删除artifact：全部target external JAR、resource、reactor classes和JDK仍进入scope/CHA/ownership/model resolution。CHA在resolution时裁剪无关external target，但传递保留PROJECT/reactor/selected external class的路径外external祖先type；四种非CHA algorithm继续使用resolved external `IMethod`的IR policy。
 - 五种Call Graph实现通过唯一、穷尽Factory选择独立strategy。Strategy只产生topology、protocol summary、typed limitation和标准metadata；不得创建/绑定`ChangePoint`、生成Impact Path或改变disposition/report规则。
 - `--wala-reflection-options`同样command-wide，默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。CHA不安装WALA Reflection expansion，Diagnostic和Report显式显示`not applied by cha`；其他algorithm应用实际选择。
-- raw structural fact可在构图前采集；所有reference必须在Call Graph完成后、session冻结前由统一collector绑定。冻结后的Impact query不得重扫IR发现reference、overlay、补边、构建第二张graph或whole-scope重扫。
+- raw structural fact可在构图前采集；所有reference必须在Call Graph完成后、session冻结前由统一collector绑定。冻结后的Impact query不得重扫IR发现reference、overlay、补边、构建第二张graph或whole-scope重扫。唯一query-time IR读取是所选CHA predecessor edge的caller-local Receiver推导；它只验证已有edge，不发现terminal evidence或改变session。
 - Removed class、method、field与resource永远只作为evidence terminal，不得进入WALA Call Graph topology。Report path只快照有序方法节点与完整terminal evidence，不物化中间callsite edge。
 - Scope/model/query limitation通过统一`CoverageLimitation` contract单向汇入reducer；固定reason precedence不读取exception message、summary或HTML。
 - `impact`与`tree`共用`ReportTaskCache`，不另建cache root或锁协议。Fragment采用UTF-8、stable-hash filename、temporary write、atomic rename与complete marker；manifest保存schema、run ID、command、完成状态和稳定排序引用。
@@ -124,7 +128,7 @@ flowchart TD
 - Bytecode Diff与ServiceLoader resource Diff完成后，ChangePoint按Module绑定。每个Module使用target evidence的normalized occurrence graph从所有matching winner seed沿全部parent edge反向恢复到Module root；路径、多occurrence和多seed取并集，禁止沿seed child edge扩展。
 - Relevant Module按`ModuleId.stableKey()`逐个执行。当前Module完成Call Graph、impact-query、可选serial SSA equivalence与optional diagnostics fragment后，才执行snapshot detach和cache spill，再进入下一个Module。
 - Module随后转换为report-safe snapshot；candidate/final/structural path、observation与summary逐类写JSON Lines。写完后不再持有WALA `CGNode`、class hierarchy、analysis cache或Call Graph session。
-- Code comparison按stable change key去重，通过bounded completion queue生成；完成一项立即写独立fragment。Analysis result、Overall Report与optional diagnostics JSON携带effective algorithm、JDK model、strategy capabilities、Reflection applied状态和Evidence汇总；diagnostics JSON为Schema v8。
+- Code comparison按stable change key去重，通过bounded completion queue生成；完成一项立即写独立fragment。Analysis result、Overall Report与optional diagnostics JSON携带effective algorithm、JDK model、result refinement selection、strategy capabilities、Reflection applied状态和Evidence汇总；diagnostics JSON为Schema v9。
 - Overall与Module pages使用UTF-8 `Writer`直接写同filesystem staging；完整关闭所有页面后原子替换command-owned Report，任何时刻不构造完整HTML字符串。
 
 ## Module Contract
@@ -149,7 +153,8 @@ flowchart TD
 - JAR diff 按 logical old/new coordinate pair 去重；code comparison 按 coordinate pair/member 去重并跨 Module 复用。physical path 只存在于 repository 内部和短生命周期 `JarLease`。
 - Module analysis严格串行，relevant Module数量不参与parallelism计算。WALA build、evidence preparation、seed resolution与access observation均在Module协调线程串行执行。
 - Impact Query使用command-wide共享pool，按exact QueryNode滚动提交；一个任务持有一个局部`ReverseTrace`并处理其全部ordinary/structural evidence。记录command实际同时运行过的最大QueryNode任务数。
-- 启用试验性semantic comparison后，SSA equivalence由单一协调线程执行；每个Module完成graph/query后立即处理，跨Module不并发。默认关闭时不存在该stage及其elapsed metric。
+- `cha-local-receiver-inference`的edge、IR/Def-Use和value cache在一个Module Query内由全部QueryNode worker共享，Module完成或失败即释放；只把immutable汇总和最多10条稳定example传给snapshot/cache/report。
+- 选择`ssa-equivalence`后由单一协调线程执行；每个Module完成graph/query后立即处理，跨Module不并发。未选择时不存在该stage及其elapsed metric。
 - Module 普通 failure/timeout 不取消其他 Module；global preparation failure 不替换旧 Report。
 - relevant Module 未匹配用户 entrypoint selector 时为 `SKIPPED_USER_ENTRYPOINT_SCOPE`；所有 relevant Module 都未匹配时属于 command failure，不替换旧 Report。
 
@@ -183,7 +188,7 @@ flowchart TD
 ## Analysis Model Boundaries
 
 - Call Graph是selected WALA over-approximation：CHA按完整class hierarchy做context-insensitive dispatch；RTA按全局已实例化compatible class；ZeroCFA按class合并allocation；optimized 0-1-CFA保留allocation-site并smush高成本对象；`k-obj`保留最多`k`层receiver allocation string。
-- CHA不构建points-to、heap、跨方法或通用数据流fixed point。唯一值传播是从受支持API参数出发，在单个reachable caller SSA definition上有界回溯String/Class constant。
+- CHA不构建points-to、heap、跨方法或通用数据流fixed point。除受支持API的String/Class constant恢复外，可选Receiver refinement只在reverse BFS实际访问的caller IR内迭代回溯受支持的SSA定义；不改变CHA构图时间、原始节点/边数或构图内存。
 - CHA `changed-paths`中路径外external target默认不建node/edge；ancestor-retained type是传递type-level例外。四种非CHA algorithm仍为路径外external method使用不含内部call、field read/write、callback、exception或thread行为的summary，并保留caller到resolved callee的edge。
 - 当 invoke reference result 在同一 caller IR 中仅经 bounded direct/phi/pi flow 到达 concrete、可解析且处于真实 IR scope 的 `checkcast` target 时，factory summary 分配该类型并返回，不显式调用 constructor。该近似产生 typed evidence 和 `INCONCLUSIVE`。
 - Reachable no-op callee 收到可证明为 changed class 实例的 receiver、argument、array 或 varargs 元素时记录 dangerous transfer；只声明为 `Object` 且无法恢复实际类型时不猜测。

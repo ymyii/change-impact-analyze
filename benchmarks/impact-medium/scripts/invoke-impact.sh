@@ -13,6 +13,7 @@ set -eu
 : "${BENCHMARK_JDK_MODEL:?BENCHMARK_JDK_MODEL is required}"
 : "${BENCHMARK_WALA_REFLECTION_OPTIONS:?BENCHMARK_WALA_REFLECTION_OPTIONS is required}"
 : "${BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE:?BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE is required}"
+: "${BENCHMARK_RESULT_REFINEMENT_ALGORITHMS:?BENCHMARK_RESULT_REFINEMENT_ALGORITHMS is required}"
 : "${BENCHMARK_CAPTURE_TOPOLOGY:?BENCHMARK_CAPTURE_TOPOLOGY is required}"
 
 case "$BENCHMARK_CALL_GRAPH_ALGORITHM" in
@@ -47,12 +48,12 @@ set -- \
   --analysis-parallelism 2 \
   --wala-reflection-options "$BENCHMARK_WALA_REFLECTION_OPTIONS" \
   --dependency-analysis-scope "$BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE" \
-  --experimental-bytecode-semantic-comparison \
+  --result-refinement-algorithms "$BENCHMARK_RESULT_REFINEMENT_ALGORITHMS" \
   --include-change-kinds CLASS_ADDED,CLASS_REMOVED,CLASS_ACCESS_NARROWED,METHOD_ADDED,METHOD_REMOVED,METHOD_DESCRIPTOR_CHANGED,METHOD_BODY_CHANGED,METHOD_ACCESS_NARROWED,FIELD_ADDED,FIELD_REMOVED,FIELD_DESCRIPTOR_CHANGED,FIELD_ACCESS_NARROWED,SERVICE_PROVIDER_REGISTRATION_REMOVED \
   --call-graph-timeout-seconds 120
 
-# CHA intentionally omits both options to exercise cha + none defaults.
-# Other algorithms are explicit and omit jdk8; none remains their control.
+# CHA intentionally omits the algorithm and JDK-model options to exercise
+# cha + none defaults. Result refinement is explicit for every benchmark run.
 if [ "$BENCHMARK_CALL_GRAPH_ALGORITHM" != cha ]; then
   set -- "$@" --call-graph-algorithm "$BENCHMARK_CALL_GRAPH_ALGORITHM"
 fi

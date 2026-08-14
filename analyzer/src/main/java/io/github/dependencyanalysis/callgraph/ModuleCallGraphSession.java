@@ -20,6 +20,9 @@ import io.github.dependencyanalysis.models.jdk.JdkModelMetadata;
 /** Live per-module WALA graph and its ownership/metric context. */
 public final class ModuleCallGraphSession {
 
+    /** Effective Call Graph algorithm. */
+    private final CallGraphAlgorithm algorithm;
+
     /** WALA Call Graph. */
     private final com.ibm.wala.ipa.callgraph.CallGraph graph;
 
@@ -89,6 +92,7 @@ public final class ModuleCallGraphSession {
         analysisCache = Objects.requireNonNull(cache, "analysisCache");
         final ModuleCallGraphMetadata values = Objects.requireNonNull(
                 metadata, "metadata");
+        algorithm = values.algorithm();
         stats = values.stats();
         entrypointMetrics = values.entrypoints();
         final StrategyModelMetadata strategy = values.strategyModels();
@@ -105,6 +109,11 @@ public final class ModuleCallGraphSession {
     /** @return live WALA Call Graph */
     public com.ibm.wala.ipa.callgraph.CallGraph getGraph() {
         return graph;
+    }
+
+    /** @return effective Call Graph algorithm */
+    public CallGraphAlgorithm getAlgorithm() {
+        return algorithm;
     }
 
     /** @return module class hierarchy */

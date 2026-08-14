@@ -132,7 +132,7 @@ java -jar target/dependency-analyzer.jar tree --help
 - Analyzer integration tests 覆盖空格/中文 cache path、scope-conflict missing `test` binary，以及 Maven 成功/失败后 source repository 无 evidence 中间文件。
 - 最新 duplicate class precedence tests、report tests 与 `PackagedJarCliIT` 全部通过。
 - Root/两个 subcommand help 列出当前 option；CLI `--version` 与 Maven build metadata 一致。
-- Analyzer能力新增或行为扩展时，必须同步新增/更新benchmark fixture、verification与expected baseline。只有用户明确要求执行benchmark时才运行matrix；获得授权后，68个JVM、18组semantic baseline和两份HTML Report必须全部成功。当前`PENDING`baseline必须先经授权calibration和人工review锁定。
+- Analyzer能力新增或行为扩展时，必须同步新增/更新benchmark fixture、verification与expected baseline。只有用户明确要求执行benchmark时才运行matrix；获得授权后，70个JVM、20组semantic baseline和两份HTML Report必须全部成功。当前`PENDING`baseline必须先经授权calibration和人工review锁定；calibration不得发布tracked snapshot。
 
 ## Failure Entrypoints
 

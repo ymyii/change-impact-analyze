@@ -18,16 +18,17 @@ import org.junit.jupiter.api.Test;
 
 import java.io.StringWriter;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class CallGraphDiagnosticsExporterTest {
 
     /** Expected diagnostics JSON Schema version. */
-    private static final int EXPECTED_SCHEMA_VERSION = 8;
+    private static final int EXPECTED_SCHEMA_VERSION = 9;
 
     @Test
-    void writesSchemaV8ConfigurationAndTypedSentinelPath() throws Exception {
+    void writesSchemaV9ConfigurationAndTypedSentinelPath() throws Exception {
         final CallGraphNodeIdentity fakeRoot = node(
                 0, "com.ibm.wala.FakeRoot", "fakeRootMethod",
                 CallGraphNodeSentinelRole.FAKE_ROOT);
@@ -52,7 +53,9 @@ class CallGraphDiagnosticsExporterTest {
                     CallGraphAlgorithm.defaultKObjDepth(),
                     WalaReflectionOptions.defaultOptions(),
                     DependencyAnalysisScopeMode.CHANGED_PATHS,
-                    JdkModelSelection.JDK8);
+                    JdkModelSelection.JDK8,
+                    ResultRefinementSelection.of(
+                            ResultRefinementAlgorithm.SSA_EQUIVALENCE));
             CallGraphDiagnosticsExporter.writePaths(json, List.of(path));
             json.writeEndObject();
         }
@@ -60,10 +63,12 @@ class CallGraphDiagnosticsExporterTest {
         assertThat(CallGraphDiagnosticsExporter.SCHEMA_VERSION)
                 .isEqualTo(EXPECTED_SCHEMA_VERSION);
         assertThat(output.toString())
-                .contains("\"schemaVersion\":8")
+                .contains("\"schemaVersion\":9")
                 .contains("\"reflectionApplied\":\"applied\"")
                 .contains("\"kObjDepth\":null")
                 .contains("\"jdkModel\":\"jdk8\"")
+                .contains("\"resultRefinementAlgorithms\""
+                        + ":[\"ssa-equivalence\"]")
                 .contains("\"reachabilityPaths\"")
                 .contains("\"rootKind\":\"FAKE_ROOT\"")
                 .contains("\"sentinelRole\":\"FAKE_ROOT\"")
@@ -85,7 +90,8 @@ class CallGraphDiagnosticsExporterTest {
                     json, CallGraphAlgorithm.K_OBJ, 2,
                     WalaReflectionOptions.defaultOptions(),
                     DependencyAnalysisScopeMode.CHANGED_PATHS,
-                    JdkModelSelection.JDK8);
+                    JdkModelSelection.JDK8,
+                    ResultRefinementSelection.defaultSelection());
             json.writeEndObject();
         }
 
@@ -105,7 +111,8 @@ class CallGraphDiagnosticsExporterTest {
                     CallGraphAlgorithm.defaultKObjDepth(),
                     WalaReflectionOptions.defaultOptions(),
                     DependencyAnalysisScopeMode.CHANGED_PATHS,
-                    JdkModelSelection.NONE);
+                    JdkModelSelection.NONE,
+                    ResultRefinementSelection.defaultSelection());
             json.writeEndObject();
         }
 
@@ -113,6 +120,23 @@ class CallGraphDiagnosticsExporterTest {
                 .contains("\"algorithm\":\"cha\"")
                 .contains("\"reflectionApplied\":\"not applied by cha\"")
                 .contains("\"jdkModel\":\"none\"");
+    }
+
+    @Test
+    void writesCountMapWithoutObjectCodec() throws Exception {
+        final StringWriter output = new StringWriter();
+
+        try (JsonGenerator json = new JsonFactory().createGenerator(output)) {
+            json.writeStartObject();
+            CallGraphDiagnosticsExporter.writeCountMap(
+                    json, "counts", Map.of("A", 2L, "B", 1L));
+            json.writeEndObject();
+        }
+
+        assertThat(output.toString())
+                .contains("\"counts\"")
+                .contains("\"A\":2")
+                .contains("\"B\":1");
     }
 
     private CallGraphNodeIdentity node(

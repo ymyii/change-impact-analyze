@@ -52,6 +52,8 @@ import io.github.dependencyanalysis.impact.EvidenceLocation;
 import io.github.dependencyanalysis.impact.EvidenceMechanism;
 import io.github.dependencyanalysis.impact.ReferenceEvidence;
 import io.github.dependencyanalysis.impact.ReferenceTarget;
+import io.github.dependencyanalysis.impact.ResultRefinementAlgorithm;
+import io.github.dependencyanalysis.impact.ResultRefinementSelection;
 import io.github.dependencyanalysis.preflight.PreflightReport;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 import io.github.dependencyanalysis.runtime.MavenDependencyPluginRuntime;
@@ -178,7 +180,9 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("Analysis scope and limitations")
                 .contains("Terminology")
                 .contains("optimized-0-1-cfa")
-                .contains("<th>Bytecode semantic comparison</th><td>"
+                .contains("<th>Result refinement algorithms</th><td>none"
+                        + "</td>")
+                .contains("<th>SSA equivalence</th><td>"
                         + "disabled (experimental)</td>")
                 .contains("<th>SSA equivalence workers</th><td>"
                         + "0 (disabled)</td>")
@@ -304,7 +308,9 @@ class PerModuleHtmlReportGeneratorTest {
                         CallGraphAlgorithm.defaultKObjDepth(),
                         WalaReflectionOptions.defaultOptions(),
                         DependencyAnalysisScopeMode.defaultMode(),
-                        JdkModelSelection.NONE, true));
+                        JdkModelSelection.NONE,
+                        ResultRefinementSelection.of(
+                                ResultRefinementAlgorithm.SSA_EQUIVALENCE)));
         final MavenDependencyPluginRuntime plugin =
                 new MavenDependencyPluginRuntimeManager().prepare(
                         temporary.resolve("config-filtered"),
@@ -331,7 +337,9 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("example.app.Controller#handle")
                 .doesNotContain("/secret/work/classes");
         assertThat(output).content()
-                .contains("<th>Bytecode semantic comparison</th><td>"
+                .contains("<th>Result refinement algorithms</th><td>"
+                        + "ssa-equivalence (experimental)</td>")
+                .contains("<th>SSA equivalence</th><td>"
                         + "enabled (experimental)</td>")
                 .contains("<th>SSA equivalence workers</th><td>"
                         + "1 (experimental)</td>")

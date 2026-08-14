@@ -10,7 +10,13 @@ relations:
     desc: "Impact Path、Structural Reference Path 与 code evidence 输出"
 code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactCommand.java"
-    desc: "试验性bytecode semantic comparison的CLI opt-in"
+    desc: "统一result refinement CLI selection"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ResultRefinementSelection.java"
+    desc: "immutable算法选择与稳定执行顺序"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChaLocalReceiverEdgeRefiner.java"
+    desc: "查询期CHA局部Receiver推导与edge decision cache"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChaLocalReceiverRefinementSummary.java"
+    desc: "Module级typed metrics与bounded examples"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
     desc: "command-wide Impact Query pool、串行Module生命周期与session释放边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleImpactTracer.java"
@@ -72,6 +78,7 @@ Impact Tracing只消费冻结的`ModuleCallGraphSession`。在Call Graph完成�
 - Runtime package必须同时匹配class loader identity与package name；protected receiver只读取caller-local verifier type，不读取points-to dataflow。
 - 构图strategy不得定义私有terminal evidence或绑定ChangePoint；dynamic observation必须在session冻结前转换为公共Evidence。
 - `ModuleImpactTracer`只负责Evidence anchor materialization、access decision、reverse BFS与disposition reduction。
+- `cha-local-receiver-inference`只在CHA reverse BFS访问原图predecessor时做caller-local Receiver证明；只删除已有edge，不修改Call Graph、Class Hierarchy或session。
 - Impact Path不物化中间callsite edge。中间节点关系由Call Graph predecessor topology保证；命中具体ChangePoint的可审计原因由末端`ReferenceEvidence`表达。
 
 ## Actors / Entrypoints
@@ -107,6 +114,11 @@ Impact Tracing只消费冻结的`ModuleCallGraphSession`。在Call Graph完成�
 - worker只返回immutable ordinary path、structural path与recovery结果，不返回`ReverseTrace`、`visited`或`next`。任务返回前释放局部`ReverseTrace`强引用；同时存活的反向切片不超过active QueryNode worker数。
 - Traversal identity 是 exact `CGNode`，禁止使用 `Context.toString()` 作为 stable identity。
 - Reverse BFS 访问全部 predecessor；每个访问到的 `CodeOrigin.PROJECT` node 都是 affected method，包括 call chain 中间的 PROJECT method。
+- 选择`cha-local-receiver-inference`且实际algorithm为CHA时，Reverse BFS在predecessor进入`visited/next/queue`前校验exact `(caller CGNode, callee CGNode)` edge。只有关联的全部callsite及其全部`IR.getCalls(site)` invoke instance均证明排除callee时才跳过；任一feasible、unknown、fixed dispatch或缺失证据均保留。
+- Fake root、static/special invoke、缺失IR/callsite与原callsite单target不执行Receiver推导。Module Query内全部QueryNode worker共享edge、caller IR/Def-Use与caller/value resolution cache；Query结束即释放。Impact Path与Structural Reference Path使用同一结果。
+- Receiver v1仅识别`new`非数组reference exact type、exact `phi`并集、透明`pi`及单一可解析非数组reference `checkcast`。显式`null`不产生正常target，`phi(null,new B)`为exact `B`；exact/upper-bound混合、全upper-bound或任一unknown `phi`整体unknown。
+- `this`、参数、field/array load、method return、collection content、数组、多类型或unresolved cast及其他unsupported SSA instruction均unknown。推导使用iterative worklist和visited value set，不递归、不设数值预算；可恢复异常fail-open，线程中断继续传播。
+- exact集合逐个通过target Class Hierarchy解析继承方法或interface default method；unresolved、abstract或不一致结果保留edge。Upper bound只在完整class/interface cone target排除callee时删除edge。
 - Impact Path与Structural Reference Path只保存有序node sequence和terminal，不调用`getPossibleSites(caller, callee)`反查中间callsite。
 - completion result到达后立即归并，不保存全部任务结果。同一 `ChangePoint + affected PROJECT method` 汇总不同 seed 与不同 Context：先选hop数最少的path，再逐node按method owner/name/descriptor、module/source、origin和graph node id比较，最后按terminal evidence stable key决胜。
 - Fake root/world-clinit 不进入 Report。Seed origin 是 PROJECT 时 classification 为 `DIRECT`，否则为 `TRANSITIVE`。
@@ -161,14 +173,16 @@ Impact Tracing只消费冻结的`ModuleCallGraphSession`。在Call Graph完成�
 - 找到reference且全部仍合法时为`ACCESS_REMAINS_VALID`；完全未找到reference才是`DECLARED_REFERENCE_NOT_FOUND`。
 - Target type/declaration无法解析时生成`ACCESS_TARGET_TYPE_UNRESOLVED`或`ACCESS_DECLARATION_UNRESOLVED`，reason为`INCONCLUSIVE_SCOPE_VALIDATION`。
 
-## Experimental SSA Equivalence
+## Experimental Result Refinement
 
-- `--experimental-bytecode-semantic-comparison`是command-wide opt-in，默认关闭；关闭时candidate Impact Path直接成为final path，`equivalenceResults`为空，不创建old-side SSA/Class Hierarchy，也不产生SSA limitation或stage metric。
+- `--result-refinement-algorithms`接受`none`、`cha-local-receiver-inference`、`ssa-equivalence`或两者逗号组合，默认`none`。标识符大小写不敏感，重复值去重并按固定顺序序列化；空项、unknown及`none`混用为参数错误。
+- 双选固定先在reverse BFS执行`cha-local-receiver-inference`，再对收窄后的candidate path执行`ssa-equivalence`，CLI列表顺序不改变执行顺序。非CHA接受local selection但显示`not applied by non-cha`。
+- 未选择`ssa-equivalence`时，Receiver收窄后的candidate Impact Path直接成为final path，`equivalenceResults`为空，不创建old-side SSA/Class Hierarchy，也不产生SSA limitation或stage metric。
 - 显式启用后只处理已有candidate Impact Path的唯一`METHOD_BODY_CHANGED`；协调线程在每个Module query完成后串行执行，跨Module不并发。
 - Target IR 来自 target session；old IR 使用 baseline ArtifactCoord closure、repository lease 与同一 JDK 8 构建 old-side CHA，不构建 baseline Call Graph。
 - 两侧使用相同 `SSAOptions` 和独立 cache。比较 typed constants、Def-Use、normal/exception CFG、catch type、declared references、phi/pi/catch 与 side-effect order。
 - `PROVEN_EQUIVALENT` 删除该 ChangePoint 的全部 path；`DIFFERENT`、`UNKNOWN` 保留。`UNKNOWN` 将原 `SUCCESS` Module 转为 `INCONCLUSIVE`。
-- 该开关不控制基础Bytecode Diff或Code Comparison Evidence；关闭试验功能仍生成`METHOD_BODY_CHANGED`、Impact Path、decompiled Java和ASM fallback。
+- 结果收窄选择不控制基础Bytecode Diff或Code Comparison Evidence；`none`仍生成`METHOD_BODY_CHANGED`、Impact Path、decompiled Java和ASM fallback。
 
 ## Code Comparison Evidence
 
@@ -191,8 +205,10 @@ Session冻结后，Impact query只读取graph、`ChangePointEvidenceIndex`、str
 - Given access narrowing与reachable pre-existing bytecode reference；When new access明确不允许或protected receiver无法证明合法；Then保留definite/potential Impact Path及typed old/new access evidence。
 - Given全部相关reference在new access下仍合法；When完成query；Then disposition为`ACCESS_REMAINS_VALID`，不生成Affected Call Chain。
 - Given target CHA无法解析必要type/declaration；When完成query；Then limitation通过Result Object进入统一coverage reduction。
-- Given未提供试验性semantic comparison开关；When完成query；Thencandidate/final path一致，SSA结果、limitation和stage metric均为空。
-- Given显式启用试验性semantic comparison；When比较结果为`PROVEN_EQUIVALENT`或`UNKNOWN`；Then分别过滤对应path或保留path并按既有规则降级Module。
+- Given默认`none`；When完成query；Thencandidate/final path一致，Receiver计数为not selected，SSA结果、limitation和stage metric均为空。
+- GivenCHA local-only且caller Receiver exact排除当前callee；When reverse BFS访问该原图edge；Then虚假predecessor不进入path、原图node/edge计数不变，且pruned metric大于零。
+- GivenReceiver推导为unknown、单target或不适用；When reverse BFS访问edge；Then保留原CHA edge，不新增coverage limitation。
+- Given双算法选择；When完成分析；Thencandidate定义为local收窄后的path，SSA只过滤这些candidate。
 
 ### Non-Functional
 

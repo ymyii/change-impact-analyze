@@ -1,6 +1,6 @@
 # Impact Medium CallGraph Benchmark
 
-本 benchmark 对打包后的 `dependency-analyzer impact` 执行五种 Call Graph algorithm、两种 dependency analysis scope 和非 CHA 的`none` JDK Method Model semantic control，并显式启用试验性bytecode semantic comparison以覆盖SSA等价过滤。Fixture 固定包含42个direct dependencies、10类change、`Object.toString/hashCode`的Diff-related与unrelated override、`Class.forName`与ServiceLoader的direct/local/same-phi和unsupported场景、provider class删除、provider registration-only删除、private static递归调用changed dependency的路径、经`Stream.map` private `Function` callback调用changed dependency的model路径，以及PROJECT class继承路径外external superclass/interface完整祖先链并覆盖abstract method的路径。target 以direct `scenario-api:2.0.0`作为winner，同时两条transitive path继续请求`1.0.0`，用于覆盖Maven mediation loser path。每个scope/model/algorithm/depth的candidate/final call chains由`expected-results.tsv`锁定；新fixture基线在未授权执行canonical matrix前标记为`PENDING`。
+本 benchmark 对打包后的 `dependency-analyzer impact` 执行五种 Call Graph algorithm、两种 dependency analysis scope、非 CHA 的`none` JDK Method Model control及CHA local Receiver control。原34个run显式选择`ssa-equivalence`；每scope增加一个`cha-local-receiver-inference` local-only run。Fixture 固定包含42个direct dependencies、10类change、`Object.toString/hashCode`的Diff-related与unrelated override、`Class.forName`与ServiceLoader场景、private static递归、`Stream.map` callback、external祖先链，以及同一interface selector下的ChangedReceiver真实路径与UnrelatedReceiver虚假CHA caller。每个scope/model/algorithm/depth/refinement的candidate/final call chains由`expected-results.tsv`锁定；新fixture基线在未授权执行canonical matrix前标记为`PENDING`。
 
 ## Canonical suite
 
@@ -17,10 +17,11 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 - `cha`、`rta`、`zero-cfa`、`optimized-0-1-cfa`、`k-obj`各1次warm-up，共5个独立Java Virtual Machine（JVM）进程。CHA 同时省略algorithm和JDK model以验收默认`cha + none`；其他algorithm显式指定并省略model以验收默认`jdk8`。Warm-up通过`--call-graph-diagnostics-output`采集CGNode topology、source与IR。
 - 5个round，每个round各运行五种algorithm，共25个正式样本和25个独立JVM进程。
 - 四种非 CHA algorithm额外执行1个`--jdk-model none` semantic control，共4个独立JVM进程。
+- CHA额外执行1个`cha-local-receiver-inference` local-only semantic control，不选择SSA且不进入性能样本。
 - 正式样本按round交错；algorithm列表在每个round循环左移一位，第5个round回到原始顺序。
 - 正式样本不设置 diagnostics option，不执行 CGNode ranking、IMethod 子榜、shortest path、IR capture 或反编译。
 
-每个scope使用34个独立Java Virtual Machine（JVM），双scope合计68个，其中10个默认CHA `none` warm-up/formal run、48个非CHA默认`jdk8` warm-up/formal run和8个非CHA `none` control。`run-suite.sh`是单scope内部入口，要求显式设置`BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE`；canonical验收必须使用`run-scope-matrix.sh`。
+每个scope使用35个独立Java Virtual Machine（JVM），双scope合计70个，其中10个CHA SSA warm-up/formal run、48个非CHA默认`jdk8` SSA warm-up/formal run、8个非CHA `none` SSA control和2个CHA local-only control。`run-suite.sh`是单scope内部入口，要求显式设置`BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE`；canonical验收必须使用`run-scope-matrix.sh`。
 
 `BENCHMARK_WALA_REFLECTION_OPTIONS` 默认且正式验收要求为 `ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。
 
@@ -45,6 +46,8 @@ Canonical runner固定显式传入`--analysis-parallelism 2`，避免Analyzer的
 | `BENCHMARK_WALA_REFLECTION_OPTIONS` | `ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD` | command-wide WALA ReflectionOptions |
 | `BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE` | 无 | `run-benchmark.sh` 与 `run-suite.sh` 必填：`changed-paths` 或 `full` |
 | `BENCHMARK_JDK_MODEL` | 无 | `run-benchmark.sh` 必填：`jdk8`或`none`；suite自动设置。 |
+| `BENCHMARK_RESULT_REFINEMENT_ALGORITHMS` | 无 | `run-benchmark.sh`必填；suite按SSA或CHA local-only场景自动设置。 |
+| `BENCHMARK_CALIBRATION` | `0` | `1`允许`PENDING`baseline并禁止tracked snapshot publication。 |
 | `BENCHMARK_MAVEN_REPO` | `$HOME/.m2/repository` | fixture artifact 与 offline Maven repository |
 | `BENCHMARK_RUNTIME_ROOT` | `tmp-files/impact-medium-benchmark` | raw run、candidate、topology JSON 与 HTML 根目录 |
 
@@ -72,11 +75,11 @@ benchmarks/impact-medium/results/full/summary.tsv
 benchmarks/impact-medium/results/full/topology.tsv
 ```
 
-- `samples.tsv`：25个正式样本；CHA使用默认`none`，其他algorithm使用默认`jdk8`。包含`k_obj_depth`、model、wall、Call Graph、heap、RSS、graph、method-body boundary、status与环境identity。
-- `summary.tsv`：每种algorithm一行；包含scope、`k_obj_depth`、model、资源Min/median/max、稳定topology、boundary node计数和相对`zero-cfa` ratio。
-- `topology.tsv`：发布五种algorithm warm-up；除`RANKED_CGNODE`、`RELATED_IMETHOD`、`REACHABILITY_PATH`外，使用`DEPENDENCY_SCOPE`与`DEPENDENCY_PATH`保存`k_obj_depth`、model、requested/actual scope、fallback、artifact/method policy计数和全部changed dependency path evidence。
+- `samples.tsv`：25个正式SSA样本；包含`result_refinement_algorithms`、`k_obj_depth`、model、wall、Call Graph、heap、RSS、graph、method-body boundary、status与环境identity。
+- `summary.tsv`：每种algorithm一行；包含scope、result refinement、`k_obj_depth`、model、资源Min/median/max、稳定topology、boundary node计数和相对`zero-cfa` ratio。
+- `topology.tsv`：发布五种algorithm SSA warm-up；除`RANKED_CGNODE`、`RELATED_IMETHOD`、`REACHABILITY_PATH`外，保存result refinement、`k_obj_depth`、model、requested/actual scope、fallback、artifact/method policy计数和全部changed dependency path evidence。
 
-只有两个scope的68个run全部通过semantic verification，且各scope内warm-up与五个正式样本的Entrypoint、CGNode、CGEdge、artifact policy和boundary node计数完全一致时，才原子替换两组tracked snapshot。非CHA `none` control只参加语义验收，不进入performance Report或tracked snapshot。任一scope出现`FAILED`或`TOPOLOGY_DRIFT`时，旧tracked snapshot整体不变。
+只有两个scope的70个run全部通过semantic verification，且各scope内warm-up与五个正式样本的Entrypoint、CGNode、CGEdge、artifact policy和boundary node计数完全一致时，才原子替换两组tracked snapshot。五个control只参加语义验收，不进入performance Report或tracked snapshot。`BENCHMARK_CALIBRATION=1`时即使成功也只生成candidate与HTML，不调用publisher。
 
 ## Metrics
 
@@ -102,12 +105,13 @@ benchmarks/impact-medium/results/full/topology.tsv
 - POM 有 42 个 direct dependencies；两个 Module 合计 22 个 raw changed members。
 - `scope-conflict-marker` 不出现在report，且offline Maven repository不生成其JAR。
 - Fixture source repository 不出现`dep-tree-cia-*`、`resolved-artifacts-cia-*`或Schema v3 `module-*.json`中间产物；current target `target/` 是允许的build output。
-- `expected-results.tsv`中存在该scope/model/algorithm/depth的已校准candidate/final call chains。
+- `expected-results.tsv`中存在该scope/model/algorithm/depth/refinement的已校准candidate/final call chains。
 - Affected Call Chains包含`RecursiveCallUseCase.execute → RecursiveCallUseCase.recurse → ScenarioApi.bodyChanged`递归路径。
 - CHA Affected Call Chains包含`ObjectDispatchUseCase`到`ScenarioApi.toString/hashCode`的Diff-related路径，且不包含`UnrelatedObjectOverride`。
 - 非CHA默认`jdk8`的Affected Call Chains包含`JdkModelUseCase → JdkModelUseCase$ChangedMapper.apply → ScenarioApi.bodyChanged`路径；`none`按algorithm锁定真实JDK bytecode语义下的candidate/final baseline。
 - `changed-paths`包含三条到seed的path evidence与no-op sibling/downstream。CHA裁剪无关路径外external target，不为裁剪调用生成dependency boundary limitation；`ExternalAncestor -> ExternalGrandParent + ExternalContract`祖先链使用真实方法体并dispatch到PROJECT override。其他algorithm保留dangerous transfer和flow-to-cast factory evidence。`full`不产生no-op/factory/boundary evidence。
 - Affected Call Chains 页面包含 Structural Reference Path 与 filtered candidate。
+- CHA local-only包含`ChangedReceiver`路径，不包含`unrelatedReceiverPath`，且Module local receiver pruned edge count大于零；SSA-specific filtered candidate只在选择SSA时要求。
 - Dependency Changes 页面包含 final、filtered、structural badge 与反编译代码 evidence。
 - Overall、Module Index、Affected Call Chains、Dependency Changes 四页均存在。
 
@@ -128,6 +132,6 @@ benchmarks/impact-medium/scripts/compare-summaries.sh \
 - `<run>/logs/stderr.log`：Preflight、CLI、Runtime Metrics 与 pipeline failure。
 - `<run>/logs/verification.txt`：42 dependencies、22 raw changes、scope semantic baseline、Structural Reference Path、Evidence、Algorithm/ReflectionOptions failure。
 - `<run>/logs/metrics.tsv`：即使 run failure 也尽量保留的单样本指标。
-- `<run>/topology.json`：warm-up Schema v8 CGNode topology、strategy capabilities、reflection applied状态、Evidence汇总、局部常量计数、`kObjDepth`、model selection、dependency path、body policy、ancestor-retained/pruned target计数、sentinel role、declared entrypoint/WALA sentinel reachability path、IMethod子榜、shortest chain、source与IR。
+- `<run>/topology.json`：warm-up Schema v9 CGNode topology、result refinement状态/metrics/examples、strategy capabilities、reflection applied状态、Evidence汇总、局部常量计数、`kObjDepth`、model selection、dependency path、body policy、ancestor-retained/pruned target计数、sentinel role、declared entrypoint/WALA sentinel reachability path、IMethod子榜、shortest chain、source与IR。
 - `<suite>-candidate-results/failure.txt`：suite Schema、环境或 topology drift failure。
 - `benchmark-report-changed-paths.html`、`benchmark-report-full.html`：成功或失败均更新；失败时明确说明 tracked TSV 未发布。

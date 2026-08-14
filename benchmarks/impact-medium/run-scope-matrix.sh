@@ -57,6 +57,14 @@ if [ "$changed_result" -ne 0 ] || [ "$full_result" -ne 0 ] \
   exit 1
 fi
 
+if [ "${BENCHMARK_CALIBRATION:-0}" = 1 ]; then
+  echo "calibration matrix completed without publishing tracked snapshots: $matrix_label"
+  echo "changed-paths report: $changed_report"
+  echo "full report: $full_report"
+  echo "candidate TSV: $changed_candidate and $full_candidate"
+  exit 0
+fi
+
 "$script_dir/scripts/publish-scope-matrix.sh" \
   "$changed_candidate" "$full_candidate" "$tracked_results"
 

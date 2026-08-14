@@ -82,7 +82,7 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphRelatedMethod.java"
     desc: "父CGNode下按IMethod聚合的related CGNode子榜"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/CallGraphDiagnosticsExporter.java"
-    desc: "Schema v8 topology、ancestor/pruning、capability与Evidence统计JSON流式输出"
+    desc: "Schema v9 topology、result refinement、ancestor/pruning、capability与Evidence统计JSON流式输出"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/CallGraphMethodSourceBuilder.java"
     desc: "PROJECT/reactor/dependency/JDK exact bytecode source 与 ASM fallback"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/ServiceLoaderProtocolIndex.java"
@@ -339,7 +339,7 @@ Factory summary使用真实 resolved callee owner、method与descriptor，生成
 ## Benchmark-only Topology Capture
 
 - `impact --call-graph-diagnostics-output <json>`只在显式设置时启用；未设置时`ModuleCallGraphEngine`不创建topology analyzer、不遍历ranking、不计算Call Graph path、不执行decompilation。
-- Capture读取同一张已完成Call Graph并作为nullable immutable metadata进入session；不新增edge、不运行第二个builder、不改变Impact query。JSON使用`schemaVersion: 8`；每个Module完成时先输出task-cache fragment，最终按Module稳定顺序流式合并并原子替换目标文件。除既有strategy、Evidence与local constant统计外，Module记录新增`ancestorRetainedExternalTypeCount`、`ancestorRetainedExternalMethodNodeCount`与`prunedExternalMethodTargetCount`。Evidence不作为topology node/edge输出。
+- Capture读取同一张已完成Call Graph并作为nullable immutable metadata进入session；不新增edge、不运行第二个builder、不改变Impact query。JSON使用`schemaVersion: 9`；command保存有序`resultRefinementAlgorithms`，Module保存每种refinement的状态、metrics及bounded examples。每个Module完成时先输出task-cache fragment，最终按Module稳定顺序流式合并并原子替换目标文件。既有strategy、Evidence、local constant与ancestor/pruning统计保持不变；Evidence与query-time edge decision不作为topology node/edge输出。
 - 父榜以精确CGNode为单位，不合并WALA Context。CGNode identity包含`owner + name + descriptor + origin + Context + graphNodeId + walaSynthetic + sentinelRole`。Caller/Callee先按related CGNode count降序，再按distinct related IMethod、raw CGEdge与stable CGNode identity排序，各保留Top 10。
 - 每个父榜CGNode包含一个按IMethod聚合的Top 10子榜；子榜按该IMethod代表的related CGNode count、raw CGEdge与stable Method identity排序。每个子项保留完整count、deterministic前10个exact CGNode/Context example与omitted count；这一层用于定位同一Method因Context或points-to传播产生的节点膨胀，同时限制HTML与tracked TSV体积。不输出独立points-to set排行榜。
 - `getFakeRootNode()`、`getFakeWorldClinitNode()`及其incident edge与普通CGNode/CGEdge相同，参与父榜、IMethod子榜、raw edge count、strongly connected component（SCC）和shortest chain。Node的`sentinelRole`固定为`FAKE_ROOT`、`FAKE_WORLD_CLINIT`或`NONE`。

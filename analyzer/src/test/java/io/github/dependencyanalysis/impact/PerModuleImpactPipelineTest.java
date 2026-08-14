@@ -36,18 +36,17 @@ class PerModuleImpactPipelineTest {
     }
 
     @Test
-    void semanticComparisonIsDisabledByCompatibilityConfiguration() {
+    void resultRefinementIsDisabledByCompatibilityConfiguration() {
         final AnalysisRunConfiguration configuration =
                 new AnalysisRunConfiguration(
                         EntrypointSelection.allProjectClasses(),
                         CallGraphAlgorithm.CHA);
 
-        assertThat(configuration
-                .experimentalBytecodeSemanticComparisonEnabled()).isFalse();
+        assertThat(configuration.resultRefinements().isEmpty()).isTrue();
     }
 
     @Test
-    void semanticComparisonCanBeEnabledExplicitly() {
+    void resultRefinementsCanBeEnabledExplicitly() {
         final AnalysisRunConfiguration configuration =
                 new AnalysisRunConfiguration(
                         EntrypointSelection.allProjectClasses(),
@@ -55,10 +54,12 @@ class PerModuleImpactPipelineTest {
                         CallGraphAlgorithm.defaultKObjDepth(),
                         WalaReflectionOptions.defaultOptions(),
                         DependencyAnalysisScopeMode.defaultMode(),
-                        JdkModelSelection.NONE, true);
+                        JdkModelSelection.NONE,
+                        ResultRefinementSelection.of(
+                                ResultRefinementAlgorithm.SSA_EQUIVALENCE));
 
-        assertThat(configuration
-                .experimentalBytecodeSemanticComparisonEnabled()).isTrue();
+        assertThat(configuration.resultRefinements().algorithms())
+                .containsExactly(ResultRefinementAlgorithm.SSA_EQUIVALENCE);
     }
 
     @Test

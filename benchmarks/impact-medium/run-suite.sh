@@ -54,15 +54,18 @@ run_one() {
   sample=$4
   capture=$5
   jdk_model=$6
-  label="$suite_label-$run_kind-$jdk_model-$algorithm-$sample"
+  result_refinements=$7
+  refinement_label=$(printf '%s' "$result_refinements" | tr ',' '+')
+  label="$suite_label-$run_kind-$jdk_model-$algorithm-$refinement_label-$sample"
   run_directory="$BENCHMARK_RUNTIME_ROOT/$label"
   printf '%s\n' "$run_directory" >>"$run_list"
-  echo "[$run_kind] algorithm=$algorithm round=$round sample=$sample"
+  echo "[$run_kind] algorithm=$algorithm refinement=$result_refinements round=$round sample=$sample"
   BENCHMARK_RUNTIME_ROOT="$BENCHMARK_RUNTIME_ROOT" \
   BENCHMARK_CALL_GRAPH_ALGORITHM="$algorithm" \
   BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE="$scope" \
   BENCHMARK_WALA_REFLECTION_OPTIONS="$BENCHMARK_WALA_REFLECTION_OPTIONS" \
   BENCHMARK_JDK_MODEL="$jdk_model" \
+  BENCHMARK_RESULT_REFINEMENT_ALGORITHMS="$result_refinements" \
   BENCHMARK_RUN_KIND="$run_kind" \
   BENCHMARK_ROUND="$round" \
   BENCHMARK_SAMPLE="$sample" \
@@ -70,12 +73,13 @@ run_one() {
     "$script_dir/run-benchmark.sh" "$label" || suite_failed=1
 }
 
-# One scope: 5 warm-up + 25 formal + 4 non-CHA none controls.
+# One scope: 5 warm-up + 25 formal + 4 non-CHA JDK-none controls
+# + 1 CHA local-receiver control.
 for algorithm in cha rta zero-cfa optimized-0-1-cfa k-obj; do
   if [ "$algorithm" = cha ]; then
-    run_one "$algorithm" warmup 0 0 1 none
+    run_one "$algorithm" warmup 0 0 1 none ssa-equivalence
   else
-    run_one "$algorithm" warmup 0 0 1 jdk8
+    run_one "$algorithm" warmup 0 0 1 jdk8 ssa-equivalence
   fi
 done
 
@@ -89,16 +93,18 @@ for round in 1 2 3 4 5; do
   esac
   for algorithm in $order; do
     if [ "$algorithm" = cha ]; then
-      run_one "$algorithm" formal "$round" "$round" 0 none
+      run_one "$algorithm" formal "$round" "$round" 0 none ssa-equivalence
     else
-      run_one "$algorithm" formal "$round" "$round" 0 jdk8
+      run_one "$algorithm" formal "$round" "$round" 0 jdk8 ssa-equivalence
     fi
   done
 done
 
 for algorithm in rta zero-cfa optimized-0-1-cfa k-obj; do
-  run_one "$algorithm" control 0 0 0 none
+  run_one "$algorithm" control 0 0 0 none ssa-equivalence
 done
+
+run_one cha control 0 0 0 none cha-local-receiver-inference
 
 set --
 while IFS= read -r run_directory; do

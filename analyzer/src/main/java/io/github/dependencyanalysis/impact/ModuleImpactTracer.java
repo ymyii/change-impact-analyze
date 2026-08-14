@@ -54,6 +54,9 @@ public final class ModuleImpactTracer {
     /** Command-level actual worker observer. */
     private final IntConsumer workersObserver;
 
+    /** Command-wide result-refinement selection. */
+    private final ResultRefinementSelection resultRefinements;
+
     /** Active QueryNode tasks for this serial Module. */
     private final AtomicInteger activeWorkers = new AtomicInteger();
 
@@ -66,7 +69,20 @@ public final class ModuleImpactTracer {
      * @param collector diagnostics
      */
     public ModuleImpactTracer(final DiagnosticLog collector) {
-        this(collector, null, 1, ignored -> { });
+        this(collector, null, 1, ignored -> { },
+                ResultRefinementSelection.defaultSelection());
+    }
+
+    /**
+     * Creates a direct module tracer with explicit result refinements.
+     *
+     * @param collector diagnostics
+     * @param refinements command-wide result-refinement selection
+     */
+    public ModuleImpactTracer(
+            final DiagnosticLog collector,
+            final ResultRefinementSelection refinements) {
+        this(collector, null, 1, ignored -> { }, refinements);
     }
 
     /**
@@ -82,6 +98,25 @@ public final class ModuleImpactTracer {
             final ExecutorService queryExecutor,
             final int workerLimit,
             final IntConsumer observer) {
+        this(collector, queryExecutor, workerLimit, observer,
+                ResultRefinementSelection.defaultSelection());
+    }
+
+    /**
+     * Creates a tracer using a shared command executor and refinements.
+     *
+     * @param collector diagnostics
+     * @param queryExecutor shared Impact Query executor
+     * @param workerLimit configured QueryNode worker limit
+     * @param observer actual worker observer
+     * @param refinements command-wide result-refinement selection
+     */
+    ModuleImpactTracer(
+            final DiagnosticLog collector,
+            final ExecutorService queryExecutor,
+            final int workerLimit,
+            final IntConsumer observer,
+            final ResultRefinementSelection refinements) {
         diagnostics = Objects.requireNonNull(collector, "collector");
         executor = queryExecutor;
         if (workerLimit < 1) {
@@ -90,6 +125,8 @@ public final class ModuleImpactTracer {
         }
         parallelism = workerLimit;
         workersObserver = Objects.requireNonNull(observer, "observer");
+        resultRefinements = Objects.requireNonNull(
+                refinements, "refinements");
     }
 
     /**
@@ -106,6 +143,8 @@ public final class ModuleImpactTracer {
                 "module-analysis", "impact-query").withModule(
                 unit.getModuleId().stableKey());
         final QueryPlan plan = plan(unit, session);
+        final ChaLocalReceiverEdgeRefiner edgeRefiner =
+                new ChaLocalReceiverEdgeRefiner(session, resultRefinements);
         final int workers = plan.works().isEmpty() ? 0
                 : executor == null ? 1
                 : Math.min(parallelism, plan.works().size());
@@ -116,12 +155,22 @@ public final class ModuleImpactTracer {
                      SeedProgressReporter.open(diagnostics, context)) {
             final QueryExecution execution = execute(
                     unit.getModuleId(), session, plan.works(), workers,
-                    seedProgress);
+                    seedProgress, edgeRefiner);
+            final ChaLocalReceiverRefinementSummary refinement =
+                    edgeRefiner.summary();
             final ModuleImpactQueryResult result = finish(
-                    plan, execution, context);
+                    plan, execution, context, refinement);
+            traceRefinementExamples(context, refinement);
             diagnostics.endStage(context, "Task completed; seeds="
                     + plan.seedCount() + "; queryNodes="
-                    + plan.works().size() + "; workers=" + workers);
+                    + plan.works().size() + "; workers=" + workers
+                    + "; chaLocalReceiver="
+                    + refinement.status().label() + "; checkedEdges="
+                    + refinement.metrics().uniqueEvaluatedEdges()
+                    + "; prunedEdges="
+                    + refinement.metrics().prunedEdges()
+                    + "; unknownEdges="
+                    + refinement.metrics().retainedUnknownEdges());
             return result;
         } catch (RuntimeException exception) {
             diagnostics.failStage(context, "Task failed: "
@@ -238,14 +287,16 @@ public final class ModuleImpactTracer {
             final ModuleCallGraphSession session,
             final List<QueryWork> works,
             final int workers,
-            final SeedProgressReporter progress) {
+            final SeedProgressReporter progress,
+            final ChaLocalReceiverEdgeRefiner edgeRefiner) {
         final QueryExecution result = new QueryExecution();
         if (works.isEmpty()) {
             return result;
         }
         if (executor == null) {
             for (QueryWork work : works) {
-                result.merge(runWork(moduleId, session, work, progress));
+                result.merge(runWork(moduleId, session, work, progress,
+                        edgeRefiner));
             }
             return result;
         }
@@ -255,7 +306,7 @@ public final class ModuleImpactTracer {
         int next = 0;
         while (next < works.size() && active.size() < workers) {
             active.add(submit(completion, moduleId, session,
-                    works.get(next++), progress));
+                    works.get(next++), progress, edgeRefiner));
         }
         try {
             while (!active.isEmpty()) {
@@ -264,7 +315,7 @@ public final class ModuleImpactTracer {
                 result.merge(completed.get());
                 if (next < works.size()) {
                     active.add(submit(completion, moduleId, session,
-                            works.get(next++), progress));
+                            works.get(next++), progress, edgeRefiner));
                 }
             }
             return result;
@@ -301,16 +352,18 @@ public final class ModuleImpactTracer {
             final ModuleId moduleId,
             final ModuleCallGraphSession session,
             final QueryWork work,
-            final SeedProgressReporter progress) {
+            final SeedProgressReporter progress,
+            final ChaLocalReceiverEdgeRefiner edgeRefiner) {
         return completion.submit(() -> runWork(
-                moduleId, session, work, progress));
+                moduleId, session, work, progress, edgeRefiner));
     }
 
     private QueryNodeResult runWork(
             final ModuleId moduleId,
             final ModuleCallGraphSession session,
             final QueryWork work,
-            final SeedProgressReporter progress) {
+            final SeedProgressReporter progress,
+            final ChaLocalReceiverEdgeRefiner edgeRefiner) {
         final int active;
         synchronized (workerLifecycle) {
             if (Thread.currentThread().isInterrupted()) {
@@ -322,7 +375,7 @@ public final class ModuleImpactTracer {
         try (SeedProgressTracker tracker = progress.startQueryNode(
                      work.ordinal(), work.node(), work.evidenceSeeds())) {
             ReverseTrace reverse = reverse(
-                    moduleId, work.node(), session, tracker);
+                    moduleId, work.node(), session, tracker, edgeRefiner);
             tracker.reverseCompleted(reverse.visited().size());
             final List<ImpactPath> paths = new ArrayList<>();
             for (OrdinarySeedBinding binding : work.ordinary()) {
@@ -367,7 +420,8 @@ public final class ModuleImpactTracer {
     private ModuleImpactQueryResult finish(
             final QueryPlan plan,
             final QueryExecution execution,
-            final DiagnosticContext context) {
+            final DiagnosticContext context,
+            final ChaLocalReceiverRefinementSummary refinement) {
         final Map<BoundChangePoint, Map<String, ImpactPath>> ordinary =
                 new LinkedHashMap<>();
         for (ImpactPath path : execution.paths()) {
@@ -426,7 +480,21 @@ public final class ModuleImpactTracer {
                 + "; reverseBfs=" + plan.works().size());
         return new ModuleImpactQueryResult(paths, structuralPaths,
                 stableDispositions, plan.observations(),
-                plan.limitations().stream().sorted().toList());
+                plan.limitations().stream().sorted().toList(), refinement);
+    }
+
+    private void traceRefinementExamples(
+            final DiagnosticContext context,
+            final ChaLocalReceiverRefinementSummary refinement) {
+        for (ChaLocalReceiverRefinementSummary.EdgeExample example
+                : refinement.examples()) {
+            diagnostics.trace(context, "cha-local-receiver-edge; caller="
+                    + example.caller() + "; callee=" + example.callee()
+                    + "; pc=" + example.programCounter() + "; invoke="
+                    + example.invocationKind() + "; decision="
+                    + example.decision() + "; reason=" + example.reason()
+                    + "; receiver=" + example.receiverSummary());
+        }
     }
 
     private void mergeObservations(
@@ -583,7 +651,8 @@ public final class ModuleImpactTracer {
             final ModuleId moduleId,
             final QueryNode seed,
             final ModuleCallGraphSession session,
-            final SeedProgressTracker tracker) {
+            final SeedProgressTracker tracker,
+            final ChaLocalReceiverEdgeRefiner edgeRefiner) {
         final Map<QueryNode, QueryNode> next = new HashMap<>();
         final Queue<QueryNode> queue = new ArrayDeque<>();
         final Set<QueryNode> visited = new HashSet<>();
@@ -597,7 +666,7 @@ public final class ModuleImpactTracer {
             final QueryNode current = queue.remove();
             tracker.reverseProgress(current, visited.size());
             final List<QueryNode> predecessors = predecessors(
-                    moduleId, current, session);
+                    moduleId, current, session, edgeRefiner);
             predecessors.sort(queryNodeComparator());
             for (QueryNode predecessor : predecessors) {
                 if (visited.add(predecessor)) {
@@ -773,7 +842,8 @@ public final class ModuleImpactTracer {
     private List<QueryNode> predecessors(
             final ModuleId moduleId,
             final QueryNode node,
-            final ModuleCallGraphSession session) {
+            final ModuleCallGraphSession session,
+            final ChaLocalReceiverEdgeRefiner edgeRefiner) {
         final Set<QueryNode> result = new LinkedHashSet<>();
         if (node instanceof WalaQueryNode) {
             final CGNode walaNode = ((WalaQueryNode) node).walaNode();
@@ -782,8 +852,10 @@ public final class ModuleImpactTracer {
             walaPredecessors.removeIf(value ->
                     isSyntheticRoot(value, session));
             for (CGNode predecessor : walaPredecessors) {
-                result.add(queryNode(
-                        moduleId, predecessor, session));
+                if (edgeRefiner.shouldTraverse(predecessor, walaNode)) {
+                    result.add(queryNode(
+                            moduleId, predecessor, session));
+                }
             }
         }
         return new ArrayList<>(result);

@@ -12,9 +12,11 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/report/PerModuleHtmlReportGenerator.java"
     desc: "impact HTML Index 与 Module pages"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/AnalysisRunResult.java"
-    desc: "run status、selected algorithm、试验性semantic comparison配置与metrics"
+    desc: "run status、selected algorithm、result refinement selection与metrics"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleAnalysisResult.java"
-    desc: "Module detail result"
+    desc: "Module detail与receiver refinement summary"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChaLocalReceiverRefinementSummary.java"
+    desc: "HTML使用的typed local receiver状态与计数"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleCallGraphSnapshot.java"
     desc: "不引用WALA session的report-safe Call Graph metrics"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/SnapshotQueryNode.java"
@@ -48,7 +50,8 @@ code_refs:
 
 ## Behavior Contract
 
-- Overall technical details展示effective Algorithm、JDK Method Model、WALA ReflectionOptions applied/not-applied状态及试验性Bytecode semantic comparison的enabled/disabled状态。
+- Overall technical details展示effective Algorithm、JDK Method Model、WALA ReflectionOptions applied/not-applied状态、统一`Result refinement algorithms`选择，以及CHA local receiver与SSA equivalence各自的experimental/applied状态。
+- Module technical details展示local receiver的edge request/unique/cache hit、callsite/invoke、pruned/feasible/unknown/not-applicable及exact/upper/no-target/unknown resolution计数；HTML不展示具体edge example。
 - Overall汇总 changed-paths/full/fallback Module 数量、real-IR/no-op external artifact 数量、no-op/factory method node、dangerous transfer与 `INCONCLUSIVE` 比例。
 - CHA Module同时展示ancestor-retained external type/method node与pruned external method target计数。Artifact-level `REAL_IR/NO_OP`列表不因type-level ancestor exception被误报为整个JAR使用真实IR。
 - Access narrowing member展示old/new access、typed decision/reason及代表性caller/reference evidence。
@@ -107,8 +110,10 @@ Index 记录：
 ### Functional
 
 - Given default command configuration；When发布Report；Then technical details显示`cha`、`none`与`not applied by cha`，terminal显示Evidence kind/mechanism。
-- Given未启用试验性bytecode semantic comparison；When发布Report；ThenOverall与Module technical details显示`disabled (experimental)`，SSA worker为`0 (disabled)`且counts为`not run`。
-- Given显式启用试验性bytecode semantic comparison；When发布Report；Then显示`enabled (experimental)`、单一SSA worker与实际equivalent/different/unknown counts。
+- Given默认`none`；When发布Report；Then统一选择显示`none`，CHA local receiver与SSA equivalence均显示`disabled (experimental)`，SSA worker为`0 (disabled)`且counts为`not run`。
+- GivenCHA local-only；When发布Report；Thenlocal显示`applied (experimental)`与实际Module计数，SSA显示disabled且无SSA worker/stage/count。
+- Given非CHA选择local；When发布Report；Thenlocal显示`not applied by non-cha (experimental)`，其他Call Graph行为不变。
+- Given选择SSA equivalence；When发布Report；Then显示`enabled (experimental)`、单一SSA worker与实际equivalent/different/unknown counts。
 - Given access reference全部仍合法；When发布Dependency Changes；Then显示`ACCESS_REMAINS_VALID`与old/new access，Affected Call Chains中不存在虚假path。
 - Given potential access reference；When发布Report；Then明确标注`Potential access incompatibility`且不改变Module status。
 - Given dangerous transfer或flow-to-cast factory；When发布Report；ThenModule reason为`INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY`并展示caller、callee、artifact、PC、typed proof/type与dependency path evidence。

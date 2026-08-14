@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -ne 7 ]; then
-  echo "usage: $0 <overall-report.html> <exit-code.txt> <fixture-project> <call-graph-algorithm> <wala-reflection-options> <dependency-analysis-scope> <jdk-model>" >&2
+if [ "$#" -ne 8 ]; then
+  echo "usage: $0 <overall-report.html> <exit-code.txt> <fixture-project> <call-graph-algorithm> <wala-reflection-options> <dependency-analysis-scope> <jdk-model> <result-refinement-algorithms>" >&2
   exit 2
 fi
 
@@ -13,6 +13,7 @@ algorithm=$4
 reflection_options=$5
 dependency_scope=$6
 jdk_model=$7
+result_refinements=$8
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 expected_results="$script_dir/../expected-results.tsv"
 
@@ -47,6 +48,11 @@ esac
 case "$dependency_scope" in
   changed-paths|full) ;;
   *) fail "unsupported dependency analysis scope: $dependency_scope" ;;
+esac
+
+case "$result_refinements" in
+  none|ssa-equivalence|cha-local-receiver-inference|cha-local-receiver-inference,ssa-equivalence) ;;
+  *) fail "unsupported result refinement selection: $result_refinements" ;;
 esac
 
 [ -f "$exit_code_file" ] || fail "missing exit code file: $exit_code_file"
@@ -182,10 +188,43 @@ if [ "$algorithm" = cha ]; then
   grep -q 'SERVICE_LOADER_LOCAL_CONSTANT_UNRESOLVED' "$module_dir"/*.html \
     || fail "unsupported ServiceLoader limitation is missing"
 fi
-grep -q 'View candidate chains filtered as equivalent' "$module_dir"/*-impact.html \
-  || fail "filtered candidate chain is missing"
-grep -q '<th>Bytecode semantic comparison</th><td>enabled (experimental)</td>' "$report" \
-  || fail "experimental bytecode semantic comparison is not enabled"
+grep -F -q "<th>Result refinement algorithms</th><td>$result_refinements (experimental)</td>" "$report" \
+  || fail "result refinement selection does not match $result_refinements"
+case ",$result_refinements," in
+  *,ssa-equivalence,*)
+    grep -q 'View candidate chains filtered as equivalent' "$module_dir"/*-impact.html \
+      || fail "filtered candidate chain is missing"
+    grep -q '<th>SSA equivalence</th><td>enabled (experimental)</td>' "$report" \
+      || fail "SSA equivalence is not enabled"
+    ;;
+  *)
+    ! grep -q 'View candidate chains filtered as equivalent' "$module_dir"/*-impact.html \
+      || fail "SSA-specific filtered chain is present without SSA equivalence"
+    grep -q '<th>SSA equivalence</th><td>disabled (experimental)</td>' "$report" \
+      || fail "SSA equivalence disabled state is missing"
+    ;;
+esac
+case ",$result_refinements," in
+  *,cha-local-receiver-inference,*)
+    if [ "$algorithm" = cha ]; then
+      grep -q '<th>CHA local receiver inference</th><td>applied (experimental)</td>' "$report" \
+        || fail "CHA local receiver inference applied state is missing"
+      grep -q 'ChaLocalReceiverUseCase\$ChangedReceiver' "$module_dir"/*-impact.html \
+        || fail "ChangedReceiver impact path is missing"
+      ! grep -q 'unrelatedReceiverPath' "$module_dir"/*-impact.html \
+        || fail "infeasible unrelated receiver caller remains in impact paths"
+      grep -E -q '<th>CHA receiver edges checked / pruned / unknown</th><td>[0-9]+ / [1-9][0-9]* / [0-9]+</td>' "$module_dir"/*.html \
+        || fail "CHA local receiver pruned-edge count is missing"
+    else
+      grep -q '<th>CHA local receiver inference</th><td>not applied by non-cha (experimental)</td>' "$report" \
+        || fail "non-CHA not-applied state is missing"
+    fi
+    ;;
+  *)
+    grep -q '<th>CHA local receiver inference</th><td>disabled (experimental)</td>' "$report" \
+      || fail "CHA local receiver disabled state is missing"
+    ;;
+esac
 
 dependency_count=$(awk '
   /<dependencies>/ { in_dependencies = 1; next }
@@ -218,8 +257,12 @@ for hidden_kind in $hidden_change_kinds; do
     || fail "no-path change should be hidden: $hidden_kind"
 done
 
-grep -q 'Equivalent (filtered)' $changes_pages \
-  || fail "filtered change badge is missing"
+case ",$result_refinements," in
+  *,ssa-equivalence,*)
+    grep -q 'Equivalent (filtered)' $changes_pages \
+      || fail "filtered change badge is missing"
+    ;;
+esac
 grep -q 'View code changes' $changes_pages \
   || fail "code comparison controls are missing"
 grep -q 'Decompiled Java representation' $changes_pages \
@@ -230,11 +273,11 @@ grep -q 'Structural impact' $changes_pages \
   || fail "structural impact badge is missing"
 
 [ -f "$expected_results" ] || fail "missing expected results: $expected_results"
-expected=$(awk -F '\t' -v requested_scope="$dependency_scope" -v requested_model="$jdk_model" -v requested_algorithm="$algorithm" '
+expected=$(awk -F '\t' -v requested_scope="$dependency_scope" -v requested_model="$jdk_model" -v requested_algorithm="$algorithm" -v requested_refinements="$result_refinements" '
   BEGIN { requested_depth = requested_algorithm == "k-obj" ? "1" : "" }
-  $0 !~ /^#/ && NF == 6 && $1 == requested_scope && $2 == requested_model && $3 == requested_algorithm && $4 == requested_depth { print $5 "\t" $6; found++ }
+  $0 !~ /^#/ && NF == 7 && $1 == requested_scope && $2 == requested_model && $3 == requested_algorithm && $4 == requested_depth && $5 == requested_refinements { print $6 "\t" $7; found++ }
   END { if (found > 1) exit 2 }
-' "$expected_results") || fail "duplicate expected result for $jdk_model/$algorithm"
+' "$expected_results") || fail "duplicate expected result for $jdk_model/$algorithm/$result_refinements"
 
 if [ -n "$expected" ]; then
   expected_candidate=$(printf '%s\n' "$expected" | awk -F '\t' '{print $1}')
@@ -246,10 +289,10 @@ if [ -n "$expected" ]; then
     echo "expected_count=PENDING_CALIBRATION"
   else
     grep -F -q "<th>Candidate / final call chains</th><td>$expected_candidate / $expected_final</td>" "$report" \
-      || fail "candidate/final call chains do not match $jdk_model/$algorithm baseline $expected_candidate / $expected_final"
+      || fail "candidate/final call chains do not match $jdk_model/$algorithm/$result_refinements baseline $expected_candidate / $expected_final"
   fi
 elif [ "${BENCHMARK_CALIBRATION:-0}" != 1 ]; then
-  fail "no locked expected count for $jdk_model/$algorithm; rerun only for review with BENCHMARK_CALIBRATION=1"
+  fail "no locked expected count for $jdk_model/$algorithm/$result_refinements; rerun only for review with BENCHMARK_CALIBRATION=1"
 else
   echo "expected_count=UNLOCKED_CALIBRATION"
 fi
@@ -259,6 +302,7 @@ echo "direct_dependencies=$dependency_count"
 echo "raw_change_kinds=10"
 echo "dependency_analysis_scope=$dependency_scope"
 echo "jdk_model=$jdk_model"
+echo "result_refinement_algorithms=$result_refinements"
 echo "visible_change_kinds=$visible_change_kind_count"
 if [ -n "$expected" ] && [ "$expected_candidate" != PENDING ]; then
   echo "candidate_final_call_chains=$expected_candidate/$expected_final"

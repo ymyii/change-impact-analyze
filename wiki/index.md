@@ -47,7 +47,7 @@ code_refs: []
 - Summary: logical coordinate pair经repository lease并行去重Diff；检测bytecode、JVM access narrowing与ServiceLoader registration removal，并按唯一pair汇总changes/failure。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
-- Summary: CHA changed-paths裁剪无关external target并传递保留external祖先type；固定JDK leaf、Object Diff-directed policy、五种algorithm capability与Schema v8 diagnostics。
+- Summary: CHA changed-paths裁剪无关external target并传递保留external祖先type；固定JDK leaf、Object Diff-directed policy、查询期local Receiver结果收窄、五种algorithm capability与Schema v9 diagnostics。
 
 ### [JDK Method Models](features/jdk-method-models.md)
 - Summary: CHA固定`none`；四种非CHA algorithm默认接入独立`models/jdk8`精确catalog，并允许显式`none`。
@@ -84,6 +84,6 @@ code_refs: []
 - Summary: Maven Versions/Enforcer驱动四个独立artifact的Snapshot iteration、Stable release、commit与component Git tag。
 
 ### [Impact Benchmark](runbooks/impact-benchmark.md)
-- Summary: changed-paths/full各执行5次warm-up、25次formal与4次非CHA`none`control；68个JVM和18组semantic baseline通过后原子发布。
+- Summary: changed-paths/full各执行5次warm-up、25次formal、4次非CHA`none`control与1次CHA local-only control；70个JVM和20组refinement-aware semantic baseline通过后原子发布。
 
 ## Glossary

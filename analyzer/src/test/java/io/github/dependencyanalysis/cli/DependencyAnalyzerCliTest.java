@@ -5,6 +5,8 @@ import io.github.dependencyanalysis.callgraph.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
 import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis.impact.DependencyAnalysisScopeMode;
+import io.github.dependencyanalysis.impact.ResultRefinementAlgorithm;
+import io.github.dependencyanalysis.impact.ResultRefinementSelection;
 
 import org.junit.jupiter.api.Test;
 import picocli.CommandLine;
@@ -125,7 +127,9 @@ class DependencyAnalyzerCliTest {
                 .contains("--k-obj-depth")
                 .contains("--jdk-model")
                 .contains("--dependency-analysis-scope")
-                .contains("--experimental-bytecode-semantic-comparison")
+                .contains("--result-refinement-algorithms")
+                .doesNotContain(
+                        "--experimental-bytecode-semantic-comparison")
                 .contains("--call-graph-diagnostics-output")
                 .contains("--wala-reflection-options")
                 .contains("--entrypoint-include")
@@ -353,7 +357,7 @@ class DependencyAnalyzerCliTest {
     }
 
     @Test
-    void bytecodeSemanticComparisonDefaultsOffAndParsesOptIn() {
+    void resultRefinementsDefaultToNoneAndParseCanonicalOrder() {
         final CommandLine defaultCommand = DependencyAnalyzerCli
                 .newCommandLine(new DependencyAnalyzerCli());
         final CommandLine enabledCommand = DependencyAnalyzerCli
@@ -365,10 +369,38 @@ class DependencyAnalyzerCliTest {
         final CommandLine.ParseResult enabledResult =
                 enabledCommand.parseArgs("impact", "--baseline", "HEAD",
                         "--output", "report.html",
-                        "--experimental-bytecode-semantic-comparison");
+                        "--result-refinement-algorithms",
+                        " SSA-EQUIVALENCE, "
+                                + "CHA-LOCAL-RECEIVER-INFERENCE,"
+                                + "ssa-equivalence ");
 
-        assertThat(semanticComparison(defaultResult)).isFalse();
-        assertThat(semanticComparison(enabledResult)).isTrue();
+        assertThat(resultRefinements(defaultResult).isEmpty()).isTrue();
+        assertThat(resultRefinements(enabledResult).algorithms())
+                .containsExactly(
+                        ResultRefinementAlgorithm
+                                .CHA_LOCAL_RECEIVER_INFERENCE,
+                        ResultRefinementAlgorithm.SSA_EQUIVALENCE);
+        assertThat(resultRefinements(enabledResult).toString()).isEqualTo(
+                "cha-local-receiver-inference,ssa-equivalence");
+    }
+
+    @Test
+    void invalidResultRefinementsAndRemovedFlagAreRejected() {
+        for (String value : new String[]{"none,ssa-equivalence", "unknown",
+                "ssa-equivalence,", ""}) {
+            final CommandLine command = DependencyAnalyzerCli
+                    .newCommandLine(new DependencyAnalyzerCli());
+            assertThat(command.execute("impact", "--baseline", "HEAD",
+                    "--output", "report.html",
+                    "--result-refinement-algorithms", value))
+                    .as(value).isEqualTo(1);
+        }
+        final int removed = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli())
+                .execute("impact", "--baseline", "HEAD",
+                        "--output", "report.html",
+                        "--experimental-bytecode-semantic-comparison");
+        assertThat(removed).isEqualTo(1);
     }
 
     @Test
@@ -489,9 +521,9 @@ class DependencyAnalyzerCliTest {
                 "--dependency-analysis-scope").getValue();
     }
 
-    private boolean semanticComparison(
+    private ResultRefinementSelection resultRefinements(
             final CommandLine.ParseResult result) {
         return result.subcommand().commandSpec().findOption(
-                "--experimental-bytecode-semantic-comparison").getValue();
+                "--result-refinement-algorithms").getValue();
     }
 }

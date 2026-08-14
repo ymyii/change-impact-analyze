@@ -149,7 +149,7 @@ Class/Reflection、Proxy、ClassLoader、ServiceLoader、MethodHandle 与 `invok
 - [x] model JAR不shade WALA，也不包含Analyzer class。
 - [x] host JDK `jrt:/` test验证公共engine没有`rt.jar` layout依赖。
 - [x] JDK 8 fixed-point test记录wall time、nodes、edges、JDK nodes和hit count，但不设置性能硬阈值。
-- [x] `impact`、五种strategy、CLI、pipeline、Diagnostic、Report和Schema v8已接入；用户输出展示effective model selection，`k-obj`额外展示实际深度。
+- [x] `impact`、五种strategy、CLI、pipeline、Diagnostic、Report和Schema v9已接入；用户输出展示effective model selection，`k-obj`额外展示实际深度。
 
 ## Edge Cases
 

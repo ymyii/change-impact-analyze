@@ -52,6 +52,9 @@ def rows(path: Path, expected_scope: str) -> dict[str, dict[str, str]]:
            != ("none" if value.get("algorithm") == "cha" else "jdk8")
            for value in values):
         raise ValueError(f"JDK model mismatch: {path}")
+    if any(value.get("result_refinement_algorithms") != "ssa-equivalence"
+           for value in values):
+        raise ValueError(f"result refinement mismatch: {path}")
     return result
 
 

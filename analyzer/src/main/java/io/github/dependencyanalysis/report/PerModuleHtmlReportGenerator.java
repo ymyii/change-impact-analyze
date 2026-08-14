@@ -25,6 +25,9 @@ import io.github.dependencyanalysis.impact.MethodEquivalenceStatus;
 import io.github.dependencyanalysis.impact.ModuleAnalysisResult;
 import io.github.dependencyanalysis.impact.ModuleAnalysisStatus;
 import io.github.dependencyanalysis.impact.QueryNode;
+import io.github.dependencyanalysis.impact.ResultRefinementAlgorithm;
+import io.github.dependencyanalysis.impact.ResultRefinementSelection;
+import io.github.dependencyanalysis.impact.ChaLocalReceiverRefinementSummary;
 import io.github.dependencyanalysis.impact.StructuralReferencePath;
 import io.github.dependencyanalysis.impact.WalaQueryNode;
 import io.github.dependencyanalysis.impact.SnapshotQueryNode;
@@ -137,7 +140,7 @@ public final class PerModuleHtmlReportGenerator {
                     maven.getSource().toString(),
                     entrypointSelectionLabel(run),
                     "embedded " + plugin.getVersion(),
-                    run.isExperimentalBytecodeSemanticComparisonEnabled());
+                    run.getResultRefinementSelection());
             final Map<ModuleAnalysisResult, ModulePages> pages =
                     writeModulePages(run, modules, events,
                             absolute.getFileName().toString(), moduleRuntime);
@@ -190,8 +193,8 @@ public final class PerModuleHtmlReportGenerator {
             final OverallContext context) throws IOException {
         writeDocument(target, "Impact Analysis Report", "Overall", "", "",
                 overallToc(), body -> {
-        final boolean semanticComparison = run
-                .isExperimentalBytecodeSemanticComparisonEnabled();
+        final boolean semanticComparison = run.getResultRefinementSelection()
+                .isEnabled(ResultRefinementAlgorithm.SSA_EQUIVALENCE);
         body
                 .append("<h1 id=\"top\">Impact Analysis Report</h1>")
                 .append("<section id=\"read\"><h2>How to read this report")
@@ -271,8 +274,13 @@ public final class PerModuleHtmlReportGenerator {
                                 : run.getReflectionOptions().identifier()))
                 .append(row("JDK method model",
                         run.getJdkModel().identifier()))
-                .append(row("Bytecode semantic comparison",
-                        semanticComparisonStatus(semanticComparison)))
+                .append(row("Result refinement algorithms",
+                        refinementSelectionStatus(
+                                run.getResultRefinementSelection())))
+                .append(row("CHA local receiver inference",
+                        chaReceiverStatus(run)))
+                .append(row("SSA equivalence",
+                        experimentalStatus(semanticComparison)))
                 .append(row("WALA", walaVersion()))
                 .append(row("SSA equivalence workers",
                         ssaWorkers(semanticComparison)))
@@ -428,12 +436,20 @@ public final class PerModuleHtmlReportGenerator {
                 .append(sessionRows(module))
                 .append(row("Raw status", module.getStatus()))
                 .append(row("Raw reason", module.getReason()))
-                .append(row("Bytecode semantic comparison",
-                        semanticComparisonStatus(runtime
-                                .semanticComparisonEnabled())))
+                .append(row("Result refinement algorithms",
+                        refinementSelectionStatus(runtime.refinements())))
+                .append(row("CHA local receiver inference",
+                        module.getReceiverRefinement().status().label()
+                                + " (experimental)"))
+                .append(receiverRefinementRows(module))
+                .append(row("SSA equivalence",
+                        experimentalStatus(runtime.refinements().isEnabled(
+                                ResultRefinementAlgorithm
+                                        .SSA_EQUIVALENCE))))
                 .append(row("SSA equivalent / different / unknown",
-                        ssaCounts(List.of(module), runtime
-                                .semanticComparisonEnabled())))
+                        ssaCounts(List.of(module), runtime.refinements()
+                                .isEnabled(ResultRefinementAlgorithm
+                                        .SSA_EQUIVALENCE))))
                 .append(row("Raw dependency / member changes",
                         module.getUnit().getDependencyChanges().size() + " / "
                                 + module.getUnit().getChangePoints().size()))
@@ -1542,9 +1558,45 @@ public final class PerModuleHtmlReportGenerator {
         return enabled ? ssaCounts(modules) : "not run";
     }
 
-    private String semanticComparisonStatus(final boolean enabled) {
+    private String experimentalStatus(final boolean enabled) {
         return enabled ? "enabled (experimental)"
                 : "disabled (experimental)";
+    }
+
+    private String refinementSelectionStatus(
+            final ResultRefinementSelection selection) {
+        return selection.isEmpty() ? ResultRefinementSelection.NONE
+                : selection + " (experimental)";
+    }
+
+    private String chaReceiverStatus(final AnalysisRunResult run) {
+        if (!run.getResultRefinementSelection().isEnabled(
+                ResultRefinementAlgorithm.CHA_LOCAL_RECEIVER_INFERENCE)) {
+            return "disabled (experimental)";
+        }
+        return run.getCallGraphAlgorithm() == CallGraphAlgorithm.CHA
+                ? "applied (experimental)"
+                : "not applied by non-cha (experimental)";
+    }
+
+    private String receiverRefinementRows(
+            final ModuleAnalysisResult module) {
+        final ChaLocalReceiverRefinementSummary.Metrics metrics =
+                module.getReceiverRefinement().metrics();
+        return row("CHA receiver edges checked / pruned / unknown",
+                metrics.uniqueEvaluatedEdges() + " / "
+                        + metrics.prunedEdges() + " / "
+                        + metrics.retainedUnknownEdges())
+                + row("CHA receiver edge cache hits",
+                metrics.cacheHits())
+                + row("CHA receiver callsites / invokes checked",
+                metrics.callsitesChecked() + " / "
+                        + metrics.invokeInstancesChecked())
+                + row("CHA receiver exact / upper / no-target / unknown",
+                metrics.exactResolutions() + " / "
+                        + metrics.upperBoundResolutions() + " / "
+                        + metrics.noNormalTargetResolutions() + " / "
+                        + metrics.unknownResolutions());
     }
 
     private String ssaWorkers(final boolean enabled) {
@@ -1935,7 +1987,7 @@ public final class PerModuleHtmlReportGenerator {
      * @param mavenSource selected Maven runtime source
      * @param entrypointBoundary selected PROJECT entrypoint boundary
      * @param pluginVersion Maven Dependency Plugin source/version
-     * @param semanticComparisonEnabled experimental comparison toggle
+     * @param refinements command-wide result-refinement selection
      */
     private record ModuleRuntime(
             String jdkVersion,
@@ -1943,6 +1995,6 @@ public final class PerModuleHtmlReportGenerator {
             String mavenSource,
             String entrypointBoundary,
             String pluginVersion,
-            boolean semanticComparisonEnabled) {
+            ResultRefinementSelection refinements) {
     }
 }

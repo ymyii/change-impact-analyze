@@ -8,6 +8,7 @@ import io.github.dependencyanalysis.impact.ChangePointEvidenceIndex;
 /**
  * Immutable metrics and fixed-point model output from one graph build.
  *
+ * @param algorithm effective Call Graph algorithm
  * @param stats graph build metrics
  * @param entrypoints entrypoint selection metrics
  * @param strategyModels immutable algorithm model metadata
@@ -17,6 +18,7 @@ import io.github.dependencyanalysis.impact.ChangePointEvidenceIndex;
  * @param topology optional read-only benchmark topology capture
  */
 record ModuleCallGraphMetadata(
+        CallGraphAlgorithm algorithm,
         CallGraphStats stats,
         EntrypointSelectionMetrics entrypoints,
         StrategyModelMetadata strategyModels,
@@ -26,6 +28,7 @@ record ModuleCallGraphMetadata(
         CallGraphTopologySnapshot topology) {
 
     ModuleCallGraphMetadata {
+        Objects.requireNonNull(algorithm, "algorithm");
         Objects.requireNonNull(stats, "stats");
         Objects.requireNonNull(entrypoints, "entrypoints");
         Objects.requireNonNull(strategyModels, "strategyModels");
