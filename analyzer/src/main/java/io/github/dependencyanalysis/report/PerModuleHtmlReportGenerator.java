@@ -1,5 +1,11 @@
 package io.github.dependencyanalysis.report;
 
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.SerializableString;
+import com.fasterxml.jackson.core.io.CharacterEscapes;
+import com.fasterxml.jackson.core.io.SerializedString;
+
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
@@ -13,7 +19,6 @@ import io.github.dependencyanalysis.diagnostic.DiagnosticLogFormatter;
 import io.github.dependencyanalysis.impact.AnalysisRunResult;
 import io.github.dependencyanalysis.impact.BoundChangePoint;
 import io.github.dependencyanalysis.impact.CodeComparisonEvidence;
-import io.github.dependencyanalysis.impact.CodeComparisonStatus;
 import io.github.dependencyanalysis.impact.ChangePointDisposition;
 import io.github.dependencyanalysis.impact.DependencyBoundarySnapshot;
 import io.github.dependencyanalysis.impact.DependencyUpgradeKey;
@@ -38,6 +43,8 @@ import io.github.dependencyanalysis.runtime.MavenDependencyPluginRuntime;
 import io.github.dependencyanalysis.runtime.MavenRuntimeDescriptor;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.io.Writer;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -49,8 +56,10 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /** Atomically publishes the English multi-page Impact HTML report. */
@@ -65,6 +74,19 @@ public final class PerModuleHtmlReportGenerator {
 
     /** Stable hash prefix length. */
     private static final int HASH_LENGTH = 12;
+
+    /** Unicode line separator escaped inside embedded JSON. */
+    private static final int LINE_SEPARATOR = 0x2028;
+
+    /** Unicode paragraph separator escaped inside embedded JSON. */
+    private static final int PARAGRAPH_SEPARATOR = 0x2029;
+
+    /** Script-safe JSON writer for browser-resident report data. */
+    private static final JsonFactory JSON = jsonFactory();
+
+    /** Inlined offline Affected Paths interaction script. */
+    private static final String AFFECTED_PATHS_SCRIPT = resource(
+            "/io/github/dependencyanalysis/report/affected-paths.js");
 
     /** Shared offline CSS. */
     private static final String CSS =
@@ -99,6 +121,22 @@ public final class PerModuleHtmlReportGenerator {
             + "font-size:12px;font-weight:700}.badge.filtered{background:"
             + "#fff8c5;color:#7d4e00}.badge.structural{background:#dafbe1;"
             + "color:#116329}.diff{white-space:pre;tab-size:4}"
+            + ".report-controls{display:flex;gap:14px;align-items:end;"
+            + "flex-wrap:wrap;margin:12px 0}.report-control{display:grid;"
+            + "gap:4px}.report-control input,.report-control select,button{"
+            + "font:inherit;padding:6px 8px}.table-scroll{overflow-x:auto}"
+            + ".path-table{min-width:1120px}.path-sequence{min-width:300px;"
+            + "overflow-wrap:anywhere}.pagination{display:flex;gap:8px;"
+            + "align-items:center;flex-wrap:wrap;margin:12px 0}"
+            + ".pagination input{width:72px}.path-details-row td{padding:0}"
+            + ".path-details{padding:16px;background:#fbfcfe}"
+            + ".path-details h3{margin-top:0}.diff-code{display:block}"
+            + ".diff-line{display:block;min-height:1.55em;padding:0 6px}"
+            + ".diff-add,.diff-file-new{color:#116329;background:#dafbe1}"
+            + ".diff-delete,.diff-file-old{color:#cf222e;background:#ffebe9}"
+            + ".diff-hunk{color:#0550ae;background:#ddf4ff}"
+            + ".diff-file-new,.diff-file-old,.diff-hunk{font-weight:700}"
+            + ".hidden{display:none!important}"
             + "summary{cursor:pointer;font-weight:600}.sequence{font-size:14px}"
             + "@media(max-width:800px){.layout{display:block;padding:14px}"
             + ".toc{position:static;margin-bottom:20px}"
@@ -172,13 +210,10 @@ public final class PerModuleHtmlReportGenerator {
             }
             final String base = moduleBase(module);
             final ModulePages pages = new ModulePages(
-                    base + ".html", base + "-impact.html",
-                    base + "-changes.html");
+                    base + ".html", base + "-impact.html");
             writeModuleIndexPage(directory.resolve(pages.index()), module,
                     events, pages, overallFile, runtime);
             writeImpactPage(directory.resolve(pages.impact()), module,
-                    pages, overallFile);
-            writeChangesPage(directory.resolve(pages.changes()), module,
                     pages, overallFile);
             result.put(module, pages);
         }
@@ -199,9 +234,9 @@ public final class PerModuleHtmlReportGenerator {
                 .append("<h1 id=\"top\">Impact Analysis Report</h1>")
                 .append("<section id=\"read\"><h2>How to read this report")
                 .append("</h2><p>Start with the Modules table. Open a module ")
-                .append("to review its summary, then use Affected Call Chains ")
-                .append("to see application entry methods and Dependency ")
-                .append("Changes to inspect changed JARs and members.</p>")
+                .append("to review its summary, then use Affected Paths to ")
+                .append("search application methods, inspect paths, and ")
+                .append("review changed dependency members.</p>")
                 .append("</section>")
                 .append("<section id=\"limits\"><h2>Analysis scope and ")
                 .append("limitations</h2><ul><li>The analysis follows ")
@@ -686,420 +721,312 @@ public final class PerModuleHtmlReportGenerator {
         body.append("</table></details></section>");
     }
 
+    // Wiki: wiki/features/report-generator.md - Affected Paths projection
     private void writeImpactPage(
             final Path target,
             final ModuleAnalysisResult module,
             final ModulePages pages,
             final String overallFile) throws IOException {
-        writeDocument(target, "Affected Call Chains",
-                "Affected Call Chains",
+        writeDocument(target, "Affected Paths", "Affected Paths",
                 breadcrumbs(overallFile, module, pages.impact(),
-                        "Affected Call Chains"),
+                        "Affected Paths"),
                 siblingLinks(pages, "impact"), impactToc(), body -> {
-        body
-                .append("<h1 id=\"top\">Affected Call Chains: ")
+        body.append("<h1 id=\"top\">Affected Paths: ")
                 .append(escape(moduleLabel(module)))
-                .append("</h1><section id=\"chains\"><h2>Affected call ")
-                .append("chains</h2>");
-        final boolean reported = appendCallPathGroups(body,
-                module.getFinalPaths(), pages, "final");
-        if (!reported) {
-            body.append("<p>No affected call chain was found within the ")
-                    .append("documented analysis scope.</p>");
+                .append("</h1><section id=\"paths\"><h2>Affected paths</h2>")
+                .append("<p>Filter the browser-resident path data and open ")
+                .append("one row at a time to inspect evidence and code ")
+                .append("changes.</p><div class=\"report-controls\">")
+                .append("<label class=\"report-control\">View type<select ")
+                .append("id=\"path-type\" aria-controls=\"path-table\">")
+                .append("<option value=\"final\" selected>Final</option>")
+                .append("<option value=\"filtered\">Equivalent filtered")
+                .append("</option><option value=\"structural\">Structural")
+                .append("</option><option value=\"all\">All</option>")
+                .append("</select></label><label class=\"report-control\">")
+                .append("Affected method search<input id=\"path-search\" ")
+                .append("type=\"search\" placeholder=\"package.Class#method\"")
+                .append(" aria-controls=\"path-table\"></label>")
+                .append("<label class=\"report-control\">Rows per page")
+                .append("<select id=\"path-page-size\" ")
+                .append("aria-controls=\"path-table\">")
+                .append("<option value=\"10\" selected>10</option>")
+                .append("<option value=\"20\">20</option>")
+                .append("<option value=\"100\">100</option>")
+                .append("</select></label></div>")
+                .append("<p id=\"path-result-summary\" class=\"muted\" ")
+                .append("aria-live=\"polite\"></p><div class=\"table-scroll\">")
+                .append("<table id=\"path-table\" class=\"path-table\">")
+                .append("<caption class=\"muted\">Affected path records")
+                .append("</caption><thead><tr><th>Type</th><th>Impact</th>")
+                .append("<th>Affected application method/member</th>")
+                .append("<th>Changed dependency</th><th>Changed member/class")
+                .append("</th><th>Impact path</th><th>Details</th></tr>")
+                .append("</thead><tbody id=\"path-rows\"></tbody></table>")
+                .append("</div><p id=\"path-empty\" class=\"muted hidden\"")
+                .append(" aria-live=\"polite\"></p>")
+                .append("<nav class=\"pagination\" aria-label=\"Path pages\">")
+                .append("<button id=\"path-first\" type=\"button\">First")
+                .append("</button><button id=\"path-previous\" ")
+                .append("type=\"button\">")
+                .append("Previous</button><label>Page <input id=\"path-page\"")
+                .append(" type=\"number\" min=\"1\" value=\"1\" ")
+                .append("aria-label=\"Current page\"></label>")
+                .append("<span id=\"path-page-count\">of 1</span>")
+                .append("<button id=\"path-next\" type=\"button\">Next")
+                .append("</button><button id=\"path-last\" type=\"button\">")
+                .append("Last</button></nav><noscript><p class=\"warn\">")
+                .append("Affected path browsing requires JavaScript. All ")
+                .append("report data remains embedded in this offline file.")
+                .append("</p></noscript></section>")
+                .append("<script id=\"affected-path-data\" ")
+                .append("type=\"application/json\">");
+        writeImpactData(body, module);
+        body.append("</script><script>")
+                .append(AFFECTED_PATHS_SCRIPT).append("</script>");
+        });
+    }
+
+    private void writeImpactData(
+            final HtmlSink body,
+            final ModuleAnalysisResult module) {
+        final List<BoundChangePoint> members = pathMembers(module);
+        final Map<BoundChangePoint, Integer> memberIds =
+                new LinkedHashMap<>();
+        for (int index = 0; index < members.size(); index++) {
+            memberIds.put(members.get(index), index);
         }
-        body.append("</section><section id=\"filtered\"><h2>Equivalent ")
-                .append("candidate chains</h2>");
-        final List<ImpactPath> filtered = module.getCandidatePaths().stream()
+        try (JsonGenerator json = JSON.createGenerator(body.writer())) {
+            json.disable(JsonGenerator.Feature.AUTO_CLOSE_TARGET);
+            json.writeStartObject();
+            json.writeArrayFieldStart("members");
+            for (int index = 0; index < members.size(); index++) {
+                writeMemberData(json, module, members.get(index), index);
+            }
+            json.writeEndArray();
+            json.writeArrayFieldStart("paths");
+            int pathId = 0;
+            for (ImpactPath path : module.getFinalPaths().stream()
+                    .sorted(impactComparator()).toList()) {
+                writeCallPathData(json, path, memberIds, "final", pathId++);
+            }
+            for (ImpactPath path : filteredPaths(module).stream()
+                    .sorted(impactComparator()).toList()) {
+                writeCallPathData(json, path, memberIds,
+                        "filtered", pathId++);
+            }
+            for (StructuralReferencePath path : module.getStructuralPaths()
+                    .stream().sorted(structuralComparator()).toList()) {
+                writeStructuralPathData(json, path, memberIds, pathId++);
+            }
+            json.writeEndArray();
+            json.writeEndObject();
+        } catch (IOException exception) {
+            throw new UncheckedIOException(exception);
+        }
+    }
+
+    private List<BoundChangePoint> pathMembers(
+            final ModuleAnalysisResult module) {
+        final Set<BoundChangePoint> points = new LinkedHashSet<>();
+        module.getFinalPaths().forEach(path -> points.add(
+                path.getTerminal().getChangePoint()));
+        filteredPaths(module).forEach(path -> points.add(
+                path.getTerminal().getChangePoint()));
+        module.getStructuralPaths().forEach(path -> points.add(
+                path.getChangePoint()));
+        return points.stream().sorted(Comparator.comparing(
+                BoundChangePoint::stableKey)).toList();
+    }
+
+    private List<ImpactPath> filteredPaths(
+            final ModuleAnalysisResult module) {
+        return module.getCandidatePaths().stream()
                 .filter(path -> isEquivalent(module,
                         path.getTerminal().getChangePoint()))
                 .toList();
-        if (filtered.isEmpty()) {
-            body.append("<p>No candidate chain was filtered by method ")
-                    .append("equivalence.</p>");
-        } else {
-            body.append("<details><summary>View candidate chains filtered ")
-                    .append("as equivalent</summary>");
-            appendCallPathGroups(body, filtered, pages, "filtered");
-            body.append("</details>");
-        }
-        body.append("</section><section id=\"structures\"><h2>Structural ")
-                .append("reference chains</h2>");
-        if (module.getStructuralPaths().isEmpty()) {
-            body.append("<p>No Structural Reference Path was found within ")
-                    .append("the documented analysis scope.</p>");
-        } else {
-            module.getStructuralPaths().stream()
-                    .sorted(structuralComparator())
-                    .forEach(value -> appendStructuralPath(
-                            body, value, pages));
-        }
-        body.append("</section>");
-        });
     }
 
-    private boolean appendCallPathGroups(
-            final HtmlSink body,
-            final List<ImpactPath> paths,
-            final ModulePages pages,
-            final String anchorPrefix) {
-        final List<DependencyUpgradeKey> jars = paths.stream()
-                .map(path -> path.getTerminal().getChangePoint()
-                        .getDependencyUpgradeKey()).distinct()
-                .sorted(Comparator.comparing(DependencyUpgradeKey::stableKey))
-                .toList();
-        for (DependencyUpgradeKey jar : jars) {
-            body.append("<article class=\"card\" id=\"")
-                    .append(attribute(anchorPrefix + "-" + jarAnchor(jar)))
-                    .append("\"><h3>")
-                    .append(escape(jarLabel(jar))).append("</h3>");
-            paths.stream().map(path -> path.getTerminal().getChangePoint())
-                    .filter(point -> point.getDependencyUpgradeKey()
-                            .equals(jar)).distinct()
-                    .sorted(Comparator.comparing(BoundChangePoint::stableKey))
-                    .forEach(point -> appendCallPathMember(
-                            body, paths, point, pages));
-            body.append("</article>");
-        }
-        return !jars.isEmpty();
-    }
-
-    private void appendCallPathMember(
-            final HtmlSink body,
-            final List<ImpactPath> allPaths,
-            final BoundChangePoint point,
-            final ModulePages pages) {
-        final List<ImpactPath> paths = allPaths.stream()
-                .filter(path -> path.getTerminal().getChangePoint()
-                        .equals(point))
-                .sorted(Comparator.comparing(path ->
-                        humanMethod(path.getAffectedMethod())))
-                .toList();
-        body.append("<section id=\"")
-                .append(attribute("impact-" + stableHash(point.stableKey())))
-                .append("\"><h4><a href=\"")
-                .append(attribute(pages.changes() + "#"
-                        + changeAnchor(point)))
-                .append("\">")
-                .append(escape(memberLabel(point.getChangePoint())))
-                .append("</a></h4>");
-        for (ImpactPath path : paths) {
-            body.append("<div class=\"card\"><strong>")
-                    .append(path.getClassification()
-                            == ImpactClassification.DIRECT
-                            ? "Direct dependency impact"
-                            : "Transitive dependency impact")
-                    .append("</strong><p>Affected application method: <code>")
-                    .append(escape(humanMethod(path.getAffectedMethod())))
-                    .append("</code></p><ol class=\"sequence\">");
-            for (QueryNode node : path.getNodes()) {
-                body.append("<li><code>")
-                        .append(escape(humanMethod(node.methodId())))
-                        .append("</code></li>");
-            }
-            body.append("<li>Changed member: <code>")
-                    .append(escape(memberLabel(point.getChangePoint())))
-                    .append("</code></li></ol><details><summary>Technical ")
-                    .append("details</summary><ul>");
-            final io.github.dependencyanalysis.impact.ReferenceEvidence
-                    terminal = path.getTerminal().getImpactEvidence();
-            body.append("<li>Terminal evidence: ")
-                    .append(escape(path.getTerminal().getEvidenceKind()
-                            .name()))
-                    .append(" / ")
-                    .append(escape(path.getTerminal().getEvidenceMechanism()
-                            .name()))
-                    .append("; ")
-                    .append(escape(path.getTerminal().getEvidence()))
-                    .append("</li><li>Terminal target: ")
-                    .append(escape(terminal.target().stableKey()))
-                    .append("</li><li>Terminal location: ")
-                    .append(escape(terminal.location().source()))
-                    .append("; bytecode PC=")
-                    .append(terminal.location().bytecodePc() < 0
-                            ? "N/A" : terminal.location().bytecodePc())
-                    .append("</li><li>Terminal detail: ")
-                    .append(escape(terminal.detail()))
-                    .append("</li></ul></details></div>");
-        }
-        body.append("</section>");
-    }
-
-    private void appendStructuralPath(
-            final HtmlSink body,
-            final StructuralReferencePath path,
-            final ModulePages pages) {
-        body.append("<article class=\"card\"><strong>")
-                .append(path.getClassification() == ImpactClassification.DIRECT
-                        ? "Direct structural impact"
-                        : "Transitive structural impact")
-                .append("</strong><ol class=\"sequence\">");
-        for (QueryNode node : path.getNodes()) {
-            body.append("<li><code>")
-                    .append(escape(humanMethod(node.methodId())))
-                    .append("</code></li>");
-        }
-        body.append("<li>Application class/member: <code>")
-                .append(escape(structuralOwner(path)))
-                .append("</code></li><li>")
-                .append(escape(path.getReference().getKind().getLabel()))
-                .append("</li><li>Changed dependency class: <a href=\"")
-                .append(attribute(pages.changes() + "#"
-                        + changeAnchor(path.getChangePoint())))
-                .append("\"><code>")
-                .append(escape(path.getReference().getChangedClass()
-                        .replace('/', '.')))
-                .append("</code></a></li></ol><details><summary>Technical ")
-                .append("details</summary><ul><li>Origin: ")
-                .append(escape(path.getReference().getOrigin().name()))
-                .append("</li><li>Raw evidence: ")
-                .append(escape(path.getReference().getEvidence()))
-                .append("</li>");
-        for (QueryNode node : path.getNodes()) {
-            body.append("<li>Context: ")
-                    .append(escape(contextEvidence(node))).append("</li>");
-        }
-        body.append("</ul></details></article>");
-    }
-
-    private void writeChangesPage(
-            final Path target,
+    private void writeMemberData(
+            final JsonGenerator json,
             final ModuleAnalysisResult module,
-            final ModulePages pages,
-            final String overallFile) throws IOException {
-        writeDocument(target, "Dependency Changes", "Dependency Changes",
-                breadcrumbs(overallFile, module, pages.changes(),
-                        "Dependency Changes"),
-                siblingLinks(pages, "changes"), changesToc(), body -> {
-        body
-                .append("<h1 id=\"top\">Dependency Changes: ")
-                .append(escape(moduleLabel(module)))
-                .append("</h1><section id=\"dependencies\"><h2>Changed ")
-                .append("dependencies</h2>");
-        final java.util.Set<BoundChangePoint> shown =
-                new java.util.LinkedHashSet<>(
-                        module.getCodeComparisons().keySet());
-        module.getDispositions().forEach((point, disposition) -> {
-            if (disposition
-                    == ChangePointDisposition.SHADOWED_BY_DUPLICATE) {
-                shown.add(point);
-            }
-        });
-        final List<BoundChangePoint> relevant = shown.stream()
-                .sorted(Comparator.comparing(BoundChangePoint::stableKey))
-                .toList();
-        final Map<String, List<BoundChangePoint>> memberGroups =
-                memberGroups(relevant);
-        if (memberGroups.isEmpty()) {
-            body.append("<p>No dependency member associated with a candidate ")
-                    .append("or final impact path was found within the ")
-                    .append("documented analysis scope.</p>");
-        }
-        for (Map.Entry<String, List<BoundChangePoint>> group
-                : memberGroups.entrySet()) {
-            appendDependencySection(body, module, group.getKey(),
-                    group.getValue());
-        }
-        body.append("<details><summary>Technical details</summary><table>")
-                .append(row("Raw changed members",
-                        module.getUnit().getChangePoints().size()))
-                .append(row("Members shown", relevant.size()))
-                .append(row("Raw members not shown",
-                        Math.max(0, module.getUnit().getChangePoints().size()
-                                - relevant.size())))
-                .append("</table></details></section>");
-        });
-    }
-
-    private void appendDependencySection(
-            final HtmlSink body,
-            final ModuleAnalysisResult module,
-            final String key,
-            final List<BoundChangePoint> points) {
-        final DependencyUpgradeKey upgrade = points.get(0)
-                .getDependencyUpgradeKey();
-        body.append("<article class=\"card\" id=\"")
-                .append(attribute("dependency-" + stableHash(key)))
-                .append("\"><h3>")
-                .append(escape(jarLabel(upgrade))).append("</h3><p>Scope: ")
-                .append("<code>").append(escape(upgrade.getScope().getValue()))
-                .append("</code>.</p>");
-        appendMemberCategory(body, module, "Methods", points,
-                kind -> kind.name().startsWith("METHOD_"));
-        appendMemberCategory(body, module, "Fields", points,
-                kind -> kind.name().startsWith("FIELD_"));
-        appendMemberCategory(body, module, "Classes", points,
-                kind -> kind.name().startsWith("CLASS_"));
-        body.append("</article>");
-    }
-
-    private void appendMemberCategory(
-            final HtmlSink body,
-            final ModuleAnalysisResult module,
-            final String title,
-            final List<BoundChangePoint> points,
-            final java.util.function.Predicate<ChangePointKind> filter) {
-        final List<BoundChangePoint> selected = points.stream()
-                .filter(point -> filter.test(
-                        point.getChangePoint().getKind()))
-                .sorted(Comparator.comparing(BoundChangePoint::stableKey))
-                .toList();
-        if (selected.isEmpty()) {
-            return;
-        }
-        body.append("<h4>").append(title).append("</h4>");
-        for (BoundChangePoint bound : selected) {
-            final ChangePoint point = bound.getChangePoint();
-            body.append("<details class=\"member\" id=\"")
-                    .append(attribute(changeAnchor(bound)))
-                    .append("\"><summary><strong>")
-                    .append(escape(changeKindText(point.getKind())))
-                    .append(":</strong> <code>")
-                    .append(escape(memberLabel(point)))
-                    .append("</code>")
-                    .append(memberBadges(module, bound))
-                    .append("</summary>")
-                    .append(shadowedExplanation(module, bound))
-                    .append(codeComparison(module, bound))
-                    .append(memberTechnicalDetails(module, bound))
-                    .append("</details>");
-        }
-    }
-
-    private String memberBadges(
-            final ModuleAnalysisResult module,
-            final BoundChangePoint point) {
-        final HtmlSink result = HtmlSink.memory();
-        if (module.getFinalPaths().stream().anyMatch(path -> path.getTerminal()
-                .getChangePoint().equals(point))) {
-            result.append("<span class=\"badge\">Affected</span>");
-        }
-        if (isEquivalent(module, point)) {
-            result.append("<span class=\"badge filtered\">Equivalent ")
-                    .append("(filtered)</span>");
-        }
-        if (module.getStructuralPaths().stream().anyMatch(path ->
-                path.getChangePoint().equals(point))) {
-            result.append("<span class=\"badge structural\">Structural ")
-                    .append("impact</span>");
-        }
-        if (module.getDispositions().get(point)
-                == ChangePointDisposition.SHADOWED_BY_DUPLICATE) {
-            result.append("<span class=\"badge filtered\">Shadowed by ")
-                    .append("duplicate</span>");
-        }
-        if (module.getDispositions().get(point)
-                == ChangePointDisposition.ACCESS_REMAINS_VALID) {
-            result.append("<span class=\"badge filtered\">Access remains "
-                    + "valid</span>");
-        }
-        return result.toString();
-    }
-
-    private String shadowedExplanation(
-            final ModuleAnalysisResult module,
-            final BoundChangePoint point) {
-        if (module.getDispositions().get(point)
-                != ChangePointDisposition.SHADOWED_BY_DUPLICATE) {
-            return "";
-        }
-        final DuplicateClassResolution resolution = duplicateResolution(
-                module, point);
-        if (resolution == null) {
-            return "<p class=\"warn\">This changed definition was shadowed "
-                    + "by classpath duplicate resolution, so no Impact Path "
-                    + "was generated.</p>";
-        }
-        return "<p class=\"warn\">This changed definition was shadowed by "
-                + "<code>" + escape(ownershipLabel(
-                resolution.getWinner())) + "</code> ("
-                + escape(resolution.getPrecedenceReason())
-                + "), so no Impact Path was generated.</p>";
-    }
-
-    private String codeComparison(
-            final ModuleAnalysisResult module,
-            final BoundChangePoint bound) {
-        final CodeComparisonEvidence evidence = module.getCodeComparisons()
-                .get(bound);
-        if (evidence == null) {
-            return "";
-        }
-        final HtmlSink result = HtmlSink.memory()
-                .append("<details><summary>View code changes</summary>")
-                .append("<p class=\"muted\">Decompiled Java ")
-                .append("representation</p>");
-        if (evidence.getStatus() == CodeComparisonStatus.AVAILABLE) {
-            result.append("<pre class=\"diff\"><code>")
-                    .append(escape(evidence.getUnifiedDiff()))
-                    .append("</code></pre>");
-        } else if (evidence.getStatus()
-                == CodeComparisonStatus.ASM_FALLBACK) {
-            result.append("<p>Decompiled Java text is identical. Bytecode ")
-                    .append("evidence is available in Technical details.</p>");
-        } else {
-            result.append("<p class=\"warn\">Code comparison unavailable: ")
-                    .append(escape(evidence.getReason())).append("</p>");
-        }
-        if (!evidence.getAsmFallback().isBlank()) {
-            result.append("<details><summary>Technical details: ASM ")
-                    .append("instruction diff</summary><pre class=\"diff\">")
-                    .append("<code>")
-                    .append(escape(evidence.getAsmFallback()))
-                    .append("</code></pre></details>");
-        }
-        return result.append("</details>").toString();
-    }
-
-    private String memberTechnicalDetails(
-            final ModuleAnalysisResult module,
-            final BoundChangePoint bound) {
+            final BoundChangePoint bound,
+            final int memberId) throws IOException {
         final ChangePoint point = bound.getChangePoint();
         final MethodEquivalenceResult equivalence = module
                 .getEquivalenceResults().get(bound);
-        final HtmlSink result = HtmlSink.memory(
-                "<details><summary>Technical details</summary><table>")
-                .append(row("Raw ChangePointKind", point.getKind()))
-                .append(row("Raw disposition",
-                        module.getDispositions().get(bound)))
-                .append(row("Disposition explanation", dispositionText(
-                        module.getDispositions().get(bound))))
-                .append(row("Old descriptor", point.getOldDescriptor()))
-                .append(row("New descriptor", point.getNewDescriptor()))
-                .append(row("Old hash", point.getOldHash()))
-                .append(row("New hash", point.getNewHash()))
-                .append(row("Old access", point.getAccessTransition()
-                        .map(value -> value.oldAccess().name())
-                        .orElse("Not applicable")))
-                .append(row("New access", point.getAccessTransition()
-                        .map(value -> value.newAccess().name())
-                        .orElse("Not applicable")))
-                .append(row("SSA status", equivalence == null
-                        ? "Not compared" : equivalence.getStatus()))
-                .append(row("SSA reason", equivalence == null
-                        ? "Not compared" : equivalence.getReason()))
-                .append(row("Old artifact", bound
-                        .getDependencyUpgradeKey().getOldArtifact()))
-                .append(row("New artifact", bound
-                        .getDependencyUpgradeKey().getNewArtifact()));
-        final List<ImpactEvidence> observations = module.getObservations()
-                .getOrDefault(bound, List.of());
-        result.append(row("Access/reference observations",
-                observations.size()));
-        for (int index = 0; index < observations.size(); index++) {
-            result.append(row("Observation " + (index + 1),
-                    observations.get(index).render()));
+        final ChangePointDisposition disposition = module
+                .getDispositions().get(bound);
+        json.writeStartObject();
+        json.writeNumberField("id", memberId);
+        json.writeStringField("dependency",
+                jarLabel(bound.getDependencyUpgradeKey()));
+        json.writeStringField("scope", bound.getDependencyUpgradeKey()
+                .getScope().getValue());
+        json.writeStringField("changeKind", changeKindText(point.getKind()));
+        json.writeStringField("member", memberLabel(point));
+        json.writeStringField("rawKind", point.getKind().name());
+        writeNullableString(json, "disposition",
+                disposition == null ? null : disposition.name());
+        json.writeStringField("dispositionExplanation",
+                dispositionText(disposition));
+        writeNullableString(json, "oldDescriptor", point.getOldDescriptor());
+        writeNullableString(json, "newDescriptor", point.getNewDescriptor());
+        writeNullableString(json, "oldHash", point.getOldHash());
+        writeNullableString(json, "newHash", point.getNewHash());
+        json.writeStringField("oldAccess", point.getAccessTransition()
+                .map(value -> value.oldAccess().name())
+                .orElse("Not applicable"));
+        json.writeStringField("newAccess", point.getAccessTransition()
+                .map(value -> value.newAccess().name())
+                .orElse("Not applicable"));
+        json.writeStringField("ssaStatus", equivalence == null
+                ? "Not compared" : equivalence.getStatus().name());
+        json.writeStringField("ssaReason", equivalence == null
+                ? "Not compared" : equivalence.getReason());
+        json.writeStringField("oldArtifact", bound.getDependencyUpgradeKey()
+                .getOldArtifact().toString());
+        json.writeStringField("newArtifact", bound.getDependencyUpgradeKey()
+                .getNewArtifact().toString());
+        json.writeArrayFieldStart("observations");
+        for (ImpactEvidence observation : module.getObservations()
+                .getOrDefault(bound, List.of())) {
+            json.writeString(observation.render());
         }
+        json.writeEndArray();
+        writeDuplicateData(json, module, bound);
+        writeComparisonData(json, module.getCodeComparisons().get(bound));
+        json.writeEndObject();
+    }
+
+    private void writeDuplicateData(
+            final JsonGenerator json,
+            final ModuleAnalysisResult module,
+            final BoundChangePoint bound) throws IOException {
         final DuplicateClassResolution resolution = duplicateResolution(
                 module, bound);
-        if (resolution != null) {
-            result.append(row("Duplicate winner",
-                            ownershipLabel(resolution.getWinner())))
-                    .append(row("Duplicate winner logical source",
-                            resolution.getWinner().getSource()))
-                    .append(row("Duplicate precedence",
-                            resolution.getPrecedenceReason()));
+        if (resolution == null) {
+            json.writeNullField("duplicate");
+            return;
         }
-        return result.append("</table></details>").toString();
+        json.writeObjectFieldStart("duplicate");
+        json.writeStringField("winner",
+                ownershipLabel(resolution.getWinner()));
+        json.writeStringField("logicalSource",
+                resolution.getWinner().getSource().toString());
+        json.writeStringField("precedence",
+                resolution.getPrecedenceReason());
+        json.writeEndObject();
+    }
+
+    private void writeComparisonData(
+            final JsonGenerator json,
+            final CodeComparisonEvidence comparison) throws IOException {
+        if (comparison == null) {
+            json.writeNullField("comparison");
+            return;
+        }
+        json.writeObjectFieldStart("comparison");
+        json.writeStringField("status", comparison.getStatus().name());
+        json.writeStringField("reason", comparison.getReason());
+        json.writeStringField("unifiedDiff", comparison.getUnifiedDiff());
+        json.writeStringField("asmFallback", comparison.getAsmFallback());
+        json.writeEndObject();
+    }
+
+    private void writeCallPathData(
+            final JsonGenerator json,
+            final ImpactPath path,
+            final Map<BoundChangePoint, Integer> memberIds,
+            final String type,
+            final int pathId) throws IOException {
+        final BoundChangePoint point = path.getTerminal().getChangePoint();
+        final io.github.dependencyanalysis.impact.ReferenceEvidence terminal =
+                path.getTerminal().getImpactEvidence();
+        json.writeStartObject();
+        json.writeNumberField("id", pathId);
+        json.writeStringField("type", type);
+        json.writeStringField("impact",
+                path.getClassification() == ImpactClassification.DIRECT
+                        ? "Direct dependency impact"
+                        : "Transitive dependency impact");
+        json.writeStringField("affected",
+                humanMethod(path.getAffectedMethod()));
+        json.writeNumberField("memberId", memberIds.get(point));
+        json.writeArrayFieldStart("segments");
+        for (QueryNode node : path.getNodes()) {
+            json.writeString(humanMethod(node.methodId()));
+        }
+        json.writeString("Changed member: "
+                + memberLabel(point.getChangePoint()));
+        json.writeEndArray();
+        json.writeObjectFieldStart("evidence");
+        json.writeStringField("kind",
+                path.getTerminal().getEvidenceKind().name());
+        json.writeStringField("mechanism",
+                path.getTerminal().getEvidenceMechanism().name());
+        json.writeStringField("rendered", path.getTerminal().getEvidence());
+        json.writeStringField("target", terminal.target().stableKey());
+        json.writeStringField("source", terminal.location().source());
+        json.writeNumberField("bytecodePc",
+                terminal.location().bytecodePc());
+        json.writeStringField("detail", terminal.detail());
+        json.writeEndObject();
+        json.writeEndObject();
+    }
+
+    private void writeStructuralPathData(
+            final JsonGenerator json,
+            final StructuralReferencePath path,
+            final Map<BoundChangePoint, Integer> memberIds,
+            final int pathId) throws IOException {
+        json.writeStartObject();
+        json.writeNumberField("id", pathId);
+        json.writeStringField("type", "structural");
+        json.writeStringField("impact",
+                path.getClassification() == ImpactClassification.DIRECT
+                        ? "Direct structural impact"
+                        : "Transitive structural impact");
+        json.writeStringField("affected", path.getAffectedMethod() == null
+                ? structuralOwner(path)
+                : humanMethod(path.getAffectedMethod()));
+        json.writeNumberField("memberId",
+                memberIds.get(path.getChangePoint()));
+        json.writeArrayFieldStart("segments");
+        for (QueryNode node : path.getNodes()) {
+            json.writeString(humanMethod(node.methodId()));
+        }
+        json.writeString("Application class/member: "
+                + structuralOwner(path));
+        json.writeString(path.getReference().getKind().getLabel());
+        json.writeString("Changed dependency class: "
+                + path.getReference().getChangedClass().replace('/', '.'));
+        json.writeEndArray();
+        json.writeObjectFieldStart("evidence");
+        json.writeStringField("origin",
+                path.getReference().getOrigin().name());
+        json.writeStringField("referenceKind",
+                path.getReference().getKind().getLabel());
+        json.writeStringField("rendered",
+                path.getReference().getEvidence());
+        json.writeArrayFieldStart("contexts");
+        for (QueryNode node : path.getNodes()) {
+            json.writeString(contextEvidence(node));
+        }
+        json.writeEndArray();
+        json.writeEndObject();
+        json.writeEndObject();
+    }
+
+    private void writeNullableString(
+            final JsonGenerator json,
+            final String field,
+            final String value) throws IOException {
+        if (value == null) {
+            json.writeNullField(field);
+        } else {
+            json.writeStringField(field, value);
+        }
     }
 
     private void writeDocument(
@@ -1160,10 +1087,8 @@ public final class PerModuleHtmlReportGenerator {
         return "<nav class=\"siblings\" aria-label=\"Module pages\">"
                 + sibling(pages.index(), "Module Index",
                 "index".equals(selected))
-                + sibling(pages.impact(), "Affected Call Chains",
-                "impact".equals(selected))
-                + sibling(pages.changes(), "Dependency Changes",
-                "changes".equals(selected)) + "</nav>";
+                + sibling(pages.impact(), "Affected Paths",
+                "impact".equals(selected)) + "</nav>";
     }
 
     private String sibling(
@@ -1293,26 +1218,6 @@ public final class PerModuleHtmlReportGenerator {
         body.append("</ul>");
     }
 
-    private Map<String, List<BoundChangePoint>> memberGroups(
-            final List<BoundChangePoint> points) {
-        final Map<String, List<BoundChangePoint>> result =
-                new LinkedHashMap<>();
-        points.stream().sorted(Comparator.comparing(
-                        BoundChangePoint::stableKey))
-                .forEach(point -> result.computeIfAbsent(
-                        upgradeGroupKey(point.getDependencyUpgradeKey()),
-                        ignored -> new ArrayList<>()).add(point));
-        return result;
-    }
-
-    private String upgradeGroupKey(final DependencyUpgradeKey key) {
-        final ArtifactCoord old = key.getOldArtifact();
-        final ArtifactCoord target = key.getNewArtifact();
-        return old.getGroupId() + ":" + old.getArtifactId() + ":"
-                + old.getType() + ":" + old.getClassifier() + ":"
-                + old.getVersion() + ":" + target.getVersion();
-    }
-
     private String jarLabel(final DependencyUpgradeKey key) {
         return key.getOldArtifact().getGroupId() + ":"
                 + key.getOldArtifact().getArtifactId() + " "
@@ -1422,6 +1327,15 @@ public final class PerModuleHtmlReportGenerator {
                 .thenComparing(path -> path.getReference().stableKey())
                 .thenComparing(path -> path.getAffectedMethod() == null ? ""
                         : humanMethod(path.getAffectedMethod()));
+    }
+
+    private Comparator<ImpactPath> impactComparator() {
+        return Comparator.comparing((ImpactPath path) -> path.getTerminal()
+                        .getChangePoint().stableKey())
+                .thenComparing(path -> humanMethod(
+                        path.getAffectedMethod()))
+                .thenComparing(path -> path.getTerminal()
+                        .getImpactEvidence().stableKey());
     }
 
     private String structuralOwner(final StructuralReferencePath path) {
@@ -1737,14 +1651,6 @@ public final class PerModuleHtmlReportGenerator {
                 + "; exclude=" + run.getEntrypointSelection().excludes();
     }
 
-    private String changeAnchor(final BoundChangePoint point) {
-        return "change-" + stableHash(point.stableKey());
-    }
-
-    private String jarAnchor(final DependencyUpgradeKey key) {
-        return "jar-" + stableHash(key.stableKey());
-    }
-
     private String moduleDirectoryName(final Path output) {
         final String name = output.getFileName().toString();
         final int dot = name.lastIndexOf('.');
@@ -1786,13 +1692,7 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private String impactToc() {
-        return toc("chains", "Affected call chains", "filtered",
-                "Equivalent candidates", "structures",
-                "Structural reference chains");
-    }
-
-    private String changesToc() {
-        return toc("dependencies", "Changed dependencies");
+        return toc("paths", "Affected paths");
     }
 
     private String toc(final String... entries) {
@@ -1819,6 +1719,27 @@ public final class PerModuleHtmlReportGenerator {
 
     private String attribute(final String value) {
         return escape(value);
+    }
+
+    private static String resource(final String path) {
+        try (InputStream input = PerModuleHtmlReportGenerator.class
+                .getResourceAsStream(path)) {
+            if (input == null) {
+                throw new IllegalStateException(
+                        "Missing report resource: " + path);
+            }
+            return new String(input.readAllBytes(),
+                    java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IOException exception) {
+            throw new IllegalStateException(
+                    "Failed to read report resource: " + path, exception);
+        }
+    }
+
+    private static JsonFactory jsonFactory() {
+        final JsonFactory result = new JsonFactory();
+        result.setCharacterEscapes(new ScriptSafeCharacterEscapes());
+        return result;
     }
 
     private void publish(
@@ -1892,6 +1813,38 @@ public final class PerModuleHtmlReportGenerator {
         void write(HtmlSink output);
     }
 
+    /** Prevents embedded JSON values from terminating the script element. */
+    private static final class ScriptSafeCharacterEscapes
+            extends CharacterEscapes {
+
+        /** Standard JSON escapes plus HTML-sensitive ASCII characters. */
+        private final int[] asciiEscapes;
+
+        ScriptSafeCharacterEscapes() {
+            asciiEscapes = CharacterEscapes.standardAsciiEscapesForJSON();
+            asciiEscapes['<'] = CharacterEscapes.ESCAPE_CUSTOM;
+            asciiEscapes['>'] = CharacterEscapes.ESCAPE_CUSTOM;
+            asciiEscapes['&'] = CharacterEscapes.ESCAPE_CUSTOM;
+        }
+
+        @Override
+        public int[] getEscapeCodesForAscii() {
+            return asciiEscapes;
+        }
+
+        @Override
+        public SerializableString getEscapeSequence(final int character) {
+            return switch (character) {
+                case '<' -> new SerializedString("\\u003c");
+                case '>' -> new SerializedString("\\u003e");
+                case '&' -> new SerializedString("\\u0026");
+                case LINE_SEPARATOR -> new SerializedString("\\u2028");
+                case PARAGRAPH_SEPARATOR -> new SerializedString("\\u2029");
+                default -> null;
+            };
+        }
+    }
+
     /** Append facade shared by streaming and small in-memory fragments. */
     private static final class HtmlSink {
 
@@ -1923,6 +1876,13 @@ public final class PerModuleHtmlReportGenerator {
             }
         }
 
+        Writer writer() {
+            if (target instanceof Writer writer) {
+                return writer;
+            }
+            throw new IllegalStateException("HTML sink is not writer-backed");
+        }
+
         @Override
         public String toString() {
             return target.toString();
@@ -1933,10 +1893,9 @@ public final class PerModuleHtmlReportGenerator {
      * Owned sibling filenames for one Module.
      *
      * @param index Module Index filename
-     * @param impact Affected Call Chains filename
-     * @param changes Dependency Changes filename
+     * @param impact Affected Paths filename
      */
-    private record ModulePages(String index, String impact, String changes) {
+    private record ModulePages(String index, String impact) {
     }
 
     /**

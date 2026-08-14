@@ -4,7 +4,7 @@
 
 Dependency Analyzer 是 Java 17 CLI，面向 Maven project：
 
-- `impact`：比较 dependency 升级前后的 resolved dependency、bytecode 和业务调用影响，输出 Overall HTML Index；每个非 `SKIPPED` Module 输出 Module Index、Affected Call Chains、Dependency Changes 三个英文页面。
+- `impact`：比较 dependency 升级前后的 resolved dependency、bytecode 和业务调用影响，输出 Overall HTML Index；每个非 `SKIPPED` Module 输出 Module Index 与 Affected Paths 两个英文页面。
 - `tree`：扫描一个 Git repository 内的 Maven reactor，输出 repository 级 offline HTML dependency tree report。
 
 当前Analyzer开发构建为`3.0.0-SNAPSHOT`；Dependency Evidence Plugin保持`3.0.0`，公共JDK engine与JDK 8 model保持`0.1.0-SNAPSHOT`。Root command为`dependency-analyzer`。
@@ -348,7 +348,7 @@ Relevant Module按稳定顺序严格串行：当前Module完成Call Graph、Impa
 
 每个Module开始Impact Query时，INFO日志打印evidence binding总数`seeds`、去重后`queryNodes`和实际worker上限。`-vv`使用`query-node-started`、`query-node-progress`、`query-node-completed`跟踪稳定ordinal、`evidenceSeeds`、phase、elapsed、recent node与当前QueryNode独立的`visited`；不同QueryNode不共享visited或心跳状态。
 
-Bytecode diff额外产生`CLASS_ACCESS_NARROWED`、`METHOD_ACCESS_NARROWED`（含constructor）和`FIELD_ACCESS_NARROWED`。Query使用target CHA解析actual declaration，并按Java 8 runtime package、subclass、symbolic owner与caller-local verifier receiver type判断new access。`ACCESSIBLE`不建path；`INACCESSIBLE`与`POTENTIALLY_INACCESSIBLE`保守保留path；全部reference仍合法时在Dependency Changes显示`ACCESS_REMAINS_VALID`，不生成Affected Call Chain。该能力分析pre-existing bytecode的JVM binary compatibility，不分析source compatibility、Reflection/JNI/custom ClassLoader或Java 9 module exports。
+Bytecode diff额外产生`CLASS_ACCESS_NARROWED`、`METHOD_ACCESS_NARROWED`（含constructor）和`FIELD_ACCESS_NARROWED`。Query使用target CHA解析actual declaration，并按Java 8 runtime package、subclass、symbolic owner与caller-local verifier receiver type判断new access。`ACCESSIBLE`不建path；`INACCESSIBLE`与`POTENTIALLY_INACCESSIBLE`保守保留path；全部reference仍合法时disposition为`ACCESS_REMAINS_VALID`，不生成Affected Path、member明细或code comparison，raw汇总仍保留。该能力分析pre-existing bytecode的JVM binary compatibility，不分析source compatibility、Reflection/JNI/custom ClassLoader或Java 9 module exports。
 
 Module analysis 检查分类如下。这里的“阻塞”只终止当前 Module，其他 Module 继续；全部 Module 完成后再按既有规则形成 Overall status 与 exit code。
 
@@ -369,17 +369,16 @@ Module analysis 检查分类如下。这里的“阻塞”只终止当前 Module
 
 默认关闭bytecode semantic comparison：Module query产生的candidate path直接作为final path，不创建old-side SSA/Class Hierarchy。显式传入`--experimental-bytecode-semantic-comparison`后，协调线程才串行比较candidate path中唯一`METHOD_BODY_CHANGED`的old/new normalized WALA SSA/Control Flow Graph；只有`PROVEN_EQUIVALENT`删除路径，`DIFFERENT`与`UNKNOWN`保留，`UNKNOWN`使Module为`INCONCLUSIVE`。
 
-`--output` 指向 Overall Index；同级 `<output-stem>-modules/` 为每个非 `SKIPPED` Module 生成三页：
+`--output` 指向 Overall Index；同级 `<output-stem>-modules/` 为每个非 `SKIPPED` Module 生成两页：
 
 ```text
 <module-base>.html          Module Index
-<module-base>-impact.html   Affected Call Chains
-<module-base>-changes.html  Dependency Changes
+<module-base>-impact.html   Affected Paths
 ```
 
-Overall Index提供`How to read this report`、`Analysis scope and limitations`、`Terminology`与Module汇总。Run summary只展示`JAR comparisons in parallel`、`Impact queries in parallel`和`Code comparisons in parallel`的actual/configured值，不展示Module并发字段。Technical details展示effective Algorithm、JDK Method Model、WALA Reflection applied状态和Bytecode semantic comparison的experimental enabled/disabled状态；默认关闭时SSA worker为`0 (disabled)`且comparison counts为`not run`，CHA显示`not applied by cha`。Impact terminal展示Evidence kind/mechanism；Evidence不计入CGNode/CGEdge。Module Index展示status、scope、metrics、typed coverage limitations和Diagnostics；Affected Call Chains在显式启用试验性比较后可展示SSA-equivalent candidate，并始终展示final及Structural Reference Chains；Dependency Changes展示相关ChangePoint及typed reference evidence。
+Overall Index提供`How to read this report`、`Analysis scope and limitations`、`Terminology`与Module汇总。Run summary只展示`JAR comparisons in parallel`、`Impact queries in parallel`和`Code comparisons in parallel`的actual/configured值，不展示Module并发字段。Technical details展示effective Algorithm、JDK Method Model、WALA Reflection applied状态和Bytecode semantic comparison的experimental enabled/disabled状态；默认关闭时SSA worker为`0 (disabled)`且comparison counts为`not run`，CHA显示`not applied by cha`。Impact terminal展示Evidence kind/mechanism；Evidence不计入CGNode/CGEdge。Module Index展示status、scope、metrics、typed coverage limitations和Diagnostics；Affected Paths使用浏览器内存中的规范化数据，以单表展示Final、Equivalent filtered与Structural记录，并支持All组合视图、affected method忽略大小写搜索及10/20/100条分页。
 
-相关 method、field 与 class 提供默认折叠的 old/new Unified diff。内容来自 local dependency bytecode 的 Vineflower decompiled Java representation，不保证与原始 source 相同；反编译失败或文本相同时保留 ASM instruction fallback。Filesystem path、WALA/SSA、descriptor/hash、raw enum、Maven executable、JDK/config/output path 等 evidence 只放在 `Technical details`。所有页面为英文，并提供 top breadcrumbs、Module sibling navigation 和 responsive sticky TOC；不使用 JavaScript 或外部 asset。
+每条路径通过单例行内详情展示完整evidence、关联changed member技术信息与old/new Unified diff。同一changed member及diff在页面数据中只存储一次，多条路径通过ID引用；详情切换时只保留一份diff DOM。Diff在打开详情时按Git语义为file header、hunk、addition与deletion着色；内容来自local dependency bytecode的Vineflower decompiled Java representation，不保证与原始source相同，反编译失败或文本相同时保留ASM instruction fallback。只有关联Candidate或Structural Impact Path的changed member生成code comparison；无路径member不反编译，但raw change、duplicate与shadowed汇总仍保留。Filesystem path、WALA/SSA、descriptor/hash、raw enum、Maven executable、JDK/config/output path等evidence只放在详情或`Technical details`。所有页面为英文，并提供top breadcrumbs、Module sibling navigation和responsive sticky TOC；Affected Paths使用内嵌JavaScript，不访问网络、不使用CDN、外部asset或浏览器持久化存储。
 
 Module failure 不取消其他 Module；handled failure 仍发布 partial Report。空态固定为 `No affected call chain was found within the documented analysis scope.`，不表示已经证明没有业务影响。
 
@@ -591,7 +590,7 @@ Exit code：
 
 ### Duplicate class warning
 
-`Resolved conflicting duplicate classes by classpath precedence` 表示同一 binary name 有内容不同的多个定义。Analyzer 不再因此阻塞 Module；请在 Module Index 的 `Duplicate class resolution` 查看 winner、shadowed sources 与 precedence reason。Dependency Changes 中的 `SHADOWED_BY_DUPLICATE` 表示该 changed definition 是 loser，因此没有生成 Impact Path。该 warning 本身不代表 Coverage limitation；若 Module 同时为 `INCONCLUSIVE` 或 `FAILED`，应查看独立的 reason/Diagnostics。
+`Resolved conflicting duplicate classes by classpath precedence` 表示同一 binary name 有内容不同的多个定义。Analyzer 不再因此阻塞 Module；请在 Module Index 的 `Duplicate class resolution` 查看 winner、shadowed sources 与 precedence reason。`SHADOWED_BY_DUPLICATE` changed definition是loser，因此不生成Affected Path、member明细或code comparison；Overall与Module Index仍保留shadowed change汇总。该warning本身不代表Coverage limitation；若Module同时为`INCONCLUSIVE`或`FAILED`，应查看独立reason/Diagnostics。
 
 ### 试验性 SSA equivalence 为 `UNKNOWN`
 

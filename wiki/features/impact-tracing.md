@@ -186,10 +186,10 @@ Impact Tracing只消费冻结的`ModuleCallGraphSession`。在Call Graph完成�
 
 ## Code Comparison Evidence
 
-- 为candidate/final Impact Path、Structural Reference Path及用户可见的`ACCESS_REMAINS_VALID` access ChangePoint构建evidence；access-only变化不要求先存在Impact Path。
+- 只为Candidate Impact Path与Structural Reference Path关联的唯一ChangePoint构建code comparison evidence；Final与Equivalent filtered均来自Candidate集合。`ACCESS_REMAINS_VALID`等无路径change不触发反编译。
 - JAR 通过 `IJarRepository.open(ArtifactCoord)` 获取；physical path 只由当前 temporary `JarLease.jarFile()` handle 传给 Vineflower/ASM，不进入 domain key 或 Report dependency detail。
 - Vineflower 使用 exact old/new artifact 与 JDK 8 context；结果按 logical old/new coordinate 与 member identity 去重。
-- 输出 Git-style Unified diff；反编译失败或 bytecode 不同但 Java text 相同时保留 ASM fallback。
+- 输出Git-style Unified diff；反编译失败或bytecode不同但Java text相同时保留ASM fallback。Report按changed member只存一份raw diff，并在用户打开path详情时按行着色。
 - Code evidence 不参与 Impact/SSA 判定，失败不改变 Module status。
 
 ## Read-only Boundary

@@ -307,20 +307,7 @@ final class PerModuleImpactPipeline {
         final Map<String, List<BoundChangePoint>> requests =
                 new LinkedHashMap<>();
         for (ModuleAnalysisResult module : modules) {
-            final Set<BoundChangePoint> relevant = new LinkedHashSet<>();
-            module.getCandidatePaths().forEach(path -> relevant.add(
-                    path.getTerminal().getChangePoint()));
-            module.getStructuralPaths().forEach(path -> relevant.add(
-                    path.getChangePoint()));
-            module.getDispositions().forEach((point, disposition) -> {
-                if (point.getChangePoint().getKind().isAccessNarrowing()
-                        && disposition
-                        == ChangePointDisposition.ACCESS_REMAINS_VALID) {
-                    relevant.add(point);
-                }
-            });
-            relevant.stream().sorted(Comparator.comparing(
-                    BoundChangePoint::stableKey)).forEach(point -> requests
+            codeComparisonPoints(module).forEach(point -> requests
                     .computeIfAbsent(codeEvidenceKey(point), ignored ->
                             new ArrayList<>()).add(point));
         }
@@ -366,24 +353,22 @@ final class PerModuleImpactPipeline {
         for (ModuleAnalysisResult module : modules) {
             final Map<BoundChangePoint, CodeComparisonEvidence> bound =
                     new LinkedHashMap<>();
-            final Set<BoundChangePoint> relevant = new LinkedHashSet<>();
-            module.getCandidatePaths().forEach(path -> relevant.add(
-                    path.getTerminal().getChangePoint()));
-            module.getStructuralPaths().forEach(path -> relevant.add(
-                    path.getChangePoint()));
-            module.getDispositions().forEach((point, disposition) -> {
-                if (point.getChangePoint().getKind().isAccessNarrowing()
-                        && disposition
-                        == ChangePointDisposition.ACCESS_REMAINS_VALID) {
-                    relevant.add(point);
-                }
-            });
-            relevant.stream().sorted(Comparator.comparing(
-                    BoundChangePoint::stableKey)).forEach(point -> bound.put(
+            codeComparisonPoints(module).forEach(point -> bound.put(
                     point, evidence.get(codeEvidenceKey(point))));
             enriched.add(module.toBuilder().codeComparisons(bound).build());
         }
         return new CodeEvidenceResult(enriched, workers);
+    }
+
+    static List<BoundChangePoint> codeComparisonPoints(
+            final ModuleAnalysisResult module) {
+        final Set<BoundChangePoint> relevant = new LinkedHashSet<>();
+        module.getCandidatePaths().forEach(path -> relevant.add(
+                path.getTerminal().getChangePoint()));
+        module.getStructuralPaths().forEach(path -> relevant.add(
+                path.getChangePoint()));
+        return relevant.stream().sorted(Comparator.comparing(
+                BoundChangePoint::stableKey)).toList();
     }
 
     private void submitCodeComparison(

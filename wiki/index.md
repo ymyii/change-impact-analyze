@@ -56,7 +56,7 @@ code_refs: []
 - Summary: 构图后统一collector绑定公共`ReferenceEvidence`；冻结session按exact `QueryNode`分组并发reverse BFS，共享单节点局部`ReverseTrace`，并在`-vv`下提供QueryNode独立10秒心跳。
 
 ### [Report Generator](features/report-generator.md)
-- Summary: `impact`通过Writer原子生成英文Overall与Module三页；使用WALA-detached snapshot并展示artifact policy、ancestor exception与pruned target metrics。
+- Summary: `impact`通过Writer原子生成Overall与每Module两页；Affected Paths以内存单表分页/搜索、规范化member/diff和按需着色详情控制DOM规模。
 
 ## Rules
 

@@ -1,5 +1,11 @@
 package io.github.dependencyanalysis.impact;
 
+import io.github.dependencyanalysis.bytecode.AccessTransition;
+import io.github.dependencyanalysis.bytecode.ChangePoint;
+import io.github.dependencyanalysis.bytecode.ChangePointKind;
+import io.github.dependencyanalysis.bytecode.JvmAccess;
+import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.callgraph.model.MethodId;
 import io.github.dependencyanalysis.impact.refinement.ResultRefinementAlgorithm;
 import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
 
@@ -9,10 +15,15 @@ import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSelection;
 import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
+import io.github.dependencyanalysis.dependency.ArtifactCoord;
+import io.github.dependencyanalysis.dependency.DependencyScope;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -63,6 +74,78 @@ class PerModuleImpactPipelineTest {
 
         assertThat(configuration.resultRefinements().algorithms())
                 .containsExactly(ResultRefinementAlgorithm.SSA_EQUIVALENCE);
+    }
+
+    @Test
+    void codeComparisonSelectionRequiresAnImpactPath() {
+        final ModuleId moduleId = new ModuleId(new ArtifactCoord(
+                "example", "app", "jar", "1"), Path.of("app"));
+        final ArtifactCoord oldArtifact = new ArtifactCoord(
+                "example", "library", "jar", "1");
+        final ArtifactCoord newArtifact = new ArtifactCoord(
+                "example", "library", "jar", "2");
+        final DependencyUpgradeKey upgrade = new DependencyUpgradeKey(
+                moduleId, DependencyScope.COMPILE,
+                oldArtifact, newArtifact);
+        final BoundChangePoint access = new BoundChangePoint(upgrade,
+                ChangePoint.accessNarrowed(newArtifact,
+                        ChangePointKind.METHOD_ACCESS_NARROWED,
+                        "example/library/Api", "call", "()V",
+                        new AccessTransition(JvmAccess.PUBLIC,
+                                JvmAccess.PROTECTED)));
+        final ModuleAnalysisResult module = new ModuleAnalysisResult.Builder(
+                unit(moduleId, List.of(access)))
+                .dispositions(Map.of(access,
+                        ChangePointDisposition.ACCESS_REMAINS_VALID))
+                .build();
+
+        assertThat(PerModuleImpactPipeline.codeComparisonPoints(module))
+                .isEmpty();
+    }
+
+    @Test
+    void codeComparisonSelectionDeduplicatesCandidateAndStructuralPaths() {
+        final ModuleId moduleId = new ModuleId(new ArtifactCoord(
+                "example", "app", "jar", "1"), Path.of("app"));
+        final ArtifactCoord oldArtifact = new ArtifactCoord(
+                "example", "library", "jar", "1");
+        final ArtifactCoord newArtifact = new ArtifactCoord(
+                "example", "library", "jar", "2");
+        final DependencyUpgradeKey upgrade = new DependencyUpgradeKey(
+                moduleId, DependencyScope.COMPILE,
+                oldArtifact, newArtifact);
+        final BoundChangePoint point = new BoundChangePoint(upgrade,
+                new ChangePoint(newArtifact,
+                        ChangePointKind.METHOD_BODY_CHANGED,
+                        "example/library/Api", "call", "()V",
+                        "old", "new"));
+        final QueryNode root = new TestQueryNode(new MethodId(
+                "example/app/Controller", "handle", "()V", "app",
+                "app/classes"), CodeOrigin.PROJECT);
+        final ReferenceEvidence evidence = new ReferenceEvidence(
+                Optional.empty(), new ReferenceTarget(
+                        "example/library/Api", "call", "()V"),
+                EvidenceKind.METHOD_REFERENCE,
+                EvidenceMechanism.DECLARED_INVOKE,
+                new EvidenceLocation("fixture", 0), "fixture");
+        final ImpactPath candidate = new ImpactPath(List.of(root),
+                new ChangePointTerminal(point, evidence),
+                ImpactClassification.DIRECT);
+        final StructuralReferencePath structural =
+                new StructuralReferencePath(point,
+                        new StructuralReference("example/app/Controller",
+                                CodeOrigin.PROJECT,
+                                StructuralReferenceKind.ANNOTATION, "",
+                                "example/library/Api", "fixture"),
+                        List.of(root), ImpactClassification.DIRECT);
+        final ModuleAnalysisResult module = new ModuleAnalysisResult.Builder(
+                unit(moduleId, List.of(point)))
+                .candidatePaths(List.of(candidate, candidate))
+                .structuralPaths(List.of(structural))
+                .build();
+
+        assertThat(PerModuleImpactPipeline.codeComparisonPoints(module))
+                .containsExactly(point);
     }
 
     @Test
@@ -152,5 +235,23 @@ class PerModuleImpactPipelineTest {
                 return reason.name();
             }
         };
+    }
+
+    private ModuleAnalysisUnit unit(
+            final ModuleId module,
+            final List<BoundChangePoint> points) {
+        return new ModuleAnalysisUnit(module, ModulePresence.BOTH,
+                Path.of("classes"), List.of(), List.of(), List.of(),
+                new ModuleChangeSet(points, List.of()));
+    }
+
+    /**
+     * Test-only immutable query node.
+     *
+     * @param methodId method identity
+     * @param origin code origin
+     */
+    private record TestQueryNode(MethodId methodId, CodeOrigin origin)
+            implements QueryNode {
     }
 }

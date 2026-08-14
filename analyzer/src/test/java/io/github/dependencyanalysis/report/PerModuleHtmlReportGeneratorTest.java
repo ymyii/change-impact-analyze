@@ -52,6 +52,9 @@ import io.github.dependencyanalysis.impact.EvidenceLocation;
 import io.github.dependencyanalysis.impact.EvidenceMechanism;
 import io.github.dependencyanalysis.impact.ReferenceEvidence;
 import io.github.dependencyanalysis.impact.ReferenceTarget;
+import io.github.dependencyanalysis.impact.StructuralReference;
+import io.github.dependencyanalysis.impact.StructuralReferenceKind;
+import io.github.dependencyanalysis.impact.StructuralReferencePath;
 import io.github.dependencyanalysis.impact.refinement.ResultRefinementAlgorithm;
 import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
 import io.github.dependencyanalysis.preflight.PreflightReport;
@@ -87,7 +90,13 @@ class PerModuleHtmlReportGeneratorTest {
     private static final long QUERY_ELAPSED_MILLIS = 4L;
 
     /** Pages per analyzed Module. */
-    private static final int MODULE_PAGE_COUNT = 3;
+    private static final int MODULE_PAGE_COUNT = 2;
+
+    /** Unicode line separator protected in embedded JSON. */
+    private static final int LINE_SEPARATOR = 0x2028;
+
+    /** Normalized paths sharing the same member. */
+    private static final int SHARED_MEMBER_PATH_COUNT = 3;
 
     /** Temporary output directory. */
     @TempDir
@@ -208,23 +217,17 @@ class PerModuleHtmlReportGeneratorTest {
             final Path moduleIndex = values.stream()
                     .filter(path -> !path.getFileName().toString()
                             .contains("-impact"))
-                    .filter(path -> !path.getFileName().toString()
-                            .contains("-changes"))
                     .findFirst().orElseThrow();
             final Path impact = values.stream()
                     .filter(path -> path.getFileName().toString()
                             .contains("-impact"))
                     .findFirst().orElseThrow();
-            final Path changes = values.stream()
-                    .filter(path -> path.getFileName().toString()
-                            .contains("-changes"))
-                    .findFirst().orElseThrow();
             assertThat(Files.readString(moduleIndex))
                     .contains("Module Diagnostics")
                     .contains("Stage elapsed time")
                     .contains("embedded 3.6.1")
-                    .contains("Affected Call Chains")
-                    .contains("Dependency Changes")
+                    .contains("Affected Paths")
+                    .doesNotContain("Dependency Changes")
                     .contains("Technical details")
                     .contains("aria-label=\"Table of contents\"")
                     .contains("exact module event")
@@ -235,13 +238,11 @@ class PerModuleHtmlReportGeneratorTest {
             assertThat(Files.readString(impact))
                     .contains("No affected call chain was found within the "
                             + "documented analysis scope.")
-                    .contains("Structural reference chains");
-            assertThat(Files.readString(changes))
-                    .contains("No dependency member associated with a "
-                            + "candidate or final impact path")
-                    .doesNotContain("Method removed")
-                    .doesNotContain("fixture comparison failure")
-                    .contains("Module Index");
+                    .contains("id=\"path-type\"")
+                    .contains("<option value=\"10\" selected>10</option>")
+                    .contains("<option value=\"100\">100</option>")
+                    .contains("type=\"application/json\"")
+                    .doesNotContain("-changes.html");
         }
     }
 
@@ -271,10 +272,26 @@ class PerModuleHtmlReportGeneratorTest {
         final QueryNode root = new ReportQueryNode(new MethodId(
                 "example/app/Controller", "handle", "()V", "app",
                 "/secret/work/classes"), CodeOrigin.PROJECT);
+        final QueryNode secondRoot = new ReportQueryNode(new MethodId(
+                "example/app/Controller", "search", "()V", "app",
+                "/secret/work/classes"), CodeOrigin.PROJECT);
+        final String unsafeDetail = "fixture </script><script>alert(1)"
+                + "</script>&" + Character.toString(LINE_SEPARATOR);
         final ImpactPath candidate = new ImpactPath(List.of(root),
                 new ChangePointTerminal(affected, referenceEvidence(
-                        EvidenceMechanism.METHOD_DECLARATION, "fixture")),
+                        EvidenceMechanism.METHOD_DECLARATION, unsafeDetail)),
                 ImpactClassification.TRANSITIVE);
+        final ImpactPath secondCandidate = new ImpactPath(List.of(secondRoot),
+                new ChangePointTerminal(affected, referenceEvidence(
+                        EvidenceMechanism.METHOD_DECLARATION, "fixture two")),
+                ImpactClassification.DIRECT);
+        final StructuralReferencePath structural =
+                new StructuralReferencePath(affected,
+                        new StructuralReference("example/app/Config",
+                                CodeOrigin.PROJECT,
+                                StructuralReferenceKind.ANNOTATION, "",
+                                "example/library/Api", "annotation fixture"),
+                        List.of(root), ImpactClassification.DIRECT);
         final CodeComparisonEvidence code = new CodeComparisonEvidence(
                 CodeComparisonStatus.AVAILABLE,
                 List.of(new UnifiedDiffHunk(1, 1, 1, 1,
@@ -285,8 +302,9 @@ class PerModuleHtmlReportGeneratorTest {
                 new ModuleChangeSet(List.of(affected, hidden), List.of()));
         final ModuleAnalysisResult module =
                 new ModuleAnalysisResult.Builder(unit)
-                        .candidatePaths(List.of(candidate))
+                        .candidatePaths(List.of(candidate, secondCandidate))
                         .finalPaths(List.of())
+                        .structuralPaths(List.of(structural))
                         .equivalenceResults(Map.of(affected,
                                 new MethodEquivalenceResult(
                                         MethodEquivalenceStatus
@@ -321,20 +339,34 @@ class PerModuleHtmlReportGeneratorTest {
 
         final Path owned = temporary.resolve("filtered-modules");
         final String impact;
-        final String changes;
         try (Stream<Path> pages = Files.list(owned)) {
             final List<Path> values = pages.toList();
+            assertThat(values).hasSize(MODULE_PAGE_COUNT);
             impact = Files.readString(values.stream().filter(path ->
                     path.getFileName().toString().contains("-impact"))
                     .findFirst().orElseThrow());
-            changes = Files.readString(values.stream().filter(path ->
-                    path.getFileName().toString().contains("-changes"))
-                    .findFirst().orElseThrow());
         }
         assertThat(impact)
-                .contains("View candidate chains filtered as equivalent")
+                .contains("<option value=\"final\" selected>Final</option>")
+                .contains("<option value=\"filtered\">Equivalent filtered")
+                .contains("<option value=\"structural\">Structural")
+                .contains("<option value=\"all\">All</option>")
                 .contains("example.app.Controller#handle")
-                .doesNotContain("/secret/work/classes");
+                .contains("example.app.Controller#search")
+                .contains("\"type\":\"filtered\"")
+                .contains("\"type\":\"structural\"")
+                .contains("\"memberId\":0")
+                .contains("\\u003c/script\\u003e")
+                .contains("diff-line diff-add")
+                .contains("<tbody id=\"path-rows\"></tbody>")
+                .doesNotContain("/secret/work/classes")
+                .doesNotContain("fixture </script><script>alert(1)")
+                .doesNotContain(Character.toString(LINE_SEPARATOR))
+                .doesNotContain("#hidden", "-changes.html");
+        assertThat(occurrences(impact, "\"unifiedDiff\""))
+                .isEqualTo(1);
+        assertThat(occurrences(impact, "\"memberId\":0"))
+                .isEqualTo(SHARED_MEMBER_PATH_COUNT);
         assertThat(output).content()
                 .contains("<th>Result refinement algorithms</th><td>"
                         + "ssa-equivalence (experimental)</td>")
@@ -344,13 +376,10 @@ class PerModuleHtmlReportGeneratorTest {
                         + "1 (experimental)</td>")
                 .contains("<th>SSA equivalent / different / unknown</th>"
                         + "<td>1 / 0 / 0</td>");
-        assertThat(changes)
+        assertThat(impact)
                 .contains("example:library 1 → 2")
-                .contains("Equivalent (filtered)")
-                .contains("View code changes")
-                .contains("Decompiled Java representation")
                 .contains("-return 1;")
-                .doesNotContain("#hidden");
+                .contains("+return 2;");
     }
 
     @Test
@@ -488,18 +517,14 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("Completed");
         final Path owned = temporary.resolve("duplicate-modules");
         final String index;
-        final String changes;
         try (Stream<Path> pages = Files.list(owned)) {
             final List<Path> values = pages.toList();
+            assertThat(values).hasSize(MODULE_PAGE_COUNT);
+            assertThat(values.stream().noneMatch(path -> path.getFileName()
+                    .toString().contains("-changes"))).isTrue();
             index = Files.readString(values.stream()
                     .filter(path -> !path.getFileName().toString()
                             .contains("-impact"))
-                    .filter(path -> !path.getFileName().toString()
-                            .contains("-changes"))
-                    .findFirst().orElseThrow());
-            changes = Files.readString(values.stream()
-                    .filter(path -> path.getFileName().toString()
-                            .contains("-changes"))
                     .findFirst().orElseThrow());
         }
         assertThat(index)
@@ -511,14 +536,6 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("No module-specific limitation was recorded.")
                 .doesNotContain("winner-<unsafe>")
                 .doesNotContain(shadowed.toString());
-        assertThat(changes)
-                .contains("Method removed")
-                .contains("Shadowed by duplicate")
-                .contains("no Impact Path was generated")
-                .contains("PROJECT — winner-&lt;unsafe&gt;")
-                .contains("example:library:jar:2")
-                .doesNotContain(shadowed.toString())
-                .contains("SHADOWED_BY_DUPLICATE");
     }
 
     @Test
@@ -641,28 +658,20 @@ class PerModuleHtmlReportGeneratorTest {
 
         final Path owned = temporary.resolve("access-valid-modules");
         final String impact;
-        final String changes;
         try (Stream<Path> pages = Files.list(owned)) {
             final List<Path> values = pages.toList();
+            assertThat(values).hasSize(MODULE_PAGE_COUNT);
             impact = Files.readString(values.stream().filter(path ->
                     path.getFileName().toString().contains("-impact"))
-                    .findFirst().orElseThrow());
-            changes = Files.readString(values.stream().filter(path ->
-                    path.getFileName().toString().contains("-changes"))
                     .findFirst().orElseThrow());
         }
         assertThat(impact)
                 .contains("No affected call chain was found")
-                .doesNotContain("example.library.Api#call");
-        assertThat(changes)
-                .contains("Method access narrowed")
-                .contains("Access remains valid")
-                .contains("Old access</th><td>PUBLIC")
-                .contains("New access</th><td>PROTECTED")
-                .contains("decision=ACCESSIBLE")
-                .contains("View code changes")
-                .contains("-public void call()")
-                .contains("+protected void call()");
+                .contains("\"members\":[],\"paths\":[]")
+                .doesNotContain("example.library.Api#call")
+                .doesNotContain("decision=ACCESSIBLE")
+                .doesNotContain("-public void call()")
+                .doesNotContain("+protected void call()", "-changes.html");
     }
 
     @Test
@@ -739,12 +748,11 @@ class PerModuleHtmlReportGeneratorTest {
                     .findFirst().orElseThrow());
         }
         assertThat(impact)
-                .contains("Potential access incompatibility")
                 .contains("decision=POTENTIALLY_INACCESSIBLE")
                 .contains("reason=PROTECTED_RECEIVER_UNKNOWN")
-                .contains("Terminal target: example/library/Api#changed()V")
-                .contains("Terminal location: report-fixture; bytecode PC=0")
-                .contains("Terminal detail:")
+                .contains("\"target\":\"example/library/Api#changed()V\"")
+                .contains("\"source\":\"report-fixture\"")
+                .contains("\"bytecodePc\":0")
                 .doesNotContain("IllegalAccessError");
     }
 
@@ -756,6 +764,16 @@ class PerModuleHtmlReportGeneratorTest {
      */
     private record ReportQueryNode(MethodId methodId, CodeOrigin origin)
             implements QueryNode {
+    }
+
+    private int occurrences(final String text, final String value) {
+        int count = 0;
+        int offset = 0;
+        while ((offset = text.indexOf(value, offset)) >= 0) {
+            count++;
+            offset += value.length();
+        }
+        return count;
     }
 
     private void writeClass(
