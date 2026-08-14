@@ -1,18 +1,21 @@
 package io.github.dependencyanalysis.impact;
 
+import io.github.dependencyanalysis.impact.refinement.ResultRefinementAlgorithm;
+import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
+
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
 
-import io.github.dependencyanalysis.callgraph.CallGraphMethodIdentity;
-import io.github.dependencyanalysis.callgraph.CallGraphNodeIdentity;
-import io.github.dependencyanalysis.callgraph.CallGraphNodePathStep;
-import io.github.dependencyanalysis.callgraph.CallGraphNodeReachabilityPath;
-import io.github.dependencyanalysis.callgraph.CallGraphNodeSentinelRole;
-import io.github.dependencyanalysis.callgraph.CallGraphPathRootKind;
-import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
-import io.github.dependencyanalysis.callgraph.CodeOrigin;
-import io.github.dependencyanalysis.callgraph.JdkModelSelection;
-import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
+import io.github.dependencyanalysis.callgraph.topology.CallGraphMethodIdentity;
+import io.github.dependencyanalysis.callgraph.topology.CallGraphNodeIdentity;
+import io.github.dependencyanalysis.callgraph.topology.CallGraphNodePathStep;
+import io.github.dependencyanalysis.callgraph.topology.CallGraphNodeReachabilityPath;
+import io.github.dependencyanalysis.callgraph.topology.CallGraphNodeSentinelRole;
+import io.github.dependencyanalysis.callgraph.topology.CallGraphPathRootKind;
+import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
+import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
+import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
 
 import org.junit.jupiter.api.Test;
 
@@ -49,7 +52,7 @@ class CallGraphDiagnosticsExporterTest {
         try (JsonGenerator json = new JsonFactory().createGenerator(output)) {
             json.writeStartObject();
             CallGraphDiagnosticsExporter.writeConfiguration(
-                    json, CallGraphAlgorithm.RTA,
+                    json, CallGraphAlgorithm.K_OBJ,
                     CallGraphAlgorithm.defaultKObjDepth(),
                     WalaReflectionOptions.defaultOptions(),
                     DependencyAnalysisScopeMode.CHANGED_PATHS,
@@ -65,7 +68,7 @@ class CallGraphDiagnosticsExporterTest {
         assertThat(output.toString())
                 .contains("\"schemaVersion\":9")
                 .contains("\"reflectionApplied\":\"applied\"")
-                .contains("\"kObjDepth\":null")
+                .contains("\"kObjDepth\":1")
                 .contains("\"jdkModel\":\"jdk8\"")
                 .contains("\"resultRefinementAlgorithms\""
                         + ":[\"ssa-equivalence\"]")

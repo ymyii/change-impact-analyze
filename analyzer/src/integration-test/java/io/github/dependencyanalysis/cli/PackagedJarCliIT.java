@@ -14,7 +14,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
+import java.util.jar.JarOutputStream;
+import javax.tools.ToolProvider;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
@@ -132,6 +135,26 @@ class PackagedJarCliIT {
                     + "jdk8/Jdk8Models.class")).isNotNull();
             assertThat(jar.getEntry("io/github/dependencyanalysis/models/"
                     + "jdk8/jdk8-models.tsv")).isNotNull();
+            assertThat(jar.getEntry("io/github/dependencyanalysis/callgraph/"
+                    + "engine/ModuleCallGraphEngine.class")).isNotNull();
+            assertThat(jar.getEntry("io/github/dependencyanalysis/callgraph/"
+                    + "strategy/CallGraphAlgorithm.class")).isNotNull();
+            assertThat(jar.stream().map(entry -> entry.getName())
+                    .filter(name -> name.startsWith(
+                            "io/github/dependencyanalysis/callgraph/"))
+                    .filter(name -> name.endsWith(".class"))
+                    .filter(name -> name.substring(
+                            "io/github/dependencyanalysis/callgraph/".length())
+                            .indexOf('/') < 0)
+                    .filter(name -> !name.endsWith("package-info.class"))
+                    .toList()).isEmpty();
+            assertThat(jar.stream().map(entry -> entry.getName())
+                    .filter(name -> name.startsWith(
+                            "io/github/dependencyanalysis/callgraph/"))
+                    .filter(name -> name.contains("Rta")
+                            || name.contains("ZeroCfa")
+                            || name.contains("OptimizedZeroOneCfa"))
+                    .toList()).isEmpty();
             assertThat(jar.getEntry("maven/artifact-path-plugin/"
                     + "dependency-analyzer-artifact-path-"
                     + "maven-plugin-1.0.0.jar")).isNull();
@@ -173,6 +196,9 @@ class PackagedJarCliIT {
                 .doesNotContain(
                         "--experimental-bytecode-semantic-comparison")
                 .contains("--call-graph-timeout-seconds");
+        assertThat(impactHelp.output.replaceAll("\\s+", " "))
+                .contains("Call Graph algorithm: cha or k-obj "
+                        + "(experimental); default: cha.");
         assertThat(treeHelp.exitCode).isZero();
         assertThat(treeHelp.output)
                 .contains("-p, --path")
@@ -290,6 +316,32 @@ class PackagedJarCliIT {
     }
 
     @Test
+    void jarRunsKObjChangedDependencySmoke()
+            throws Exception {
+        final String jdk8Home = System.getenv("TEST_JDK8_HOME");
+        assertThat(jdk8Home).as("TEST_JDK8_HOME").isNotBlank();
+        final Path repository = createChangedDependencyRepository();
+        final Path report = temporary.resolve("k-obj-smoke.html");
+
+        final ProcessResult result = runJar(
+                "-v", "-m", maven.toString(), "-j", jdk8Home,
+                "-c", temporary.resolve("k-obj-smoke-config").toString(),
+                "impact", "-p", repository.toString(),
+                "-b", "HEAD~1", "-t", "HEAD",
+                "-o", report.toString(), "-f", "html",
+                "--call-graph-algorithm", "k-obj");
+
+        assertThat(result.exitCode).as(result.output).isZero();
+        assertThat(result.output)
+                .contains("algorithm=k-obj (experimental)");
+        assertThat(report).content()
+                .contains("Impact Analysis Report")
+                .contains("<th>Algorithm</th><td>k-obj (experimental)</td>")
+                .contains("<th>JDK method model</th><td>jdk8</td>")
+                .contains("k-Object (experimental)");
+    }
+
+    @Test
     void jarRunsEveryResultRefinementSelection()
             throws Exception {
         final String jdk8Home = System.getenv("TEST_JDK8_HOME");
@@ -308,11 +360,7 @@ class PackagedJarCliIT {
                 new RefinementScenario(
                         "cha-local-receiver-inference,ssa-equivalence",
                         "cha", "applied (experimental)",
-                        "enabled (experimental)"),
-                new RefinementScenario(
-                        "cha-local-receiver-inference", "rta",
-                        "not applied by non-cha (experimental)",
-                        "disabled (experimental)"));
+                        "enabled (experimental)"));
 
         for (RefinementScenario scenario : scenarios) {
             final String label = scenario.selection().replace(',', '-');
@@ -590,6 +638,112 @@ class PackagedJarCliIT {
         git(repository, "add", ".");
         git(repository, "commit", "-m", "initial");
         return repository;
+    }
+
+    private Path createChangedDependencyRepository() throws Exception {
+        final Path repository = temporary.resolve(
+                "k-obj-changed-dependency-repository");
+        final Path artifactRepository = temporary.resolve(
+                "k-obj-artifact-repository");
+        final Path applicationSource = repository.resolve(
+                "src/main/java/fixture/application/Caller.java");
+        installChangedDependencyArtifact(artifactRepository, "1", 1);
+        installChangedDependencyArtifact(artifactRepository, "2", 2);
+        Files.createDirectories(applicationSource.getParent());
+        git(repository, "init");
+        git(repository, "config", "user.email", "test@example.com");
+        git(repository, "config", "user.name", "Test");
+        final String baselineRootPom = """
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>fixture</groupId>
+                  <artifactId>application</artifactId>
+                  <version>1</version>
+                  <properties>
+                    <maven.compiler.source>8</maven.compiler.source>
+                    <maven.compiler.target>8</maven.compiler.target>
+                    <changed.version>1</changed.version>
+                  </properties>
+                  <repositories><repository>
+                    <id>changed-dependency-fixture</id>
+                    <url>%s</url>
+                  </repository></repositories>
+                  <dependencies><dependency>
+                    <groupId>fixture.external</groupId>
+                    <artifactId>changed-library</artifactId>
+                    <version>${changed.version}</version>
+                  </dependency></dependencies>
+                </project>
+                """.formatted(artifactRepository.toUri().toASCIIString());
+        Files.writeString(repository.resolve("pom.xml"), baselineRootPom,
+                StandardCharsets.UTF_8);
+        Files.writeString(applicationSource, """
+                package fixture.application;
+                import fixture.library.ChangedDependency;
+                public class Caller {
+                    public int call() {
+                        return new ChangedDependency().value();
+                    }
+                }
+                """, StandardCharsets.UTF_8);
+        git(repository, "add", ".");
+        git(repository, "commit", "-m", "baseline dependency");
+        Files.writeString(repository.resolve("pom.xml"),
+                baselineRootPom.replace(
+                        "<changed.version>1</changed.version>",
+                        "<changed.version>2</changed.version>"),
+                StandardCharsets.UTF_8);
+        git(repository, "add", ".");
+        git(repository, "commit", "-m", "change dependency body");
+        return repository;
+    }
+
+    private void installChangedDependencyArtifact(
+            final Path repository,
+            final String version,
+            final int value) throws Exception {
+        final Path source = temporary.resolve(
+                "k-obj-artifact-" + version
+                        + "/src/fixture/library/ChangedDependency.java");
+        final Path classes = temporary.resolve(
+                "k-obj-artifact-" + version + "/classes");
+        Files.createDirectories(source.getParent());
+        Files.createDirectories(classes);
+        Files.writeString(source, """
+                package fixture.library;
+                public class ChangedDependency {
+                    public int value() { return %d; }
+                }
+                """.formatted(value), StandardCharsets.UTF_8);
+        final int compileExit = ToolProvider.getSystemJavaCompiler().run(
+                null, null, null, "--release", "8", "-d",
+                classes.toString(), source.toString());
+        if (compileExit != 0) {
+            throw new IllegalStateException(
+                    "Unable to compile changed dependency " + version);
+        }
+        final Path directory = repository.resolve(
+                "fixture/external/changed-library/" + version);
+        Files.createDirectories(directory);
+        final Path jarPath = directory.resolve(
+                "changed-library-" + version + ".jar");
+        try (JarOutputStream jar = new JarOutputStream(
+                Files.newOutputStream(jarPath))) {
+            jar.putNextEntry(new JarEntry(
+                    "fixture/library/ChangedDependency.class"));
+            Files.copy(classes.resolve(
+                    "fixture/library/ChangedDependency.class"), jar);
+            jar.closeEntry();
+        }
+        Files.writeString(directory.resolve(
+                "changed-library-" + version + ".pom"), """
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>fixture.external</groupId>
+                  <artifactId>changed-library</artifactId>
+                  <version>%s</version>
+                </project>
+                """.formatted(version), StandardCharsets.UTF_8);
     }
 
     /** Packaged-JAR refinement scenario. */

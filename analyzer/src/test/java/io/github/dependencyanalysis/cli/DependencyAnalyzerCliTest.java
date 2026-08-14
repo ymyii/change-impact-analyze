@@ -1,21 +1,24 @@
 package io.github.dependencyanalysis.cli;
 
-import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
-import io.github.dependencyanalysis.callgraph.JdkModelSelection;
-import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
+import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
+import io.github.dependencyanalysis.callgraph.strategy.CallGraphPolicy;
+import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
+import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
 import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis.impact.DependencyAnalysisScopeMode;
-import io.github.dependencyanalysis.impact.ResultRefinementAlgorithm;
-import io.github.dependencyanalysis.impact.ResultRefinementSelection;
+import io.github.dependencyanalysis.impact.refinement.ResultRefinementAlgorithm;
+import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
 
 import org.junit.jupiter.api.Test;
 import picocli.CommandLine;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions
         .assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Root CLI contract tests. */
 class DependencyAnalyzerCliTest {
@@ -136,9 +139,8 @@ class DependencyAnalyzerCliTest {
                 .contains("--entrypoint-exclude")
                 .contains("--analysis-target");
         assertThat(impactText.toString().replaceAll("\\s+", " "))
-                .contains("Call Graph algorithm: cha, rta, zero-cfa, "
-                        + "optimized-0-1-cfa, or k-obj; "
-                        + "default: cha.");
+                .contains("Call Graph algorithm: cha or k-obj "
+                        + "(experimental); default: cha.");
         assertThat(treeText.toString())
                 .contains("-p, --path")
                 .contains("-r, --ref")
@@ -228,24 +230,12 @@ class DependencyAnalyzerCliTest {
     void callGraphAlgorithmDefaultsAndParsesCaseInsensitively() {
         final CommandLine defaultCommand = DependencyAnalyzerCli
                 .newCommandLine(new DependencyAnalyzerCli());
-        final CommandLine zeroCfaCommand = DependencyAnalyzerCli
-                .newCommandLine(new DependencyAnalyzerCli());
-        final CommandLine optimizedCommand = DependencyAnalyzerCli
-                .newCommandLine(new DependencyAnalyzerCli());
         final CommandLine kObjCommand = DependencyAnalyzerCli
                 .newCommandLine(new DependencyAnalyzerCli());
 
         final CommandLine.ParseResult defaultResult =
                 defaultCommand.parseArgs("impact", "--baseline", "HEAD",
                         "--output", "report.html");
-        final CommandLine.ParseResult zeroCfaResult =
-                zeroCfaCommand.parseArgs("impact", "--baseline", "HEAD",
-                        "--output", "report.html",
-                        "--call-graph-algorithm", "ZERO-CFA");
-        final CommandLine.ParseResult optimizedResult =
-                optimizedCommand.parseArgs("impact", "--baseline", "HEAD",
-                        "--output", "report.html",
-                        "--call-graph-algorithm", "OPTIMIZED-0-1-CFA");
         final CommandLine.ParseResult kObjResult =
                 kObjCommand.parseArgs(
                         "impact", "--baseline", "HEAD",
@@ -255,14 +245,19 @@ class DependencyAnalyzerCliTest {
 
         assertThat(algorithm(defaultResult))
                 .isEqualTo(CallGraphAlgorithm.CHA);
-        assertThat(algorithm(zeroCfaResult))
-                .isEqualTo(CallGraphAlgorithm.ZERO_CFA);
-        assertThat(algorithm(optimizedResult))
-                .isEqualTo(CallGraphAlgorithm.OPTIMIZED_ZERO_ONE_CFA);
         assertThat(algorithm(kObjResult))
                 .isEqualTo(CallGraphAlgorithm.K_OBJ);
         assertThat(kObjDepth(defaultResult)).isNull();
         assertThat(kObjDepth(kObjResult)).isEqualTo(2);
+        for (String removed : List.of(
+                "rta", "zero-cfa", "optimized-0-1-cfa")) {
+            assertThatThrownBy(() -> DependencyAnalyzerCli
+                    .newCommandLine(new DependencyAnalyzerCli())
+                    .parseArgs("impact", "--baseline", "HEAD",
+                            "--output", "report.html",
+                            "--call-graph-algorithm", removed))
+                    .isInstanceOf(CommandLine.ParameterException.class);
+        }
     }
 
     @Test
@@ -277,7 +272,7 @@ class DependencyAnalyzerCliTest {
                 .newCommandLine(new DependencyAnalyzerCli())
                 .execute("impact", "--baseline", "HEAD",
                         "--output", "report.html",
-                        "--call-graph-algorithm", "rta",
+                        "--call-graph-algorithm", "cha",
                         "--k-obj-depth", "2");
 
         assertThat(zero).isEqualTo(1);
@@ -328,8 +323,8 @@ class DependencyAnalyzerCliTest {
                 "--output", "report.html", "--jdk-model", "NONE");
 
         assertThat(jdkModel(defaultResult)).isNull();
-        assertThat(io.github.dependencyanalysis.callgraph.CallGraphPolicy
-                .defaultJdkModel(algorithm(defaultResult))).isEqualTo(
+        assertThat(CallGraphPolicy.defaultJdkModel(
+                algorithm(defaultResult))).isEqualTo(
                 JdkModelSelection.NONE);
         assertThat(jdkModel(noneResult)).isEqualTo(
                 JdkModelSelection.NONE);
@@ -447,8 +442,7 @@ class DependencyAnalyzerCliTest {
 
         assertThat(code).isEqualTo(1);
         assertThat(errors.toString())
-                .contains("rta, zero-cfa, optimized-0-1-cfa, "
-                        + "k-obj")
+                .contains("cha, k-obj")
                 .doesNotContain("[preflight]");
     }
 

@@ -1,6 +1,6 @@
 package io.github.dependencyanalysis.impact;
 
-import io.github.dependencyanalysis.callgraph.MethodId;
+import io.github.dependencyanalysis.callgraph.model.MethodId;
 
 import java.util.ArrayList;
 import java.util.Collections;

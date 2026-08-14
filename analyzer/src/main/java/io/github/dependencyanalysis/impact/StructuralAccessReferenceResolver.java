@@ -5,7 +5,7 @@ import com.ibm.wala.classLoader.IClass;
 import io.github.dependencyanalysis.bytecode.AccessTransition;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
-import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
+import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphSession;
 
 import java.util.List;
 import java.util.Optional;

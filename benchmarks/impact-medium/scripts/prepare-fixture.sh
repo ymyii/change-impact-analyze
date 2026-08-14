@@ -149,8 +149,6 @@ path_c_jar="$work_root/path-c-1.0.0.jar"
 path_x_jar="$work_root/path-x-1.0.0.jar"
 path_y_jar="$work_root/path-y-1.0.0.jar"
 path_sibling_jar="$work_root/path-sibling-1.0.0.jar"
-sink_jar="$work_root/external-sink-1.0.0.jar"
-factory_jar="$work_root/external-factory-1.0.0.jar"
 plain_jar="$work_root/external-plain-1.0.0.jar"
 
 compile_sources \
@@ -181,16 +179,6 @@ for path_name in path-a path-c path-x path-y path-sibling; do
 done
 
 compile_sources \
-  "$artifact_sources/external-sink" \
-  "$work_root/classes-external-sink" \
-  "$sink_jar" \
-  "$scenario_v1_jar"
-compile_sources \
-  "$artifact_sources/external-factory" \
-  "$work_root/classes-external-factory" \
-  "$factory_jar" \
-  "$scenario_v1_jar"
-compile_sources \
   "$artifact_sources/external-plain" \
   "$work_root/classes-external-plain" \
   "$plain_jar"
@@ -214,9 +202,6 @@ install_artifact_with_dependencies com.acme.impact.path path-x 1.0.0 \
   "$path_x_jar" com.acme.impact.path path-y 1.0.0
 install_artifact_with_dependencies com.acme.impact.path path-sibling 1.0.0 \
   "$path_sibling_jar" com.acme.benchmark.vendor vendor-lib-35 1.0.0
-install_artifact com.acme.impact.boundary external-sink 1.0.0 "$sink_jar"
-install_artifact com.acme.impact.boundary external-factory 1.0.0 \
-  "$factory_jar"
 install_pom_only com.acme.impact.scope scope-conflict-marker 1.0.0
 install_artifact_with_dependencies \
   com.acme.impact.boundary external-plain 1.0.0 "$plain_jar" \
@@ -293,8 +278,8 @@ dependency_count=$(awk '
   END { print count + 0 }
 ' "$project_root/application/pom.xml")
 
-if [ "$dependency_count" -ne 42 ]; then
-  echo "fixture must contain 42 direct dependencies; found $dependency_count" >&2
+if [ "$dependency_count" -ne 40 ]; then
+  echo "fixture must contain 40 direct dependencies; found $dependency_count" >&2
   exit 1
 fi
 

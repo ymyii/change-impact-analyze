@@ -1,7 +1,7 @@
 package io.github.dependencyanalysis.impact;
 
-import io.github.dependencyanalysis.callgraph.CodeOrigin;
-import io.github.dependencyanalysis.callgraph.MethodId;
+import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.callgraph.model.MethodId;
 
 /** Node used by read-only WALA and terminal-evidence traversal. */
 public interface QueryNode {

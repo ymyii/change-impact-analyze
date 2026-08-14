@@ -2,11 +2,11 @@ package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.bytecode.DecompiledMethod;
 import io.github.dependencyanalysis.bytecode.MethodBodyDecompiler;
-import io.github.dependencyanalysis.callgraph.CallGraphMethodIdentity;
-import io.github.dependencyanalysis.callgraph.ClassOwnership;
-import io.github.dependencyanalysis.callgraph.ClassSource;
-import io.github.dependencyanalysis.callgraph.CodeOrigin;
-import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
+import io.github.dependencyanalysis.callgraph.topology.CallGraphMethodIdentity;
+import io.github.dependencyanalysis.callgraph.scope.ClassOwnership;
+import io.github.dependencyanalysis.callgraph.scope.ClassSource;
+import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphSession;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.jar.IJarRepository;

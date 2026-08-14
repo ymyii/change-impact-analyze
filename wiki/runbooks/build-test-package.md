@@ -37,7 +37,7 @@ code_refs:
 
 ## Summary
 
-本runbook覆盖四个独立Maven reactor的本地开发、model/Plugin bootstrap、Checkstyle、unit/integration tests、打包和CLI smoke。日常验证不修改version、不要求Git commit。
+本runbook覆盖四个独立Maven reactor的本地开发、model/Plugin bootstrap、artifact-first打包、Checkstyle、ArchUnit、unit/integration tests和CLI smoke。日常验证不修改version、不要求Git commit。
 
 ## Prerequisites
 
@@ -78,7 +78,13 @@ Attached `repository` ZIP 同时安装到 Maven local repository。
 
 ### Analyzer reactor
 
-完整 quality gate：
+代码修改完成后先产出可交付artifact：
+
+```sh
+mvn -DskipTests package
+```
+
+确认`target/dependency-analyzer.jar`可用后，再执行完整quality gate：
 
 ```sh
 mvn clean verify
@@ -90,7 +96,7 @@ mvn clean verify
 mvn test
 ```
 
-只打包仍会编译 tests，因此同样使用配置的 JDK 8：
+普通打包仍会编译并执行tests，因此同样使用配置的JDK 8：
 
 ```sh
 mvn package
@@ -120,10 +126,10 @@ java -jar target/dependency-analyzer.jar tree --help
 - Plugin reactor 输出 `0 Checkstyle violations`，tests 全部通过，Plugin class major 不超过 `52`。Graph tests 覆盖scope-conflict pruning、multi-path winner normalization、missing winner fail-fast；output tests 覆盖owner/path/symlink 与 atomic publication。
 - Plugin repository ZIP 只有 Maven layout 下当前 version 的 JAR 与 consumer POM，不包含项目生成的 checksum sidecar。
 - Analyzer `mvn clean verify` 的 Surefire 与 Failsafe tests 全部通过且 `Skipped: 0`。
-- 真实JDK 8 test完成JDK probe、WALA scope、默认CHA与显式四种非CHA strategy，不因缺少环境变量跳过。CHA验证JDK leaf不展开；非CHA继续验证JDK model callback dispatch。
-- CLI/config/report tests确认默认WALA ReflectionOptions为`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`，并可显式选择WALA原生enum value。
-- CLI/config/report tests确认默认组合为`cha + none`；非CHA默认`jdk8`且可显式`none`；`cha + jdk8`统一拒绝。四种非CHA algorithm各安装一次model，完整JDK 8 metadata为384/384/0且fixture hit非零。
-- 五种algorithm通过统一Evidence schema、ServiceLoader、Class.forName、lambda/`invokedynamic`与timeout regression；CHA额外覆盖local constant、JDK leaf、路径外external target pruning、完整external祖先链和真实provider constructor protocol edge。
+- `PackageArchitectureTest`在`mvn verify`中强制Call Graph与Impact/Report解耦、CHA与`k-obj`隔离、protocol依赖方向、根包无production class以及Report不访问live strategy。
+- 真实JDK 8 test完成JDK probe、WALA scope、默认CHA与显式`k-obj`，不因缺少环境变量跳过。CHA验证JDK leaf不展开；`k-obj`验证JDK model callback dispatch。
+- CLI/config/report tests确认默认组合为`cha + none`；`k-obj`默认`jdk8`且可显式`none`；`cha + jdk8`统一拒绝。Reflection配置只应用于`k-obj`。
+- CHA与`k-obj`通过统一Evidence Schema、timeout和metadata regression；MethodHandle、ServiceLoader、Class.forName与`invokedynamic`由聚焦`k-obj` capability tests覆盖。CHA额外覆盖local constant、JDK leaf、路径外external target pruning和完整external祖先链。
 - Entrypoint tests覆盖private nested class、constructor、static/instance method过滤；公开root调用的private method仍作为普通CGNode存在。
 - `target/dependency-analyzer.jar` 存在，manifest `Main-Class` 为 `io.github.dependencyanalysis.cli.DependencyAnalyzerCli`。
 - Analyzer JAR包含公共`JdkModels.class`、`Jdk8Models.class`和`jdk8-models.tsv`；help包含`--jdk-model`。
@@ -132,7 +138,10 @@ java -jar target/dependency-analyzer.jar tree --help
 - Analyzer integration tests 覆盖空格/中文 cache path、scope-conflict missing `test` binary，以及 Maven 成功/失败后 source repository 无 evidence 中间文件。
 - 最新 duplicate class precedence tests、report tests 与 `PackagedJarCliIT` 全部通过。
 - Root/两个 subcommand help 列出当前 option；CLI `--version` 与 Maven build metadata 一致。
-- Analyzer能力新增或行为扩展时，必须同步新增/更新benchmark fixture、verification与expected baseline。只有用户明确要求执行benchmark时才运行matrix；获得授权后，70个JVM、20组semantic baseline和两份HTML Report必须全部成功。当前`PENDING`baseline必须先经授权calibration和人工review锁定；calibration不得发布tracked snapshot。
+- Packaged help只接受`cha`与`k-obj`，后者标记`experimental`；`rta`、`zero-cfa`和`optimized-0-1-cfa`在解析阶段失败。
+- Packaged JAR保留公共JDK model engine、JDK 8 façade与catalog；不包含已删除algorithm class、旧Call Graph根包class或兼容wrapper。
+- `PackagedJarCliIT`使用真实changed-dependency fixture执行默认JDK 8的`k-obj`，要求fixed point完成、报告生成并显示`experimental`。
+- Analyzer能力新增或行为扩展时，必须同步新增/更新benchmark fixture、verification与expected baseline。只有用户明确要求执行benchmark时才运行matrix；获得授权后，14个JVM、4组semantic baseline和两份HTML Report必须全部成功。当前4个`PENDING`baseline必须先经授权calibration和人工review锁定；calibration不得发布tracked snapshot。
 
 ## Failure Entrypoints
 

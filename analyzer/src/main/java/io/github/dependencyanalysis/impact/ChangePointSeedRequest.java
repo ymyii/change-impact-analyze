@@ -1,7 +1,7 @@
 package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.bytecode.ChangePoint;
-import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
+import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphSession;
 
 import java.util.Objects;
 

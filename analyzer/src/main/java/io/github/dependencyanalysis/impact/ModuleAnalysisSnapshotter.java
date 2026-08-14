@@ -2,8 +2,8 @@ package io.github.dependencyanalysis.impact;
 
 import com.ibm.wala.ipa.callgraph.CGNode;
 
-import io.github.dependencyanalysis.callgraph.CallGraphNodeSentinelRole;
-import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
+import io.github.dependencyanalysis.callgraph.topology.CallGraphNodeSentinelRole;
+import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphSession;
 
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -38,7 +38,8 @@ final class ModuleAnalysisSnapshotter {
                 session.getStats(), session.getEntrypointCount(),
                 session.getParameterCandidateCount(),
                 session.getSelectedEntrypointClassCount(), contexts,
-                session.getDependencyBoundary());
+                new CallGraphCoverageMapper().snapshot(
+                        session.getDependencyBoundary()));
         return module.toBuilder().session(null).callGraphSnapshot(snapshot)
                 .candidatePaths(candidate).finalPaths(paths)
                 .structuralPaths(structural).build();

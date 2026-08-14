@@ -73,37 +73,12 @@ run_one() {
     "$script_dir/run-benchmark.sh" "$label" || suite_failed=1
 }
 
-# One scope: 5 warm-up + 25 formal + 4 non-CHA JDK-none controls
-# + 1 CHA local-receiver control.
-for algorithm in cha rta zero-cfa optimized-0-1-cfa k-obj; do
-  if [ "$algorithm" = cha ]; then
-    run_one "$algorithm" warmup 0 0 1 none ssa-equivalence
-  else
-    run_one "$algorithm" warmup 0 0 1 jdk8 ssa-equivalence
-  fi
-done
-
+# One scope: one SSA warm-up, five SSA formal samples, and one
+# CHA local-receiver control. Each invocation starts a fresh JVM.
+run_one cha warmup 0 0 1 none ssa-equivalence
 for round in 1 2 3 4 5; do
-  case "$round" in
-    1) order="cha rta zero-cfa optimized-0-1-cfa k-obj" ;;
-    2) order="rta zero-cfa optimized-0-1-cfa k-obj cha" ;;
-    3) order="zero-cfa optimized-0-1-cfa k-obj cha rta" ;;
-    4) order="optimized-0-1-cfa k-obj cha rta zero-cfa" ;;
-    5) order="k-obj cha rta zero-cfa optimized-0-1-cfa" ;;
-  esac
-  for algorithm in $order; do
-    if [ "$algorithm" = cha ]; then
-      run_one "$algorithm" formal "$round" "$round" 0 none ssa-equivalence
-    else
-      run_one "$algorithm" formal "$round" "$round" 0 jdk8 ssa-equivalence
-    fi
-  done
+  run_one cha formal "$round" "$round" 0 none ssa-equivalence
 done
-
-for algorithm in rta zero-cfa optimized-0-1-cfa k-obj; do
-  run_one "$algorithm" control 0 0 0 none ssa-equivalence
-done
-
 run_one cha control 0 0 0 none cha-local-receiver-inference
 
 set --

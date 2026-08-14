@@ -1,6 +1,6 @@
 package io.github.dependencyanalysis.impact;
 
-import io.github.dependencyanalysis.callgraph.CodeOrigin;
+import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
 
 import java.util.Objects;
 

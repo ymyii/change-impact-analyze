@@ -1,6 +1,6 @@
 package io.github.dependencyanalysis.impact;
 
-import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
+import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
 
 import picocli.CommandLine.ITypeConverter;
 import picocli.CommandLine.TypeConversionException;

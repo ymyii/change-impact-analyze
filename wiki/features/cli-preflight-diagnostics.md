@@ -23,9 +23,9 @@ code_refs:
     desc: "Module级应用状态、metrics与bounded examples"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/JdkModelSelectionConverter.java"
     desc: "jdk8/none精确标识符parse与CLI error"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/JdkModelSelection.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/jdk/JdkModelSelection.java"
     desc: "public selection与defaultSelection"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphPolicy.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/strategy/CallGraphPolicy.java"
     desc: "CLI、pipeline与Java API共享的algorithm/model policy"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/preflight/PreflightRunner.java"
     desc: "check DAG"
@@ -84,7 +84,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - `--path <path>`：reactor root 或 leaf Module。
 - `--analysis-target spring-backend`：默认且唯一 target。
 - `--analysis-parallelism <N>`：未传值时运行期取`max(1, Runtime.getRuntime().availableProcessors() / 2)`，向下取整；显式值必须`>=1`。只控制JAR diff、Impact Query与code comparison pool；显式值超过可用CPU时输出warning，不截断。Help只说明默认使用可用CPU核数的一半，不显示固定数字。
-- `--call-graph-algorithm <cha|rta|zero-cfa|optimized-0-1-cfa|k-obj>`：默认`cha`，command-wide应用到全部Module；大小写不敏感，不接受alias或自动fallback；旧`1-object-1-call-site`标识直接拒绝。
+- `--call-graph-algorithm <cha|k-obj>`：默认`cha`，command-wide应用到全部Module；`k-obj`标记为`experimental`。大小写不敏感，不接受alias或自动fallback；其他标识在参数解析阶段失败。
 - `--k-obj-depth <正整数>`：只可与`k-obj`同时使用，默认`1`，不设置人为上限；零值、负值及与其他算法组合均在Preflight前作为参数错误返回。
 - `--jdk-model <jdk8|none>`：默认依algorithm解析。未指定algorithm/model或显式`cha`但未指定model时为`none`；其他algorithm未指定model时为`jdk8`。显式`cha + jdk8`在Preflight前exit code`1`；其他algorithm仍可显式`none`。
 - `--wala-reflection-options <enum-name>`：默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`，接受WALA `ReflectionOptions` enum name；`--reflection-options`为alias。CHA保留配置值但不应用，Report显示`not applied by cha`。

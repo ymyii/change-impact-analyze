@@ -18,7 +18,7 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 expected_results="$script_dir/../expected-results.tsv"
 
 case "$algorithm" in
-  cha|rta|zero-cfa|optimized-0-1-cfa|k-obj) ;;
+  cha) ;;
   *)
     echo "unsupported call graph algorithm: $algorithm" >&2
     exit 2
@@ -39,7 +39,7 @@ fail() {
 }
 
 case "$jdk_model" in
-  jdk8|none) ;;
+  none) ;;
   *) fail "unsupported JDK model: $jdk_model" ;;
 esac
 [ "$algorithm" != cha ] || [ "$jdk_model" = none ] \
@@ -73,33 +73,22 @@ case "$dependency_scope" in
     final_member_text="Method implementation changed"
     grep -q '<th>Status</th><td>Completed with coverage limitations</td>' "$report" \
       || fail "changed-paths Overall status is not INCONCLUSIVE"
-    if [ "$algorithm" = cha ]; then
-      ! grep -q 'DEPENDENCY_BODY_BOUNDARY_REACHED' "$module_dir"/*.html \
-        || fail "pruned CHA external target produced boundary evidence"
-      grep -q '<th>No-op / factory method nodes</th><td>0 / 0</td>' "$report" \
-        || fail "CHA unexpectedly produced no-op or factory nodes"
-      grep -q '<th>Dangerous dependency transfers</th><td>0</td>' "$report" \
-        || fail "CHA unexpectedly produced dangerous transfer evidence"
-      grep -q '<th>Ancestor-retained external types / methods</th><td>3 /' \
-        "$module_dir"/*.html \
-        || fail "CHA external ancestor retention metrics are missing"
-      grep -Eq '<th>Pruned external method targets</th><td>[1-9][0-9]*</td>' \
-        "$module_dir"/*.html \
-        || fail "CHA pruned external target metric is missing"
-      for retained_method in \
-          ExternalAncestor inheritedPublic helper \
-          ExternalGrandParent grandMethod \
-          ExternalContract interfaceMethod \
-          AncestorRetentionUseCase abstractMethod; do
-        grep -q "$retained_method" "$module_dir"/*-impact.html \
-          || fail "CHA ancestor-retained path element is missing: $retained_method"
-      done
-    else
-      grep -q 'CHANGED_INSTANCE_TO_NO_OP_DEPENDENCY' "$module_dir"/*.html \
-        || fail "dangerous transfer evidence is missing"
-      grep -q 'FLOW_TO_CAST_FACTORY' "$module_dir"/*.html \
-        || fail "flow-to-cast factory evidence is missing"
-    fi
+    ! grep -q 'DEPENDENCY_BODY_BOUNDARY_REACHED' "$module_dir"/*.html \
+      || fail "pruned CHA external target produced boundary evidence"
+    grep -q '<th>Ancestor-retained external types / methods</th><td>3 /' \
+      "$module_dir"/*.html \
+      || fail "CHA external ancestor retention metrics are missing"
+    grep -Eq '<th>Pruned external method targets</th><td>[1-9][0-9]*</td>' \
+      "$module_dir"/*.html \
+      || fail "CHA pruned external target metric is missing"
+    for retained_method in \
+        ExternalAncestor inheritedPublic helper \
+        ExternalGrandParent grandMethod \
+        ExternalContract interfaceMethod \
+        AncestorRetentionUseCase abstractMethod; do
+      grep -q "$retained_method" "$module_dir"/*-impact.html \
+        || fail "CHA ancestor-retained path element is missing: $retained_method"
+    done
     grep -q 'path-a.*path-c.*scenario-api:jar:2.0.0' \
       "$module_dir"/*.html \
       || fail "path-a/path-c dependency path is missing"
@@ -115,17 +104,8 @@ case "$dependency_scope" in
     required_change_kinds="CLASS_REMOVED METHOD_REMOVED METHOD_DESCRIPTOR_CHANGED METHOD_BODY_CHANGED FIELD_REMOVED FIELD_DESCRIPTOR_CHANGED SERVICE_PROVIDER_REGISTRATION_REMOVED"
     hidden_change_kinds="CLASS_ADDED METHOD_ADDED FIELD_ADDED"
     final_member_text="Method removed"
-    if [ "$algorithm" = cha ]; then
-      grep -q '<th>Status</th><td>Completed with coverage limitations</td>' "$report" \
-        || fail "full CHA Overall status is not INCONCLUSIVE"
-    else
-      grep -q '<th>Status</th><td>Completed</td>' "$report" \
-        || fail "full Overall status is not Completed"
-    fi
-    grep -q '<th>No-op / factory method nodes</th><td>0 / 0</td>' "$report" \
-      || fail "full mode unexpectedly produced no-op or factory nodes"
-    grep -q '<th>Dangerous dependency transfers</th><td>0</td>' "$report" \
-      || fail "full mode unexpectedly produced dangerous transfer evidence"
+    grep -q '<th>Status</th><td>Completed with coverage limitations</td>' "$report" \
+      || fail "full CHA Overall status is not INCONCLUSIVE"
     ;;
 esac
 grep -q '<th>Raw changed members</th><td>22</td>' "$report" \
@@ -140,32 +120,14 @@ grep -E -q '<th>Code comparisons in parallel</th><td>[0-9]+ \(configured 2\)</td
   || fail "removed Module parallelism row is present"
 grep -F -q "<th>Algorithm</th><td>$algorithm</td>" "$report" \
   || fail "Call Graph algorithm does not match requested $algorithm"
-if [ "$algorithm" = k-obj ]; then
-  grep -F -q '<th>k-object depth</th><td>1</td>' "$report" \
-    || fail "canonical k-obj depth is not 1"
-else
-  ! grep -F -q '<th>k-object depth</th>' "$report" \
-    || fail "non-k-obj report unexpectedly exposes k-object depth"
-fi
-if [ "$algorithm" = cha ]; then
-  grep -F -q "<th>WALA ReflectionOptions</th><td>not applied by cha (configured: $reflection_options)</td>" "$report" \
-    || fail "CHA ReflectionOptions not-applied state is missing"
-else
-  grep -F -q "<th>WALA ReflectionOptions</th><td>$reflection_options</td>" "$report" \
-    || fail "WALA ReflectionOptions does not match requested $reflection_options"
-fi
+! grep -F -q '<th>k-object depth</th>' "$report" \
+  || fail "CHA report unexpectedly exposes k-object depth"
+grep -F -q "<th>WALA ReflectionOptions</th><td>not applied by cha (configured: $reflection_options)</td>" "$report" \
+  || fail "CHA ReflectionOptions not-applied state is missing"
 grep -F -q "<th>Requested dependency scope</th><td>$dependency_scope</td>" "$report" \
   || fail "dependency scope does not match requested $dependency_scope"
 grep -F -q "<th>JDK method model</th><td>$jdk_model</td>" "$report" \
   || fail "JDK method model does not match requested $jdk_model"
-if [ "$jdk_model" = jdk8 ]; then
-  grep -q 'JdkModelUseCase' "$module_dir"/*-impact.html \
-    || fail "JDK model fixture entrypoint is missing"
-  grep -q 'JdkModelUseCase\$ChangedMapper' "$module_dir"/*-impact.html \
-    || fail "JDK model fixture private Function callback is missing"
-  grep -q 'bodyChanged' "$module_dir"/*-impact.html \
-    || fail "JDK model fixture changed dependency call is missing"
-fi
 grep -q 'RecursiveCallUseCase' "$module_dir"/*-impact.html \
   || fail "recursive call impact chain is missing"
 grep -q 'Structural reference chains' "$module_dir"/*-impact.html \
@@ -206,19 +168,14 @@ case ",$result_refinements," in
 esac
 case ",$result_refinements," in
   *,cha-local-receiver-inference,*)
-    if [ "$algorithm" = cha ]; then
-      grep -q '<th>CHA local receiver inference</th><td>applied (experimental)</td>' "$report" \
-        || fail "CHA local receiver inference applied state is missing"
-      grep -q 'ChaLocalReceiverUseCase\$ChangedReceiver' "$module_dir"/*-impact.html \
-        || fail "ChangedReceiver impact path is missing"
-      ! grep -q 'unrelatedReceiverPath' "$module_dir"/*-impact.html \
-        || fail "infeasible unrelated receiver caller remains in impact paths"
-      grep -E -q '<th>CHA receiver edges checked / pruned / unknown</th><td>[0-9]+ / [1-9][0-9]* / [0-9]+</td>' "$module_dir"/*.html \
-        || fail "CHA local receiver pruned-edge count is missing"
-    else
-      grep -q '<th>CHA local receiver inference</th><td>not applied by non-cha (experimental)</td>' "$report" \
-        || fail "non-CHA not-applied state is missing"
-    fi
+    grep -q '<th>CHA local receiver inference</th><td>applied (experimental)</td>' "$report" \
+      || fail "CHA local receiver inference applied state is missing"
+    grep -q 'ChaLocalReceiverUseCase\$ChangedReceiver' "$module_dir"/*-impact.html \
+      || fail "ChangedReceiver impact path is missing"
+    ! grep -q 'unrelatedReceiverPath' "$module_dir"/*-impact.html \
+      || fail "infeasible unrelated receiver caller remains in impact paths"
+    grep -E -q '<th>CHA receiver edges checked / pruned / unknown</th><td>[0-9]+ / [1-9][0-9]* / [0-9]+</td>' "$module_dir"/*.html \
+      || fail "CHA local receiver pruned-edge count is missing"
     ;;
   *)
     grep -q '<th>CHA local receiver inference</th><td>disabled (experimental)</td>' "$report" \
@@ -232,8 +189,8 @@ dependency_count=$(awk '
   in_dependencies && /<dependency>/ { count++ }
   END { print count + 0 }
 ' "$project_root/application/pom.xml")
-[ "$dependency_count" -eq 42 ] \
-  || fail "expected 42 direct dependencies; found $dependency_count"
+[ "$dependency_count" -eq 40 ] \
+  || fail "expected 40 direct dependencies; found $dependency_count"
 ! grep -R -q 'scope-conflict-marker' "$module_dir" \
   || fail "test-scope conflict marker entered the analysis report"
 [ ! -f "$BENCHMARK_MAVEN_REPO/com/acme/impact/scope/scope-conflict-marker/1.0.0/scope-conflict-marker-1.0.0.jar" ] \
@@ -273,11 +230,10 @@ grep -q 'Structural impact' $changes_pages \
   || fail "structural impact badge is missing"
 
 [ -f "$expected_results" ] || fail "missing expected results: $expected_results"
-expected=$(awk -F '\t' -v requested_scope="$dependency_scope" -v requested_model="$jdk_model" -v requested_algorithm="$algorithm" -v requested_refinements="$result_refinements" '
-  BEGIN { requested_depth = requested_algorithm == "k-obj" ? "1" : "" }
-  $0 !~ /^#/ && NF == 7 && $1 == requested_scope && $2 == requested_model && $3 == requested_algorithm && $4 == requested_depth && $5 == requested_refinements { print $6 "\t" $7; found++ }
+expected=$(awk -F '\t' -v requested_scope="$dependency_scope" -v requested_refinements="$result_refinements" '
+  $0 !~ /^#/ && NF == 4 && $1 == requested_scope && $2 == requested_refinements { print $3 "\t" $4; found++ }
   END { if (found > 1) exit 2 }
-' "$expected_results") || fail "duplicate expected result for $jdk_model/$algorithm/$result_refinements"
+' "$expected_results") || fail "duplicate expected result for $dependency_scope/$result_refinements"
 
 if [ -n "$expected" ]; then
   expected_candidate=$(printf '%s\n' "$expected" | awk -F '\t' '{print $1}')

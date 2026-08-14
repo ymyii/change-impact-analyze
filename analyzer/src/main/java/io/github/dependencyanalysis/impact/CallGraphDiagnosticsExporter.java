@@ -1,23 +1,27 @@
 package io.github.dependencyanalysis.impact;
 
+import io.github.dependencyanalysis.impact.refinement.ResultRefinementAlgorithm;
+import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
+import io.github.dependencyanalysis.impact.refinement.cha.ChaLocalReceiverRefinementSummary;
+
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
 
-import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
-import io.github.dependencyanalysis.callgraph.CallGraphStrategyCapabilities;
-import io.github.dependencyanalysis.callgraph.CallGraphMethodIdentity;
-import io.github.dependencyanalysis.callgraph.CallGraphNodeIdentity;
-import io.github.dependencyanalysis.callgraph.CallGraphNodeIr;
-import io.github.dependencyanalysis.callgraph.CallGraphNodePathStep;
-import io.github.dependencyanalysis.callgraph.CallGraphNodeReachabilityPath;
-import io.github.dependencyanalysis.callgraph.CallGraphRankedNode;
-import io.github.dependencyanalysis.callgraph.CallGraphRelatedMethod;
-import io.github.dependencyanalysis.callgraph.CallGraphTopologySnapshot;
-import io.github.dependencyanalysis.callgraph.JdkModelSelection;
-import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
-import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
+import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
+import io.github.dependencyanalysis.callgraph.strategy.CallGraphStrategyCapabilities;
+import io.github.dependencyanalysis.callgraph.topology.CallGraphMethodIdentity;
+import io.github.dependencyanalysis.callgraph.topology.CallGraphNodeIdentity;
+import io.github.dependencyanalysis.callgraph.topology.CallGraphNodeIr;
+import io.github.dependencyanalysis.callgraph.topology.CallGraphNodePathStep;
+import io.github.dependencyanalysis.callgraph.topology.CallGraphNodeReachabilityPath;
+import io.github.dependencyanalysis.callgraph.topology.CallGraphRankedNode;
+import io.github.dependencyanalysis.callgraph.topology.CallGraphRelatedMethod;
+import io.github.dependencyanalysis.callgraph.topology.CallGraphTopologySnapshot;
+import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
+import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphSession;
+import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.jar.IJarRepository;
@@ -198,7 +202,7 @@ final class CallGraphDiagnosticsExporter {
         json.writeNumberField("bodyBoundaryHitCount",
                 boundary.bodyBoundaryHits().size());
         writeCapabilities(json, session.getStrategyCapabilities());
-        writeEvidenceSummary(json, session.getChangePointEvidence());
+        writeEvidenceSummary(json, module.getChangePointEvidence());
         writeResultRefinements(json, module, refinements);
         final List<ArtifactCoord> externalArtifacts = module.getUnit()
                 .getTargetArtifacts().stream().distinct()

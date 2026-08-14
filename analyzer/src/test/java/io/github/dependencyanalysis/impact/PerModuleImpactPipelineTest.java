@@ -1,11 +1,14 @@
 package io.github.dependencyanalysis.impact;
 
-import io.github.dependencyanalysis.callgraph.ModelKind;
-import io.github.dependencyanalysis.callgraph.ModelLimitation;
-import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
-import io.github.dependencyanalysis.callgraph.EntrypointSelection;
-import io.github.dependencyanalysis.callgraph.JdkModelSelection;
-import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
+import io.github.dependencyanalysis.impact.refinement.ResultRefinementAlgorithm;
+import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
+
+import io.github.dependencyanalysis.callgraph.protocol.ModelKind;
+import io.github.dependencyanalysis.callgraph.protocol.ModelLimitation;
+import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
+import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSelection;
+import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
+import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
 
 import org.junit.jupiter.api.Test;
 
@@ -122,12 +125,12 @@ class PerModuleImpactPipelineTest {
         final ModelLimitation limitation = new ModelLimitation(
                 ModelKind.REFLECTION,
                 "CLASS_FOR_NAME_LITERAL_INVALID",
-                ModuleAnalysisReason.INCONCLUSIVE_REFLECTION,
                 "LExample.invalid()V|pc=1",
                 "literal=<empty>");
 
         assertThat(ModuleCoverageReducer.reduce(false,
-                List.of(limitation))).isEqualTo(
+                List.of(new CallGraphCoverageMapper().model(limitation))))
+                .isEqualTo(
                 ModuleAnalysisReason.INCONCLUSIVE_REFLECTION);
     }
 

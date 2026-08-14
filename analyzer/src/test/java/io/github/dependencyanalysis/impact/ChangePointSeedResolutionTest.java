@@ -2,8 +2,8 @@ package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.bytecode.AccessTransition;
 import io.github.dependencyanalysis.bytecode.JvmAccess;
-import io.github.dependencyanalysis.callgraph.CodeOrigin;
-import io.github.dependencyanalysis.callgraph.MethodId;
+import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.callgraph.model.MethodId;
 
 import org.junit.jupiter.api.Test;
 

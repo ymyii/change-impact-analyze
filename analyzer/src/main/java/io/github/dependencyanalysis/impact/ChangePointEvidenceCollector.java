@@ -20,17 +20,17 @@ import com.ibm.wala.types.TypeReference;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.bytecode.ServiceProviderRegistration;
-import io.github.dependencyanalysis.callgraph.ClassOwnership;
-import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
-import io.github.dependencyanalysis.callgraph.CallGraphStrategyCapabilities;
-import io.github.dependencyanalysis.callgraph.CodeOrigin;
-import io.github.dependencyanalysis.callgraph.DynamicCallEvidence;
-import io.github.dependencyanalysis.callgraph.DynamicCallEvidenceIndex;
-import io.github.dependencyanalysis.callgraph.LocalConstantResolution;
-import io.github.dependencyanalysis.callgraph.LocalConstantResolver;
-import io.github.dependencyanalysis.callgraph.MethodId;
-import io.github.dependencyanalysis.callgraph.ModelKind;
-import io.github.dependencyanalysis.callgraph.ModelLimitation;
+import io.github.dependencyanalysis.callgraph.scope.ClassOwnership;
+import io.github.dependencyanalysis.callgraph.scope.ClassOwnershipIndex;
+import io.github.dependencyanalysis.callgraph.strategy.CallGraphStrategyCapabilities;
+import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.callgraph.protocol.invokedynamic.DynamicCallEvidence;
+import io.github.dependencyanalysis.callgraph.protocol.invokedynamic.DynamicCallEvidenceIndex;
+import io.github.dependencyanalysis.callgraph.local.LocalConstantResolution;
+import io.github.dependencyanalysis.callgraph.local.LocalConstantResolver;
+import io.github.dependencyanalysis.callgraph.model.MethodId;
+import io.github.dependencyanalysis.callgraph.protocol.ModelKind;
+import io.github.dependencyanalysis.callgraph.protocol.ModelLimitation;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -126,7 +126,8 @@ public final class ChangePointEvidenceCollector {
                     point, status, values, List.of()));
         }
         return new ChangePointEvidenceIndex(resolutions,
-                limitations.stream().sorted().toList(),
+                limitations.stream().sorted()
+                        .map(new CallGraphCoverageMapper()::model).toList(),
                 localCounts[0], localCounts[1]);
     }
 
@@ -308,10 +309,9 @@ public final class ChangePointEvidenceCollector {
         context.localCounts()[0]++;
         final String owner = className(constant.stringValue().orElseThrow());
         if (owner == null) {
-            context.limitations().add(new ModelLimitation(
+                context.limitations().add(new ModelLimitation(
                     ModelKind.REFLECTION,
                     "CLASS_FOR_NAME_LITERAL_INVALID",
-                    ModuleAnalysisReason.INCONCLUSIVE_REFLECTION,
                     location, invalidClassNameDetail(
                             constant.stringValue().orElseThrow())));
             return;
@@ -520,7 +520,6 @@ public final class ChangePointEvidenceCollector {
             final String detail) {
         return new ModelLimitation(ModelKind.REFLECTION,
                 "CLASS_FOR_NAME_LOCAL_CONSTANT_UNRESOLVED",
-                ModuleAnalysisReason.INCONCLUSIVE_REFLECTION,
                 location, detail);
     }
 
@@ -529,7 +528,6 @@ public final class ChangePointEvidenceCollector {
             final String location,
             final String detail) {
         return new ModelLimitation(ModelKind.SERVICE_LOADER, code,
-                ModuleAnalysisReason.INCONCLUSIVE_SERVICE_LOADER,
                 location, detail);
     }
 

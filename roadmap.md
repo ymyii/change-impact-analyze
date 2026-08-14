@@ -96,11 +96,11 @@
 | `[ ]` | Scope | 完整 runtime classpath | 使用与 target 实际运行一致的 dependency/module path | 当前只有 application classes 和 JDK | P0 |
 | `[x]` | 静态调用 | `invokestatic` | 创建 application caller → application callee edge | WALA target 提取为 `INVOKE_STATIC` | — |
 | `[x]` | 静态调用 | `invokespecial` | 识别 constructor、private method、super call | WALA target 提取为 `INVOKE_SPECIAL` | — |
-| `[x]` | 静态调用 | `invokevirtual` | 识别 RTA 可确认的 virtual target | WALA target 提取为 `INVOKE_VIRTUAL` | — |
-| `[x]` | 静态调用 | `invokeinterface` | 识别 RTA 可确认的 interface implementation | WALA target 提取为 `INVOKE_INTERFACE`，已有 interface dispatch 测试 | — |
+| `[x]` | 静态调用 | `invokevirtual` | 识别CHA可保守确认的virtual target | WALA target提取为`INVOKE_VIRTUAL` | — |
+| `[x]` | 静态调用 | `invokeinterface` | 识别CHA可保守确认的interface implementation | WALA target提取为`INVOKE_INTERFACE`，已有interface dispatch测试 | — |
 | `[ ]` | 静态调用 | 完整 `<clinit>` trigger | 识别 class initialization 的全部 JVM 触发规则和 ordering | WALA 可能产生部分边；只有 literal `Class.forName` 有显式补充和测试 | P1 |
-| `[x]` | 静态调用 | 基础 RTA 多态分派 | 将已实例化 application subtype 纳入 possible target | 使用 WALA RTA | — |
-| `[ ]` | 静态调用 | context-sensitive receiver 分派 | 按 call site/context 排除不可能 target，降低 false positive | RTA 为较粗粒度全局类型近似 | P1 |
+| `[x]` | 静态调用 | CHA多态分派 | 将class hierarchy中的application subtype纳入possible target | 默认使用WALA Class Hierarchy Analysis（CHA，类层次分析） | — |
+| `[x]` | 静态调用 | context-sensitive receiver分派 | 按allocation context区分receiver target | experimental `k-obj`显式opt-in | — |
 | `[x]` | 静态调用 | override relation inventory | 保存 application parent/interface method → overriding method | `CallGraphEngine.buildOverrideMap` 已实现基础关系 | — |
 | `[ ]` | 静态调用 | override relation 参与 impact tracing | ChangePoint/seed 能通过 override relation 扩展 caller/callee | `ImpactTracer` 从不调用 `CallGraph.getOverrides()` | P0 |
 | `[ ]` | 静态调用 | self recursion edge | 保留 method → 自身的递归证据 | extraction 主动丢弃 caller 与 callee 相同的 edge | P1 |
@@ -159,7 +159,7 @@
 | `[x]` | 结果质量 | path 稳定排序 | 按 affected method 和 ChangePoint stable key 排序 | `ImpactTracer.pathComparator` 已实现 | — |
 | `[x]` | 结果质量 | edge kind/evidence | 保存 invoke kind 或 enricher evidence | `CallEdge` 已包含 `EdgeKind` 和 evidence | — |
 | `[ ]` | 结果质量 | path 去重 | 合并多 seed、重复 edge 或相同语义 path | 当前没有统一 semantic dedup | P1 |
-| `[ ]` | 结果质量 | confidence/不确定性 | 标明 RTA over-approx、动态缺口和每条 edge 的可信度 | 当前只有 kind/evidence，没有 confidence model | P1 |
+| `[ ]` | 结果质量 | confidence/不确定性 | 标明CHA over-approx、动态缺口和每条edge的可信度 | 当前只有kind/evidence，没有confidence model | P1 |
 | `[ ]` | 结果质量 | false positive/false negative 汇总 | 报告当前 scope、未解析 class、动态机制等覆盖风险 | 仅部分场景输出 warn，未形成完整 coverage summary | P1 |
 
 ## 3. Bytecode 分析应忽略项矩阵

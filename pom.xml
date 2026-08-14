@@ -29,6 +29,7 @@
         <slf4j.version>2.0.13</slf4j.version>
         <junit.version>5.10.2</junit.version>
         <assertj.version>3.25.3</assertj.version>
+        <archunit.version>1.5.0</archunit.version>
         <asm.version>9.7</asm.version>
         <wala.version>1.8.0</wala.version>
         <vineflower.version>1.12.0</vineflower.version>
@@ -67,6 +68,11 @@
                 <groupId>org.assertj</groupId>
                 <artifactId>assertj-core</artifactId>
                 <version>${assertj.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.tngtech.archunit</groupId>
+                <artifactId>archunit-junit5</artifactId>
+                <version>${archunit.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

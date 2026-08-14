@@ -37,7 +37,7 @@ code_refs:
     desc: "changed instance 进入 no-op dependency 的 typed evidence"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/DependencyFactoryEvidence.java"
     desc: "flow-to-cast factory materialization evidence"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/DynamicCallEvidenceIndex.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/protocol/invokedynamic/DynamicCallEvidenceIndex.java"
     desc: "fixed-point 期间登记的 reachable bootstrap/handle evidence"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/StructuralReferenceIndex.java"
     desc: "构图前生成的immutable winner-only raw structural facts"

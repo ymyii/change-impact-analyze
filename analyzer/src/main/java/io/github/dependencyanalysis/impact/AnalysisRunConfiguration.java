@@ -1,10 +1,12 @@
 package io.github.dependencyanalysis.impact;
 
-import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
-import io.github.dependencyanalysis.callgraph.CallGraphPolicy;
-import io.github.dependencyanalysis.callgraph.EntrypointSelection;
-import io.github.dependencyanalysis.callgraph.JdkModelSelection;
-import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
+import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
+
+import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
+import io.github.dependencyanalysis.callgraph.strategy.CallGraphPolicy;
+import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSelection;
+import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
+import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
 
 import java.util.Objects;
 

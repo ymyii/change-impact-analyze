@@ -15,14 +15,14 @@ import io.github.dependencyanalysis.impact.AnalysisConcurrency;
 import io.github.dependencyanalysis.impact.AnalysisRunResult;
 import io.github.dependencyanalysis.impact.AnalysisRunConfiguration;
 import io.github.dependencyanalysis.impact.AnalysisStatus;
-import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
-import io.github.dependencyanalysis.callgraph.EntrypointSelection;
-import io.github.dependencyanalysis.callgraph.JdkModelSelection;
-import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
-import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
-import io.github.dependencyanalysis.callgraph.CodeOrigin;
-import io.github.dependencyanalysis.callgraph.MethodId;
-import io.github.dependencyanalysis.callgraph.ScopeValidationWarning;
+import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
+import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSelection;
+import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
+import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
+import io.github.dependencyanalysis.callgraph.scope.ClassOwnershipIndex;
+import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.callgraph.model.MethodId;
+import io.github.dependencyanalysis.callgraph.scope.ScopeValidationWarning;
 import io.github.dependencyanalysis.impact.ChangePointTerminal;
 import io.github.dependencyanalysis.impact.AccessDecision;
 import io.github.dependencyanalysis.impact.AccessDecisionReason;
@@ -31,8 +31,8 @@ import io.github.dependencyanalysis.impact.CodeComparisonEvidence;
 import io.github.dependencyanalysis.impact.CodeComparisonStatus;
 import io.github.dependencyanalysis.impact.ImpactClassification;
 import io.github.dependencyanalysis.impact.ImpactPath;
-import io.github.dependencyanalysis.impact.MethodEquivalenceResult;
-import io.github.dependencyanalysis.impact.MethodEquivalenceStatus;
+import io.github.dependencyanalysis.impact.refinement.ssa.MethodEquivalenceResult;
+import io.github.dependencyanalysis.impact.refinement.ssa.MethodEquivalenceStatus;
 import io.github.dependencyanalysis.impact.QueryNode;
 import io.github.dependencyanalysis.impact.UnifiedDiffHunk;
 import io.github.dependencyanalysis.impact.ModuleAnalysisReason;
@@ -52,8 +52,8 @@ import io.github.dependencyanalysis.impact.EvidenceLocation;
 import io.github.dependencyanalysis.impact.EvidenceMechanism;
 import io.github.dependencyanalysis.impact.ReferenceEvidence;
 import io.github.dependencyanalysis.impact.ReferenceTarget;
-import io.github.dependencyanalysis.impact.ResultRefinementAlgorithm;
-import io.github.dependencyanalysis.impact.ResultRefinementSelection;
+import io.github.dependencyanalysis.impact.refinement.ResultRefinementAlgorithm;
+import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
 import io.github.dependencyanalysis.preflight.PreflightReport;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 import io.github.dependencyanalysis.runtime.MavenDependencyPluginRuntime;
@@ -157,7 +157,7 @@ class PerModuleHtmlReportGeneratorTest {
                 Map.of("module-analysis", 10L),
                 new AnalysisRunConfiguration(
                         EntrypointSelection.allProjectClasses(),
-                        CallGraphAlgorithm.OPTIMIZED_ZERO_ONE_CFA));
+                        CallGraphAlgorithm.K_OBJ));
 
         final MavenDependencyPluginRuntime plugin =
                 new MavenDependencyPluginRuntimeManager().prepare(
@@ -179,7 +179,7 @@ class PerModuleHtmlReportGeneratorTest {
         assertThat(index).contains("How to read this report")
                 .contains("Analysis scope and limitations")
                 .contains("Terminology")
-                .contains("optimized-0-1-cfa")
+                .contains("k-Object (experimental)")
                 .contains("<th>Result refinement algorithms</th><td>none"
                         + "</td>")
                 .contains("<th>SSA equivalence</th><td>"
@@ -188,7 +188,6 @@ class PerModuleHtmlReportGeneratorTest {
                         + "0 (disabled)</td>")
                 .contains("<th>SSA equivalent / different / unknown</th>"
                         + "<td>not run</td>")
-                .contains("Optimized 0-1-CFA")
                 .contains("Maven Dependency Plugin")
                 .contains("embedded 3.6.1")
                 .contains("<th>JAR comparisons in parallel</th><td>1 "
@@ -547,36 +546,7 @@ class PerModuleHtmlReportGeneratorTest {
                 .doesNotContain("availableTarget", "unavailableTarget",
                         "hitTarget")
                 .contains("CHA")
-                .contains("does not build points-to facts")
-                .doesNotContain("ZeroCFA")
-                .doesNotContain("Optimized 0-1-CFA");
-    }
-
-    @Test
-    void rendersExplicitZeroCfaAlgorithmAndTerminology() {
-        final Path output = temporary.resolve("zero-cfa.html");
-        final AnalysisRunResult run = new AnalysisRunResult(
-                AnalysisMode.REACTOR, AnalysisStatus.SUCCESS, List.of(),
-                List.of(), new AnalysisConcurrency(1, 0, 0, 0),
-                Map.of(), new AnalysisRunConfiguration(
-                        EntrypointSelection.allProjectClasses(),
-                        CallGraphAlgorithm.ZERO_CFA));
-        final MavenDependencyPluginRuntime plugin =
-                new MavenDependencyPluginRuntimeManager().prepare(
-                        temporary.resolve("config-zero-cfa"),
-                        List.of(), null);
-
-        new PerModuleHtmlReportGenerator().generate(run, List.of(),
-                new PreflightReport(List.of()), maven(), plugin,
-                java(), output);
-
-        assertThat(output).content()
-                .contains("<th>Algorithm</th><td>zero-cfa</td>")
-                .contains("ZeroCFA")
-                .contains("concrete class")
-                .contains("constant-specific identity")
-                .doesNotContain("RTA")
-                .doesNotContain("Optimized 0-1-CFA");
+                .contains("does not build points-to facts");
     }
 
     @Test
@@ -601,7 +571,7 @@ class PerModuleHtmlReportGeneratorTest {
                 java(), output);
 
         assertThat(output).content()
-                .contains("<th>Algorithm</th><td>k-obj</td>")
+                .contains("<th>Algorithm</th><td>k-obj (experimental)</td>")
                 .contains("<th>k-object depth</th><td>2</td>")
                 .contains("k-Object")
                 .contains("configured number of receiver allocation sites")

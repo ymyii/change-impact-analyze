@@ -27,10 +27,10 @@ import com.ibm.wala.types.TypeReference;
 import io.github.dependencyanalysis.bytecode.AccessTransition;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
-import io.github.dependencyanalysis.callgraph.ClassOwnership;
-import io.github.dependencyanalysis.callgraph.CodeOrigin;
-import io.github.dependencyanalysis.callgraph.MethodId;
-import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
+import io.github.dependencyanalysis.callgraph.scope.ClassOwnership;
+import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.callgraph.model.MethodId;
+import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphSession;
 
 import java.util.Comparator;
 import java.util.HashMap;

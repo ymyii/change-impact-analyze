@@ -5,7 +5,7 @@ relations:
   - path: "wiki/architecture/dependency-analysis-pipelines.md"
     desc: "command-wide selection、per-Module安装与metadata流"
   - path: "wiki/features/call-graph-engine.md"
-    desc: "非CHA strategy的统一model installation point与fixed-point metadata"
+    desc: "k-obj strategy的model installation point与fixed-point metadata"
   - path: "wiki/features/cli-preflight-diagnostics.md"
     desc: "--jdk-model contract、parse failure 与Console Diagnostic"
   - path: "wiki/project/dependency-analyzer.md"
@@ -23,12 +23,12 @@ code_refs:
     desc: "Analyzer侧JDK 8 model version dependency与SemVer gate"
   - path: "analyzer/pom.xml"
     desc: "JDK 8 model dependency与uber JAR packaging"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/JdkModelSelection.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/jdk/JdkModelSelection.java"
     desc: "public jdk8/none选择与默认值"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/JdkModelInstallation.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/jdk/JdkModelInstallation.java"
     desc: "per-graph严格安装、完整catalog验收与metadata snapshot"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/CallGraphBuildRequest.java"
-    desc: "strategy build request中的command-wide model选择"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/strategy/kobj/KObjCallGraphRequest.java"
+    desc: "k-obj专属build request中的model选择"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactCommand.java"
     desc: "--jdk-model CLI入口与pipeline传递"
   - path: "models/jdk/pom.xml"
@@ -63,15 +63,15 @@ code_refs:
     desc: "384 个精确 JDK 8 public method contracts"
   - path: "models/jdk8/src/test/java/io/github/dependencyanalysis/models/jdk8/Jdk8ModelFixedPointAcceptanceTest.java"
     desc: "三种Call Graph algorithm的direct WALA acceptance"
-  - path: "analyzer/src/test/java/io/github/dependencyanalysis/callgraph/JdkCallbackReachabilityTest.java"
-    desc: "四种Analyzer algorithm默认model与显式none验收"
+  - path: "analyzer/src/test/java/io/github/dependencyanalysis/callgraph/strategy/kobj/JdkCallbackReachabilityTest.java"
+    desc: "k-obj默认model与显式none验收"
 ---
 
 # Feature: JDK Method Models
 
 ## Summary
 
-JDK Method Models由两个独立普通JAR组成。`models/jdk`提供可复用的WALA Synthetic Intermediate Representation（Synthetic IR）engine/API；`models/jdk8`提供精确JDK 8 catalog与安装façade。Analyzer仍将两者打入uber JAR。默认CHA固定使用`none`且永远不安装JDK Method Model；RTA、ZeroCFA、optimized 0-1-CFA与`k-obj`未显式选择时默认`jdk8`，保留既有callback、container和serialization语义。
+JDK Method Models由两个独立普通JAR组成。`models/jdk`提供可复用的WALA Synthetic Intermediate Representation（Synthetic IR）engine/API；`models/jdk8`提供精确JDK 8 catalog与安装façade。Analyzer仍将两者打入uber JAR。默认CHA固定使用`none`且永远不安装JDK Method Model；experimental `k-obj`未显式选择时默认`jdk8`，保留callback、container和serialization语义。
 
 ## Design Decisions
 
@@ -86,7 +86,7 @@ JDK Method Models由两个独立普通JAR组成。`models/jdk`提供可复用的
 ## Actors / Entrypoints
 
 - 版本专属 module 通过 `JdkModelDefinition` 提供稳定 model ID、resource anchor 与 absolute catalog resource。
-- `impact --jdk-model jdk8|none`选择command-wide policy；默认值由algorithm决定。CHA只允许`none`；其他algorithm默认`jdk8`并可显式`none`。大小写不敏感且不接受alias。
+- `impact --jdk-model jdk8|none`选择command-wide policy；默认值由algorithm决定。CHA只允许`none`；`k-obj`默认`jdk8`并可显式`none`。大小写不敏感且不接受alias。
 - Call Graph strategy在配置WALA default selector/native bypass后通过`JdkModelInstallation`映射到`Jdk8Models.install(...)`或no-op。
 - 构图完成后调用 `JdkModelSession.snapshot()` 获取 catalog、available、unavailable 和 hit metadata。
 
@@ -105,7 +105,7 @@ JdkModelSession session = JdkModels.install(
 - 公共 coordinate：`io.github.dependencyanalysis:dependency-analyzer-jdk-models:0.1.0-SNAPSHOT`；package 为 `io.github.dependencyanalysis.models.jdk`。
 - JDK 8 coordinate：`io.github.dependencyanalysis:dependency-analyzer-jdk8-models:0.1.0-SNAPSHOT`；package 为 `io.github.dependencyanalysis.models.jdk8`；model ID 固定为 `jdk8`。
 - JDK 8 catalog 包含 384 个 JDK 8 public targets，不包含 Java 16 引入的 `Stream.toList()`。
-- `impact`、pipeline与`ModuleCallGraphEngine`constructor统一使用`CallGraphPolicy`：CHA默认`none`且拒绝`jdk8`；其他algorithm默认`jdk8`。
+- `impact`、pipeline与`ModuleCallGraphEngine`constructor统一使用`CallGraphPolicy`：CHA默认`none`且拒绝`jdk8`；`k-obj`默认`jdk8`。
 - CHA的`none`不是“分析真实JDK body”：CHA interpreter只保留caller到JDK leaf edge，call/new site为空。
 - Synthetic loader不支持、model安装异常或完整JDK 8存在unavailable catalog target时，当前Module构图失败；zero hit不是错误。
 - duplicate target、resolved static contract mismatch、callback target/dispatch mismatch、WALA `natives.xml` conflict、无法生成 Synthetic IR 和必要 serialization constructor 缺失均抛出 `JdkModelException`。
@@ -140,7 +140,7 @@ Class/Reflection、Proxy、ClassLoader、ServiceLoader、MethodHandle 与 `invok
 - Given 配置的完整 JDK 8 `rt.jar`，When 安装 `Jdk8Models`，Then catalog/available 均为 384、unavailable 为 0，且没有 post-JDK 8 target。
 - Given 已安装 WALA default selector，When available target 被解析，Then 返回 `SummarizedMethod`、记录 deterministic hit，并保留 application points-to 与 callback edge。
 - Given Analyzer选择`jdk8`且target不存在于当前hierarchy，When安装model，Then该Module构图失败且不fallback；公共engine单独使用时仍记录unavailable并委托原selector。
-- Given collection、Stream、Temporal、async、resource或serialization fixture，When四种非CHA algorithm完成fixed point，Thenrequired application callback、business receiver与downstream method可达。
+- Given collection、Stream、Temporal、async、resource或serialization fixture，When`k-obj`完成fixed point，Then required application callback、business receiver与downstream method可达。
 - Given lightweight同源fixture，When分别构建models-on和models-off Call Graph，Then models-on reachable application method set包含models-off集合。
 
 ### Non-Functional
@@ -149,7 +149,7 @@ Class/Reflection、Proxy、ClassLoader、ServiceLoader、MethodHandle 与 `invok
 - [x] model JAR不shade WALA，也不包含Analyzer class。
 - [x] host JDK `jrt:/` test验证公共engine没有`rt.jar` layout依赖。
 - [x] JDK 8 fixed-point test记录wall time、nodes、edges、JDK nodes和hit count，但不设置性能硬阈值。
-- [x] `impact`、五种strategy、CLI、pipeline、Diagnostic、Report和Schema v9已接入；用户输出展示effective model selection，`k-obj`额外展示实际深度。
+- [x] `impact`、`k-obj` strategy、CLI、pipeline、Diagnostic、Report和Schema v9已接入；用户输出展示effective model selection与`k-obj`实际深度。
 
 ## Edge Cases
 

@@ -1,17 +1,15 @@
 package io.github.dependencyanalysis.impact;
 
+import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSelection;
+import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
+import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
+import io.github.dependencyanalysis.callgraph.strategy.CallGraphPolicy;
+import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
+import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
+import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelectionConverter;
+
 import io.github.dependencyanalysis.bytecode
         .ChangePointKind;
-import io.github.dependencyanalysis.callgraph
-        .CallGraphAlgorithm;
-import io.github.dependencyanalysis.callgraph
-        .CallGraphPolicy;
-import io.github.dependencyanalysis.callgraph
-        .EntrypointSelection;
-import io.github.dependencyanalysis.callgraph
-        .JdkModelSelection;
-import io.github.dependencyanalysis.callgraph
-        .WalaReflectionOptions;
 import io.github.dependencyanalysis.cli
         .DependencyAnalyzerCli;
 import io.github.dependencyanalysis.cli.OutputFormat;
@@ -128,8 +126,8 @@ public final class ImpactCommand
     @Option(names = "--call-graph-algorithm",
             defaultValue = "cha",
             converter = CallGraphAlgorithmConverter.class,
-            description = "Call Graph algorithm: cha, rta, zero-cfa, "
-                    + "optimized-0-1-cfa, or k-obj; default: cha.")
+            description = "Call Graph algorithm: cha or k-obj "
+                    + "(experimental); default: cha.")
     private CallGraphAlgorithm callGraphAlgorithm;
 
     /** Optional command-wide k-object receiver allocation-string depth. */
@@ -142,7 +140,7 @@ public final class ImpactCommand
     @Option(names = "--jdk-model",
             converter = JdkModelSelectionConverter.class,
             description = "JDK Method Model: jdk8 or none; "
-                    + "default: none for cha, jdk8 otherwise.")
+                    + "default: none for cha, jdk8 for k-obj.")
     private JdkModelSelection jdkModel;
 
     /** Command-wide WALA ReflectionOptions. */
@@ -287,7 +285,8 @@ public final class ImpactCommand
                         + (normalizedDiagnostics == null ? "DISABLED"
                         : normalizedDiagnostics)
                         + (callGraphAlgorithm == CallGraphAlgorithm.K_OBJ
-                        ? "; kObjDepth=" + selectedKObjDepth : "")
+                        ? "; experimental=true; kObjDepth="
+                        + selectedKObjDepth : "")
                         + "; jdkModel=" + jdkModel.identifier()
                         + "; resultRefinements=" + resultRefinements);
         try (PreflightContext context =

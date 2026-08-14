@@ -23,7 +23,7 @@ code_refs:
     desc: "stable method/Context/node/sentinel path node"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleChangedPathSelection.java"
     desc: "requested/actual scope、fallback 与全部 dependency paths"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/DependencyBodyBoundaryMetadata.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/boundary/DependencyBodyBoundaryMetadata.java"
     desc: "external artifact/method policy counts 与 boundary evidence"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeReportRenderer.java"
     desc: "独立 tree HTML renderer"
@@ -59,7 +59,7 @@ code_refs:
 
 ## Index
 
-顶部提供 `How to read this report`、`Analysis scope and limitations` 与 `Terminology`。主视图面向中级 Java 程序员，用 plain-language 说明可能的调用关系、coverage limitation、direct/transitive impact；WALA、Call Graph、RTA/ZeroCFA/optimized 0-1-CFA、conservative/false-positive、Context、SSA equivalence、Reflection、ServiceLoader 在 Terminology 中解释。
+顶部提供 `How to read this report`、`Analysis scope and limitations` 与 `Terminology`。主视图面向中级 Java 程序员，用 plain-language 说明可能的调用关系、coverage limitation、direct/transitive impact；WALA、Call Graph、CHA、experimental `k-obj`、conservative/false-positive、Context、SSA equivalence、Reflection、ServiceLoader 在 Terminology 中解释。Report只消费Impact层已转换并冻结的snapshot，不读取live WALA session或algorithm implementation。
 
 Index 记录：
 

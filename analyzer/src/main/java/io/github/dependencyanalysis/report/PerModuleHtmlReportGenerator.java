@@ -2,12 +2,11 @@ package io.github.dependencyanalysis.report;
 
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
-import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
-import io.github.dependencyanalysis.callgraph.CallGraphStats;
-import io.github.dependencyanalysis.callgraph.ClassOwnership;
-import io.github.dependencyanalysis.callgraph.DuplicateClassResolution;
-import io.github.dependencyanalysis.callgraph.DependencyBodyBoundaryMetadata;
-import io.github.dependencyanalysis.callgraph.MethodId;
+import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
+import io.github.dependencyanalysis.callgraph.engine.CallGraphStats;
+import io.github.dependencyanalysis.callgraph.scope.ClassOwnership;
+import io.github.dependencyanalysis.callgraph.scope.DuplicateClassResolution;
+import io.github.dependencyanalysis.callgraph.model.MethodId;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.diagnostic.DiagnosticEvent;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLogFormatter;
@@ -16,18 +15,19 @@ import io.github.dependencyanalysis.impact.BoundChangePoint;
 import io.github.dependencyanalysis.impact.CodeComparisonEvidence;
 import io.github.dependencyanalysis.impact.CodeComparisonStatus;
 import io.github.dependencyanalysis.impact.ChangePointDisposition;
+import io.github.dependencyanalysis.impact.DependencyBoundarySnapshot;
 import io.github.dependencyanalysis.impact.DependencyUpgradeKey;
 import io.github.dependencyanalysis.impact.ImpactClassification;
 import io.github.dependencyanalysis.impact.ImpactPath;
 import io.github.dependencyanalysis.impact.ImpactEvidence;
-import io.github.dependencyanalysis.impact.MethodEquivalenceResult;
-import io.github.dependencyanalysis.impact.MethodEquivalenceStatus;
+import io.github.dependencyanalysis.impact.refinement.ssa.MethodEquivalenceResult;
+import io.github.dependencyanalysis.impact.refinement.ssa.MethodEquivalenceStatus;
 import io.github.dependencyanalysis.impact.ModuleAnalysisResult;
 import io.github.dependencyanalysis.impact.ModuleAnalysisStatus;
 import io.github.dependencyanalysis.impact.QueryNode;
-import io.github.dependencyanalysis.impact.ResultRefinementAlgorithm;
-import io.github.dependencyanalysis.impact.ResultRefinementSelection;
-import io.github.dependencyanalysis.impact.ChaLocalReceiverRefinementSummary;
+import io.github.dependencyanalysis.impact.refinement.ResultRefinementAlgorithm;
+import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
+import io.github.dependencyanalysis.impact.refinement.cha.ChaLocalReceiverRefinementSummary;
 import io.github.dependencyanalysis.impact.StructuralReferencePath;
 import io.github.dependencyanalysis.impact.WalaQueryNode;
 import io.github.dependencyanalysis.impact.SnapshotQueryNode;
@@ -262,7 +262,10 @@ public final class PerModuleHtmlReportGenerator {
         appendStageMetrics(body, run.getStageElapsedMillis());
         body.append("<details><summary>Technical details</summary><table>")
                 .append(row("Algorithm",
-                        run.getCallGraphAlgorithm().identifier()))
+                        run.getCallGraphAlgorithm().identifier()
+                                + (run.getCallGraphAlgorithm()
+                                == CallGraphAlgorithm.K_OBJ
+                                ? " (experimental)" : "")))
                 .append(run.getCallGraphAlgorithm()
                         == CallGraphAlgorithm.K_OBJ
                         ? row("k-object depth", run.getKObjDepth()) : "")
@@ -504,7 +507,7 @@ public final class PerModuleHtmlReportGenerator {
                         realArtifacts.size()))
                 .append(row("No-op external artifacts",
                         noOpArtifacts.size()));
-        final DependencyBodyBoundaryMetadata metadata = boundary(module);
+        final DependencyBoundarySnapshot metadata = boundary(module);
         body.append(row("Real / no-op / factory method nodes",
                         metadata.realExternalMethodNodes() + " / "
                                 + metadata.noOpMethodNodes() + " / "
@@ -561,7 +564,7 @@ public final class PerModuleHtmlReportGenerator {
 
     private void appendBoundaryEvidence(
             final HtmlSink body,
-            final DependencyBodyBoundaryMetadata metadata) {
+            final DependencyBoundarySnapshot metadata) {
         body.append("<h3>Reached dependency body boundaries</h3>");
         if (metadata.bodyBoundaryHits().isEmpty()) {
             body.append("<p>No reachable no-op dependency body boundary ")
@@ -1205,27 +1208,14 @@ public final class PerModuleHtmlReportGenerator {
                     + "possible calls from declared types and the target "
                     + "class hierarchy. It does not build points-to facts "
                     + "or traverse JDK method bodies.");
-            case RTA -> term("RTA", "Rapid Type Analysis uses the global "
-                    + "set of instantiated compatible classes for virtual "
-                    + "and interface reachability. It does not track "
-                    + "allocation-site or value points-to dataflow.");
-            case ZERO_CFA -> term("ZeroCFA", "The conservative WALA call "
-                    + "analysis used here. It merges allocations by concrete "
-                    + "class while preserving constant-specific identity.");
-            case OPTIMIZED_ZERO_ONE_CFA -> term("Optimized 0-1-CFA",
-                    "The conservative WALA call analysis used here. It "
-                    + "preserves allocation and constant-specific identity "
-                    + "while merging String, Throwable, primitive-holder, "
-                    + "and excessive same-type allocations to reduce "
-                    + "analysis cost.");
             case K_OBJ -> term(
-                    "k-Object",
-                    "The context-sensitive WALA call analysis used here. "
+                    "k-Object (experimental)",
+                    "The experimental context-sensitive WALA call analysis. "
                     + "It distinguishes a configured number of receiver "
                     + "allocation sites, keeps exact allocation-site and "
                     + "constant-specific identity without smushing, and "
                     + "can therefore cost substantially more time and "
-                    + "memory than the other algorithms.");
+                    + "memory than CHA.");
         };
     }
 
@@ -1620,11 +1610,6 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private long contextCount(final ModuleAnalysisResult module) {
-        if (module.getSession() != null) {
-            return module.getSession().getGraph().stream()
-                    .map(com.ibm.wala.ipa.callgraph.CGNode::getContext)
-                    .distinct().count();
-        }
         return module.getCallGraphSnapshot() == null ? 0L
                 : module.getCallGraphSnapshot().contextCount();
     }
@@ -1703,35 +1688,27 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private Object entrypointCount(final ModuleAnalysisResult module) {
-        return module.getSession() != null
-                ? module.getSession().getEntrypointCount()
-                : module.getCallGraphSnapshot() == null ? "Not available"
+        return module.getCallGraphSnapshot() == null ? "Not available"
                 : module.getCallGraphSnapshot().entrypointCount();
     }
 
     private Object selectedEntrypointClassCount(
             final ModuleAnalysisResult module) {
-        return module.getSession() != null
-                ? module.getSession().getSelectedEntrypointClassCount()
-                : module.getCallGraphSnapshot() == null ? "Not available"
+        return module.getCallGraphSnapshot() == null ? "Not available"
                 : module.getCallGraphSnapshot()
                 .selectedEntrypointClassCount();
     }
 
     private Object parameterCandidateCount(
             final ModuleAnalysisResult module) {
-        return module.getSession() != null
-                ? module.getSession().getParameterCandidateCount()
-                : module.getCallGraphSnapshot() == null ? "Not available"
+        return module.getCallGraphSnapshot() == null ? "Not available"
                 : module.getCallGraphSnapshot().parameterCandidateCount();
     }
 
-    private DependencyBodyBoundaryMetadata boundary(
+    private DependencyBoundarySnapshot boundary(
             final ModuleAnalysisResult module) {
-        return module.getSession() != null
-                ? module.getSession().getDependencyBoundary()
-                : module.getCallGraphSnapshot() == null
-                ? DependencyBodyBoundaryMetadata.empty()
+        return module.getCallGraphSnapshot() == null
+                ? DependencyBoundarySnapshot.empty()
                 : module.getCallGraphSnapshot().dependencyBoundary();
     }
 

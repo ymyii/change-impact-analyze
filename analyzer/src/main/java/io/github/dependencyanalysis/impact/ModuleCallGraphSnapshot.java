@@ -1,7 +1,6 @@
 package io.github.dependencyanalysis.impact;
 
-import io.github.dependencyanalysis.callgraph.CallGraphStats;
-import io.github.dependencyanalysis.callgraph.DependencyBodyBoundaryMetadata;
+import io.github.dependencyanalysis.callgraph.engine.CallGraphStats;
 
 import java.util.Objects;
 
@@ -21,7 +20,7 @@ public record ModuleCallGraphSnapshot(
         int parameterCandidateCount,
         int selectedEntrypointClassCount,
         long contextCount,
-        DependencyBodyBoundaryMetadata dependencyBoundary) {
+        DependencyBoundarySnapshot dependencyBoundary) {
 
     /** Validates non-negative metrics. */
     public ModuleCallGraphSnapshot {

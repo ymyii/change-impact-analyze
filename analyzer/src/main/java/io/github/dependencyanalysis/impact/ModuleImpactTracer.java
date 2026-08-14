@@ -1,5 +1,9 @@
 package io.github.dependencyanalysis.impact;
 
+import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
+import io.github.dependencyanalysis.impact.refinement.cha.ChaLocalReceiverEdgeRefiner;
+import io.github.dependencyanalysis.impact.refinement.cha.ChaLocalReceiverRefinementSummary;
+
 import com.ibm.wala.classLoader.IMethod;
 import com.ibm.wala.ipa.callgraph.CGNode;
 import com.ibm.wala.types.MethodReference;
@@ -7,12 +11,13 @@ import com.ibm.wala.types.TypeReference;
 
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
-import io.github.dependencyanalysis.callgraph.ClassOwnership;
-import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
-import io.github.dependencyanalysis.callgraph.CodeOrigin;
-import io.github.dependencyanalysis.callgraph.DuplicateClassResolution;
-import io.github.dependencyanalysis.callgraph.MethodId;
-import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
+import io.github.dependencyanalysis.callgraph.scope.ClassOwnership;
+import io.github.dependencyanalysis.callgraph.scope.ClassOwnershipIndex;
+import io.github.dependencyanalysis.callgraph.scope.ClassSource;
+import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.callgraph.scope.DuplicateClassResolution;
+import io.github.dependencyanalysis.callgraph.model.MethodId;
+import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphSession;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 
@@ -134,15 +139,17 @@ public final class ModuleImpactTracer {
      *
      * @param unit module analysis unit
      * @param session live WALA graph session
+     * @param changePointEvidence frozen post-graph evidence
      * @return module query result
      */
     public ModuleImpactQueryResult trace(
             final ModuleAnalysisUnit unit,
-            final ModuleCallGraphSession session) {
+            final ModuleCallGraphSession session,
+            final ChangePointEvidenceIndex changePointEvidence) {
         final DiagnosticContext context = DiagnosticContext.of(
                 "module-analysis", "impact-query").withModule(
                 unit.getModuleId().stableKey());
-        final QueryPlan plan = plan(unit, session);
+        final QueryPlan plan = plan(unit, session, changePointEvidence);
         final ChaLocalReceiverEdgeRefiner edgeRefiner =
                 new ChaLocalReceiverEdgeRefiner(session, resultRefinements);
         final int workers = plan.works().isEmpty() ? 0
@@ -182,7 +189,8 @@ public final class ModuleImpactTracer {
 
     private QueryPlan plan(
             final ModuleAnalysisUnit unit,
-            final ModuleCallGraphSession session) {
+            final ModuleCallGraphSession session,
+            final ChangePointEvidenceIndex changePointEvidence) {
         final Map<BoundChangePoint, ChangePointDisposition> fixedDispositions =
                 new LinkedHashMap<>();
         final Map<BoundChangePoint, List<ImpactEvidence>> observations =
@@ -199,7 +207,7 @@ public final class ModuleImpactTracer {
         final ChangePointSeedResolverRegistry seedResolvers =
                 new ChangePointSeedResolverRegistry();
         final List<StructuralReferenceMatch> structuralReferences =
-                structuralReferences(session);
+                structuralReferences(changePointEvidence);
         final StructuralReferencePreparation.Result preparedStructures =
                 new StructuralReferencePreparation().prepare(
                         structuralReferences, session);
@@ -241,8 +249,7 @@ public final class ModuleImpactTracer {
             final ChangePointSeedResolution resolution =
                     seedResolvers.resolve(new ChangePointSeedRequest(
                             unit.getModuleId(), change, session,
-                            session.getChangePointEvidence()
-                                    .resolution(point)));
+                            changePointEvidence.resolution(point)));
             final List<ImpactSeed> seeds = resolution.seeds();
             limitations.addAll(resolution.limitations());
             mergeObservations(observations, point, resolution.evidence());
@@ -523,10 +530,10 @@ public final class ModuleImpactTracer {
     }
 
     private List<StructuralReferenceMatch> structuralReferences(
-            final ModuleCallGraphSession session) {
+            final ChangePointEvidenceIndex changePointEvidence) {
         final Set<StructuralReferenceMatch> result = new LinkedHashSet<>();
-        for (ChangePointEvidenceResolution resolution : session
-                .getChangePointEvidence().resolutions()) {
+        for (ChangePointEvidenceResolution resolution
+                : changePointEvidence.resolutions()) {
             for (ReferenceEvidence evidence : resolution.evidence()) {
                 evidence.anchor()
                         .filter(StructuralEvidenceAnchor.class::isInstance)
@@ -553,9 +560,8 @@ public final class ModuleImpactTracer {
         if (resolution == null) {
             return null;
         }
-        final io.github.dependencyanalysis.callgraph.ClassSource changedSource =
-                io.github.dependencyanalysis.callgraph.ClassSource.artifact(
-                        point.getDependencyUpgradeKey().getNewArtifact());
+        final ClassSource changedSource = ClassSource.artifact(
+                point.getDependencyUpgradeKey().getNewArtifact());
         return resolution.getLosers().stream()
                 .anyMatch(value -> value.getSource().equals(changedSource))
                 ? ChangePointDisposition.SHADOWED_BY_DUPLICATE : null;

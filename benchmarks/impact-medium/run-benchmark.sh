@@ -27,17 +27,12 @@ case "$BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE" in
 esac
 
 case "$BENCHMARK_CALL_GRAPH_ALGORITHM" in
-  cha|rta|zero-cfa|optimized-0-1-cfa|k-obj) ;;
+  cha) ;;
   *)
-    echo "BENCHMARK_CALL_GRAPH_ALGORITHM must be cha, rta, zero-cfa, optimized-0-1-cfa, or k-obj" >&2
+    echo "BENCHMARK_CALL_GRAPH_ALGORITHM must be cha" >&2
     exit 2
     ;;
 esac
-
-k_obj_depth=
-if [ "$BENCHMARK_CALL_GRAPH_ALGORITHM" = k-obj ]; then
-  k_obj_depth=1
-fi
 
 case "$BENCHMARK_JDK_MODEL" in
   jdk8|none) ;;
@@ -164,7 +159,6 @@ maven_identity=$("$MAVEN_BIN" --version 2>&1 | sed -n '1p' | tr '\t' ' ')
 cat >"$logs_root/run-metadata.txt" <<EOF
 label=$label
 algorithm=$BENCHMARK_CALL_GRAPH_ALGORITHM
-k_obj_depth=$k_obj_depth
 jdk_model=$BENCHMARK_JDK_MODEL
 dependency_analysis_scope=$BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE
 result_refinement_algorithms=$BENCHMARK_RESULT_REFINEMENT_ALGORITHMS
@@ -337,11 +331,11 @@ if [ "$analysis_result" -eq 0 ] && [ "$verification_result" -eq 0 ]; then
   status=SUCCESS
 fi
 
-printf 'label\trun_kind\tround\tsample\tdependency_analysis_scope\talgorithm\tk_obj_depth\tjdk_model\tresult_refinement_algorithms\twala_reflection_options\ttotal_wall_seconds\tcall_graph_seconds\tpeak_heap_used_mib\tpeak_heap_committed_mib\theap_max_mib\theap_sample_count\tprocess_tree_peak_rss_kib\tentrypoint_count\tcg_node_count\tcg_edge_count\treal_external_artifact_count\tno_op_external_artifact_count\treal_external_method_node_count\tno_op_method_node_count\tfactory_method_node_count\tdangerous_transfer_count\tstatus\texit_code\tanalyzer_sha256\tgit_commit\tgit_dirty\tos\tarchitecture\tanalyzer_java\tjdk\tmaven\n' >"$logs_root/metrics.tsv"
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+printf 'label\trun_kind\tround\tsample\tdependency_analysis_scope\talgorithm\tjdk_model\tresult_refinement_algorithms\twala_reflection_options\ttotal_wall_seconds\tcall_graph_seconds\tpeak_heap_used_mib\tpeak_heap_committed_mib\theap_max_mib\theap_sample_count\tprocess_tree_peak_rss_kib\tentrypoint_count\tcg_node_count\tcg_edge_count\treal_external_artifact_count\tno_op_external_artifact_count\treal_external_method_node_count\tno_op_method_node_count\tfactory_method_node_count\tdangerous_transfer_count\tstatus\texit_code\tanalyzer_sha256\tgit_commit\tgit_dirty\tos\tarchitecture\tanalyzer_java\tjdk\tmaven\n' >"$logs_root/metrics.tsv"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
   "$label" "$BENCHMARK_RUN_KIND" "$BENCHMARK_ROUND" "$BENCHMARK_SAMPLE" \
   "$BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE" \
-  "$BENCHMARK_CALL_GRAPH_ALGORITHM" "$k_obj_depth" "$BENCHMARK_JDK_MODEL" \
+  "$BENCHMARK_CALL_GRAPH_ALGORITHM" "$BENCHMARK_JDK_MODEL" \
   "$BENCHMARK_RESULT_REFINEMENT_ALGORITHMS" \
   "$BENCHMARK_WALA_REFLECTION_OPTIONS" \
   "$wall_seconds" "$call_graph_seconds" "$peak_heap_used_mib" \

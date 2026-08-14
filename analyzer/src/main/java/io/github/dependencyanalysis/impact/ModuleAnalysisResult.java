@@ -1,8 +1,11 @@
 package io.github.dependencyanalysis.impact;
 
-import io.github.dependencyanalysis.callgraph.CallGraphStats;
-import io.github.dependencyanalysis.callgraph.DuplicateClassResolution;
-import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
+import io.github.dependencyanalysis.impact.refinement.cha.ChaLocalReceiverRefinementSummary;
+import io.github.dependencyanalysis.impact.refinement.ssa.MethodEquivalenceResult;
+
+import io.github.dependencyanalysis.callgraph.engine.CallGraphStats;
+import io.github.dependencyanalysis.callgraph.scope.DuplicateClassResolution;
+import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphSession;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -31,6 +34,9 @@ public final class ModuleAnalysisResult {
 
     /** Lightweight report metrics detached from the live session. */
     private final ModuleCallGraphSnapshot callGraphSnapshot;
+
+    /** Frozen post-graph terminal evidence. */
+    private final ChangePointEvidenceIndex changePointEvidence;
 
     /** Candidate paths before SSA filtering. */
     private final List<ImpactPath> candidatePaths;
@@ -77,6 +83,7 @@ public final class ModuleAnalysisResult {
         detail = Objects.requireNonNull(builder.detail, "detail");
         session = builder.session;
         callGraphSnapshot = builder.callGraphSnapshot;
+        changePointEvidence = builder.changePointEvidence;
         candidatePaths = immutable(builder.candidatePaths);
         finalPaths = immutable(builder.finalPaths);
         structuralPaths = immutable(builder.structuralPaths);
@@ -140,6 +147,11 @@ public final class ModuleAnalysisResult {
     /** @return detached Call Graph report metrics, nullable */
     public ModuleCallGraphSnapshot getCallGraphSnapshot() {
         return callGraphSnapshot;
+    }
+
+    /** @return frozen terminal evidence, nullable for unbuilt modules */
+    public ChangePointEvidenceIndex getChangePointEvidence() {
+        return changePointEvidence;
     }
 
     /** @return pre-filter candidate paths */
@@ -206,8 +218,7 @@ public final class ModuleAnalysisResult {
 
     /** @return Call Graph metrics, nullable */
     public CallGraphStats getCallGraphStats() {
-        return session != null ? session.getStats()
-                : callGraphSnapshot == null ? null : callGraphSnapshot.stats();
+        return callGraphSnapshot == null ? null : callGraphSnapshot.stats();
     }
 
     /** @return mutable builder initialized from this result */
@@ -216,6 +227,7 @@ public final class ModuleAnalysisResult {
                 .status(status, reason, detail)
                 .session(session)
                 .callGraphSnapshot(callGraphSnapshot)
+                .changePointEvidence(changePointEvidence)
                 .candidatePaths(candidatePaths)
                 .finalPaths(finalPaths)
                 .structuralPaths(structuralPaths)
@@ -250,6 +262,9 @@ public final class ModuleAnalysisResult {
 
         /** Detached Call Graph report metrics. */
         private ModuleCallGraphSnapshot callGraphSnapshot;
+
+        /** Frozen terminal evidence. */
+        private ChangePointEvidenceIndex changePointEvidence;
 
         /** Candidate paths. */
         private List<ImpactPath> candidatePaths = List.of();
@@ -331,6 +346,16 @@ public final class ModuleAnalysisResult {
          */
         public Builder callGraphSnapshot(final ModuleCallGraphSnapshot value) {
             callGraphSnapshot = value;
+            return this;
+        }
+
+        /**
+         * @param value frozen terminal evidence
+         * @return this builder
+         */
+        public Builder changePointEvidence(
+                final ChangePointEvidenceIndex value) {
+            changePointEvidence = value;
             return this;
         }
 

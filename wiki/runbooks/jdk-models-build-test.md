@@ -28,7 +28,7 @@ code_refs:
   - path: "models/jdk8/src/test/java/io/github/dependencyanalysis/models/jdk8/Jdk8ModelsTest.java"
     desc: "384-target exact JDK 8 contract gate"
   - path: "models/jdk8/src/test/java/io/github/dependencyanalysis/models/jdk8/Jdk8ModelFixedPointAcceptanceTest.java"
-    desc: "三种algorithm的on/off、reachability、serialization与metrics gate"
+    desc: "多个direct WALA builder client的on/off、reachability、serialization与metrics gate"
   - path: "models/jdk8/src/test/java/io/github/dependencyanalysis/models/jdk8/Jdk8PackagingIT.java"
     desc: "JDK 8 façade/catalog普通JAR验收"
 ---
@@ -111,7 +111,7 @@ jar tf models/jdk8/target/dependency-analyzer-jdk8-models-0.1.0-SNAPSHOT.jar
 | layout compatibility | `models/jdk`, JDK 17 `jrt:/` | 公共engine不依赖`rt.jar` layout |
 | template IR | `models/jdk`, JDK 17 `jrt:/` | 每个template生成合法Synthetic IR；state put/get与callback invoke |
 | exact contract | `models/jdk8`, JDK 8 `rt.jar` | catalog=384、available=384、unavailable=0、无post-JDK 8 target |
-| fixed point | `models/jdk8`, JDK 8 `rt.jar` + `--release 8` fixture | Basic RTA、ZeroCFA、optimized ZeroX callback、serialization与business reachability |
+| fixed point | `models/jdk8`, JDK 8 `rt.jar` + `--release 8` fixture | 多个direct WALA builder client的callback、serialization与business reachability |
 | packaging | 两个普通JAR | artifact职责分离；无Analyzer class；WALA未shade；flattened consumer POM可解析 |
 
 fixed-point test使用同一source中的lightweight entrypoint比较models-on/off application method set；coverage entrypoint验证完整conservative callback、I/O与serialization行为，避免models-off展开整个JDK使unit gate失控。
@@ -131,7 +131,7 @@ models/jdk8/target/jdk8-model-acceptance.tsv
 - 两个module均输出`0 Checkstyle violations`，且所有test为`Failures: 0, Errors: 0, Skipped: 0`。
 - 公共gate运行16个unit tests与1个Packaging integration test；JDK 8 gate运行5个unit/fixed-point tests与1个Packaging integration test。
 - JDK 8 metadata为`modelId=jdk8`、catalog=384、available=384、unavailable=0。
-- 三种algorithm均命中model target并产生`SummarizedMethod`；required application callback、serialization hook与downstream method可达。
+- direct WALA builder clients均命中model target并产生`SummarizedMethod`；required application callback、serialization hook与downstream method可达。
 - lightweight models-on application method set包含models-off set；Stream、AbstractQueuedSynchronizer、ObjectInputStream内部实现与URL protocol implementation不被继续展开。
 - 公共JAR包含`JdkModels`、`JdkModelDefinition`、session/metadata/exception与engine，不包含production catalog。
 - JDK 8 JAR包含`Jdk8Models`与`jdk8-models.tsv`，不包含公共engine class副本。

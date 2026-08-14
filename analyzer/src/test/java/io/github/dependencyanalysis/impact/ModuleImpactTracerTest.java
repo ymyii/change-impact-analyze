@@ -1,16 +1,21 @@
 package io.github.dependencyanalysis.impact;
 
+
+import io.github.dependencyanalysis.impact.refinement.ResultRefinementAlgorithm;
+import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
+import io.github.dependencyanalysis.impact.refinement.cha.ChaLocalReceiverRefinementSummary;
+
 import io.github.dependencyanalysis.bytecode.AccessTransition;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.bytecode.JvmAccess;
-import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
-import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
-import io.github.dependencyanalysis.callgraph.CodeOrigin;
-import io.github.dependencyanalysis.callgraph.EntrypointSelection;
-import io.github.dependencyanalysis.callgraph.ModuleCallGraphEngine;
-import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
-import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
+import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
+import io.github.dependencyanalysis.callgraph.scope.ClassOwnershipIndex;
+import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSelection;
+import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphEngine;
+import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphSession;
+import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
@@ -140,10 +145,12 @@ class ModuleImpactTracerTest {
                                 EntrypointSelection.allProjectClasses(),
                                 algorithm,
                                 WalaReflectionOptions.parse("NONE"),
-                                repository).build(unit, 0L);
+                                repository).build(
+                                new ModuleCallGraphInputAdapter().adapt(unit),
+                                0L);
                 final ModuleImpactQueryResult result =
                         new ModuleImpactTracer(diagnostics)
-                                .trace(unit, session);
+                                .trace(unit, session, evidence(unit, session));
                 final AtomicInteger peakWorkers = new AtomicInteger();
                 final ExecutorService queryExecutor =
                         Executors.newFixedThreadPool(2);
@@ -152,7 +159,9 @@ class ModuleImpactTracerTest {
                     parallelResult = new ModuleImpactTracer(
                             diagnostics, queryExecutor, 2,
                             workers -> peakWorkers.accumulateAndGet(
-                                    workers, Math::max)).trace(unit, session);
+                                    workers, Math::max)).trace(
+                                    unit, session,
+                                    evidence(unit, session));
                 } finally {
                     queryExecutor.shutdownNow();
                 }
@@ -258,10 +267,12 @@ class ModuleImpactTracerTest {
                                 EntrypointSelection.allProjectClasses(),
                                 algorithm,
                                 WalaReflectionOptions.parse("NONE"),
-                                repository).build(unit, 0L);
+                                repository).build(
+                                new ModuleCallGraphInputAdapter().adapt(unit),
+                                0L);
                 final ModuleImpactQueryResult result =
                         new ModuleImpactTracer(diagnostics)
-                                .trace(unit, session);
+                                .trace(unit, session, evidence(unit, session));
 
                 for (BoundChangePoint point : points) {
                     assertThat(result.getDispositions())
@@ -346,10 +357,12 @@ class ModuleImpactTracerTest {
                                 EntrypointSelection.allProjectClasses(),
                                 algorithm,
                                 WalaReflectionOptions.parse("NONE"),
-                                repository).build(unit, 0L);
+                                repository).build(
+                                new ModuleCallGraphInputAdapter().adapt(unit),
+                                0L);
                 final ModuleImpactQueryResult result =
                         new ModuleImpactTracer(diagnostics)
-                                .trace(unit, session);
+                                .trace(unit, session, evidence(unit, session));
 
                 assertThat(result.getDispositions())
                         .as(algorithm.identifier())
@@ -460,15 +473,18 @@ class ModuleImpactTracerTest {
                             EntrypointSelection.allProjectClasses(),
                             CallGraphAlgorithm.CHA,
                             WalaReflectionOptions.parse("NONE"),
-                            repository).build(unit, 0L);
+                            repository).build(
+                            new ModuleCallGraphInputAdapter().adapt(unit),
+                            0L);
             final long originalEdges = session.getStats().edgeCount();
-            final ModuleImpactQueryResult original =
-                    new ModuleImpactTracer(diagnostics).trace(unit, session);
+            final ModuleImpactQueryResult original = new ModuleImpactTracer(
+                    diagnostics).trace(
+                            unit, session, evidence(unit, session));
             final ModuleImpactQueryResult refined = new ModuleImpactTracer(
                     diagnostics, ResultRefinementSelection.of(
                     ResultRefinementAlgorithm
                             .CHA_LOCAL_RECEIVER_INFERENCE))
-                    .trace(unit, session);
+                    .trace(unit, session, evidence(unit, session));
 
             assertThat(affectedNames(original)).contains("reachable",
                     "falsePositive", "incompatibleCast", "nullOnly",
@@ -690,5 +706,14 @@ class ModuleImpactTracerTest {
         final Path file = root.resolve("sample/Duplicate.class");
         Files.createDirectories(file.getParent());
         Files.write(file, content);
+    }
+
+    private ChangePointEvidenceIndex evidence(
+            final ModuleAnalysisUnit unit,
+            final ModuleCallGraphSession session) {
+        return new ChangePointEvidenceCollector().collect(
+                unit, session.getGraph(), session.getOwnership(),
+                session.getDynamicEvidence(), StructuralReferenceIndex.empty(),
+                session.getStrategyCapabilities(), session::isBodyAvailable);
     }
 }

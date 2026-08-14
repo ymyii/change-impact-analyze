@@ -38,7 +38,7 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
     desc: "tree pipeline 编排"
   - path: "benchmarks/impact-medium/run-suite.sh"
-    desc: "单scope五种algorithm、algorithm相关JDK model benchmark suite"
+    desc: "单scope CHA-only benchmark suite"
 ---
 
 # Project: Dependency Analyzer
@@ -56,8 +56,8 @@ Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer
 - Dependency Evidence Plugin 以 Java 8 bytecode 发布；执行 Plugin reactor 的 Maven JVM 可以使用 Java 8 以上版本。Analyzer 使用 Java 17 构建和运行；root POM 的 `test.jdk8.home` 提供完整 JDK 8 默认值，Surefire/Failsafe 将其作为 `TEST_JDK8_HOME` 注入 test JVM，其他环境可通过 `-Dtest.jdk8.home=...` 覆盖。
 - Analyzer JAR 将 Maven Dependency Plugin 和 Dependency Evidence Plugin 内嵌为两个独立 Maven repository ZIP；runtime 不安装 loose JAR/POM，也不维护项目自有 checksum/fingerprint。
 - `impact` 通过 Maven API 结构化采集 resolved/raw graph，Schema v3 JSON 在 command cache 内交付 selected tree、occurrence topology、reactor keys 和 physical bindings；`impact` 不读 GraphML。`tree` 使用 verbose text 采集面向人的 dependency occurrence。
-- `impact`只构建target per-Module selected Call Graph；`cha`为默认algorithm，其他四种algorithm可显式选择。五种strategy共享统一Evidence collector和Impact query。
-- CHA固定`jdk-model none`、不应用WALA ReflectionOptions且不遍历JDK body；其他algorithm默认`jdk8`并可显式`none`。Analyzer仍将JDK model class/catalog打入uber JAR。
+- `impact`只构建target per-Module selected Call Graph；`cha`为正式默认algorithm，`k-obj`为显式opt-in的experimental algorithm。Call Graph层冻结自身metadata后，由Impact层统一采集Evidence并执行Impact query。
+- CHA固定`jdk-model none`、不应用WALA ReflectionOptions且不遍历JDK body；`k-obj`默认`jdk8`并可显式`none`。Analyzer仍将JDK model class/catalog打入uber JAR。
 - 两个 subcommand 共享 Maven runtime 和 preflight Schema，但分别组装检查 DAG；pipeline 只消费 preflight decision。
 
 ## Module Map
@@ -66,21 +66,24 @@ Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer
 - `analyzer/` - GAV `io.github.dependencyanalysis:dependency-analyzer:3.0.0-SNAPSHOT`；Java 17 CLI/application，输出为`target/dependency-analyzer.jar`。
 - `analyzer/src/main/java/io/github/dependencyanalysis/runtime/` - 内嵌或用户指定 Maven runtime、两个 Plugin repository cache 与 settings overlay。
 - `analyzer/src/main/java/io/github/dependencyanalysis/preflight/` - DAG preflight framework 和结果 Schema。
-- `analyzer/src/main/java/io/github/dependencyanalysis/impact/` - `impact` command、pipeline 和影响追踪 domain。
+- `analyzer/src/main/java/io/github/dependencyanalysis/impact/` - `impact` command、Call Graph input/reason adapter、evidence绑定、pipeline和影响追踪domain。
+- `analyzer/src/main/java/io/github/dependencyanalysis/impact/refinement/` - result refinement selection、CHA local receiver与Static Single Assignment（SSA，静态单赋值）equivalence。
 - `analyzer/src/main/java/io/github/dependencyanalysis/tree/` - Git snapshot、reactor inventory、dependency collection、version analysis 和 HTML report。
-- `analyzer/src/main/java/io/github/dependencyanalysis/{build,dependency,bytecode,callgraph,jar,report,workspace}/` - `impact` pipeline 的稳定阶段实现。
+- `analyzer/src/main/java/io/github/dependencyanalysis/callgraph/` - 仅保留package边界；production class按engine、strategy、protocol、jdk、entrypoint、scope、boundary、topology、model与local职责进入子包。
+- `analyzer/src/main/java/io/github/dependencyanalysis/callgraph/strategy/{cha,kobj}/` - 互相隔离的CHA与`k-obj`实现；动态协议adapter只位于`kobj`子包。
+- `analyzer/src/main/java/io/github/dependencyanalysis/{build,dependency,bytecode,jar,report,workspace}/` - `impact` pipeline的其他稳定阶段实现。
 - `analyzer/src/test/java/` - unit tests；`analyzer/src/integration-test/java/` - Failsafe integration tests。
 - `plugins/pom.xml` - 独立 Plugin reactor parent/aggregator。
 - `plugins/artifact-path-resolver/` - GAV `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:3.0.0`；Java 8 `collect-dependency-evidence` goal 与 attached `repository` ZIP。
 - `models/jdk/` - GAV`io.github.dependencyanalysis:dependency-analyzer-jdk-models:0.1.0-SNAPSHOT`；公共Synthetic IR engine/API。
 - `models/jdk8/` - GAV`io.github.dependencyanalysis:dependency-analyzer-jdk8-models:0.1.0-SNAPSHOT`；384-target catalog与安装façade。
-- `benchmarks/impact-medium/` - 可复现的中型impact fixture、每scope 34进程Call Graph suite、HTML报告与Git管理的effective-default TSV snapshot。
+- `benchmarks/impact-medium/` - 可复现的CHA-only中型impact fixture；每scope 7个进程，双scope共14个进程；baseline确认前不发布tracked TSV snapshot。
 
 ## Technical Stack
 
 - Analyzer runtime/build 为 Java 17；`impact` target runtime 与 Analyzer tests 使用完整 JDK 8。
 - Maven 3.x；应用默认内嵌 Apache Maven 3.6.3 runtime。
-- picocli 4.7.6、ASM/ASM Tree 9.7、WALA 1.8.0、Vineflower 1.12.0 slim、JUnit 5、AssertJ。
+- picocli 4.7.6、ASM/ASM Tree 9.7、WALA 1.8.0、Vineflower 1.12.0 slim、JUnit 5、AssertJ、ArchUnit 1.5.0。
 - maven-shade-plugin 生成 uber JAR；maven-assembly-plugin 生成 Dependency Evidence Plugin repository ZIP。
 
 ## Main Entrypoints

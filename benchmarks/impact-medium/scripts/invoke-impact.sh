@@ -17,9 +17,9 @@ set -eu
 : "${BENCHMARK_CAPTURE_TOPOLOGY:?BENCHMARK_CAPTURE_TOPOLOGY is required}"
 
 case "$BENCHMARK_CALL_GRAPH_ALGORITHM" in
-  cha|rta|zero-cfa|optimized-0-1-cfa|k-obj) ;;
+  cha) ;;
   *)
-    echo "unsupported call graph algorithm: $BENCHMARK_CALL_GRAPH_ALGORITHM" >&2
+    echo "canonical benchmark only supports cha: $BENCHMARK_CALL_GRAPH_ALGORITHM" >&2
     exit 2
     ;;
 esac

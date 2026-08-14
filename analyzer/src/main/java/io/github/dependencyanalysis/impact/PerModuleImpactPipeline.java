@@ -1,5 +1,10 @@
 package io.github.dependencyanalysis.impact;
 
+import io.github.dependencyanalysis.impact.refinement.ResultRefinementAlgorithm;
+import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
+import io.github.dependencyanalysis.impact.refinement.cha.ChaLocalReceiverRefinementSummary;
+import io.github.dependencyanalysis.impact.refinement.ssa.SsaEquivalenceEngine;
+
 import com.fasterxml.jackson.core.JsonGenerator;
 
 import io.github.dependencyanalysis.build.BuildResult;
@@ -12,21 +17,22 @@ import io.github.dependencyanalysis.bytecode.ServiceLoaderResourceDiffEngine;
 import io.github.dependencyanalysis.bytecode.ServiceLoaderResourceDiffResult;
 import io.github.dependencyanalysis.bytecode.ServiceLoaderResourceIssue;
 import io.github.dependencyanalysis.bytecode.ServiceProviderRegistration;
-import io.github.dependencyanalysis.callgraph.CallGraphException;
-import io.github.dependencyanalysis.callgraph.CallGraphFailureKind;
-import io.github.dependencyanalysis.callgraph.CallGraphAlgorithm;
-import io.github.dependencyanalysis.callgraph.CallGraphConfiguration;
-import io.github.dependencyanalysis.callgraph.EntrypointClassIndex;
-import io.github.dependencyanalysis.callgraph.EntrypointClassScanner;
-import io.github.dependencyanalysis.callgraph.EntrypointSelection;
-import io.github.dependencyanalysis.callgraph.ModuleCallGraphEngine;
-import io.github.dependencyanalysis.callgraph.ModuleCallGraphSession;
-import io.github.dependencyanalysis.callgraph.ModuleScopeValidator;
-import io.github.dependencyanalysis.callgraph.ScopeValidationResult;
-import io.github.dependencyanalysis.callgraph.ScopeValidationWarning;
-import io.github.dependencyanalysis.callgraph.JdkModelSelection;
-import io.github.dependencyanalysis.callgraph.WalaReflectionOptions;
-import io.github.dependencyanalysis.callgraph.ScopeValidationException;
+import io.github.dependencyanalysis.callgraph.engine.CallGraphException;
+import io.github.dependencyanalysis.callgraph.engine.CallGraphFailureKind;
+import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
+import io.github.dependencyanalysis.callgraph.strategy.CallGraphConfiguration;
+import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointClassIndex;
+import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointClassScanner;
+import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSelection;
+import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphEngine;
+import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphInput;
+import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphSession;
+import io.github.dependencyanalysis.callgraph.scope.ModuleScopeValidator;
+import io.github.dependencyanalysis.callgraph.scope.ScopeValidationResult;
+import io.github.dependencyanalysis.callgraph.scope.ScopeValidationWarning;
+import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
+import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
+import io.github.dependencyanalysis.callgraph.scope.ScopeValidationException;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.ChangeType;
 import io.github.dependencyanalysis.dependency.DependencyAnalysisResult;
@@ -1248,38 +1254,13 @@ final class PerModuleImpactPipeline {
         final long start = System.currentTimeMillis();
         final Map<String, Long> stageElapsed = new LinkedHashMap<>();
         if (unit.getChangePoints().isEmpty()) {
-            return new ModuleAnalysisResult.Builder(unit)
-                    .status(ModuleAnalysisStatus.INCONCLUSIVE,
-                            ModuleAnalysisReason.INCONCLUSIVE_BYTECODE_DIFF,
-                            "All relevant coordinate-pair JAR diffs failed")
-                    .limitations(unit.getJarDiffFailureSummaries())
-                    .elapsedMillis(System.currentTimeMillis() - start)
-                    .stageElapsedMillis(stageElapsed)
-                    .build();
+            return noChangePoints(unit, start, stageElapsed);
         }
         final List<BoundChangePoint> graphPoints = unit.getChangePoints()
                 .stream().filter(point -> !isAdded(
                         point.getChangePoint().getKind())).toList();
         if (graphPoints.isEmpty()) {
-            final Map<BoundChangePoint, ChangePointDisposition> dispositions =
-                    new LinkedHashMap<>();
-            unit.getChangePoints().forEach(point -> dispositions.put(point,
-                    ChangePointDisposition.CHANGE_KIND_NOT_ANALYZED));
-            return new ModuleAnalysisResult.Builder(unit)
-                    .status(diffFailed ? ModuleAnalysisStatus.INCONCLUSIVE
-                                    : ModuleAnalysisStatus.SUCCESS,
-                            diffFailed
-                                    ? ModuleAnalysisReason
-                                    .INCONCLUSIVE_BYTECODE_DIFF
-                                    : ModuleAnalysisReason.NONE,
-                            "No removal or modification ChangePoint")
-                    .dispositions(dispositions)
-                    .limitations(diffFailed
-                            ? unit.getJarDiffFailureSummaries()
-                            : List.of())
-                    .elapsedMillis(System.currentTimeMillis() - start)
-                    .stageElapsedMillis(stageElapsed)
-                    .build();
+            return noGraphPoints(unit, diffFailed, start, stageElapsed);
         }
         try {
             if (entrypointFailure != null) {
@@ -1290,9 +1271,12 @@ final class PerModuleImpactPipeline {
                             ? new EntrypointClassScanner().scan(
                             unit.getProjectClasses(), entrypointSelection)
                             : preparedEntrypoints;
+            final ModuleCallGraphInput graphInput =
+                    new ModuleCallGraphInputAdapter().adapt(unit);
             long stageStart = System.currentTimeMillis();
             final ScopeValidationResult scopeValidation =
-                    new ModuleScopeValidator(repository()).validate(unit);
+                    new ModuleScopeValidator(repository()).validate(
+                            graphInput);
             stageElapsed.put("scope-validation",
                     System.currentTimeMillis() - stageStart);
             reportScopeWarnings(unit, scopeValidation);
@@ -1303,34 +1287,51 @@ final class PerModuleImpactPipeline {
                             callGraphAlgorithm, kObjDepth, reflectionOptions),
                             jdkModel,
                             repository())
-                            .build(unit, entrypointIndex,
+                            .build(graphInput, entrypointIndex,
                                     callGraphTimeoutSeconds,
                                     callGraphDiagnosticsOutput != null);
             stageElapsed.put("call-graph",
                     System.currentTimeMillis() - stageStart);
             stageStart = System.currentTimeMillis();
+            final StructuralReferenceIndex structuralReferences =
+                    new StructuralImpactScanner(repository()).scan(
+                            unit, session.getOwnership());
+            final ChangePointEvidenceIndex changePointEvidence =
+                    new ChangePointEvidenceCollector().collect(
+                            unit, session.getGraph(), session.getOwnership(),
+                            session.getDynamicEvidence(), structuralReferences,
+                            session.getStrategyCapabilities(),
+                            session::isBodyAvailable);
             final ModuleImpactQueryResult query =
                     new ModuleImpactTracer(diagnostics, queryExecutor,
                             analysisParallelism, workers ->
                             actualImpactQueryWorkers.accumulateAndGet(
                                     workers, Math::max),
-                            resultRefinements).trace(unit, session);
+                            resultRefinements).trace(
+                                    unit, session, changePointEvidence);
             stageElapsed.put("call-graph-query",
                     System.currentTimeMillis() - stageStart);
             final List<String> limitations = new ArrayList<>(
                     scopeValidation.limitations());
             limitations.addAll(session.getModelLimitations());
-            limitations.addAll(session.getDependencyBoundaryLimitations()
+            final CallGraphCoverageMapper coverageMapper =
+                    new CallGraphCoverageMapper();
+            final List<CoverageLimitation> boundaryLimitations =
+                    coverageMapper.boundary(session.getDependencyBoundary());
+            limitations.addAll(boundaryLimitations
                     .stream().map(CoverageLimitation::summary).toList());
             limitations.addAll(query.getLimitations().stream()
                     .map(QueryLimitation::summary).toList());
             if (diffFailed) {
                 limitations.addAll(unit.getJarDiffFailureSummaries());
             }
-            final List<CoverageLimitation> coverage = new ArrayList<>(
-                    scopeValidation.warnings());
-            coverage.addAll(session.getCoverageLimitations());
-            coverage.addAll(session.getDependencyBoundaryLimitations());
+            final List<CoverageLimitation> coverage = new ArrayList<>();
+            scopeValidation.warnings().stream().map(coverageMapper::scope)
+                    .forEach(coverage::add);
+            session.getCoverageLimitations().stream()
+                    .map(coverageMapper::model).forEach(coverage::add);
+            coverage.addAll(boundaryLimitations);
+            coverage.addAll(changePointEvidence.limitations());
             coverage.addAll(query.getLimitations());
             final ModuleAnalysisReason reason =
                     ModuleCoverageReducer.reduce(diffFailed, coverage);
@@ -1347,6 +1348,7 @@ final class PerModuleImpactPipeline {
                                     : "Analysis completed within declared "
                                     + "model")
                     .session(session)
+                    .changePointEvidence(changePointEvidence)
                     .duplicateClassResolutions(
                             session.getDuplicateClassResolutions())
                     .candidatePaths(query.getPaths())
@@ -1376,6 +1378,45 @@ final class PerModuleImpactPipeline {
             return failed(unit, ModuleAnalysisReason.FAILED_ANALYSIS,
                     exception, start, stageElapsed);
         }
+    }
+
+    private ModuleAnalysisResult noChangePoints(
+            final ModuleAnalysisUnit unit,
+            final long start,
+            final Map<String, Long> stageElapsed) {
+        return new ModuleAnalysisResult.Builder(unit)
+                .status(ModuleAnalysisStatus.INCONCLUSIVE,
+                        ModuleAnalysisReason.INCONCLUSIVE_BYTECODE_DIFF,
+                        "All relevant coordinate-pair JAR diffs failed")
+                .limitations(unit.getJarDiffFailureSummaries())
+                .elapsedMillis(System.currentTimeMillis() - start)
+                .stageElapsedMillis(stageElapsed)
+                .build();
+    }
+
+    private ModuleAnalysisResult noGraphPoints(
+            final ModuleAnalysisUnit unit,
+            final boolean diffFailed,
+            final long start,
+            final Map<String, Long> stageElapsed) {
+        final Map<BoundChangePoint, ChangePointDisposition> dispositions =
+                new LinkedHashMap<>();
+        unit.getChangePoints().forEach(point -> dispositions.put(point,
+                ChangePointDisposition.CHANGE_KIND_NOT_ANALYZED));
+        return new ModuleAnalysisResult.Builder(unit)
+                .status(diffFailed ? ModuleAnalysisStatus.INCONCLUSIVE
+                                : ModuleAnalysisStatus.SUCCESS,
+                        diffFailed
+                                ? ModuleAnalysisReason
+                                .INCONCLUSIVE_BYTECODE_DIFF
+                                : ModuleAnalysisReason.NONE,
+                        "No removal or modification ChangePoint")
+                .dispositions(dispositions)
+                .limitations(diffFailed
+                        ? unit.getJarDiffFailureSummaries() : List.of())
+                .elapsedMillis(System.currentTimeMillis() - start)
+                .stageElapsedMillis(stageElapsed)
+                .build();
     }
 
     private void reportScopeWarnings(

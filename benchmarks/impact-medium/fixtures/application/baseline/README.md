@@ -2,7 +2,7 @@
 
 Deterministic Java 8 Maven fixture for `dependency-analyzer impact`.
 
-- 42 个 direct dependencies；`scope-conflict-marker` 是 direct `test` winner，`external-plain` 同时引入其 transitive `compile` duplicate。
+- 40 个 direct dependencies；`scope-conflict-marker` 是 direct `test` winner，`external-plain` 同时引入其 transitive `compile` duplicate。
 - `vendor-lib-34` 由 direct 改为 `external-plain` 的 transitive dependency，selected external classpath 规模不变。
 - `impact-baseline`：`scenario-api:1.0.0`。
 - `impact-target`：`scenario-api:2.0.0`。

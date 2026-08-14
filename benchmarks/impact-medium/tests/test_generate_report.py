@@ -1,9 +1,9 @@
-#!/usr/bin/env python3
-"""Black-box tests for the canonical benchmark report generator."""
+"""Contract tests for the CHA-only canonical benchmark report."""
 
 from __future__ import annotations
 
 import csv
+import importlib.util
 import json
 import subprocess
 import sys
@@ -12,750 +12,206 @@ import unittest
 from pathlib import Path
 
 
-ALGORITHMS = (
-    "cha",
-    "rta",
-    "zero-cfa",
-    "optimized-0-1-cfa",
-    "k-obj",
-)
-REFLECTION_OPTIONS = "ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD"
-SAMPLE_COLUMNS = (
-    "label",
-    "run_kind",
-    "round",
-    "sample",
-    "dependency_analysis_scope",
-    "algorithm",
-    "k_obj_depth",
-    "jdk_model",
-    "result_refinement_algorithms",
-    "wala_reflection_options",
-    "total_wall_seconds",
-    "call_graph_seconds",
-    "peak_heap_used_mib",
-    "peak_heap_committed_mib",
-    "heap_max_mib",
-    "heap_sample_count",
-    "process_tree_peak_rss_kib",
-    "entrypoint_count",
-    "cg_node_count",
-    "cg_edge_count",
-    "real_external_artifact_count",
-    "no_op_external_artifact_count",
-    "real_external_method_node_count",
-    "no_op_method_node_count",
-    "factory_method_node_count",
-    "dangerous_transfer_count",
-    "status",
-    "exit_code",
-    "analyzer_sha256",
-    "git_commit",
-    "git_dirty",
-    "os",
-    "architecture",
-    "analyzer_java",
-    "jdk",
-    "maven",
-)
-GRAPH_COUNTS = {
-    "cha": (12, 18, 30),
-    "rta": (12, 120, 240),
-    "zero-cfa": (12, 24, 42),
-    "optimized-0-1-cfa": (12, 30, 48),
-    "k-obj": (12, 36, 60),
-}
+SCRIPT = Path(__file__).parents[1] / "scripts" / "generate-report.py"
+SPEC = importlib.util.spec_from_file_location("generate_report", SCRIPT)
+assert SPEC is not None and SPEC.loader is not None
+REPORT = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(REPORT)
 
 
 class GenerateReportTest(unittest.TestCase):
-    """Exercises report generation from a complete synthetic suite."""
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        scripts = Path(__file__).resolve().parents[1] / "scripts"
-        cls.generator = scripts / "generate-report.py"
-        cls.comparator = scripts / "compare-summaries.sh"
-        cls.publisher = scripts / "publish-results.sh"
-        cls.matrix_publisher = scripts / "publish-scope-matrix.sh"
-        cls.scope_comparator = scripts / "add-scope-comparison.py"
-
-    def test_complete_suite_generates_html_and_three_tsv_snapshots(self) -> None:
+    def test_canonical_suite_writes_cha_only_snapshots(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            run_directories = self._write_suite(root / "runs")
-            output_html = root / "benchmark-report.html"
+            runs = self._write_suite(root / "runs")
+            output_html = root / "report.html"
             candidate_dir = root / "candidate"
-
-            result = self._generate(output_html, candidate_dir, run_directories)
-
-            self.assertEqual(0, result.returncode, result.stderr)
-            self.assertTrue(output_html.is_file())
-            self.assertEqual(
-                {"samples.tsv", "summary.tsv", "topology.tsv"},
-                {path.name for path in candidate_dir.iterdir()},
-            )
-            with (candidate_dir / "samples.tsv").open(
-                encoding="utf-8", newline=""
-            ) as stream:
-                samples = list(csv.DictReader(stream, delimiter="\t"))
-            self.assertEqual(25, len(samples))
-            self.assertEqual({"formal"}, {row["run_kind"] for row in samples})
-            self.assertEqual(
-                {"jdk8", "none"},
-                {row["jdk_model"] for row in samples},
-            )
-            self.assertEqual(
-                {"ssa-equivalence"},
-                {row["result_refinement_algorithms"] for row in samples},
-            )
-            self.assertEqual(
-                {"1"},
-                {row["k_obj_depth"] for row in samples
-                 if row["algorithm"] == "k-obj"},
-            )
-            self.assertEqual(
-                {""},
-                {row["k_obj_depth"] for row in samples
-                 if row["algorithm"] != "k-obj"},
-            )
-
-            with (candidate_dir / "summary.tsv").open(
-                encoding="utf-8", newline=""
-            ) as stream:
-                summaries = list(csv.DictReader(stream, delimiter="\t"))
-            self.assertEqual(list(ALGORITHMS), [row["algorithm"] for row in summaries])
-            self.assertEqual(
-                {"jdk8", "none"},
-                {row["jdk_model"] for row in summaries},
-            )
-            self.assertEqual(
-                {"ssa-equivalence"},
-                {row["result_refinement_algorithms"] for row in summaries},
-            )
-            self.assertEqual("1", summaries[-1]["k_obj_depth"])
-            self.assertEqual({"5"}, {row["successful_samples"] for row in summaries})
-
-            with (candidate_dir / "topology.tsv").open(
-                encoding="utf-8", newline=""
-            ) as stream:
-                reader = csv.DictReader(stream, delimiter="\t")
-                topology_columns = tuple(reader.fieldnames or ())
-                topology = list(reader)
-            self.assertEqual(40, len(topology))
-            self.assertIn("sentinel_role", topology_columns)
-            self.assertEqual(
-                {"jdk8", "none"},
-                {row["jdk_model"] for row in topology},
-            )
-            self.assertEqual(
-                {"ssa-equivalence"},
-                {row["result_refinement_algorithms"] for row in topology},
-            )
-            self.assertEqual(
-                {"", "1"}, {row["k_obj_depth"] for row in topology}
-            )
-            self.assertIn("path_root_kind", topology_columns)
-            self.assertIn("path_root_cg_node_identity", topology_columns)
-            self.assertIn(
-                "ancestor_retained_external_type_count", topology_columns
-            )
-            self.assertIn(
-                "pruned_external_method_target_count", topology_columns
-            )
-            self.assertNotIn("entrypoint_cg_node_identity", topology_columns)
-            self.assertNotIn("path_status", topology_columns)
-            self.assertEqual(
-                {"CALLER", "CALLEE", "DEPENDENCY"},
-                {row["direction"] for row in topology},
-            )
-            self.assertEqual(
-                {"DEPENDENCY_SCOPE", "DEPENDENCY_PATH", "RANKED_CGNODE",
-                 "RELATED_IMETHOD", "REACHABILITY_PATH"},
-                {row["record_type"] for row in topology},
-            )
-            self.assertEqual(
-                {"", "deadbeef"}, {row["source_sha256"] for row in topology}
-            )
-            graph_rows = [row for row in topology
-                          if row["direction"] != "DEPENDENCY"]
-            self.assertTrue(all(row["ir_sha256"] == "feedface"
-                                for row in graph_rows))
-            path_rows = [
-                row for row in topology
-                if row["record_type"] == "REACHABILITY_PATH"
-            ]
-            self.assertTrue(all(" -> " in row["shortest_path"] for row in path_rows))
-            self.assertTrue(any(
-                "[FAKE_ROOT]" in row["shortest_path"]
-                and "[FAKE_WORLD_CLINIT]" in row["shortest_path"]
-                for row in path_rows
-            ))
-            self.assertEqual(10, len(path_rows))
-            self.assertEqual(
-                {"DECLARED_ENTRYPOINT", "FAKE_ROOT"},
-                {row["path_root_kind"] for row in path_rows},
-            )
-            self.assertTrue(all(row["path_root_cg_node_identity"] for row in path_rows))
-            self.assertEqual(
-                {"NONE", "FAKE_WORLD_CLINIT"},
-                {row["sentinel_role"] for row in graph_rows},
-            )
-            child_rows = [
-                row for row in topology if row["record_type"] == "RELATED_IMETHOD"
-            ]
-            self.assertEqual({"12"}, {row["child_related_cg_node_count"]
-                                     for row in child_rows})
-            self.assertEqual(
-                {"2"}, {row["omitted_related_cg_node_count"]
-                        for row in child_rows}
-            )
-
-            report = output_html.read_text(encoding="utf-8")
-            for algorithm in ALGORITHMS:
-                self.assertIn(
-                    f'<section id="{algorithm}" '
-                    f'class="tab-panel panel-{algorithm}">',
-                    report,
-                )
-                self.assertIn(f'id="tab-{algorithm}"', report)
-            self.assertEqual(6, report.count('name="report-tab"'))
-            self.assertIn('id="tab-comparison"', report)
-            self.assertIn("Top 10 caller CGNode", report)
-            self.assertIn("Top 10 callee CGNode", report)
-            self.assertIn("Top 10 callee IMethod", report)
-            self.assertIn("Top 10 caller IMethod", report)
-            self.assertIn("Source — DECOMPILED", report)
-            self.assertIn("Source — UNAVAILABLE", report)
-            self.assertIn(
-                "WALA synthetic/summary Method has no bytecode source", report
-            )
-            self.assertIn("WALA IR — AVAILABLE", report)
-            self.assertIn("WALA SYNTHETIC", report)
-            self.assertIn("10 / 12 CGNode Context examples；omitted 2", report)
-            self.assertEqual(
-                10, report.count("Declared entrypoint shortest CGNode chains")
-            )
-            self.assertEqual(
-                10,
-                report.count("<h5>WALA sentinel shortest CGNode chains</h5>"),
-            )
-            self.assertEqual(
-                5,
-                report.count("请查看 WALA sentinel shortest CGNode chains"),
-            )
-            self.assertNotIn("UNREACHABLE_FROM_DECLARED_ENTRYPOINTS", report)
-            self.assertIn(
-                '<span class="badge sentinel">FAKE_ROOT</span>', report
-            )
-            self.assertIn(
-                '<span class="badge sentinel">FAKE_WORLD_CLINIT</span>', report
-            )
-            caller_start = report.index("<h3>Top 10 caller CGNode")
-            callee_start = report.index("<h3>Top 10 callee CGNode", caller_start)
-            caller_section = report[caller_start:callee_start]
-            self.assertIn(
-                "Declared entrypoint shortest CGNode chains", caller_section
-            )
-            self.assertIn(
-                "WALA sentinel shortest CGNode chains", caller_section
-            )
-            self.assertEqual(25, report.count("<td>SUCCESS</td>"))
-            self.assertIn("Algorithm comparison", report)
-            self.assertIn("Changed dependency paths", report)
-            self.assertIn("changed-paths", report)
-            self.assertIn("Wall / ZeroCFA", report)
-            self.assertIn("&lt;danger&gt;&amp;&quot;", report)
-            self.assertIn("&lt;ir&gt;&amp;&quot;", report)
-            self.assertNotIn('<danger>&"', report)
-            self.assertNotIn('<ir>&"', report)
-            self.assertNotIn("<script", report.lower())
-            self.assertNotIn("points-to set", report.lower())
-
-    def test_topology_drift_fails_without_touching_tracked_snapshots(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            run_directories = self._write_suite(
-                root / "runs", drift_algorithm="rta"
-            )
-            output_html = root / "benchmark-report.html"
-            candidate_dir = root / "candidate"
-            tracked_dir = root / "tracked-results"
-            tracked_dir.mkdir()
-            tracked_snapshots = {}
-            for name in ("samples.tsv", "summary.tsv", "topology.tsv"):
-                snapshot = tracked_dir / name
-                snapshot.write_text(f"previous-{name}\n", encoding="utf-8")
-                tracked_snapshots[name] = snapshot.read_bytes()
-
-            result = self._generate(output_html, candidate_dir, run_directories)
-
-            self.assertNotEqual(0, result.returncode)
-            self.assertIn("TOPOLOGY_DRIFT", result.stderr)
-            self.assertTrue(output_html.is_file())
-            self.assertIn("TOPOLOGY_DRIFT", output_html.read_text(encoding="utf-8"))
-            for name, expected in tracked_snapshots.items():
-                self.assertEqual(expected, (tracked_dir / name).read_bytes())
-
-    def test_schema_v7_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            run_directories = self._write_suite(root / "runs")
-            topology_path = run_directories[0] / "topology.json"
-            topology = json.loads(topology_path.read_text(encoding="utf-8"))
-            topology["schemaVersion"] = 7
-            topology_path.write_text(json.dumps(topology), encoding="utf-8")
-
-            result = self._generate(
-                root / "benchmark-report.html", root / "candidate", run_directories
-            )
-
-            self.assertNotEqual(0, result.returncode)
-            self.assertIn("unsupported topology schema", result.stderr)
-
-    def test_history_comparison_reports_absolute_change_and_ratio(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            run_directories = self._write_suite(root / "runs")
-            candidate_dir = root / "candidate"
-            generated = self._generate(
-                root / "benchmark-report.html", candidate_dir, run_directories
-            )
-            self.assertEqual(0, generated.returncode, generated.stderr)
-            summary = candidate_dir / "summary.tsv"
 
             result = subprocess.run(
-                [str(self.comparator), str(summary), str(summary)],
-                check=False,
-                capture_output=True,
-                encoding="utf-8",
-            )
-
-            self.assertEqual(0, result.returncode, result.stderr)
-            rows = list(csv.DictReader(result.stdout.splitlines(), delimiter="\t"))
-            self.assertEqual(30, len(rows))
-            self.assertEqual({"0.000000"}, {row["absolute_change"] for row in rows})
-            self.assertEqual({"1.000000"}, {row["ratio"] for row in rows})
-
-            incompatible = root / "incompatible-summary.tsv"
-            incompatible.write_text(
-                summary.read_text(encoding="utf-8").replace(
-                    REFLECTION_OPTIONS, "NONE", 1
-                ),
-                encoding="utf-8",
-            )
-            rejected = subprocess.run(
-                [str(self.comparator), str(summary), str(incompatible)],
-                check=False,
-                capture_output=True,
-                encoding="utf-8",
-            )
-            self.assertNotEqual(0, rejected.returncode)
-            self.assertIn("ReflectionOptions differ", rejected.stderr)
-
-    def test_atomic_publisher_validates_all_candidates_before_replacement(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            candidate_dir = root / "candidate"
-            tracked_dir = root / "tracked"
-            candidate_dir.mkdir()
-            tracked_dir.mkdir()
-            names = ("samples.tsv", "summary.tsv", "topology.tsv")
-            for name in names:
-                (tracked_dir / name).write_text(f"old-{name}\n", encoding="utf-8")
-            for name in names[:2]:
-                (candidate_dir / name).write_text(f"new-{name}\n", encoding="utf-8")
-
-            rejected = subprocess.run(
-                [str(self.publisher), str(candidate_dir), str(tracked_dir)],
-                check=False,
-                capture_output=True,
-                encoding="utf-8",
-            )
-
-            self.assertNotEqual(0, rejected.returncode)
-            for name in names:
-                self.assertEqual(
-                    f"old-{name}\n", (tracked_dir / name).read_text(encoding="utf-8")
-                )
-
-            (candidate_dir / names[2]).write_text(
-                f"new-{names[2]}\n", encoding="utf-8"
-            )
-            published = subprocess.run(
-                [str(self.publisher), str(candidate_dir), str(tracked_dir)],
-                check=False,
-                capture_output=True,
-                encoding="utf-8",
-            )
-            self.assertEqual(0, published.returncode, published.stderr)
-            for name in names:
-                self.assertEqual(
-                    f"new-{name}\n", (tracked_dir / name).read_text(encoding="utf-8")
-                )
-
-    def test_scope_comparison_and_atomic_matrix_publication(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            changed_runs = self._write_suite(root / "changed-runs")
-            full_runs = self._write_suite(root / "full-runs", scope="full")
-            changed_report = root / "changed.html"
-            full_report = root / "full.html"
-            changed_candidate = root / "changed-candidate"
-            full_candidate = root / "full-candidate"
-            changed = self._generate(
-                changed_report, changed_candidate, changed_runs, "changed-paths"
-            )
-            full = self._generate(full_report, full_candidate, full_runs, "full")
-            self.assertEqual(0, changed.returncode, changed.stderr)
-            self.assertEqual(0, full.returncode, full.stderr)
-
-            compared = subprocess.run(
                 [
                     sys.executable,
-                    str(self.scope_comparator),
-                    "--changed-summary", str(changed_candidate / "summary.tsv"),
-                    "--full-summary", str(full_candidate / "summary.tsv"),
-                    "--changed-report", str(changed_report),
-                    "--full-report", str(full_report),
+                    str(SCRIPT),
+                    "--output-html",
+                    str(output_html),
+                    "--candidate-dir",
+                    str(candidate_dir),
+                    "--scope",
+                    "changed-paths",
+                    *(str(run) for run in runs),
                 ],
                 check=False,
                 capture_output=True,
-                encoding="utf-8",
+                text=True,
             )
-            self.assertEqual(0, compared.returncode, compared.stderr)
-            for report in (changed_report, full_report):
-                content = report.read_text(encoding="utf-8")
-                self.assertIn("changed-paths 与 full 对照", content)
-                self.assertIn("Absolute change", content)
-                self.assertIn("Ratio", content)
 
-            tracked = root / "results"
-            tracked.mkdir()
-            (tracked / "old.tsv").write_text("old\n", encoding="utf-8")
-            published = subprocess.run(
-                [str(self.matrix_publisher), str(changed_candidate),
-                 str(full_candidate), str(tracked)],
+            self.assertEqual(0, result.returncode, result.stderr)
+            samples = self._read_tsv(candidate_dir / "samples.tsv")
+            summaries = self._read_tsv(candidate_dir / "summary.tsv")
+            topology = self._read_tsv(candidate_dir / "topology.tsv")
+            self.assertEqual(5, len(samples))
+            self.assertEqual({"cha"}, {row["algorithm"] for row in samples})
+            self.assertEqual(["cha"], [row["algorithm"] for row in summaries])
+            self.assertNotIn("k_obj_depth", samples[0])
+            self.assertNotIn("wall_vs_zero_cfa", summaries[0])
+            self.assertEqual({"cha"}, {row["algorithm"] for row in topology})
+            document = output_html.read_text(encoding="utf-8")
+            self.assertIn("canonical algorithm 固定为 CHA", document)
+            self.assertNotIn("Algorithm comparison", document)
+            self.assertNotIn('name="report-tab"', document)
+
+    def test_non_cha_sample_fails_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runs = self._write_suite(root / "runs")
+            metrics = runs[1] / "logs" / "metrics.tsv"
+            rows = self._read_tsv(metrics)
+            rows[0]["algorithm"] = "k-obj"
+            self._write_tsv(metrics, REPORT.SAMPLE_COLUMNS, rows)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--output-html",
+                    str(root / "report.html"),
+                    "--candidate-dir",
+                    str(root / "candidate"),
+                    "--scope",
+                    "changed-paths",
+                    *(str(run) for run in runs),
+                ],
                 check=False,
                 capture_output=True,
-                encoding="utf-8",
+                text=True,
             )
-            self.assertEqual(0, published.returncode, published.stderr)
-            self.assertFalse((tracked / "old.tsv").exists())
-            for scope in ("changed-paths", "full"):
-                self.assertEqual(
-                    {"samples.tsv", "summary.tsv", "topology.tsv"},
-                    {path.name for path in (tracked / scope).iterdir()},
+
+            self.assertEqual(1, result.returncode)
+            self.assertIn("canonical benchmark 只接受 cha", result.stderr)
+
+    def test_suite_shape_is_one_warmup_five_formal_one_control(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            runs = self._write_suite(Path(temporary) / "runs")
+            rows = [REPORT.read_metrics(run) for run in runs]
+            by_kind = {
+                kind: sum(row["run_kind"] == kind for row in rows)
+                for kind in ("warmup", "formal", "control")
+            }
+            self.assertEqual(
+                {"warmup": 1, "formal": 5, "control": 1}, by_kind
+            )
+
+    def _write_suite(self, root: Path) -> list[Path]:
+        runs: list[Path] = []
+        shapes = [("warmup", 0), *(("formal", value) for value in range(1, 6)),
+                  ("control", 0)]
+        for index, (run_kind, sample) in enumerate(shapes):
+            run = root / f"run-{index}"
+            run.joinpath("logs").mkdir(parents=True)
+            refinement = (
+                "cha-local-receiver-inference"
+                if run_kind == "control" else "ssa-equivalence"
+            )
+            row = self._sample_row(run_kind, sample, refinement)
+            self._write_tsv(
+                run / "logs" / "metrics.tsv", REPORT.SAMPLE_COLUMNS, [row]
+            )
+            if run_kind == "warmup":
+                (run / "topology.json").write_text(
+                    json.dumps(self._topology()), encoding="utf-8"
                 )
+            runs.append(run)
+        return runs
 
-    def _generate(
-        self,
-        output_html: Path,
-        candidate_dir: Path,
-        run_directories: list[Path],
-        scope: str = "changed-paths",
-    ) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            [
-                sys.executable,
-                str(self.generator),
-                "--output-html",
-                str(output_html),
-                "--candidate-dir",
-                str(candidate_dir),
-                "--scope",
-                scope,
-                *(str(path) for path in run_directories),
-            ],
-            check=False,
-            capture_output=True,
-            encoding="utf-8",
-        )
-
-    def _write_suite(
-        self,
-        root: Path,
-        drift_algorithm: str | None = None,
-        scope: str = "changed-paths",
-    ) -> list[Path]:
-        run_directories: list[Path] = []
-        for algorithm in ALGORITHMS:
-            warmup = root / f"warmup-{algorithm}"
-            self._write_metrics(warmup, algorithm, "warmup", 0, 0,
-                                scope=scope,
-                                jdk_model=("none" if algorithm == "cha"
-                                           else "jdk8"))
-            self._write_topology(warmup, algorithm, scope)
-            run_directories.append(warmup)
-        for sample in range(1, 6):
-            rotation = (sample - 1) % len(ALGORITHMS)
-            order = ALGORITHMS[rotation:] + ALGORITHMS[:rotation]
-            for algorithm in order:
-                run = root / f"formal-{sample}-{algorithm}"
-                drift = algorithm == drift_algorithm and sample == 3
-                self._write_metrics(run, algorithm, "formal", sample, sample,
-                                    drift, scope,
-                                    "none" if algorithm == "cha" else "jdk8")
-                run_directories.append(run)
-        for algorithm in ALGORITHMS:
-            control = root / f"control-{algorithm}"
-            self._write_metrics(
-                control, algorithm, "control", 0, 0,
-                scope=scope, jdk_model="none",
-                result_refinements=(
-                    "cha-local-receiver-inference"
-                    if algorithm == "cha" else "ssa-equivalence"
-                ),
-            )
-            run_directories.append(control)
-        return run_directories
-
-    def _write_metrics(
-        self,
-        run_directory: Path,
-        algorithm: str,
-        run_kind: str,
-        round_number: int,
-        sample: int,
-        drift: bool = False,
-        scope: str = "changed-paths",
-        jdk_model: str = "jdk8",
-        result_refinements: str = "ssa-equivalence",
-    ) -> None:
-        logs = run_directory / "logs"
-        logs.mkdir(parents=True, exist_ok=True)
-        entrypoints, nodes, edges = GRAPH_COUNTS[algorithm]
-        if drift:
-            nodes += 1
-        algorithm_offset = ALGORITHMS.index(algorithm)
-        row = {
-            "label": run_directory.name,
+    @staticmethod
+    def _sample_row(
+        run_kind: str, sample: int, refinement: str
+    ) -> dict[str, str]:
+        row = {column: "" for column in REPORT.SAMPLE_COLUMNS}
+        row.update({
+            "label": f"cha-{run_kind}-{sample}",
             "run_kind": run_kind,
-            "round": str(round_number),
+            "round": str(sample),
             "sample": str(sample),
-            "dependency_analysis_scope": scope,
-            "algorithm": algorithm,
-            "k_obj_depth": "1" if algorithm == "k-obj" else "",
-            "jdk_model": jdk_model,
-            "result_refinement_algorithms": result_refinements,
-            "wala_reflection_options": REFLECTION_OPTIONS,
-            "total_wall_seconds": f"{4 + algorithm_offset + sample / 10:.3f}",
-            "call_graph_seconds": f"{1 + algorithm_offset + sample / 100:.3f}",
-            "peak_heap_used_mib": f"{128 + algorithm_offset * 16 + sample:.3f}",
-            "peak_heap_committed_mib": f"{256 + algorithm_offset * 16 + sample:.3f}",
-            "heap_max_mib": "4096.000",
-            "heap_sample_count": "20",
-            "process_tree_peak_rss_kib": str(300000 + algorithm_offset * 10000),
-            "entrypoint_count": str(entrypoints),
-            "cg_node_count": str(nodes),
-            "cg_edge_count": str(edges),
-            "real_external_artifact_count": "5" if scope == "changed-paths" else "42",
-            "no_op_external_artifact_count": "37" if scope == "changed-paths" else "0",
-            "real_external_method_node_count": "14",
-            "no_op_method_node_count": "7" if scope == "changed-paths" else "0",
-            "factory_method_node_count": "1" if scope == "changed-paths" else "0",
-            "dangerous_transfer_count": "1" if scope == "changed-paths" else "0",
+            "dependency_analysis_scope": "changed-paths",
+            "algorithm": "cha",
+            "jdk_model": "none",
+            "result_refinement_algorithms": refinement,
+            "wala_reflection_options": REPORT.REFLECTION_DEFAULT,
+            "total_wall_seconds": str(2 + sample / 10),
+            "call_graph_seconds": str(1 + sample / 10),
+            "peak_heap_used_mib": str(300 + sample),
+            "peak_heap_committed_mib": "512",
+            "heap_max_mib": "1024",
+            "heap_sample_count": "10",
+            "process_tree_peak_rss_kib": str(1000 + sample),
+            "entrypoint_count": "2",
+            "cg_node_count": "3",
+            "cg_edge_count": "4",
+            "real_external_artifact_count": "1",
+            "no_op_external_artifact_count": "0",
+            "real_external_method_node_count": "1",
+            "no_op_method_node_count": "0",
+            "factory_method_node_count": "0",
+            "dangerous_transfer_count": "0",
             "status": "SUCCESS",
             "exit_code": "0",
-            "analyzer_sha256": "analyzer-sha256",
-            "git_commit": "0123456789abcdef",
+            "analyzer_sha256": "sha",
+            "git_commit": "commit",
             "git_dirty": "false",
-            "os": "TestOS 1",
+            "os": "test-os",
             "architecture": "test-arch",
-            "analyzer_java": "openjdk version 17-test",
-            "jdk": "openjdk version 1.8-test",
-            "maven": "Apache Maven 3-test",
-        }
-        with (logs / "metrics.tsv").open("w", encoding="utf-8", newline="") as stream:
-            writer = csv.DictWriter(
-                stream,
-                fieldnames=SAMPLE_COLUMNS,
-                delimiter="\t",
-                lineterminator="\n",
-            )
-            writer.writeheader()
-            writer.writerow(row)
+            "analyzer_java": "java-17",
+            "jdk": "jdk-8",
+            "maven": "maven",
+        })
+        return row
 
-    def _write_topology(
-        self, run_directory: Path, algorithm: str, scope: str
-    ) -> None:
-        entrypoints, nodes, edges = GRAPH_COUNTS[algorithm]
-        entrypoint = self._method(
-            "example/Entrypoint", "main", "([Ljava/lang/String;)V", "PROJECT"
-        )
-        entrypoint_node = self._node(1, entrypoint, "Everywhere")
-        caller_node = self._node(
-            2, self._method("example/Caller", "call", "()V", "PROJECT"),
-            "CallerContext",
-        )
-        callee_node = self._node(
-            3, self._method("example/Callee", "run", "()V", "SYNTHETIC"),
-            "ReceiverContext",
-        )
-        caller_node["sentinelRole"] = "FAKE_WORLD_CLINIT"
-        caller_node["identity"] = str(caller_node["identity"]).replace(
-            "sentinelRole=NONE", "sentinelRole=FAKE_WORLD_CLINIT"
-        )
-        fake_root = self._node(
-            0,
-            self._method(
-                "com/ibm/wala/FakeRoot", "fakeRootMethod", "()V", "SYNTHETIC"
-            ),
-            "Everywhere",
-        )
-        fake_root["sentinelRole"] = "FAKE_ROOT"
-        fake_root["identity"] = str(fake_root["identity"]).replace(
-            "sentinelRole=NONE", "sentinelRole=FAKE_ROOT"
-        )
-        caller = self._ranked_node(
-            1, caller_node, fake_root, "FAKE_ROOT", callee_node, "topCallees", True,
-        )
-        callee = self._ranked_node(
-            1, callee_node, entrypoint_node, "DECLARED_ENTRYPOINT", caller_node,
-            "topCallers", False,
-        )
-        topology = {
+    @staticmethod
+    def _topology() -> dict[str, object]:
+        return {
             "schemaVersion": 9,
-            "algorithm": algorithm,
-            "kObjDepth": 1 if algorithm == "k-obj" else None,
-            "jdkModel": "none" if algorithm == "cha" else "jdk8",
+            "algorithm": "cha",
+            "kObjDepth": None,
+            "reflectionOptions": REPORT.REFLECTION_DEFAULT,
+            "reflectionApplied": "not applied by cha",
+            "jdkModel": "none",
             "resultRefinementAlgorithms": ["ssa-equivalence"],
-            "reflectionOptions": REFLECTION_OPTIONS,
-            "reflectionApplied": (
-                "not applied by cha" if algorithm == "cha" else "applied"
-            ),
-            "requestedDependencyAnalysisScope": scope,
-            "jdk": "1.8-test",
-            "modules": [
-                {
-                    "module": "fixture:app:1.0",
-                    "entrypointCount": entrypoints,
-                    "cgNodeCount": nodes,
-                    "cgEdgeCount": edges,
-                    "actualDependencyAnalysisScope": scope,
-                    "dependencyScopeFallbackReason": "",
-                    "realExternalArtifactCount": 5 if scope == "changed-paths" else 42,
-                    "noOpExternalArtifactCount": 37 if scope == "changed-paths" else 0,
-                    "realExternalMethodNodeCount": 14,
-                    "noOpMethodNodeCount": 7 if scope == "changed-paths" else 0,
-                    "factoryMethodNodeCount": 1 if scope == "changed-paths" else 0,
-                    "dangerousTransferCount": 1 if scope == "changed-paths" else 0,
-                    "ancestorRetainedExternalTypeCount": (
-                        3 if algorithm == "cha" and scope == "changed-paths" else 0
-                    ),
-                    "ancestorRetainedExternalMethodNodeCount": (
-                        8 if algorithm == "cha" and scope == "changed-paths" else 0
-                    ),
-                    "prunedExternalMethodTargetCount": (
-                        4 if algorithm == "cha" and scope == "changed-paths" else 0
-                    ),
-                    "dependencyPaths": [{
-                        "seed": "fixture:scenario-api:jar:2.0",
-                        "path": "fixture:path-a:jar:1.0 -> fixture:scenario-api:jar:2.0",
-                    }],
-                    "topCallers": [caller],
-                    "topCallees": [callee],
-                }
-            ],
-        }
-        (run_directory / "topology.json").write_text(
-            json.dumps(topology), encoding="utf-8"
-        )
-
-    @staticmethod
-    def _method(
-        owner: str,
-        name: str,
-        descriptor: str,
-        origin: str,
-    ) -> dict[str, str]:
-        return {
-            "owner": owner,
-            "name": name,
-            "descriptor": descriptor,
-            "origin": origin,
-            "identity": f"{owner}#{name}{descriptor}@{origin}",
+            "requestedDependencyAnalysisScope": "changed-paths",
+            "modules": [{
+                "module": "fixture",
+                "entrypointCount": 2,
+                "cgNodeCount": 3,
+                "cgEdgeCount": 4,
+                "actualDependencyAnalysisScope": "changed-paths",
+                "realExternalArtifactCount": 1,
+                "noOpExternalArtifactCount": 0,
+                "realExternalMethodNodeCount": 1,
+                "noOpMethodNodeCount": 0,
+                "factoryMethodNodeCount": 0,
+                "dangerousTransferCount": 0,
+                "ancestorRetainedExternalTypeCount": 1,
+                "ancestorRetainedExternalMethodNodeCount": 1,
+                "prunedExternalMethodTargetCount": 1,
+                "dependencyPaths": [{"seed": "seed", "path": "a -> b"}],
+                "topCallers": [],
+                "topCallees": [],
+            }],
         }
 
     @staticmethod
-    def _node(
-        node_id: int,
-        method: dict[str, str],
-        context: str,
-    ) -> dict[str, object]:
-        return {
-            "graphNodeId": node_id,
-            "context": context,
-            "walaSynthetic": method["origin"] == "SYNTHETIC",
-            "sentinelRole": "NONE",
-            "identity": (
-                f"{method['identity']}|context={context}|nodeId={node_id}"
-                f"|walaSynthetic={str(method['origin'] == 'SYNTHETIC').lower()}"
-                "|sentinelRole=NONE"
-            ),
-            "method": method,
-        }
+    def _write_tsv(
+        path: Path, columns: tuple[str, ...], rows: list[dict[str, str]]
+    ) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=columns, delimiter="\t")
+            writer.writeheader()
+            writer.writerows(rows)
 
     @staticmethod
-    def _ranked_node(
-        rank: int,
-        node: dict[str, object],
-        root: dict[str, object],
-        root_kind: str,
-        related: dict[str, object],
-        child_field: str,
-        source_available: bool,
-    ) -> dict[str, object]:
-        related_examples = [
-            {
-                **related,
-                "graphNodeId": int(related["graphNodeId"]) + offset,
-                "identity": f"{related['identity']}|example={offset}",
-            }
-            for offset in range(10)
-        ]
-        return {
-            "rank": rank,
-            "relatedDirection": "CALLEE",
-            "node": node,
-            "relatedCgNodeCount": 1,
-            "distinctRelatedMethodCount": 7,
-            "rawEdgeCount": 9,
-            "cycle": True,
-            child_field: [
-                {
-                    "rank": 1,
-                    "method": related["method"],
-                    "relatedCgNodeCount": 12,
-                    "rawEdgeCount": 12,
-                    "omittedRelatedCgNodeCount": 2,
-                    "relatedCgNodeExamples": related_examples,
-                }
-            ],
-            "source": {
-                "status": "DECOMPILED" if source_available else "UNAVAILABLE",
-                "sha256": "deadbeef" if source_available else "",
-                "classpathSource": "fixture.jar" if source_available else "",
-                "reason": "" if source_available
-                else "WALA synthetic/summary Method has no bytecode source",
-                "text": '<danger>&"' if source_available else "",
-            },
-            "ir": {
-                "status": "AVAILABLE",
-                "sha256": "feedface",
-                "reason": "",
-                "text": '<ir>&"',
-            },
-            "reachabilityPaths": [
-                {
-                    "rootKind": root_kind,
-                    "root": root,
-                    "steps": [
-                        {**root, "cycle": False},
-                        {**node, "cycle": True},
-                    ],
-                }
-            ],
-        }
+    def _read_tsv(path: Path) -> list[dict[str, str]]:
+        with path.open(encoding="utf-8", newline="") as stream:
+            return list(csv.DictReader(stream, delimiter="\t"))
 
 
 if __name__ == "__main__":

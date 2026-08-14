@@ -1,22 +1,5 @@
-# dependency_analysis_scope	jdk_model	algorithm	k_obj_depth	result_refinement_algorithms	candidate_call_chains	final_call_chains
-# PENDING means the new fixture tuple exists but must be calibrated and manually reviewed by a separately authorized canonical matrix run.
-changed-paths	none	cha		ssa-equivalence	PENDING	PENDING
-changed-paths	jdk8	rta		ssa-equivalence	PENDING	PENDING
-changed-paths	jdk8	zero-cfa		ssa-equivalence	PENDING	PENDING
-changed-paths	jdk8	optimized-0-1-cfa		ssa-equivalence	PENDING	PENDING
-changed-paths	jdk8	k-obj	1	ssa-equivalence	PENDING	PENDING
-changed-paths	none	rta		ssa-equivalence	PENDING	PENDING
-changed-paths	none	zero-cfa		ssa-equivalence	PENDING	PENDING
-changed-paths	none	optimized-0-1-cfa		ssa-equivalence	PENDING	PENDING
-changed-paths	none	k-obj	1	ssa-equivalence	PENDING	PENDING
-changed-paths	none	cha		cha-local-receiver-inference	PENDING	PENDING
-full	none	cha		ssa-equivalence	PENDING	PENDING
-full	jdk8	rta		ssa-equivalence	PENDING	PENDING
-full	jdk8	zero-cfa		ssa-equivalence	PENDING	PENDING
-full	jdk8	optimized-0-1-cfa		ssa-equivalence	PENDING	PENDING
-full	jdk8	k-obj	1	ssa-equivalence	PENDING	PENDING
-full	none	rta		ssa-equivalence	PENDING	PENDING
-full	none	zero-cfa		ssa-equivalence	PENDING	PENDING
-full	none	optimized-0-1-cfa		ssa-equivalence	PENDING	PENDING
-full	none	k-obj	1	ssa-equivalence	PENDING	PENDING
-full	none	cha		cha-local-receiver-inference	PENDING	PENDING
+# dependency_analysis_scope	result_refinement_algorithms	candidate_call_chains	final_call_chains
+changed-paths	ssa-equivalence	PENDING	PENDING
+changed-paths	cha-local-receiver-inference	PENDING	PENDING
+full	ssa-equivalence	PENDING	PENDING
+full	cha-local-receiver-inference	PENDING	PENDING

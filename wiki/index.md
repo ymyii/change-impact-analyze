@@ -47,10 +47,10 @@ code_refs: []
 - Summary: logical coordinate pair经repository lease并行去重Diff；检测bytecode、JVM access narrowing与ServiceLoader registration removal，并按唯一pair汇总changes/failure。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
-- Summary: CHA changed-paths裁剪无关external target并传递保留external祖先type；固定JDK leaf、Object Diff-directed policy、查询期local Receiver结果收窄、五种algorithm capability与Schema v9 diagnostics。
+- Summary: 正式CHA与experimental `k-obj`按strategy隔离；engine只接收Call Graph input contract并冻结metadata，Impact层负责Evidence和coverage reason映射。
 
 ### [JDK Method Models](features/jdk-method-models.md)
-- Summary: CHA固定`none`；四种非CHA algorithm默认接入独立`models/jdk8`精确catalog，并允许显式`none`。
+- Summary: CHA固定`none`；experimental `k-obj`默认接入独立`models/jdk8`精确catalog，并允许显式`none`。
 
 ### [Impact Tracing](features/impact-tracing.md)
 - Summary: 构图后统一collector绑定公共`ReferenceEvidence`；冻结session按exact `QueryNode`分组并发reverse BFS，共享单节点局部`ReverseTrace`，并在`-vv`下提供QueryNode独立10秒心跳。
@@ -70,7 +70,10 @@ code_refs: []
 - Summary: 所有功能设计必须覆盖指标监控、进度跟踪与审计日志；运行证据可复用，但高成本生成只能在对应详细级别启用后执行。
 
 ### [Benchmark Scenario Coverage](rules/benchmark-scenario-coverage.md)
-- Summary: Analyzer能力新增必须同步维护semantic benchmark场景；canonical matrix仅在用户明确授权后执行。
+- Summary: CHA-only canonical matrix为双scope共14个JVM与4个baseline；仅在用户明确授权后执行。
+
+### [Package Boundaries](rules/package-boundaries.md)
+- Summary: 按职责分包、单向依赖、algorithm隔离、无兼容壳与测试镜像production package，由ArchUnit持续强制。
 
 ## Runbooks
 
@@ -84,6 +87,6 @@ code_refs: []
 - Summary: Maven Versions/Enforcer驱动四个独立artifact的Snapshot iteration、Stable release、commit与component Git tag。
 
 ### [Impact Benchmark](runbooks/impact-benchmark.md)
-- Summary: changed-paths/full各执行5次warm-up、25次formal、4次非CHA`none`control与1次CHA local-only control；70个JVM和20组refinement-aware semantic baseline通过后原子发布。
+- Summary: changed-paths/full各执行1次SSA warm-up、5次SSA formal与1次CHA local receiver control；14个JVM和4组baseline通过后原子发布。
 
 ## Glossary

@@ -1,5 +1,7 @@
 package io.github.dependencyanalysis.impact;
 
+import io.github.dependencyanalysis.impact.refinement.cha.ChaLocalReceiverRefinementSummary;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;

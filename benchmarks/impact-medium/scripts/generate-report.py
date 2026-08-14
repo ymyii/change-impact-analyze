@@ -14,17 +14,11 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-ALGORITHMS = (
-    "cha",
-    "rta",
-    "zero-cfa",
-    "optimized-0-1-cfa",
-    "k-obj",
-)
+ALGORITHMS = ("cha",)
 REFLECTION_DEFAULT = "ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD"
 SAMPLE_COLUMNS = (
     "label", "run_kind", "round", "sample", "dependency_analysis_scope",
-    "algorithm", "k_obj_depth", "jdk_model", "result_refinement_algorithms",
+    "algorithm", "jdk_model", "result_refinement_algorithms",
     "wala_reflection_options", "total_wall_seconds",
     "call_graph_seconds", "peak_heap_used_mib",
     "peak_heap_committed_mib", "heap_max_mib", "heap_sample_count",
@@ -37,7 +31,7 @@ SAMPLE_COLUMNS = (
     "jdk", "maven",
 )
 SUMMARY_COLUMNS = (
-    "dependency_analysis_scope", "algorithm", "k_obj_depth", "jdk_model",
+    "dependency_analysis_scope", "algorithm", "jdk_model",
     "result_refinement_algorithms",
     "wala_reflection_options", "samples",
     "min_total_wall_seconds", "median_total_wall_seconds",
@@ -54,11 +48,9 @@ SUMMARY_COLUMNS = (
     "no_op_external_artifact_count", "real_external_method_node_count",
     "no_op_method_node_count", "factory_method_node_count",
     "dangerous_transfer_count", "successful_samples",
-    "wall_vs_zero_cfa", "heap_vs_zero_cfa", "node_vs_zero_cfa",
-    "edge_vs_zero_cfa",
 )
 TOPOLOGY_COLUMNS = (
-    "algorithm", "k_obj_depth", "jdk_model", "result_refinement_algorithms",
+    "algorithm", "jdk_model", "result_refinement_algorithms",
     "wala_reflection_options",
     "module", "direction",
     "record_type", "rank", "cg_node_id", "cg_node_identity", "context",
@@ -159,14 +151,14 @@ def validate(
     by_kind: dict[str, list[dict[str, str]]] = defaultdict(list)
     for row in rows:
         by_kind[row.get("run_kind", "")].append(row)
-    if len(rows) != 35:
-        errors.append(f"应有 35 个独立 CLI 进程，实际 {len(rows)} 个")
-    if len(by_kind["warmup"]) != 5:
-        errors.append(f"应有 5 个 warm-up，实际 {len(by_kind['warmup'])} 个")
-    if len(by_kind["formal"]) != 25:
-        errors.append(f"应有 25 个正式样本，实际 {len(by_kind['formal'])} 个")
-    if len(by_kind["control"]) != 5:
-        errors.append(f"应有 5 个 semantic control，实际 {len(by_kind['control'])} 个")
+    if len(rows) != 7:
+        errors.append(f"应有 7 个独立 CLI 进程，实际 {len(rows)} 个")
+    if len(by_kind["warmup"]) != 1:
+        errors.append(f"应有 1 个 warm-up，实际 {len(by_kind['warmup'])} 个")
+    if len(by_kind["formal"]) != 5:
+        errors.append(f"应有 5 个正式样本，实际 {len(by_kind['formal'])} 个")
+    if len(by_kind["control"]) != 1:
+        errors.append(f"应有 1 个 semantic control，实际 {len(by_kind['control'])} 个")
     environment_fields = (
         "dependency_analysis_scope", "wala_reflection_options",
         "analyzer_sha256", "git_commit",
@@ -189,12 +181,8 @@ def validate(
                 f"{row.get('label')} 未使用默认 ReflectionOptions: "
                 f"{row.get('wala_reflection_options')}"
             )
-        expected_depth = "1" if row.get("algorithm") == "k-obj" else ""
-        if row.get("k_obj_depth") != expected_depth:
-            errors.append(
-                f"{row.get('label')} k_obj_depth={row.get('k_obj_depth')}，"
-                f"应为 {expected_depth or '空'}"
-            )
+        if row.get("algorithm") != "cha":
+            errors.append(f"canonical benchmark 只接受 cha: {row.get('algorithm')}")
         for field in NUMERIC_SAMPLE_FIELDS:
             try:
                 number(row, field)
@@ -219,7 +207,7 @@ def validate(
                 f"实际 {len(controls)} 个"
             )
         default_rows = warmups + formal
-        expected_model = "none" if algorithm == "cha" else "jdk8"
+        expected_model = "none"
         if any(row.get("jdk_model") != expected_model for row in default_rows):
             errors.append(
                 f"{algorithm} warm-up/formal 未使用默认 {expected_model} model"
@@ -245,14 +233,11 @@ def validate(
             continue
         if topology.get("algorithm") != algorithm:
             errors.append(f"{algorithm} topology algorithm 不匹配")
-        expected_depth = 1 if algorithm == "k-obj" else None
-        if topology.get("kObjDepth") != expected_depth:
+        if topology.get("kObjDepth") is not None:
             errors.append(f"{algorithm} topology kObjDepth 不匹配")
         if topology.get("reflectionOptions") != REFLECTION_DEFAULT:
             errors.append(f"{algorithm} topology ReflectionOptions 不匹配")
-        expected_reflection_applied = (
-            "not applied by cha" if algorithm == "cha" else "applied"
-        )
+        expected_reflection_applied = "not applied by cha"
         if topology.get("reflectionApplied") != expected_reflection_applied:
             errors.append(f"{algorithm} topology reflectionApplied 不匹配")
         if topology.get("jdkModel") != expected_model:
@@ -312,22 +297,8 @@ def stats(rows: list[dict[str, str]], field: str) -> tuple[float, float, float]:
     return min(values), statistics.median(values), max(values)
 
 
-def ratio(value: float, baseline: float) -> str:
-    return "" if baseline == 0 else f"{value / baseline:.6f}"
-
-
 def summaries(formal: list[dict[str, str]], scope: str) -> list[dict[str, str]]:
     result: list[dict[str, str]] = []
-    medians: dict[str, dict[str, float]] = {}
-    for algorithm in ALGORITHMS:
-        rows = [row for row in formal if row["algorithm"] == algorithm]
-        medians[algorithm] = {
-            "wall": stats(rows, "total_wall_seconds")[1],
-            "heap": stats(rows, "peak_heap_used_mib")[1],
-            "node": number(rows[0], "cg_node_count"),
-            "edge": number(rows[0], "cg_edge_count"),
-        }
-    baseline = medians["zero-cfa"]
     for algorithm in ALGORITHMS:
         rows = [row for row in formal if row["algorithm"] == algorithm]
         wall = stats(rows, "total_wall_seconds")
@@ -336,19 +307,17 @@ def summaries(formal: list[dict[str, str]], scope: str) -> list[dict[str, str]]:
         committed = stats(rows, "peak_heap_committed_mib")
         heap_max = stats(rows, "heap_max_mib")
         rss = stats(rows, "process_tree_peak_rss_kib")
-        current = medians[algorithm]
         values: dict[str, Any] = {
             "dependency_analysis_scope": scope,
             "algorithm": algorithm,
-            "k_obj_depth": rows[0]["k_obj_depth"],
             "jdk_model": rows[0]["jdk_model"],
             "result_refinement_algorithms": rows[0][
                 "result_refinement_algorithms"],
             "wala_reflection_options": rows[0]["wala_reflection_options"],
             "samples": len(rows),
             "entrypoint_count": int(number(rows[0], "entrypoint_count")),
-            "cg_node_count": int(current["node"]),
-            "cg_edge_count": int(current["edge"]),
+            "cg_node_count": int(number(rows[0], "cg_node_count")),
+            "cg_edge_count": int(number(rows[0], "cg_edge_count")),
             "real_external_artifact_count": int(number(
                 rows[0], "real_external_artifact_count")),
             "no_op_external_artifact_count": int(number(
@@ -362,10 +331,6 @@ def summaries(formal: list[dict[str, str]], scope: str) -> list[dict[str, str]]:
             "dangerous_transfer_count": int(number(
                 rows[0], "dangerous_transfer_count")),
             "successful_samples": sum(row["status"] == "SUCCESS" for row in rows),
-            "wall_vs_zero_cfa": ratio(current["wall"], baseline["wall"]),
-            "heap_vs_zero_cfa": ratio(current["heap"], baseline["heap"]),
-            "node_vs_zero_cfa": ratio(current["node"], baseline["node"]),
-            "edge_vs_zero_cfa": ratio(current["edge"], baseline["edge"]),
         }
         for prefix, triple in (
             ("total_wall_seconds", wall),
@@ -398,10 +363,6 @@ def topology_rows(topologies: dict[str, dict[str, Any]]) -> list[dict[str, str]]
         for module in topology.get("modules", []):
             scope_values = {
                 "algorithm": algorithm,
-                "k_obj_depth": (
-                    str(topology["kObjDepth"])
-                    if topology.get("kObjDepth") is not None else ""
-                ),
                 "jdk_model": topology["jdkModel"],
                 "result_refinement_algorithms": ",".join(
                     topology["resultRefinementAlgorithms"]),
@@ -455,10 +416,6 @@ def topology_rows(topologies: dict[str, dict[str, Any]]) -> list[dict[str, str]]
                     ir = value["ir"]
                     common = {
                         "algorithm": algorithm,
-                        "k_obj_depth": (
-                            str(topology["kObjDepth"])
-                            if topology.get("kObjDepth") is not None else ""
-                        ),
                         "jdk_model": topology["jdkModel"],
                         "result_refinement_algorithms": ",".join(
                             topology["resultRefinementAlgorithms"]),
@@ -701,9 +658,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0
 main{max-width:1500px;margin:auto;padding:32px}h1,h2,h3,h4{line-height:1.25}section{background:#fff;border:1px solid #dfe5ef;border-radius:12px;padding:22px;margin:20px 0;box-shadow:0 4px 18px #1c2b4a0d}
 table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{border:1px solid #dfe5ef;padding:8px 10px;text-align:right;white-space:nowrap}th:first-child,td:first-child{text-align:left}th{background:#eef3fa}code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#101827;color:#e7edf8;padding:14px;border-radius:8px;max-height:640px;overflow:auto}
 .cgnode{border-top:1px solid #dfe5ef;padding:12px 0}.badge{display:inline-block;background:#e8eef9;border-radius:999px;padding:2px 8px;font-size:.75rem}.cycle{background:#ffe0ad;color:#744400}.ok{color:#14733c}.bad,.warning{color:#a12626}.muted{color:#5b667a}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.metric{background:#f7f9fd;padding:12px;border-radius:8px}details{margin:10px 0}summary{cursor:pointer;font-weight:600}
-.tab-control{position:absolute;opacity:0;pointer-events:none}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:24px 0 0}.tabs label{cursor:pointer;border:1px solid #cbd6e6;background:#e8eef9;border-radius:9px 9px 0 0;padding:10px 16px;font-weight:650}.tab-panel{display:none;margin-top:0;border-radius:0 12px 12px 12px}.tab-control:focus+.tabs label{outline:2px solid #4f74b8}.tab-panels{margin-top:0}
-#tab-cha:checked~.tabs label[for="tab-cha"],#tab-rta:checked~.tabs label[for="tab-rta"],#tab-zero-cfa:checked~.tabs label[for="tab-zero-cfa"],#tab-optimized-0-1-cfa:checked~.tabs label[for="tab-optimized-0-1-cfa"],#tab-k-obj:checked~.tabs label[for="tab-k-obj"],#tab-comparison:checked~.tabs label[for="tab-comparison"]{background:#fff;border-bottom-color:#fff;color:#0d4f9b}
-#tab-cha:checked~.tab-panels .panel-cha,#tab-rta:checked~.tab-panels .panel-rta,#tab-zero-cfa:checked~.tab-panels .panel-zero-cfa,#tab-optimized-0-1-cfa:checked~.tab-panels .panel-optimized-0-1-cfa,#tab-k-obj:checked~.tab-panels .panel-k-obj,#tab-comparison:checked~.tab-panels .panel-comparison{display:block}
 """
     parts = [
         "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">",
@@ -712,25 +666,13 @@ table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{bo
         f"<h1>CallGraph Benchmark 可观测性报告 — <code>{e(scope)}</code></h1>",
         f'<p>Suite status: <strong class="{"ok" if not errors else "bad"}">{status}</strong>。'
         "正式样本使用全新 Java Virtual Machine（JVM），warm-up 仅用于 topology 与缓存预热；"
-        "四种非 CHA algorithm 另有一个 <code>none</code> JDK-model control；"
-        "CHA 另有一个 <code>cha-local-receiver-inference</code> control。</p>",
+        "canonical algorithm 固定为 CHA；另有一个 "
+        "<code>cha-local-receiver-inference</code> control。</p>",
     ]
     if errors:
         parts.append("<section><h2>Failure diagnostics</h2><ul>")
         parts.extend(f"<li>{e(error)}</li>" for error in errors)
         parts.append("</ul><p>tracked TSV 未更新；失败候选与 raw run 保留在 tmp-files/。</p></section>")
-    tab_values = (*ALGORITHMS, "comparison")
-    for index, tab in enumerate(tab_values):
-        checked = " checked" if index == 0 else ""
-        parts.append(
-            f'<input class="tab-control" type="radio" name="report-tab" '
-            f'id="tab-{e(tab)}"{checked}>'
-        )
-    parts.append('<nav class="tabs" aria-label="Benchmark report tabs">')
-    for tab in tab_values:
-        label = "Algorithm comparison" if tab == "comparison" else tab
-        parts.append(f'<label for="tab-{e(tab)}">{e(label)}</label>')
-    parts.append('</nav><div class="tab-panels">')
     summary_by_algorithm = {row["algorithm"]: row for row in summary_rows}
     for algorithm in ALGORITHMS:
         algorithm_rows = sorted(
@@ -739,7 +681,7 @@ table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{bo
         )
         parts.append(
             f'<section id="{e(algorithm)}" '
-            f'class="tab-panel panel-{e(algorithm)}">'
+            f'class="algorithm-panel panel-{e(algorithm)}">'
             f'<h2>Algorithm: <code>{e(algorithm)}</code></h2>'
         )
         parts.append("<h3>五个正式样本</h3><table><tr>"
@@ -807,30 +749,7 @@ table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{bo
             parts.append(render_ranked(
                 module.get("topCallees", []), "Caller", "topCallers"))
         parts.append("</section>")
-    parts.append('<section id="comparison" class="tab-panel panel-comparison">'
-                 "<h2>Algorithm comparison</h2><table><tr>"
-                 "<th>Algorithm</th><th>Median wall (s)</th><th>Median CallGraph (s)</th>"
-                 "<th>Median Peak Heap Used (MiB)</th><th>Median RSS (KiB)</th>"
-                 "<th>Entrypoint</th><th>CGNode</th><th>CGEdge</th><th>Successful</th>"
-                 "<th>Real external artifact</th><th>No-op external artifact</th>"
-                 "<th>Real external method</th><th>No-op method</th>"
-                 "<th>Factory method</th><th>Dangerous transfer</th>"
-                 "<th>Wall / ZeroCFA</th><th>Heap / ZeroCFA</th>"
-                 "<th>Node / ZeroCFA</th><th>Edge / ZeroCFA</th></tr>")
-    for row in summary_rows:
-        fields = (
-            "algorithm", "median_total_wall_seconds", "median_call_graph_seconds",
-            "median_peak_heap_used_mib", "median_process_tree_peak_rss_kib",
-            "entrypoint_count", "cg_node_count", "cg_edge_count",
-            "successful_samples", "real_external_artifact_count",
-            "no_op_external_artifact_count", "real_external_method_node_count",
-            "no_op_method_node_count", "factory_method_node_count",
-            "dangerous_transfer_count", "wall_vs_zero_cfa", "heap_vs_zero_cfa",
-            "node_vs_zero_cfa", "edge_vs_zero_cfa",
-        )
-        parts.append("<tr>" + "".join(f"<td>{e(row[field])}</td>" for field in fields) + "</tr>")
-    parts.append("</table><p class=\"muted\">ratio 只描述当前数据，不判定 algorithm 优劣。</p></section>")
-    parts.append("</div></main></body></html>")
+    parts.append("</main></body></html>")
     return "".join(parts)
 
 
@@ -854,7 +773,7 @@ def main() -> int:
     errors.extend(validate(rows, topologies, args.scope))
     formal = [row for row in rows if row.get("run_kind") == "formal"]
     summary_rows: list[dict[str, str]] = []
-    if len(formal) == 25 and all(
+    if len(formal) == 5 and all(
             sum(row.get("algorithm") == algorithm for row in formal) == 5
             for algorithm in ALGORITHMS):
         try:

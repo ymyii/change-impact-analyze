@@ -1,9 +1,9 @@
 package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
-import io.github.dependencyanalysis.callgraph.ClassOwnershipIndex;
-import io.github.dependencyanalysis.callgraph.ClassSource;
-import io.github.dependencyanalysis.callgraph.CodeOrigin;
+import io.github.dependencyanalysis.callgraph.scope.ClassOwnershipIndex;
+import io.github.dependencyanalysis.callgraph.scope.ClassSource;
+import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.jar.IJarRepository;
 import io.github.dependencyanalysis.jar.JarLease;
