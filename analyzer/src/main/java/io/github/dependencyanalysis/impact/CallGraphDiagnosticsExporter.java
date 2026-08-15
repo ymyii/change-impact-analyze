@@ -26,7 +26,7 @@ import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.jar.IJarRepository;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
-import io.github.dependencyanalysis.runtime.ReportTaskCache;
+import io.github.dependencyanalysis.runtime.ReportCache;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -265,7 +265,7 @@ final class CallGraphDiagnosticsExporter {
     void writeFragments(
             final Path output,
             final AnalysisRunConfiguration configuration,
-            final List<ReportTaskCache.Fragment> fragments)
+            final List<ReportCache.Fragment> fragments)
             throws IOException {
         final Path destination = output.toAbsolutePath().normalize();
         Files.createDirectories(destination.getParent());
@@ -285,11 +285,11 @@ final class CallGraphDiagnosticsExporter {
                         configuration.resultRefinements());
                 json.writeStringField("jdk", javaRuntime.getVersion());
                 json.writeArrayFieldStart("modules");
-                for (ReportTaskCache.Fragment fragment : fragments.stream()
+                for (ReportCache.Fragment fragment : fragments.stream()
                         .filter(value -> "diagnostic-module".equals(
                                 value.kind()))
                         .sorted(java.util.Comparator.comparing(
-                                ReportTaskCache.Fragment::stableKey))
+                                ReportCache.Fragment::stableKey))
                         .toList()) {
                     requireComplete(fragment);
                     try (JsonParser parser = JSON_FACTORY.createParser(
@@ -380,7 +380,7 @@ final class CallGraphDiagnosticsExporter {
         json.writeEndObject();
     }
 
-    private void requireComplete(final ReportTaskCache.Fragment fragment)
+    private void requireComplete(final ReportCache.Fragment fragment)
             throws IOException {
         if (!Files.isRegularFile(fragment.path())
                 || !Files.isRegularFile(fragment.completeMarker())) {

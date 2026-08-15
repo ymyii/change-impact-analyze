@@ -57,6 +57,11 @@ public final class DiagnosticEvent {
         return context.substage();
     }
 
+    /** @return optional algorithm phase */
+    public String getPhase() {
+        return context.phase();
+    }
+
     /** @return ordered context attributes */
     public Map<String, String> getAttributes() {
         return context.attributes();
@@ -120,6 +125,9 @@ public final class DiagnosticEvent {
         /** Substage. */
         private String substage = "";
 
+        /** Optional algorithm phase. */
+        private String phase = "";
+
         /** Attributes. */
         private final Map<String, String> attributes = new LinkedHashMap<>();
 
@@ -162,6 +170,17 @@ public final class DiagnosticEvent {
          */
         public Builder substage(final String value) {
             substage = value;
+            return this;
+        }
+
+        /**
+         * Sets the optional algorithm phase.
+         *
+         * @param value phase
+         * @return this builder
+         */
+        public Builder phase(final String value) {
+            phase = value;
             return this;
         }
 
@@ -255,7 +274,8 @@ public final class DiagnosticEvent {
         /** @return immutable event */
         public DiagnosticEvent build() {
             return new DiagnosticEvent(timestamp,
-                    new DiagnosticContext(stage, substage, attributes),
+                    new DiagnosticContext(
+                            stage, substage, phase, attributes),
                     level, message, elapsedMillis);
         }
     }

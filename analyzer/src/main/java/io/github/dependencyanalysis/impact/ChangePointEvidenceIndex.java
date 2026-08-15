@@ -1,5 +1,8 @@
 package io.github.dependencyanalysis.impact;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -11,6 +14,10 @@ public final class ChangePointEvidenceIndex {
     /** Resolution by exact bound change. */
     private final Map<BoundChangePoint, ChangePointEvidenceResolution>
             resolutions;
+
+    /** Exact reachable graph node to unified Evidence terminals. */
+    private final Map<QueryNode, List<ChangePointTerminal>>
+            reverseBfsBindings;
 
     /** Module-wide limitations not attributable to one change. */
     private final List<CoverageLimitation> limitations;
@@ -30,7 +37,7 @@ public final class ChangePointEvidenceIndex {
     public ChangePointEvidenceIndex(
             final List<ChangePointEvidenceResolution> values,
             final List<? extends CoverageLimitation> moduleLimitations) {
-        this(values, moduleLimitations, 0, 0);
+        this(values, Map.of(), moduleLimitations, 0, 0);
     }
 
     /**
@@ -46,6 +53,26 @@ public final class ChangePointEvidenceIndex {
             final List<? extends CoverageLimitation> moduleLimitations,
             final int localSuccess,
             final int localUnresolved) {
+        this(values, Map.of(), moduleLimitations,
+                localSuccess, localUnresolved);
+    }
+
+    /**
+     * Creates a stable complete index with unified Reverse BFS bindings.
+     *
+     * @param values complete per-change resolutions
+     * @param bindings exact reachable QueryNode bindings
+     * @param moduleLimitations module-wide limitations
+     * @param localSuccess exact resolved protocol argument count
+     * @param localUnresolved exact unresolved protocol argument count
+     */
+    public ChangePointEvidenceIndex(
+            final List<ChangePointEvidenceResolution> values,
+            final Map<? extends QueryNode,
+                    ? extends List<ChangePointTerminal>> bindings,
+            final List<? extends CoverageLimitation> moduleLimitations,
+            final int localSuccess,
+            final int localUnresolved) {
         final Map<BoundChangePoint, ChangePointEvidenceResolution> indexed =
                 new LinkedHashMap<>();
         Objects.requireNonNull(values, "values").stream()
@@ -58,7 +85,8 @@ public final class ChangePointEvidenceIndex {
                                         + value.changePoint().stableKey());
                     }
                 });
-        resolutions = Map.copyOf(indexed);
+        resolutions = Collections.unmodifiableMap(indexed);
+        reverseBfsBindings = freezeBindings(bindings, indexed);
         limitations = new java.util.ArrayList<CoverageLimitation>(
                 Objects.requireNonNull(moduleLimitations,
                         "moduleLimitations")).stream()
@@ -70,6 +98,65 @@ public final class ChangePointEvidenceIndex {
         }
         localConstantSuccessCount = localSuccess;
         localConstantUnresolvedCount = localUnresolved;
+    }
+
+    private Map<QueryNode, List<ChangePointTerminal>> freezeBindings(
+            final Map<? extends QueryNode,
+                    ? extends List<ChangePointTerminal>> values,
+            final Map<BoundChangePoint, ChangePointEvidenceResolution>
+                    indexed) {
+        final Map<QueryNode, List<ChangePointTerminal>> result =
+                new LinkedHashMap<>();
+        Objects.requireNonNull(values, "bindings").entrySet().stream()
+                .sorted(Map.Entry.comparingByKey(
+                        Comparator.comparing(this::queryNodeKey)))
+                .forEach(entry -> {
+                    final QueryNode node = Objects.requireNonNull(
+                            entry.getKey(), "binding QueryNode");
+                    final List<ChangePointTerminal> terminals =
+                            new ArrayList<>(Objects.requireNonNull(
+                                    entry.getValue(), "binding terminals"))
+                            .stream().distinct().sorted(Comparator
+                                    .comparing((ChangePointTerminal value) ->
+                                            value.getChangePoint().stableKey())
+                                    .thenComparing(value -> value
+                                            .getImpactEvidence().stableKey()))
+                            .toList();
+                    for (ChangePointTerminal terminal : terminals) {
+                        validateBinding(node, terminal, indexed);
+                    }
+                    if (!terminals.isEmpty()) {
+                        result.put(node, terminals);
+                    }
+                });
+        return Collections.unmodifiableMap(result);
+    }
+
+    private void validateBinding(
+            final QueryNode node,
+            final ChangePointTerminal terminal,
+            final Map<BoundChangePoint, ChangePointEvidenceResolution>
+                    indexed) {
+        Objects.requireNonNull(node, "binding QueryNode");
+        Objects.requireNonNull(terminal, "binding terminal");
+        final ChangePointEvidenceResolution resolution = indexed.get(
+                terminal.getChangePoint());
+        if (resolution == null || !resolution.evidence().contains(
+                terminal.getImpactEvidence())) {
+            throw new IllegalArgumentException(
+                    "Reverse BFS binding is absent from Evidence resolution: "
+                            + terminal.getChangePoint().stableKey() + "|"
+                            + terminal.getImpactEvidence().stableKey());
+        }
+    }
+
+    private String queryNodeKey(final QueryNode node) {
+        final String prefix = node.methodId().owner() + "#"
+                + node.methodId().name() + node.methodId().descriptor()
+                + "|" + node.origin();
+        return node instanceof WalaQueryNode wala
+                ? prefix + "|" + wala.walaNode().getGraphNodeId()
+                : prefix + "|" + node;
     }
 
     /**
@@ -91,6 +178,22 @@ public final class ChangePointEvidenceIndex {
     /** @return all stable resolutions */
     public List<ChangePointEvidenceResolution> resolutions() {
         return List.copyOf(resolutions.values());
+    }
+
+    /**
+     * @return exact reachable QueryNode to unified terminal bindings
+     */
+    public Map<QueryNode, List<ChangePointTerminal>> reverseBfsBindings() {
+        return reverseBfsBindings;
+    }
+
+    /**
+     * @param node exact query node
+     * @return stable terminals bound to the node
+     */
+    public List<ChangePointTerminal> bindingsFor(final QueryNode node) {
+        return reverseBfsBindings.getOrDefault(
+                Objects.requireNonNull(node, "node"), List.of());
     }
 
     /** @return module-wide typed limitations */

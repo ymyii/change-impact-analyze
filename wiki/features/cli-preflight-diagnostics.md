@@ -30,7 +30,9 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/preflight/PreflightRunner.java"
     desc: "check DAG"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/diagnostic/DiagnosticContext.java"
-    desc: "并发任务 stable context"
+    desc: "stage、substage、可选phase与stable identity context"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/diagnostic/DiagnosticEvent.java"
+    desc: "包含可选phase的immutable Diagnostic event"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/diagnostic/DiagnosticLog.java"
     desc: "retained/transient event、verbosity、stderr 与 monotonic timing façade"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/diagnostic/DiagnosticLogFormatter.java"
@@ -45,13 +47,14 @@ code_refs:
 
 ## Summary
 
-CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer 唯一日志 façade；`impact`/`tree` 的业务日志统一写入 stderr，并使用稳定五段 prefix。全局 verbosity 默认为 `INFO`，`-v` 选择 `DEBUG`，`-vv` 选择 `TRACE`；只有 `TRACE` 启动异步 Runtime Metrics。
+CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer 唯一日志 façade；`impact`/`tree` 的业务日志统一写入 stderr，并使用稳定五段 prefix。控制流程只使用`stage`和`phase`：Stage是具有开始、完成、失败与耗时的执行边界；Phase是Stage内可选的算法活动。全局 verbosity 默认为 `INFO`，`-v` 选择 `DEBUG`，`-vv` 选择 `TRACE`；只有 `TRACE` 启动异步 Runtime Metrics。
 
 ## Design Decisions
 
 - handled uncertainty 与 hard failure 分离：能够继续完成 Call Graph 的 coverage limitation 使用 `INCONCLUSIVE` 和 exit code `0`；无法建立可信 Module 结果的错误使用 `FAILED`/`PARTIAL_SUCCESS` 和 exit code `2`。
 - 外部 dependency 的 excluded JDK reference 使用 artifact-level `WARN`，而不是因为 JAR 内可能不可达的 class 阻断整个 Module；当前项目和 Reactor code 仍保持严格边界。
-- 五段 prefix 的第五段只承载当前 `stage/substage` 无法唯一表达的阶段实例或日志分类 identity；结果、观测值和其他实际日志信息使用 message 中的 `key=value`。
+- 五段 prefix 的第五段承载可选Phase与当前`stage/substage`无法唯一表达的阶段实例或日志分类identity；Phase固定在identity之前。结果、观测值和其他实际日志信息使用message中的`key=value`。
+- 不为没有明确内部算法步骤的Stage生成Phase；`event`和`status`仍是普通日志字段，不形成新的控制流程层级。
 - 并行JAR pair failure以单个原子日志操作输出retained WARN与可选transient stack，避免不同pair的message和stack交叉。
 
 ## Actors / Entrypoints
@@ -66,7 +69,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 ## Core Flow
 
 1. CLI根据`-v`次数创建command-scoped`DiagnosticLog`。
-2. 各stage使用immutable`DiagnosticContext`输出retained或transient line。
+2. 各Stage使用immutable`DiagnosticContext`输出retained或transient line；内部算法事件按需通过`withPhase`创建event context。
 3. Formatter为每个物理行生成同一五段prefix；Report只消费verbosity已允许的retained snapshot。
 
 ## Global Verbosity
@@ -114,19 +117,21 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 
 ## Diagnostics
 
-- `DiagnosticContext` 是 immutable prefix identity，包含 `stage`、`substage` 和 ordered attributes；不使用 thread name。当前生产日志只使用 `check`、`reactor`、`module`、`artifact`、`pool` identity。
+- `DiagnosticContext`是immutable prefix context，包含`stage`、`substage`、独立可选`phase`和ordered attributes；不使用thread name。当前生产日志只使用`check`、`reactor`、`module`、`artifact`、`pool` identity。
 - 每个物理行固定为 `[时间][日志级别][阶段][子阶段][额外信息] message`。时间使用带 offset、毫秒精度的 ISO 8601；level 始终显式为 `TRACE/DEBUG/INFO/WARN/ERROR`；缺失段使用 `[-]`。
-- 第五段只在 identity 必要时使用 `key=value` 与 `;` 分隔，canonical 顺序为 `check, reactor, module, artifact, pool`。`command`、`side`、path、scope、progress、status、decision、elapsed、计数、result 与 metrics value 禁止进入第五段；这些实际日志信息追加到 message。
+- 第五段格式为可选`phase`加identity，使用`key=value`与`;`分隔；canonical顺序固定为`phase, check, reactor, module, artifact, pool`。无Phase且无identity时为`[-]`；只有Phase时例如`[phase=REVERSE_BFS]`；二者并存时例如`[phase=REVERSE_BFS;module=g:a:1]`。`command`、`side`、path、scope、progress、status、decision、elapsed、计数、result与metrics value禁止进入第五段；这些实际日志信息追加到message。
 - `\\`、`;`、`=`、`[`、`]` 在 prefix 中统一转义。多行 message 和 stack trace 拆成独立物理行，每行重新添加完整 prefix。
-- `stageStarts` 以完整 identity stable key 计时，同一 stage 的并发任务不会覆盖 elapsed；完成或失败 event 独立保存 elapsed，并以 `elapsedMs=...` 输出到 message。
-- `INFO` 输出 front branch、Module task start/end；`DEBUG` 输出每个 logical coordinate JAR pair start/end；`TRACE` 输出筛选后的 command/path evidence，不输出 credential、settings 内容或完整 user arguments。
+- `stageStarts`以完整identity stable key计时；Phase不进入attributes或stable key，内部Phase切换不会破坏同一Stage的elapsed匹配。完成或失败event独立保存elapsed，并以`elapsedMs=...`输出到message。
+- `DiagnosticLog`统一生成Stage生命周期正文：`started`、`completed; elapsedMs=...`、`failed; reason=...; elapsedMs=...`；调用方只追加详情，不自行拼接生命周期词。
+- `INFO`输出front branch、Module Stage start/end；`DEBUG`输出每个logical coordinate JAR pair start/end；`TRACE`输出筛选后的command/path evidence，不输出credential、settings内容或完整user arguments。
 - JAR pair failure在`INFO`以WARN输出异常类型和完整message；`DEBUG`/`TRACE`紧接输出同context的完整stack与cause chain。WARN为retained event，stack为Console-only transient lines。
 - 外部 dependency scope warning 使用 `[scope-validation][module][module=…][artifact=…]` context；每个 artifact 一条，warning text 同时进入 Module `Coverage limitations`。
 - Analyzer Diagnostic event 默认 retained，可进入 `impact` HTML Diagnostics。Preflight evidence/fallback、Maven output、exception stack trace 与 Runtime Metrics 是 transient，只进入 Console。
 - Console 与 HTML Report 对 retained event 共用 `DiagnosticLogFormatter`，包含同一 event timestamp 和 prefix；Module Diagnostics 只按 `DiagnosticEvent.module` 精确归属。
 - Call Graph completion message包含effective`algorithm`与`jdkModel=jdk8|none`，并仅在`k-obj`时包含实际`kObjDepth`。HTML展示CHA Reflection not-applied。Schema v9 diagnostics在command保存有序`resultRefinementAlgorithms`，在Module按算法保存applied状态、metrics与最多10条稳定example；同时保留strategy capabilities、Evidence resolution/kind/mechanism、local constant resolution和CHA ancestor-retained/pruned target计数。Evidence与query-time pruned edge均不作为topology node/edge输出。
 - `impact-query` INFO completion只输出Module级local receiver applied状态和计数；`-vv`额外输出bounded edge examples。Receiver unknown仍保留原CHA edge，不改变Module status或生成coverage limitation。
-- 每个Module的`impact-query` INFO start包含`seeds`、去重后`queryNodes`与该Module worker上限。`-vv` QueryNode事件使用`query-node-started|progress|completed`，并携带stable ordinal、evidence seed数、phase、elapsed、recent node和QueryNode-local visited。
+- 每个Module的`evidence-analysis` INFO覆盖Structural metadata scan与唯一Call Graph node scan；start包含`changes/graphNodes`，completion包含`structuralReferences/evidence/queryNodes/bindings`。`-vv` Evidence进度在collector同一线程按5秒门限输出，不创建scheduler。
+- 每个Module的`impact-query` INFO start在planning前输出并包含`changes/evidenceBindings`；planning完成后的DEBUG包含`seeds/queryNodes/workers`。该Stage的开始、完成与失败不携带Phase。`-vv` QueryNode事件使用`query-node-started|progress|completed`，第五段按当前算法活动携带`REVERSE_BFS`、`PATH_MATERIALIZATION`或`REPRESENTATIVE_SELECTION` Phase；message只携带stable ordinal、Evidence seed数、elapsed、recent node和QueryNode-local visited，不重复`phase=`。
 - JAR diff aggregate INFO completion包含成功logical pair的唯一`changes`总数、logical `pairs`、`failedPairs`与实际`workers`；空diff固定输出`changes=0; pairs=0; failedPairs=0; workers=0`。
 
 示例：
@@ -141,7 +146,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - `INFO`/`DEBUG` 使用 no-op session；不创建 scheduler、不读取 heap、不输出 metrics。
 - `TRACE` 使用 command-scoped daemon scheduler：启动时立即观察并输出snapshot，之后每100 ms fixed-delay观察heap，但只按10 s cadence输出heap/thread-pool snapshot。所有normal return、early return和exception path都通过`close()`停止。
 - Heap 行使用 `stage=runtime-metrics, substage=heap` 和空第五段；`sample/elapsedMs/heapUsedMiB/heapCommittedMiB/heapMaxMiB` 位于 message，MiB 保留 1 位小数。
-- 当前注册的每个 Analyzer-owned pool 单独使用 `stage=runtime-metrics, substage=thread-pool`，第五段只保留 `pool` identity；sample、elapsed、pool size、task count 和 lifecycle value 位于 message。Registry 只包含 `front-preparation`、`jar-diff`、`impact-query`、`code-comparison`；scheduler、process-output pump、JVM common pool、WALA internal thread 和 Maven external process 不注册。
+- 当前注册的每个 Analyzer-owned pool 单独使用 `stage=runtime-metrics, substage=thread-pool`，第五段只保留 `pool` identity；sample、elapsed、pool size、`queued/completed/submitted` count和lifecycle value位于message。Registry只包含`front-preparation`、`jar-diff`、`impact-query`、`code-comparison`；scheduler、process-output pump、JVM common pool、WALA internal thread和Maven external process不注册。
 - 单次采样异常使用 `stage=runtime-metrics, substage=sampler` 和空第五段；sample、elapsed 与 error 位于 TRACE transient message，不会改变 command status、Report 或 exit code。
 - `close()`在设置closed flag前强制一次final heap observation，然后使用`stage=runtime-metrics, substage=summary`输出`sample count`、`peakHeapUsedMiB`、`peakHeapCommittedMiB`与`heapMaxMiB`。该summary是benchmark heap主指标来源；process-tree RSS继续由外部runner采集。
 
@@ -156,6 +161,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 
 - [ ] 并行failure的WARN与对应stack原子输出，不与其他pair的异常块交叉。
 - [ ] 日志不输出credential、settings内容或未过滤的完整user arguments。
+- [ ] 全仓术语门禁仅允许WALA和Java强制外部API保留既有名称；项目自有控制流程只使用Stage与Phase。
 
 ## Edge Cases
 

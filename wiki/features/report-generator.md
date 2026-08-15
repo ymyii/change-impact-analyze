@@ -19,6 +19,10 @@ code_refs:
     desc: "run status、selected algorithm、result refinement selection 与 metrics"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleAnalysisResult.java"
     desc: "Module detail、Impact Paths 与 code comparison evidence"
+  - path: "analyzer/src/integration-test/java/io/github/dependencyanalysis/cli/HtmlReportUsabilityVerifier.java"
+    desc: "最终artifact HTML结构、本地资源与多页面可达性验证"
+  - path: "analyzer/src/integration-test/java/io/github/dependencyanalysis/cli/PackagedJarCliIT.java"
+    desc: "shaded JAR生成真实Impact/Tree Report的黑盒gate"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleCallGraphSnapshot.java"
     desc: "不引用 WALA session 的 report-safe Call Graph metrics"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleChangedPathSelection.java"
@@ -72,13 +76,21 @@ code_refs:
 - 最后atomic move command-owned Module directory和Index；fallback replace仍保持同filesystem。Owned directory replacement清理旧`-changes.html`及其他stale page。
 - Handled Module failure仍发布partial/all-failed Report；global preparation或publication failure不主动替换旧Report。
 
+## Final Artifact Usability Gate
+
+- `PackagedJarCliIT`必须调用最终`target/dependency-analyzer.jar`生成真实Impact和Tree Report，验证publisher而非测试内直接Renderer。
+- `HtmlReportUsabilityVerifier`检查每个可达HTML文件可读、UTF-8内容非空，并包含doctype、html、head、非空title、body及closing tag。
+- 所有非HTTP、非data、非fragment的`href/src`都按当前页面解析；规范化结果必须留在Report root内，目标必须是可读regular file。
+- Tree从`index.html`递归验证本地HTML链接，并要求至少可到达一个Reactor page；Impact从Overall entry递归验证Module与Affected Paths页面。
+- verifier拒绝`{{`/`}}`未展开模板标记。该gate只验证交付可打开性和资源闭包，不在测试中重新计算分析结论。
+
 ## Core Flow
 
 1. Impact pipeline从Candidate与Structural Paths收集唯一changed member，生成并按logical identity去重code comparison。
 2. Renderer归并Overall、Module、path、member、limitation与code evidence，流式输出两级Module页面和script-safe规范化JSON。
 3. 浏览器加载Affected Paths后解析数据到内存，按type、search、page size和page选择渲染table slice。
 4. 用户打开Details时，脚本在当前行后移动单例详情并按需渲染Diff；切换或重新筛选时销毁详情DOM。
-5. 全部staging文件关闭后原子发布并清理task cache。
+5. 全部staging文件关闭后原子发布并清理command-owned cache。
 
 ## Acceptance Criteria
 
@@ -90,6 +102,7 @@ code_refs:
 - GivenUnified diff；When打开详情；Thenfile header、hunk、addition和deletion获得对应样式，关闭或切换详情后不保留旧Diff DOM。
 - Given只有`ACCESS_REMAINS_VALID`等无路径change；When完成analysis与Report；Thencode comparison worker不因该change启动，Affected Paths不包含该member，raw汇总仍保留。
 - GivenJavaScript禁用；When打开Affected Paths；Then页面显示明确`noscript`提示，不一次性回退渲染全部路径。
+- Given最终shaded JAR成功生成Impact或Tree Report；When执行HTML usability gate；Thenentry、所有可达本地页面和asset均可读，链接不能逃逸Report root，Tree Index至少链接一个完整Reactor page。
 
 ### Non-Functional
 
@@ -97,6 +110,7 @@ code_refs:
 - [ ] Dynamic content使用DOM API与`textContent`；内嵌JSON不能通过`</script>`、控制字符或Unicode行分隔符突破script边界。
 - [ ] Renderer保持Writer单向输出，production report path不持有WALA `CGNode`、class hierarchy、analysis cache或session。
 - [ ] Publication使用staging与command-owned atomic replacement，handled Module failure仍可发布partial Report。
+- [ ] 最终artifact的Impact单文件入口与Tree多页面入口通过HTML结构和本地资源闭包验证。
 
 ## Edge Cases
 

@@ -255,6 +255,7 @@ class PackagedJarCliIT {
                 .contains("test:module:jar:1")
                 .contains("test:library:jar:1")
                 .contains("test:unrelated:jar:1");
+        HtmlReportUsabilityVerifier.verifyTree(treeReport);
         assertThat(scoped.exitCode)
                 .as(scoped.output).isZero();
         assertThat(scopedReport.resolve("index.html"))
@@ -268,6 +269,7 @@ class PackagedJarCliIT {
                 .contains("test:library:jar:1")
                 .doesNotContain("test:root:pom:1</h2>")
                 .doesNotContain("test:unrelated:jar:1");
+        HtmlReportUsabilityVerifier.verifyTree(scopedReport);
     }
 
     @Test
@@ -313,6 +315,7 @@ class PackagedJarCliIT {
                         + "disabled (experimental)</td>")
                 .contains("Preflight")
                 .contains("impact.java-runtime");
+        HtmlReportUsabilityVerifier.verifyImpact(impactReport);
     }
 
     @Test
@@ -551,7 +554,7 @@ class PackagedJarCliIT {
                         + "\\[[^]]*(command|side|path|scope|scopeId|"
                         + "progress|status|decision|elapsedMs|sample|"
                         + "reactors|modules|issues|issue|report|core|max|"
-                        + "size|active|queued|completed|tasks|shutdown|"
+                        + "size|active|queued|completed|submitted|shutdown|"
                         + "terminated|heapUsedMiB|heapCommittedMiB|"
                         + "heapMaxMiB)=.*"));
     }

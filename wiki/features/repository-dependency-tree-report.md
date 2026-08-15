@@ -18,7 +18,9 @@ relations:
     desc: "Git/Maven process 执行约束"
 code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
-    desc: "Public tree command 和 aggregate status"
+    desc: "Public tree CLI option 与metrics session入口"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeExecutionEngine.java"
+    desc: "Preflight、串行Reactor processing、cache与Report生命周期"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeDiagnosticEmitter.java"
     desc: "通过 DiagnosticLog 输出 Preflight、Analysis、Summary 三阶段语义"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/GitSnapshotProvider.java"
@@ -45,8 +47,8 @@ code_refs:
     desc: "bounded batch与最多32路external merge grouping"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeReportCacheSpiller.java"
     desc: "per-Reactor ordered/normalized/selected JSON Lines fragment"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/ReportTaskCache.java"
-    desc: "UUID task cache manifest、complete marker与cleanup"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/ReportCache.java"
+    desc: "UUID command-owned cache manifest、complete marker与cleanup"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeReportRenderer.java"
     desc: "Repository/reactor static HTML 与 atomic publish"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeReportSession.java"
@@ -57,7 +59,7 @@ code_refs:
 
 ## Summary
 
-`tree`扫描Git repository内所有eligible `pom.xml`，按Maven `<modules>` ownership识别reactor root。Path命中root时收集完整reactor；只命中child module时收集requested module与同reactor dependency closure。Maven output通过`Reader`逐行解析；conflict grouping使用task-cache external sort；HTML通过Writer逐段写入。Packaging为`pom`且存在active child的纯aggregator root保留execution context，但不生成Module result。
+`TreeCommand`只负责Picocli option与command metrics session；`TreeExecutionEngine`执行Preflight、串行Reactor processing、cache spill/publish/discard和Report终态。分析扫描Git repository内所有eligible `pom.xml`，按Maven `<modules>` ownership识别reactor root。Path命中root时收集完整reactor；只命中child module时收集requested module与同reactor dependency closure。Maven output通过`Reader`逐行解析；conflict grouping使用command cache external sort；HTML通过Writer逐段写入。Packaging为`pom`且存在active child的纯aggregator root保留execution context，但不生成Module result。
 
 ## Design Decisions
 
@@ -126,11 +128,11 @@ Maven verbose text 出现 `version managed from X` 或 `scope managed from Y` �
 
 ## Core Flow
 
-- Command Preflight 准备 repository snapshot、Maven runtime 和完整 inventory；failure 不改动旧 Report。
+- `TreeExecutionEngine`拥有Command Preflight、analysis与publication失败边界；`TreeCommand`不读取或传递弱类型Preflight artifact。Preflight准备repository snapshot、Maven runtime和完整inventory；failure不改动旧Report。
 - Command Preflight 成功后重建工具拥有的输出，立即发布 assets、空 reactors directory 与 `RUNNING 0/N` Index；output root 其他文件保留。
 - Console 通过统一五段 Diagnostic prefix 按 `Preflight → Analysis → Summary` 输出。Reactor start/result 使用 `stage=analysis, substage=reactor`；`SUCCESS` 为 `INFO`，degraded/issue 为 `WARN`，failed 为 `ERROR`。
 - Maven collection 每个非空输出行按 level 转发；默认只显示 warning/error，`-v/-vv` 显示完整 output。Failure evidence 只保留 bounded 100-line tail。
-- 每个reactor顺序执行Maven collection并将ordered tree record、normalized occurrence、selected reactor dependency摘要与Module metadata写入task cache；module/version/cross-module analysis通过bounded external grouping聚合issue。
+- 每个reactor顺序执行Maven collection并将ordered tree record、normalized occurrence、selected reactor dependency摘要与Module metadata写入command cache；module/version/cross-module analysis通过bounded external grouping聚合issue。
 - Reactor page以UTF-8 Writer顺序写metadata、conflict、Module tab与verbose tree；完整关闭后原子发布，再用Writer原子刷新Index。Index只链接已完整发布的page。
 - Reactor page和Index checkpoint都成功后删除该Reactor cache fragment；只保留`ReactorReportSummary`和Command Preflight，释放完整`ReactorTreeResult`、occurrence与path数据。
 - 全部处理结束写 `SUCCESS N/N` 或 `COMPLETED_WITH_ISSUES`；pipeline/report failure 写 `FAILED x/N` 并保留已发布 page；hard interruption 保留最后一个 `RUNNING x/N` checkpoint。
@@ -163,6 +165,7 @@ Maven verbose text 出现 `version managed from X` 或 `scope managed from Y` �
 - [ ] 每张 conflict table 的交互状态彼此隔离，且不改变或截断底层 occurrence path。
 - [ ] Current branch、index 和 tracked 文件不被修改。
 - [ ] Success、analysis failure、render failure与publish failure均删除当前UUID下`report-cache`；并发command cache互不读取或删除。
+- [ ] 最终shaded JAR生成的Index及其本地资源全部可读，Index至少可达一个完整Reactor page，链接不能逃逸Report root。
 
 ## Edge Cases
 

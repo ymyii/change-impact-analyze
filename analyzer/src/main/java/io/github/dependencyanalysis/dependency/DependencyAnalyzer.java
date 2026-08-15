@@ -153,7 +153,7 @@ public final class DependencyAnalyzer {
     }
 
     /**
-     * Selects the diagnostic task context.
+     * Selects the diagnostic Stage context.
      *
      * @param context context
      * @return this analyzer
@@ -290,7 +290,7 @@ public final class DependencyAnalyzer {
             return;
         }
         diag.failStage(diagnosticContext,
-                "Dependency evidence generation failed side=" + side
+                "reason=Dependency evidence generation failed; side=" + side
                         + " exitCode=" + execution.exitCode());
         final String command = "mvn " + evidenceGoal()
                 + " -Dcia.dependencyEvidenceDirectory=" + outputDirectory

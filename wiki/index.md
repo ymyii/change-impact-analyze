@@ -15,7 +15,7 @@ code_refs: []
 ## Architecture
 
 ### [Dependency Analysis Pipelines](architecture/dependency-analysis-pipelines.md)
-- Summary: `impact`严格串行Module、按QueryNode并发Impact Query、可选试验性SSA与WALA detach；`tree`使用Reader/external merge；两者共用UUID task cache和Writer流式Report。
+- Summary: `ImpactExecutionEngine`严格串行Module、构图后单线程Evidence与按QueryNode并发Query；`TreeExecutionEngine`串行处理Reactor；两者保持独立业务边界并输出冻结Report结果。
 
 ## Features
 
@@ -26,10 +26,10 @@ code_refs: []
 - Summary: 用户 executable、跨平台内嵌 Maven 3.6.3、两个独立 repository ZIP，以及 Stable/Snapshot 分离 cache 与 command-scoped settings。
 
 ### [Repository Dependency Tree Report](features/repository-dependency-tree-report.md)
-- Summary: Git snapshot、bounded/full reactor execution、Reader逐行解析、cache-backed conflict grouping、incremental checkpoint与流式offline report。
+- Summary: `TreeCommand`与`TreeExecutionEngine`分离；Git snapshot、bounded/full reactor execution、Reader逐行解析、cache-backed conflict grouping、incremental checkpoint与流式offline report。
 
 ### [Git Workspace Management](features/git-workspace-management.md)
-- Summary: `impact`/`tree` config UUID workspace/tmp、owner lock、task-scoped report-cache、stale recovery与detached worktree cleanup。
+- Summary: `impact`/`tree` config UUID workspace/tmp、owner lock、command-owned report-cache、stale recovery与detached worktree cleanup。
 
 ### [Maven Build Runner](features/maven-build-runner.md)
 - Summary: 只编译 target；reactor root compile 一次，leaf 使用 `-pl/-am`；baseline dependency 与 target build 并行。
@@ -53,10 +53,10 @@ code_refs: []
 - Summary: CHA固定`none`；experimental `k-obj`默认接入独立`models/jdk8`精确catalog，并允许显式`none`。
 
 ### [Impact Tracing](features/impact-tracing.md)
-- Summary: 构图后统一collector绑定公共`ReferenceEvidence`；冻结session按exact `QueryNode`分组并发reverse BFS，共享单节点局部`ReverseTrace`，并在`-vv`下提供QueryNode独立10秒心跳。
+- Summary: 构图后单线程遍历最终Call Graph一次，普通与Structural Evidence统一进入exact `QueryNode` binding；QueryNode并发reverse BFS，Report snapshot移除全部live WALA anchor。
 
 ### [Report Generator](features/report-generator.md)
-- Summary: `impact`通过Writer原子生成Overall与每Module两页；Affected Paths以内存单表分页/搜索、规范化member/diff和按需着色详情控制DOM规模。
+- Summary: `impact`通过Writer原子生成Overall与Module页面；最终shaded JAR gate验证Impact/Tree HTML结构、本地资源和多页面链接可用性。
 
 ## Rules
 

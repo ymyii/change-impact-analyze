@@ -47,9 +47,9 @@ Global options 可放在 subcommand 前或后：
 | `-a` | `--maven-arg=<token>` | 重复传入一个 Maven option/property token，例如 `--maven-arg=-Pprod`。 |
 | `-v` | `--verbose` | 提升日志级别；默认 `INFO`，`-v` 为 `DEBUG`，`-vv` 为 `TRACE`。可放在 subcommand 前或后。 |
 
-`--verbose --verbose` 与 `-vv` 等价。Analyzer 运行日志统一写入 stderr，每个物理行固定为 `[时间][日志级别][阶段][子阶段][额外信息] message`；缺失段使用 `[-]`。第五段只包含当前四段无法唯一表达的阶段实例或日志分类 identity，当前为 `check/reactor/module/artifact/pool`；status、progress、elapsed、path、计数和 metrics value 等实际日志信息使用 message 中的 `key=value`。`INFO` 输出稳定的 stage、progress、warning 和 error，Maven subprocess 只透传 warning/error；JAR pair diff failure 的 WARN 固定包含异常类型和完整 message。`DEBUG` 额外输出 analysis option/decision、完整 Maven subprocess output，并在 command 或隔离的 JAR pair 异常时逐行输出带完整 prefix 的 stack trace 与 cause chain；`TRACE` 再输出 normalized path、ref、scope，以及启动后立即采样、随后每 10 秒采样的 Runtime Metrics。Picocli help/usage、参数解析错误和第三方库直接写入 stderr 的内容不保证五段 prefix。
+`--verbose --verbose` 与 `-vv` 等价。Analyzer控制流程只使用Stage与Phase：Stage是具有开始、完成、失败与耗时的执行边界；Phase是Stage内可选的算法活动，只在存在明确内部算法步骤时出现。运行日志统一写入stderr，每个物理行固定为`[时间][日志级别][stage][substage][phase + identity] message`；缺失段使用`[-]`。第五段canonical顺序固定为`phase, check, reactor, module, artifact, pool`；只有Phase时例如`[phase=REVERSE_BFS]`，Phase与identity并存时例如`[phase=REVERSE_BFS;module=g:a:1]`。status、progress、elapsed、path、计数和metrics value等实际日志信息使用message中的`key=value`。Stage生命周期正文统一为`started`、`completed; elapsedMs=...`和`failed; reason=...; elapsedMs=...`。`INFO`输出稳定的Stage、progress、warning和error，Maven subprocess只透传warning/error；JAR pair diff failure的WARN固定包含异常类型和完整message。`DEBUG`额外输出analysis option/decision、完整Maven subprocess output，并在command或隔离的JAR pair异常时逐行输出带完整prefix的stack trace与cause chain；`TRACE`再输出normalized path、ref、scope，以及启动后立即采样、随后每10秒采样的Runtime Metrics。Picocli help/usage、参数解析错误和第三方库直接写入stderr的内容不保证五段prefix。
 
-`-vv` Runtime Metrics 包含 heap `used/committed/max` MiB，以及当前 Analyzer-owned `front-preparation`、`jar-diff`、`impact-query`、`code-comparison` thread pool 的 core/max/size/active/queued/completed/tasks 和 lifecycle 状态。Heap 第五段为空；thread-pool 第五段只包含 `pool` identity；sample、elapsed 和全部指标值位于 message。`-v` 不创建 metrics scheduler，也不输出 metrics。Runtime Metrics、Maven output、Preflight evidence/fallback 和 stack trace 只进入 Console，不进入 HTML Diagnostics；HTML Diagnostics 与 Console 对 retained event 使用相同 timestamp 和 prefix。
+`-vv` Runtime Metrics包含heap `used/committed/max` MiB，以及当前Analyzer-owned `front-preparation`、`jar-diff`、`impact-query`、`code-comparison` thread pool的core/max/size/active/queued/completed/submitted和lifecycle状态。Heap第五段为空；thread-pool第五段只包含`pool` identity；sample、elapsed和全部指标值位于message。`-v`不创建metrics scheduler，也不输出metrics。Runtime Metrics、Maven output、Preflight evidence/fallback和stack trace只进入Console，不进入HTML Diagnostics；HTML Diagnostics与Console对retained event使用相同timestamp和prefix。
 
 ```text
 [2026-08-05T14:30:01.123+08:00][INFO][analysis][reactor][reactor=root] Maven collection completed; progress=1/2; status=SUCCESS; modules=8
@@ -113,7 +113,7 @@ java -jar dependency-analyzer.jar \
 
 `-s`/`--settings`、`-gs`/`--global-settings` 后的相对 path 以 repository root 解析。
 
-不允许附加 lifecycle phase 或 goal，也不允许覆盖工具控制的参数。至少拒绝：
+不允许附加Maven lifecycle phase或goal，也不允许覆盖工具控制的参数。至少拒绝：
 
 ```text
 -f --file -pl --projects -am -amd -N --non-recursive -q --quiet
@@ -342,11 +342,11 @@ JAR diff聚合结束的INFO日志包含`changes`、`pairs`、`failedPairs`和`wo
 
 每个relevant Module依次构造target ownership、AnalysisScope、Class Hierarchy和selected WALA strategy。默认CHA使用`Everywhere` Context，JDK method只保留leaf edge；`changed-paths`路径外dependency method是no-op leaf，实际到达时产生boundary limitation。`full`展开external body。CHA不会生成factory或dangerous transfer metadata。
 
-Call Graph完成后，统一`ChangePointEvidenceCollector`扫描reachable method一次，将method、field、type、structural、Class.forName、ServiceLoader、`invokedynamic`和MethodHandle reference绑定为公共`ReferenceEvidence`，再冻结Module session。Impact query先串行完成Structural Reference准备、ordinary seed resolution和access observation，再按exact `QueryNode`分组并发执行反向BFS；一个QueryNode任务复用一个局部`ReverseTrace`处理关联的全部evidence。PROJECT direct structural reference不进入任务。Removed class/method/field/resource永远只作为terminal，不进入WALA Call Graph node/edge。
+Call Graph完成后，统一`ChangePointEvidenceCollector`扫描reachable method一次，将method、field、type、structural、Class.forName、ServiceLoader、`invokedynamic`和MethodHandle reference绑定为公共`ReferenceEvidence`，再冻结Module session。Impact query先串行完成Structural Reference准备、ordinary seed resolution和access observation，再按exact `QueryNode`分组并发执行反向BFS；一个QueryNode query复用一个局部`ReverseTrace`处理关联的全部evidence。PROJECT direct structural reference不进入QueryNode query。Removed class/method/field/resource永远只作为terminal，不进入WALA Call Graph node/edge。
 
-Relevant Module按稳定顺序严格串行：当前Module完成Call Graph、Impact Query、可选SSA filtering、diagnostics、snapshot detach和cache spill后，才开始下一个Module。一个QueryNode失败只取消并等待当前Module剩余query任务，随后当前Module记为`FAILED_ANALYSIS`；共享Impact Query pool继续服务后续Module。
+Relevant Module按稳定顺序严格串行：当前Module完成Call Graph、Impact Query、可选SSA filtering、diagnostics、snapshot detach和cache spill后，才开始下一个Module。一个QueryNode失败只取消并等待当前Module剩余query，随后当前Module记为`FAILED_ANALYSIS`；共享Impact Query pool继续服务后续Module。
 
-每个Module开始Impact Query时，INFO日志打印evidence binding总数`seeds`、去重后`queryNodes`和实际worker上限。`-vv`使用`query-node-started`、`query-node-progress`、`query-node-completed`跟踪稳定ordinal、`evidenceSeeds`、phase、elapsed、recent node与当前QueryNode独立的`visited`；不同QueryNode不共享visited或心跳状态。
+每个Module开始Impact Query时，INFO日志打印evidence binding总数`seeds`、去重后`queryNodes`和实际worker上限。`-vv`使用`query-node-started`、`query-node-progress`、`query-node-completed`跟踪稳定ordinal、`evidenceSeeds`、elapsed、recent node与当前QueryNode独立的`visited`；当前Phase位于第五段最前面，值为`REVERSE_BFS`、`PATH_MATERIALIZATION`或`REPRESENTATIVE_SELECTION`，message中不重复`phase=`。不同QueryNode不共享visited或心跳状态。
 
 Bytecode diff额外产生`CLASS_ACCESS_NARROWED`、`METHOD_ACCESS_NARROWED`（含constructor）和`FIELD_ACCESS_NARROWED`。Query使用target CHA解析actual declaration，并按Java 8 runtime package、subclass、symbolic owner与caller-local verifier receiver type判断new access。`ACCESSIBLE`不建path；`INACCESSIBLE`与`POTENTIALLY_INACCESSIBLE`保守保留path；全部reference仍合法时disposition为`ACCESS_REMAINS_VALID`，不生成Affected Path、member明细或code comparison，raw汇总仍保留。该能力分析pre-existing bytecode的JVM binary compatibility，不分析source compatibility、Reflection/JNI/custom ClassLoader或Java 9 module exports。
 

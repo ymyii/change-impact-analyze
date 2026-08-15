@@ -111,12 +111,12 @@ code_refs:
 ## Failure Contract
 
 - Corrupt JAR/class 抛出 `BytecodeDiffException`。
-- 单个 pair failure 不取消其他 JAR diff task；关联 Module 记录 `INCONCLUSIVE_BYTECODE_DIFF`。
+- 单个pair failure不取消其他JAR comparison；关联Module记录`INCONCLUSIVE_BYTECODE_DIFF`。
 - Pair failure的WARN固定包含异常类型与完整message；`-v`/`-vv`再输出带同一pair context的完整stack trace和cause chain。WARN进入Report diagnostics，stack trace只进入Console。
 - Pair failure 且无其他可分析 ChangePoint 时不构建 Call Graph，但仍生成 Module detail page。
 - 聚合日志固定输出`changes=<成功pair唯一ChangePoint总数>; pairs=<logical pair总数>; failedPairs=<失败pair数>; workers=<实际worker数>`；空diff四项均为`0`。
 - Raw bytecode diff不对全部changed method构建SSA；试验性semantic filtering默认关闭，显式启用后延迟到candidate path之后按需构建。
-- 反编译同样延迟到 candidate/Structural path 完成后，只处理 Report 相关 member；pool 使用 `--analysis-parallelism`，每个 Vineflower task 内固定单线程。
+- 反编译同样延迟到candidate/Structural path完成后，只处理Report相关member；pool使用`--analysis-parallelism`，每个Vineflower comparison内固定单线程。
 
 ## Acceptance Criteria
 

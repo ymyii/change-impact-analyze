@@ -86,6 +86,136 @@ class ModuleImpactTracerTest {
     }
 
     @Test
+    void bindsStructuralAndOrdinaryEvidenceBeforeReverseBfs()
+            throws Exception {
+        final Path marker = compile("structural-marker", Map.of(
+                "dep/RemovedMarker.java", """
+                        package dep;
+                        public @interface RemovedMarker { }
+                        """), List.of());
+        final Path dependency = compile("structural-dependency", Map.of(
+                "lib/Middle.java", """
+                        package lib;
+                        @dep.RemovedMarker
+                        public class Middle {
+                            public void touch() { }
+                        }
+                        """), List.of(marker));
+        final Path project = compile("structural-project", Map.of(
+                "app/Entry.java", """
+                        package app;
+                        public class Entry {
+                            public void call() {
+                                new lib.Middle().touch();
+                            }
+                        }
+                        """), List.of(marker, dependency));
+        final ModuleId moduleId = new ModuleId(new ArtifactCoord(
+                "example", "app", "jar", "1"), Path.of("app"));
+        final ArtifactCoord oldArtifact = new ArtifactCoord(
+                "example", "dependency", "jar", "1");
+        final ArtifactCoord newArtifact = new ArtifactCoord(
+                "example", "dependency", "jar", "2");
+        final BoundChangePoint structuralPoint = new BoundChangePoint(
+                new DependencyUpgradeKey(moduleId, DependencyScope.COMPILE,
+                        oldArtifact, newArtifact),
+                new ChangePoint(newArtifact, ChangePointKind.CLASS_REMOVED,
+                        "dep/RemovedMarker", null, null, null, null));
+        final BoundChangePoint bodyPoint = bodyPoint(moduleId,
+                oldArtifact, newArtifact, "lib/Middle", "touch");
+        final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                moduleId, ModulePresence.BOTH, project,
+                List.of(dependency), List.of(), List.of(),
+                new ModuleChangeSet(
+                        List.of(structuralPoint, bodyPoint), List.of()));
+        final DiagnosticLog diagnostics = new DiagnosticLog(
+                new PrintStream(new ByteArrayOutputStream()),
+                LogVerbosity.INFO);
+        final String configured = System.getenv("TEST_JDK8_HOME");
+        assertThat(configured).as("TEST_JDK8_HOME").isNotBlank();
+        final JavaRuntimeDescriptor runtime =
+                new Jdk8RuntimeProvider().probe(Path.of(configured));
+
+        for (CallGraphAlgorithm algorithm : CallGraphAlgorithm.values()) {
+            try (IJarRepository repository = TestJarRepositories.empty()) {
+                final ModuleCallGraphSession session =
+                        new ModuleCallGraphEngine(
+                                diagnostics, runtime,
+                                EntrypointSelection.allProjectClasses(),
+                                algorithm,
+                                WalaReflectionOptions.parse("NONE"),
+                                repository).build(
+                                new ModuleCallGraphInputAdapter().adapt(unit),
+                                0L);
+                final StructuralReferenceIndex structural =
+                        new StructuralImpactScanner(repository).scan(
+                                unit, session.getOwnership());
+                final ChangePointEvidenceIndex evidence =
+                        new ChangePointEvidenceCollector().collect(
+                                unit, session.getGraph(),
+                                session.getOwnership(),
+                                session.getDynamicEvidence(), structural,
+                                session.getStrategyCapabilities(),
+                                session::isBodyAvailable);
+
+                assertThat(structural.references())
+                        .as(algorithm.identifier())
+                        .anyMatch(reference -> reference.getChangedClass()
+                                .equals("dep/RemovedMarker"));
+                assertThat(evidence.reverseBfsBindings().values())
+                        .flatExtracting(value -> value)
+                        .as(algorithm.identifier())
+                        .anyMatch(terminal -> terminal.getChangePoint()
+                                .equals(structuralPoint)
+                                && terminal.getEvidenceKind()
+                                == EvidenceKind.STRUCTURAL_REFERENCE);
+                assertThat(evidence.reverseBfsBindings().values())
+                        .flatExtracting(value -> value)
+                        .as(algorithm.identifier())
+                        .anyMatch(terminal -> terminal.getChangePoint()
+                                .equals(bodyPoint)
+                                && terminal.getEvidenceMechanism()
+                                == EvidenceMechanism.METHOD_DECLARATION);
+                final ModuleImpactQueryResult result =
+                        new ModuleImpactTracer(diagnostics).trace(
+                                unit, session, evidence);
+                assertThat(result.getPaths())
+                        .as(algorithm.identifier())
+                        .anyMatch(path -> path.getTerminal()
+                                .getChangePoint().equals(bodyPoint));
+                assertThat(result.getStructuralPaths())
+                        .as(algorithm.identifier())
+                        .anyMatch(path -> path.getChangePoint()
+                                .equals(structuralPoint)
+                                && path.getAffectedMethod().owner()
+                                .equals("app/Entry"));
+                final ModuleAnalysisResult frozen =
+                        new ModuleAnalysisSnapshotter().detach(
+                                new ModuleAnalysisResult.Builder(unit)
+                                        .status(ModuleAnalysisStatus.SUCCESS,
+                                                ModuleAnalysisReason.NONE,
+                                                "test")
+                                        .session(session)
+                                        .changePointEvidence(evidence)
+                                        .candidatePaths(result.getPaths())
+                                        .finalPaths(result.getPaths())
+                                        .structuralPaths(
+                                                result.getStructuralPaths())
+                                        .build());
+                assertThat(frozen.getSession()).isNull();
+                assertThat(frozen.getChangePointEvidence()
+                        .reverseBfsBindings()).isEmpty();
+                assertThat(frozen.getChangePointEvidence().resolutions())
+                        .flatExtracting(value -> value.evidence())
+                        .flatExtracting(value -> value.anchor().stream()
+                                .toList())
+                        .noneMatch(MethodEvidenceAnchor.class::isInstance)
+                        .anyMatch(StableEvidenceAnchor.class::isInstance);
+            }
+        }
+    }
+
+    @Test
     void accessNarrowingReportsIllegalPathAndRetainsLegalObservation()
             throws Exception {
         final Path dependencies = compile("access-dependencies", Map.of(
@@ -295,13 +425,17 @@ class ModuleImpactTracerTest {
         final List<String> queryStarts = queryLog.toString(
                 StandardCharsets.UTF_8).lines()
                 .filter(line -> line.contains("[impact-query]"))
-                .filter(line -> line.contains("Task started; seeds="))
+                .filter(line -> line.contains("started; changes="))
                 .toList();
         assertThat(queryStarts)
                 .hasSize(CallGraphAlgorithm.values().length)
-                .allMatch(line -> line.contains("workers=1"));
-        assertThat(queryStarts).anyMatch(line -> line.contains(
-                "seeds=4; queryNodes=1; workers=1"));
+                .allMatch(line -> line.contains(
+                        "changes=4; evidenceBindings=1"));
+        assertThat(queryLog.toString(StandardCharsets.UTF_8).lines()
+                .filter(line -> line.contains(
+                        "Query planning completed"))
+                .toList()).anyMatch(line -> line.contains(
+                        "seeds=4; queryNodes=1; workers=1"));
         assertThat(queryLog.toString(StandardCharsets.UTF_8).lines()
                 .filter(line -> line.contains(
                         "event=query-node-completed"))
@@ -323,10 +457,10 @@ class ModuleImpactTracerTest {
                 "app/DynamicConsumer.java", """
                         package app;
                         public class DynamicConsumer {
-                            public Runnable task() {
+                            public Runnable callback() {
                                 return dyn.HandleOwner::target;
                             }
-                            public void execute() { task().run(); }
+                            public void execute() { callback().run(); }
                         }
                         """), List.of(dependencies));
         narrowClass(dependencies.resolve("dyn/HandleOwner.class"));

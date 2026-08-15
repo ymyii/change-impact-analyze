@@ -75,10 +75,10 @@ public final class ModuleVersionAnalyzer {
     }
 
     /**
-     * Uses task-cache external grouping for production-sized inputs.
+     * Uses cached external grouping for production-sized inputs.
      *
      * @param module module dependency result
-     * @param cacheRoot task cache root
+     * @param cacheRoot report cache root
      * @return deterministic issues
      * @throws IOException on cache grouping failure
      */

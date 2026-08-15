@@ -6,15 +6,17 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Immutable stage, substage, and prefix identity for diagnostics.
+ * Immutable stage, substage, optional phase, and prefix identity.
  *
  * @param stage diagnostic stage
  * @param substage diagnostic substage
+ * @param phase optional algorithm phase
  * @param attributes structured attributes
  */
 public record DiagnosticContext(
         String stage,
         String substage,
+        String phase,
         Map<String, String> attributes) {
 
     /** Stable-key field separator. */
@@ -24,6 +26,7 @@ public record DiagnosticContext(
     public DiagnosticContext {
         stage = normalize(stage);
         substage = normalize(substage);
+        phase = normalize(phase);
         final Map<String, String> normalized = new LinkedHashMap<>();
         if (attributes != null) {
             attributes.forEach((key, value) -> {
@@ -39,13 +42,27 @@ public record DiagnosticContext(
     }
 
     /**
+     * Creates a context without an algorithm phase.
+     *
+     * @param stageName diagnostic stage
+     * @param substageName diagnostic substage
+     * @param identityAttributes structured identity attributes
+     */
+    public DiagnosticContext(
+            final String stageName,
+            final String substageName,
+            final Map<String, String> identityAttributes) {
+        this(stageName, substageName, "", identityAttributes);
+    }
+
+    /**
      * Creates a stage-only context.
      *
      * @param stageName stage name
      * @return context
      */
     public static DiagnosticContext stage(final String stageName) {
-        return new DiagnosticContext(stageName, "", Map.of());
+        return new DiagnosticContext(stageName, "", "", Map.of());
     }
 
     /**
@@ -63,7 +80,21 @@ public record DiagnosticContext(
 
     /** @return copy with substage */
     public DiagnosticContext withSubstage(final String value) {
-        return new DiagnosticContext(stage, value, attributes);
+        return new DiagnosticContext(stage, value, phase, attributes);
+    }
+
+    /**
+     * Selects an optional algorithm phase for one diagnostic event.
+     *
+     * <p>Phase is observational state. It is deliberately excluded from
+     * {@link #stableKey()} so phase transitions cannot split one Stage
+     * timer.</p>
+     *
+     * @param value phase name, or blank to clear it
+     * @return copy with phase
+     */
+    public DiagnosticContext withPhase(final String value) {
+        return new DiagnosticContext(stage, substage, value, attributes);
     }
 
     /**
@@ -86,7 +117,7 @@ public record DiagnosticContext(
         } else {
             copy.put(key, normalized);
         }
-        return new DiagnosticContext(stage, substage, copy);
+        return new DiagnosticContext(stage, substage, phase, copy);
     }
 
     /** @return copy with side attribute */

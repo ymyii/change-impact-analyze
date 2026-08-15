@@ -36,7 +36,7 @@ import io.github.dependencyanalysis.runtime
 import io.github.dependencyanalysis.runtime
         .MavenDependencyPluginRuntime;
 import io.github.dependencyanalysis.runtime
-        .ReportTaskCache;
+        .ReportCache;
 import io.github.dependencyanalysis.workspace
         .WorkspaceResult;
 
@@ -115,10 +115,10 @@ public final class ImpactCommand
             description = "Analysis target: spring-backend.")
     private String analysisTarget;
 
-    /** Concurrent safe analysis tasks. */
+    /** Concurrent safe analyses. */
     @Option(names = "--analysis-parallelism",
             description = "Maximum concurrent JAR diff, impact query, and "
-                    + "code comparison tasks; default: half of available "
+                    + "code comparison operations; default: half of available "
                     + "processors.")
     private Integer analysisParallelism;
 
@@ -338,9 +338,9 @@ public final class ImpactCommand
                 ImpactPreflightService.COMMAND_RUN,
                 CommandRunDirectory.class);
         final AnalysisRunResult result;
-        try (ReportTaskCache reportCache = new ReportTaskCache(
+        try (ReportCache reportCache = new ReportCache(
                 commandRun, "impact")) {
-            result = new PerModuleImpactPipeline(
+            final ImpactExecutionEngine engine = new PerModuleImpactPipeline(
                     diagnostics, kinds, mavenRuntime, pluginRuntime,
                     context.get(ImpactPreflightService.MAVEN_ARGS, List.class),
                     targetJava, new PerModulePipelineOptions(
@@ -350,7 +350,8 @@ public final class ImpactCommand
                     callGraphAlgorithm, selectedKObjDepth, reflectionOptions,
                     dependencyAnalysisScope, jdkModel,
                     resultRefinements,
-                    metrics.executors(), reportCache)).run(context.get(
+                    metrics.executors(), reportCache));
+            result = engine.run(context.get(
                     ImpactPreflightService.WORKSPACE, WorkspaceResult.class));
             reportCache.complete();
             publishReport(result, report, diagnostics, mavenRuntime,
@@ -372,16 +373,16 @@ public final class ImpactCommand
         final DiagnosticContext reportContext = DiagnosticContext.of(
                 "report", "publish");
         diagnostics.startStage(reportContext,
-                "Task started; path=" + reportPath);
+                "path=" + reportPath);
         try {
             new PerModuleHtmlReportGenerator().generate(
                     result, diagnostics.getEvents(), report,
                     mavenRuntime, pluginRuntime, targetJava, output.toPath());
             diagnostics.endStage(reportContext,
-                    "Task completed; path=" + reportPath);
+                    "path=" + reportPath);
         } catch (RuntimeException exception) {
             diagnostics.failStage(reportContext,
-                    "Report publish failed: " + exception.getMessage()
+                    "reason=" + exception.getMessage()
                             + "; path=" + reportPath);
             throw exception;
         }

@@ -44,8 +44,8 @@ class DiagnosticLogTest {
         assertThat(bytes.toString(StandardCharsets.UTF_8))
                 .contains("[2026-08-05T14:30:01.123+08:00]"
                         + "[INFO][module-analysis][module][module=sample]"
-                        + " Task started")
-                .contains("[module=sample] Task completed; elapsedMs=12")
+                        + " started")
+                .contains("[module=sample] completed; elapsedMs=12")
                 .doesNotContain("[module=sample;elapsedMs=");
         assertThat(log.getEvents()).hasSize(2);
         assertThat(log.getEvents().get(1).getElapsedMillis())
@@ -64,16 +64,42 @@ class DiagnosticLogTest {
 
         log.startStage(context);
         ticker.set(TWELVE_MILLIS_NANOS);
-        log.failStage(context, "Task failed: unavailable");
+        log.failStage(context, "reason=unavailable");
 
         assertThat(bytes.toString(StandardCharsets.UTF_8))
-                .contains("[module=sample] Task failed: unavailable;"
+                .contains("[module=sample] failed; reason=unavailable;"
                         + " elapsedMs=12")
                 .doesNotContain("[module=sample;elapsedMs=");
         assertThat(log.getEvents().get(1).getElapsedMillis())
                 .isEqualTo(EXPECTED_ELAPSED_MILLIS);
         assertThat(log.getEvents().get(1).getAttributes())
                 .doesNotContainKey("elapsedMs");
+    }
+
+    @Test
+    void phaseDoesNotSplitStageTimerIdentity() {
+        final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        final AtomicLong ticker = new AtomicLong();
+        final DiagnosticLog log = log(bytes, LogVerbosity.INFO, ticker);
+        final DiagnosticContext context = DiagnosticContext.of(
+                "module-analysis", "impact-query").withModule("sample");
+
+        log.startStage(context);
+        log.info(context.withPhase("REVERSE_BFS"), "progress");
+        ticker.set(TWELVE_MILLIS_NANOS);
+        log.endStage(context);
+
+        assertThat(context.withPhase("REVERSE_BFS").stableKey())
+                .isEqualTo(context.stableKey());
+        assertThat(bytes.toString(StandardCharsets.UTF_8))
+                .contains("[phase=REVERSE_BFS;module=sample] progress")
+                .contains("[module=sample] completed; elapsedMs=12");
+        assertThat(log.getEvents().get(1).getPhase())
+                .isEqualTo("REVERSE_BFS");
+        assertThat(log.getEvents().get(1).getAttributes())
+                .doesNotContainKey("phase");
+        assertThat(log.getEvents().get(2).getElapsedMillis())
+                .isEqualTo(EXPECTED_ELAPSED_MILLIS);
     }
 
     @Test

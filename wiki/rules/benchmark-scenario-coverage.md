@@ -27,7 +27,7 @@ Analyzer 可观察能力变化必须同步维护 fixture、semantic verification
 
 ## Rules
 
-- 新增或扩展 CLI、dependency planning、Call Graph、ChangePoint、Impact Path、boundary evidence 或 Report 能力时，同一任务应更新相关 benchmark contract。
+- 新增或扩展 CLI、dependency planning、Call Graph、ChangePoint、Impact Path、boundary evidence 或 Report 能力时，同一变更应更新相关 benchmark contract。
 - 内部 refactor 无可观察行为变化时可不新增 fixture，但必须维护现有脚本合同。
 - 未获授权时只运行 Python/shell contract tests，不运行 `run-benchmark.sh`、`run-suite.sh` 或 `run-scope-matrix.sh`。
 - `impact-medium` canonical algorithm 固定为 CHA；`k-obj` 使用聚焦 unit/integration capability tests，不进入 canonical baseline。

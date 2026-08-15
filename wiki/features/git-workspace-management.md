@@ -19,7 +19,7 @@ code_refs:
     desc: "tree current checkout/local-ref repository snapshot"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/CommandRunDirectory.java"
     desc: "subcommand UUID run、owner marker、file lock 和 stale cleanup"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/ReportTaskCache.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/ReportCache.java"
     desc: "owned temporary run下的report-cache安全边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/ReactorInventoryBuilder.java"
     desc: "tracked/non-ignored untracked POM 与 submodule filtering"

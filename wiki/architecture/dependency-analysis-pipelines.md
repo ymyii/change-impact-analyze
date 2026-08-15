@@ -15,6 +15,8 @@ relations:
 code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactCommand.java"
     desc: "impact CLI 与 command-wide configuration"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactExecutionEngine.java"
+    desc: "command-level Impact 执行边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
     desc: "构图、evidence、query、refinement 和 snapshot 编排"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleCallGraphInputAdapter.java"
@@ -23,6 +25,8 @@ code_refs:
     desc: "独立 Call Graph engine"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/CallGraphCoverageMapper.java"
     desc: "Call Graph typed finding 到业务 reason 的转换"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeExecutionEngine.java"
+    desc: "Tree preflight、Reactor processing 与发布执行边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/refinement/ResultRefinementSelection.java"
     desc: "command-wide result refinement selection"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/refinement/cha/ChaLocalReceiverEdgeRefiner.java"
@@ -35,7 +39,28 @@ code_refs:
 
 Root CLI 分发 `impact` 与 `tree`。`impact` 只编译 target，并为每个 relevant Module 构建一张 selected Call Graph；baseline 提供 dependency evidence 与 old artifact。默认组合为 `cha + changed-paths + jdk-model none + result refinement none`。`k-obj` 是显式选择的实验性 algorithm。
 
-Relevant Module 按 stable key 串行。当前 Module 完成 Call Graph、evidence、Impact Query、optional refinement、diagnostics 与 report-safe snapshot 后，才进入下一个 Module。`tree` 保持独立 dependency-report pipeline；两者只共享 runtime、workspace 与 task cache 基础设施。
+`ImpactCommand`通过`ImpactExecutionEngine`启动默认per-Module实现；Relevant Module按stable key串行。当前Module依次完成Call Graph、单线程Evidence analysis、Impact Query、optional refinement、diagnostics与report-safe snapshot后，才进入下一个Module。`TreeCommand`只承载CLI，`TreeExecutionEngine`负责preflight、Reactor processing与发布。两条pipeline不共享业务Stage，只共享runtime、workspace、diagnostics与report cache基础设施。
+
+## Key Terms
+
+- Execution Engine：命令级业务编排边界。Impact以接口表达，Tree以独立执行器表达；都不负责Picocli option定义。
+- Evidence analysis：Call Graph fixed point完成后的单线程阶段，包含Structural metadata scan、唯一Call Graph node scan与统一binding。
+- Reverse BFS binding：`QueryNode -> ChangePointTerminal`辅助索引；只为Reverse BFS导航，不替代`BoundChangePoint` resolution事实。
+- Finalization：把coverage、query和stage metrics组装成Module结果，并在Report cache前移除live WALA对象。
+
+## Architecture Decisions
+
+### 构图后收集，不接入fixed point callback
+
+WALA没有稳定的`CGNode + IR`新增通知接口；CHA与`k-obj`内部接入点不同。Evidence analysis因此只消费最终Call Graph，避免sealed replay、node去重和interpreter补偿逻辑。
+
+### Evidence顺序扫描，QueryNode并发
+
+Evidence阶段不复制node集合、不并发调用`CGNode.getIR()`。并发只发生在只读、按exact QueryNode隔离的Reverse BFS和后续code comparison，确保资源上界清晰。
+
+### 不建立通用Stage或Artifact总线
+
+命令引擎直接连接现有typed领域实现；阶段输入输出使用`ModuleAnalysisUnit`、`ModuleCallGraphSession`、`ChangePointEvidenceIndex`和`ModuleImpactQueryResult`。不允许弱类型artifact map或可改变核心顺序的任意回调。
 
 ## Package Dependency Direction
 
@@ -69,8 +94,9 @@ flowchart TD
   Validate --> Build["ModuleCallGraphEngine"]
   Build --> Metadata["freeze graph + Call Graph metadata"]
   Metadata --> Structural["StructuralImpactScanner"]
-  Structural --> Collector["ChangePointEvidenceCollector"]
-  Collector --> Coverage["CallGraphCoverageMapper"]
+  Structural --> Collector["single-pass ChangePointEvidenceCollector"]
+  Collector --> Binding["resolution + unified reverseBfsBindings"]
+  Binding --> Coverage["CallGraphCoverageMapper"]
   Coverage --> Query["bounded reverse Impact Query"]
   Query --> Local{"CHA local receiver selected?"}
   Local -->|yes| ChaRefine["caller-local receiver edge filter"]
@@ -88,7 +114,9 @@ flowchart TD
 - Call Graph engine 不接收 `ModuleAnalysisUnit`、`BoundChangePoint` 或 `ModuleChangedPathSelection`。
 - `CallGraphBuildContext` 保存公共 WALA 构建数据；`ChaCallGraphRequest` 与 `KObjCallGraphRequest` 保存各自配置。
 - Engine 只输出 graph/session、stats、capability、typed protocol limitation、scope warning、boundary finding 与 optional topology。
-- `PerModuleImpactPipeline` 在构图完成后采集 structural/reference evidence。`CallGraphCoverageMapper` 是 Call Graph finding 到业务 coverage reason 的唯一转换点。
+- `PerModuleImpactPipeline`实现`ImpactExecutionEngine`。Call Graph完成后，`evidence-analysis`先全量扫描effective class metadata，再在同一线程遍历最终Call Graph一次；不建立node/IR snapshot，不创建Evidence线程池。
+- `ChangePointEvidenceIndex`以每个`BoundChangePoint`唯一resolution为事实主索引，以exact `QueryNode -> ChangePointTerminal`为Reverse BFS辅助索引。Structural与普通Evidence共用该binding；Query不再按Structural Reference重复扫描Call Graph。
+- `CallGraphCoverageMapper`是Call Graph finding到业务coverage reason的唯一转换点。
 - Report 只消费 detached immutable snapshot，不读取 live graph、hierarchy、cache 或 concrete strategy。
 
 ## Module Contract
@@ -112,6 +140,13 @@ flowchart TD
 
 - Module 严格串行，避免同时持有多张 WALA graph。
 - Impact Query 与 code comparison 受 `--analysis-parallelism` 的 bounded pool 控制。
-- 当前 Module snapshot 写入 task cache 后释放 live WALA state。
+- 当前Module snapshot把path node转换为`SnapshotQueryNode`，把method Evidence anchor转换为stable-only anchor，清空只供Reverse BFS使用的binding并释放live WALA state。
 - Diagnostics JSON 为 Schema v9；Report 和 diagnostics 都读取已冻结 metadata/evidence。
-- Report 完整写入同 filesystem staging 后原子替换；失败清理 task-owned cache。
+- Report完整写入同filesystem staging后原子替换；失败清理command-owned cache。
+
+## Failure Boundaries
+
+- Impact全局preparation或publication失败终止command；Module scope、Call Graph、Evidence、Query或finalization失败转换为该Module的typed failure，后续Module继续。
+- `ChangePointEvidenceIndex`在binding与resolution不一致时fail-fast，禁止生成缺少terminal事实的路径。
+- Tree command-level preflight失败不替换旧Report；Reactor collection失败记录issue并继续；renderer/publisher失败由`TreeExecutionEngine`关闭Report session并返回失败状态。
+- 线程中断继续传播；不把partial Evidence index发布为completed Module结果。

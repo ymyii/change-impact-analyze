@@ -8,7 +8,7 @@ import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSelection;
 import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
 import io.github.dependencyanalysis.metrics.ManagedExecutorRegistry;
-import io.github.dependencyanalysis.runtime.ReportTaskCache;
+import io.github.dependencyanalysis.runtime.ReportCache;
 
 import java.nio.file.Path;
 
@@ -26,7 +26,7 @@ import java.nio.file.Path;
  * @param jdkModel command-wide JDK Method Model selection
  * @param resultRefinements command-wide result-refinement selection
  * @param executors Analyzer-owned pool registry
- * @param reportCache production task cache, nullable for compatibility callers
+ * @param reportCache command report cache, nullable for compatibility callers
  */
 record PerModulePipelineOptions(
         long callGraphTimeoutSeconds,
@@ -40,7 +40,7 @@ record PerModulePipelineOptions(
         JdkModelSelection jdkModel,
         ResultRefinementSelection resultRefinements,
         ManagedExecutorRegistry executors,
-        ReportTaskCache reportCache) {
+        ReportCache reportCache) {
 
     /** Compatibility constructor using the default k-object depth. */
     PerModulePipelineOptions(

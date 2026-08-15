@@ -21,7 +21,7 @@ public final class TreeReportSession {
     /** Expected reactor count. */
     private final int totalReactors;
 
-    /** Task cache root used for external conflict grouping, nullable. */
+    /** Report cache root used for external conflict grouping, nullable. */
     private final Path groupingCache;
 
     /** Lightweight published reactor checkpoints. */

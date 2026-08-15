@@ -31,6 +31,9 @@ import io.github.dependencyanalysis.callgraph.local.LocalConstantResolver;
 import io.github.dependencyanalysis.callgraph.model.MethodId;
 import io.github.dependencyanalysis.callgraph.protocol.ModelKind;
 import io.github.dependencyanalysis.callgraph.protocol.ModelLimitation;
+import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
+import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -50,9 +53,49 @@ public final class ChangePointEvidenceCollector {
     private static final String CLASS_FOR_NAME_DESCRIPTOR =
             "(Ljava/lang/String;)Ljava/lang/Class;";
 
+    /** Minimum interval between same-thread TRACE progress events. */
+    private static final long TRACE_INTERVAL_NANOS =
+            java.util.concurrent.TimeUnit.SECONDS.toNanos(5L);
+
+    /** Scanned graph node counter index. */
+    private static final int SCANNED_NODES = 0;
+
+    /** Scanned method body counter index. */
+    private static final int SCANNED_BODIES = 1;
+
+    /** Scanned SSA instruction counter index. */
+    private static final int SCANNED_INSTRUCTIONS = 2;
+
+    /** Collected Evidence counter index. */
+    private static final int COLLECTED_EVIDENCE = 3;
+
+    /** Unified binding counter index. */
+    private static final int COLLECTED_BINDINGS = 4;
+
+    /** Total scan counter array size. */
+    private static final int SCAN_COUNTER_SIZE = 5;
+
     /** Bounded caller-local constant resolver. */
     private final LocalConstantResolver constants =
             new LocalConstantResolver();
+
+    /** Optional production diagnostics; absent for direct library callers. */
+    private final DiagnosticLog diagnostics;
+
+    /** Creates a collector without progress diagnostics. */
+    public ChangePointEvidenceCollector() {
+        diagnostics = null;
+    }
+
+    /**
+     * Creates a collector with same-thread TRACE progress.
+     *
+     * @param collector diagnostics
+     */
+    public ChangePointEvidenceCollector(final DiagnosticLog collector) {
+        diagnostics = java.util.Objects.requireNonNull(
+                collector, "collector");
+    }
 
     /**
      * Collects a complete immutable index for one module.
@@ -79,38 +122,54 @@ public final class ChangePointEvidenceCollector {
         unit.getChangePoints().forEach(point -> evidence.put(
                 point, new ArrayList<>()));
         final Map<String, List<BoundChangePoint>> byOwner = byOwner(unit);
+        final ChangeMatcherIndex matcher = new ChangeMatcherIndex(unit);
         final Set<ModelLimitation> limitations = new LinkedHashSet<>();
+        final Map<QueryNode, Set<ChangePointTerminal>> bindings =
+                new LinkedHashMap<>();
         final int[] localCounts = new int[2];
+        final long[] scanCounts = new long[SCAN_COUNTER_SIZE];
+        final long[] traceState = new long[]{System.nanoTime()};
+        final DiagnosticContext diagnosticContext = DiagnosticContext.of(
+                "module-analysis", "evidence-analysis").withModule(
+                unit.getModuleId().stableKey());
         final CollectionContext context = new CollectionContext(
-                unit, ownership, byOwner, evidence, limitations,
-                capabilities, localCounts);
+                unit, ownership, byOwner, matcher, evidence, bindings,
+                limitations, capabilities, localCounts, scanCounts,
+                traceState, diagnosticContext);
         collectResourceAnchors(unit, evidence);
         unit.getServiceLoaderResourceIssues().forEach(issue ->
                 limitations.add(serviceLoaderLimitation(
                         issue.code(), issue.location(), issue.detail())));
+        final StructuralBindings structural = collectStructural(
+                context, structuralReferences);
         for (CGNode node : graph) {
             if (node.equals(graph.getFakeRootNode())
                     || node.equals(graph.getFakeWorldClinitNode())) {
                 continue;
             }
-            collectMethodDeclaration(
-                    unit, node, ownership, evidence);
+            scanCounts[SCANNED_NODES]++;
+            bindStructural(context, node, structural);
+            collectMethodDeclaration(context, node);
             if (!bodyAvailable.test(node.getMethod())) {
+                traceProgress(context);
                 continue;
             }
             final IR ir = node.getIR();
             if (ir == null) {
+                traceProgress(context);
                 continue;
             }
+            scanCounts[SCANNED_BODIES]++;
             for (SSAInstruction instruction : ir.getInstructions()) {
                 if (instruction == null) {
                     continue;
                 }
+                scanCounts[SCANNED_INSTRUCTIONS]++;
                 collectInstruction(context, node, instruction);
             }
+            traceProgress(context);
         }
-        collectStructural(unit, structuralReferences, evidence);
-        collectDynamic(unit, ownership, dynamicEvidence, evidence);
+        collectDynamic(context, dynamicEvidence);
         final List<ChangePointEvidenceResolution> resolutions =
                 new ArrayList<>();
         for (BoundChangePoint point : unit.getChangePoints().stream()
@@ -125,7 +184,11 @@ public final class ChangePointEvidenceCollector {
             resolutions.add(new ChangePointEvidenceResolution(
                     point, status, values, List.of()));
         }
-        return new ChangePointEvidenceIndex(resolutions,
+        final Map<QueryNode, List<ChangePointTerminal>> frozenBindings =
+                new LinkedHashMap<>();
+        bindings.forEach((node, terminals) -> frozenBindings.put(
+                node, List.copyOf(terminals)));
+        return new ChangePointEvidenceIndex(resolutions, frozenBindings,
                 limitations.stream().sorted()
                         .map(new CallGraphCoverageMapper()::model).toList(),
                 localCounts[0], localCounts[1]);
@@ -154,21 +217,23 @@ public final class ChangePointEvidenceCollector {
         }
     }
 
-    private void collectStructural(
-            final ModuleAnalysisUnit unit,
-            final StructuralReferenceIndex structuralReferences,
-            final Map<BoundChangePoint, List<ReferenceEvidence>> result) {
-        final Map<String, List<BoundChangePoint>> changes = byOwner(unit);
+    private StructuralBindings collectStructural(
+            final CollectionContext context,
+            final StructuralReferenceIndex structuralReferences) {
+        final Map<String, List<ChangePointTerminal>> byMethod =
+                new LinkedHashMap<>();
+        final Map<String, List<ChangePointTerminal>> byStructuralOwner =
+                new LinkedHashMap<>();
         for (StructuralReference reference : structuralReferences
                 .references()) {
-            for (BoundChangePoint point : changes.getOrDefault(
+            for (BoundChangePoint point : context.byOwner().getOrDefault(
                     reference.getChangedClass(), List.of())) {
                 final ChangePointKind kind = point.getChangePoint().getKind();
                 if (kind != ChangePointKind.CLASS_REMOVED
                         && kind != ChangePointKind.CLASS_ACCESS_NARROWED) {
                     continue;
                 }
-                result.get(point).add(new ReferenceEvidence(
+                final ReferenceEvidence value = new ReferenceEvidence(
                         Optional.of(new StructuralEvidenceAnchor(reference)),
                         new ReferenceTarget(reference.getChangedClass(),
                                 reference.getReferencingMember(), ""),
@@ -176,9 +241,54 @@ public final class ChangePointEvidenceCollector {
                         EvidenceMechanism.STRUCTURAL_METADATA,
                         new EvidenceLocation(
                                 reference.getReferencingClass(), -1),
-                        reference.getEvidence()));
+                        reference.getEvidence());
+                addEvidence(context, point, value);
+                if (reference.getOrigin() == CodeOrigin.PROJECT) {
+                    continue;
+                }
+                final ChangePointTerminal terminal =
+                        new ChangePointTerminal(point, value);
+                final String member = reference.getReferencingMember();
+                if (member.indexOf('(') >= 0) {
+                    byMethod.computeIfAbsent(structuralMethodKey(
+                            reference.getReferencingClass(), member),
+                            ignored -> new ArrayList<>()).add(terminal);
+                } else {
+                    byStructuralOwner.computeIfAbsent(
+                            reference.getReferencingClass(),
+                            ignored -> new ArrayList<>()).add(terminal);
+                }
             }
         }
+        return new StructuralBindings(byMethod, byStructuralOwner);
+    }
+
+    private void bindStructural(
+            final CollectionContext context,
+            final CGNode node,
+            final StructuralBindings structural) {
+        final MethodReference method = node.getMethod().getReference();
+        final String methodOwner = owner(method);
+        final List<ChangePointTerminal> ownerBindings = structural.byOwner()
+                .getOrDefault(methodOwner, List.of());
+        final List<ChangePointTerminal> methodBindings = structural.byMethod()
+                .getOrDefault(structuralMethodKey(methodOwner,
+                        method.getName() + method.getDescriptor().toString()),
+                        List.of());
+        if (ownerBindings.isEmpty() && methodBindings.isEmpty()) {
+            return;
+        }
+        final QueryNode queryNode = queryNode(context, node);
+        ownerBindings.forEach(terminal -> addBinding(
+                context, queryNode, terminal));
+        methodBindings.forEach(terminal -> addBinding(
+                context, queryNode, terminal));
+    }
+
+    private String structuralMethodKey(
+            final String owner,
+            final String member) {
+        return owner + "#" + member;
     }
 
     private Map<String, List<BoundChangePoint>> byOwner(
@@ -193,18 +303,15 @@ public final class ChangePointEvidenceCollector {
     }
 
     private void collectMethodDeclaration(
-            final ModuleAnalysisUnit unit,
-            final CGNode node,
-            final ClassOwnershipIndex ownership,
-            final Map<BoundChangePoint, List<ReferenceEvidence>> result) {
-        for (BoundChangePoint point : unit.getChangePoints()) {
+            final CollectionContext context,
+            final CGNode node) {
+        for (BoundChangePoint point : context.matcher()
+                .methodDeclarations(node.getMethod().getReference())) {
             final ChangePoint change = point.getChangePoint();
-            if (change.getKind() == ChangePointKind.METHOD_BODY_CHANGED
-                    && matchesMethod(node.getMethod().getReference(),
-                    change.getOwner(), change.getName(),
-                    change.getNewDescriptor())) {
-                result.get(point).add(evidence(new EvidenceInput(
-                        unit, node, Optional.empty(), ownership,
+            if (change.getKind() == ChangePointKind.METHOD_BODY_CHANGED) {
+                addEvidence(context, point, evidence(new EvidenceInput(
+                        context.unit(), node, Optional.empty(),
+                        context.ownership(),
                         new ReferenceTarget(change.getOwner(),
                                 change.getName(),
                                 change.getNewDescriptor()),
@@ -223,23 +330,18 @@ public final class ChangePointEvidenceCollector {
             collectInvoke(context, node, invoke);
         }
         if (instruction instanceof SSAFieldAccessInstruction field) {
-            collectField(context.unit(), node, field, context.ownership(),
-                    context.result());
+            collectField(context, node, field);
         }
-        for (Map.Entry<String, List<BoundChangePoint>> entry
-                : context.byOwner().entrySet()) {
-            if (!referencesType(instruction, entry.getKey())) {
-                continue;
-            }
-            for (BoundChangePoint point : entry.getValue()) {
+        for (String type : referencedTypes(instruction)) {
+            for (BoundChangePoint point : context.matcher()
+                    .classReferences(type)) {
                 final ChangePointKind kind = point.getChangePoint().getKind();
                 if (kind == ChangePointKind.CLASS_REMOVED
                         || kind == ChangePointKind.CLASS_ACCESS_NARROWED) {
-                    context.result().get(point).add(evidence(
-                            new EvidenceInput(
+                    addEvidence(context, point, evidence(new EvidenceInput(
                             context.unit(), node, Optional.of(instruction),
                             context.ownership(),
-                            new ReferenceTarget(entry.getKey(), "", ""),
+                            new ReferenceTarget(type, "", ""),
                             EvidenceKind.TYPE_REFERENCE,
                             EvidenceMechanism.BYTECODE_TYPE_REFERENCE,
                             pc(instruction), "reachable bytecode type")));
@@ -250,22 +352,18 @@ public final class ChangePointEvidenceCollector {
 
     private void collectInvoke(
             final CollectionContext context,
-            final CGNode node,
+        final CGNode node,
             final SSAAbstractInvokeInstruction invoke) {
         final MethodReference target = invoke.getDeclaredTarget();
-        for (BoundChangePoint point : context.unit().getChangePoints()) {
+        for (BoundChangePoint point : context.matcher()
+                .methodReferences(target)) {
             final ChangePoint change = point.getChangePoint();
-            if ((change.getKind() == ChangePointKind.METHOD_REMOVED
+            if (change.getKind() == ChangePointKind.METHOD_REMOVED
                     || change.getKind()
                     == ChangePointKind.METHOD_DESCRIPTOR_CHANGED
                     || change.getKind()
-                    == ChangePointKind.METHOD_ACCESS_NARROWED)
-                    && matchesMethod(target, change.getOwner(),
-                    change.getName(), change.getKind()
-                            == ChangePointKind.METHOD_ACCESS_NARROWED
-                            ? change.getNewDescriptor()
-                            : change.getOldDescriptor())) {
-                context.result().get(point).add(evidence(new EvidenceInput(
+                    == ChangePointKind.METHOD_ACCESS_NARROWED) {
+                addEvidence(context, point, evidence(new EvidenceInput(
                         context.unit(), node, Optional.of(invoke),
                         context.ownership(),
                         new ReferenceTarget(change.getOwner(),
@@ -320,7 +418,7 @@ public final class ChangePointEvidenceCollector {
                 owner, List.of())) {
             if (point.getChangePoint().getKind()
                     == ChangePointKind.CLASS_REMOVED) {
-                context.result().get(point).add(evidence(new EvidenceInput(
+                addEvidence(context, point, evidence(new EvidenceInput(
                         context.unit(), node, Optional.of(invoke),
                         context.ownership(),
                         new ReferenceTarget(owner, "", ""),
@@ -367,7 +465,7 @@ public final class ChangePointEvidenceCollector {
             if (change.getKind() == ChangePointKind.CLASS_REMOVED
                     && hasBaselineProvider(context.unit(), service,
                     change.getOwner())) {
-                context.result().get(point).add(evidence(new EvidenceInput(
+                addEvidence(context, point, evidence(new EvidenceInput(
                         context.unit(), node, Optional.of(invoke),
                         context.ownership(),
                         new ReferenceTarget(change.getOwner(), "", ""),
@@ -382,7 +480,7 @@ public final class ChangePointEvidenceCollector {
                     .getServiceRegistration().orElse(null);
             if (registration != null && service.equals(
                     registration.serviceInternalName())) {
-                context.result().get(point).add(evidence(new EvidenceInput(
+                addEvidence(context, point, evidence(new EvidenceInput(
                         context.unit(), node, Optional.of(invoke),
                         context.ownership(),
                         new ReferenceTarget(service,
@@ -409,13 +507,12 @@ public final class ChangePointEvidenceCollector {
     }
 
     private void collectField(
-            final ModuleAnalysisUnit unit,
+            final CollectionContext context,
             final CGNode node,
-            final SSAFieldAccessInstruction field,
-            final ClassOwnershipIndex ownership,
-            final Map<BoundChangePoint, List<ReferenceEvidence>> result) {
+            final SSAFieldAccessInstruction field) {
         final FieldReference target = field.getDeclaredField();
-        for (BoundChangePoint point : unit.getChangePoints()) {
+        for (BoundChangePoint point : context.matcher()
+                .fieldReferences(target)) {
             final ChangePoint change = point.getChangePoint();
             if ((change.getKind() == ChangePointKind.FIELD_REMOVED
                     || change.getKind()
@@ -423,8 +520,9 @@ public final class ChangePointEvidenceCollector {
                     || change.getKind()
                     == ChangePointKind.FIELD_ACCESS_NARROWED)
                     && matchesField(target, change)) {
-                result.get(point).add(evidence(new EvidenceInput(
-                        unit, node, Optional.of(field), ownership,
+                addEvidence(context, point, evidence(new EvidenceInput(
+                        context.unit(), node, Optional.of(field),
+                        context.ownership(),
                         new ReferenceTarget(change.getOwner(),
                                 change.getName(), descriptor(
                                 target.getFieldType())),
@@ -436,12 +534,10 @@ public final class ChangePointEvidenceCollector {
     }
 
     private void collectDynamic(
-            final ModuleAnalysisUnit unit,
-            final ClassOwnershipIndex ownership,
-            final DynamicCallEvidenceIndex dynamic,
-            final Map<BoundChangePoint, List<ReferenceEvidence>> result) {
+            final CollectionContext context,
+            final DynamicCallEvidenceIndex dynamic) {
         for (DynamicCallEvidence value : dynamic.all()) {
-            for (BoundChangePoint point : unit.getChangePoints()) {
+            for (BoundChangePoint point : context.unit().getChangePoints()) {
                 final ChangePoint change = point.getChangePoint();
                 if ((change.getKind() == ChangePointKind.METHOD_REMOVED
                         || change.getKind()
@@ -449,8 +545,9 @@ public final class ChangePointEvidenceCollector {
                         || change.getKind()
                         == ChangePointKind.METHOD_ACCESS_NARROWED)
                         && matches(value, change)) {
-                    result.get(point).add(evidence(new EvidenceInput(
-                            unit, value.caller(), Optional.empty(), ownership,
+                    addEvidence(context, point, evidence(new EvidenceInput(
+                            context.unit(), value.caller(), Optional.empty(),
+                            context.ownership(),
                             new ReferenceTarget(value.targetOwner(),
                                     value.targetName(),
                                     value.targetDescriptor()),
@@ -461,8 +558,9 @@ public final class ChangePointEvidenceCollector {
                 if (change.getKind()
                         == ChangePointKind.CLASS_ACCESS_NARROWED
                         && change.getOwner().equals(value.targetOwner())) {
-                    result.get(point).add(evidence(new EvidenceInput(
-                            unit, value.caller(), Optional.empty(), ownership,
+                    addEvidence(context, point, evidence(new EvidenceInput(
+                            context.unit(), value.caller(), Optional.empty(),
+                            context.ownership(),
                             new ReferenceTarget(value.targetOwner(), "", ""),
                             EvidenceKind.TYPE_REFERENCE,
                             dynamicMechanism(value), value.bytecodePc(),
@@ -478,8 +576,9 @@ public final class ChangePointEvidenceCollector {
                         && java.util.Objects.equals(
                         change.getNewDescriptor(),
                         value.targetDescriptor())) {
-                    result.get(point).add(evidence(new EvidenceInput(
-                            unit, value.caller(), Optional.empty(), ownership,
+                    addEvidence(context, point, evidence(new EvidenceInput(
+                            context.unit(), value.caller(), Optional.empty(),
+                            context.ownership(),
                             new ReferenceTarget(value.targetOwner(),
                                     value.targetName(),
                                     value.targetDescriptor()),
@@ -513,6 +612,71 @@ public final class ChangePointEvidenceCollector {
                 input.mechanism(), new EvidenceLocation(
                 method.getReference().toString(), input.pc()),
                 input.detail());
+    }
+
+    private void addEvidence(
+            final CollectionContext context,
+            final BoundChangePoint point,
+            final ReferenceEvidence value) {
+        context.result().get(point).add(value);
+        context.scanCounts()[COLLECTED_EVIDENCE]++;
+        final EvidenceAnchor anchor = value.anchor().orElse(null);
+        if (anchor instanceof MethodEvidenceAnchor method) {
+            addBinding(context, new WalaQueryNode(
+                    method.node(), method.methodId(), method.origin()),
+                    new ChangePointTerminal(point, value));
+        }
+    }
+
+    private void addBinding(
+            final CollectionContext context,
+            final QueryNode node,
+            final ChangePointTerminal terminal) {
+        if (context.bindings().computeIfAbsent(node,
+                ignored -> new LinkedHashSet<>()).add(terminal)) {
+            context.scanCounts()[COLLECTED_BINDINGS]++;
+        }
+    }
+
+    private QueryNode queryNode(
+            final CollectionContext context,
+            final CGNode node) {
+        final IMethod method = node.getMethod();
+        final String methodOwner = owner(method.getReference());
+        final ClassOwnership source = context.ownership().ownershipOf(
+                methodOwner);
+        final CodeOrigin origin = source == null
+                ? CodeOrigin.SYNTHETIC : source.getOrigin();
+        final String module = origin == CodeOrigin.PROJECT
+                ? context.unit().getModuleId().stableKey() : origin.name();
+        return new WalaQueryNode(node, new MethodId(methodOwner,
+                method.getName().toString(),
+                method.getDescriptor().toString(), module,
+                source == null ? "<synthetic>"
+                        : source.getSource().toString()), origin);
+    }
+
+    private void traceProgress(final CollectionContext context) {
+        if (diagnostics == null || !diagnostics.getVerbosity()
+                .includes(LogVerbosity.TRACE)) {
+            return;
+        }
+        final long now = System.nanoTime();
+        if (now - context.traceState()[0] < TRACE_INTERVAL_NANOS) {
+            return;
+        }
+        context.traceState()[0] = now;
+        diagnostics.trace(context.diagnosticContext(),
+                "Evidence progress; scannedNodes="
+                        + context.scanCounts()[SCANNED_NODES]
+                        + "; scannedBodies="
+                        + context.scanCounts()[SCANNED_BODIES]
+                        + "; scannedInstructions="
+                        + context.scanCounts()[SCANNED_INSTRUCTIONS]
+                        + "; evidence="
+                        + context.scanCounts()[COLLECTED_EVIDENCE]
+                        + "; bindings="
+                        + context.scanCounts()[COLLECTED_BINDINGS]);
     }
 
     private ModelLimitation reflectionLimitation(
@@ -563,19 +727,40 @@ public final class ChangePointEvidenceCollector {
      * @param unit module input
      * @param ownership target ownership
      * @param byOwner bound changes grouped by owner
+     * @param matcher ChangePoint matcher index
      * @param result mutable evidence accumulator
+     * @param bindings exact QueryNode binding accumulator
      * @param limitations mutable limitation accumulator
      * @param capabilities effective strategy capabilities
      * @param localCounts success/unresolved caller-local counts
+     * @param scanCounts node/body/instruction/evidence/binding counts
+     * @param traceState last progress event monotonic time
+     * @param diagnosticContext module Evidence diagnostic context
      */
     private record CollectionContext(
             ModuleAnalysisUnit unit,
             ClassOwnershipIndex ownership,
             Map<String, List<BoundChangePoint>> byOwner,
+            ChangeMatcherIndex matcher,
             Map<BoundChangePoint, List<ReferenceEvidence>> result,
+            Map<QueryNode, Set<ChangePointTerminal>> bindings,
             Set<ModelLimitation> limitations,
             CallGraphStrategyCapabilities capabilities,
-            int[] localCounts) {
+            int[] localCounts,
+            long[] scanCounts,
+            long[] traceState,
+            DiagnosticContext diagnosticContext) {
+    }
+
+    /**
+     * Phase-local Structural Reference to reachable method lookup.
+     *
+     * @param byMethod exact referencing method lookup
+     * @param byOwner class-level or field-level referencing owner lookup
+     */
+    private record StructuralBindings(
+            Map<String, List<ChangePointTerminal>> byMethod,
+            Map<String, List<ChangePointTerminal>> byOwner) {
     }
 
     private EvidenceMechanism dynamicMechanism(
@@ -667,72 +852,62 @@ public final class ChangePointEvidenceCollector {
                 || java.util.Objects.equals(point.getNewDescriptor(), value);
     }
 
-    private boolean referencesType(
-            final SSAInstruction instruction,
-            final String expectedOwner) {
-        if (instruction.getExceptionTypes().stream()
-                .anyMatch(type -> matchesType(type, expectedOwner))) {
-            return true;
-        }
+    private Set<String> referencedTypes(
+            final SSAInstruction instruction) {
+        final Set<String> result = new LinkedHashSet<>();
+        instruction.getExceptionTypes().forEach(type -> addType(result, type));
         if (instruction instanceof SSANewInstruction allocation) {
-            return matchesType(allocation.getConcreteType(), expectedOwner);
+            addType(result, allocation.getConcreteType());
         }
         if (instruction instanceof SSACheckCastInstruction cast) {
             for (TypeReference type : cast.getDeclaredResultTypes()) {
-                if (matchesType(type, expectedOwner)) {
-                    return true;
-                }
+                addType(result, type);
             }
         }
         if (instruction instanceof SSAInstanceofInstruction instanceOf) {
-            return matchesType(instanceOf.getCheckedType(), expectedOwner);
+            addType(result, instanceOf.getCheckedType());
         }
         if (instruction instanceof SSAArrayReferenceInstruction array) {
-            return matchesType(array.getElementType(), expectedOwner);
+            addType(result, array.getElementType());
         }
         if (instruction instanceof SSALoadMetadataInstruction metadata) {
-            return matchesType(metadata.getType(), expectedOwner)
-                    || metadata.getToken() instanceof TypeReference type
-                    && matchesType(type, expectedOwner);
-        }
-        if (instruction instanceof SSAAbstractInvokeInstruction invoke) {
-            return methodReferencesType(
-                    invoke.getDeclaredTarget(), expectedOwner);
-        }
-        if (instruction instanceof SSAFieldAccessInstruction field) {
-            return matchesType(field.getDeclaredField().getDeclaringClass(),
-                    expectedOwner)
-                    || matchesType(field.getDeclaredField().getFieldType(),
-                    expectedOwner);
-        }
-        return false;
-    }
-
-    private boolean methodReferencesType(
-            final MethodReference method,
-            final String expectedOwner) {
-        if (matchesType(method.getDeclaringClass(), expectedOwner)
-                || matchesType(method.getReturnType(), expectedOwner)) {
-            return true;
-        }
-        for (int index = 0;
-                index < method.getNumberOfParameters(); index++) {
-            if (matchesType(method.getParameterType(index), expectedOwner)) {
-                return true;
+            addType(result, metadata.getType());
+            if (metadata.getToken() instanceof TypeReference type) {
+                addType(result, type);
             }
         }
-        return false;
+        if (instruction instanceof SSAAbstractInvokeInstruction invoke) {
+            addMethodTypes(result, invoke.getDeclaredTarget());
+        }
+        if (instruction instanceof SSAFieldAccessInstruction field) {
+            addType(result, field.getDeclaredField().getDeclaringClass());
+            addType(result, field.getDeclaredField().getFieldType());
+        }
+        return result;
     }
 
-    private boolean matchesType(
-            final TypeReference type,
-            final String expectedOwner) {
+    private void addMethodTypes(
+            final Set<String> result,
+            final MethodReference method) {
+        addType(result, method.getDeclaringClass());
+        addType(result, method.getReturnType());
+        for (int index = 0;
+                index < method.getNumberOfParameters(); index++) {
+            addType(result, method.getParameterType(index));
+        }
+    }
+
+    private void addType(
+            final Set<String> result,
+            final TypeReference type) {
         if (type == null || type.isPrimitiveType()) {
-            return false;
+            return;
         }
         final TypeReference value = type.isArrayType()
                 ? type.getInnermostElementType() : type;
-        return expectedOwner.equals(owner(value));
+        if (!value.isPrimitiveType()) {
+            result.add(owner(value));
+        }
     }
 
     private int pc(final SSAInstruction instruction) {
@@ -761,6 +936,118 @@ public final class ChangePointEvidenceCollector {
             return value.endsWith(";") ? value : value + ";";
         }
         return value;
+    }
+
+    /** Private JVM-identity ChangePoint lookup for the Evidence phase. */
+    private final class ChangeMatcherIndex {
+
+        /** Changed reachable method declarations. */
+        private final Map<String, List<BoundChangePoint>> declarations =
+                new LinkedHashMap<>();
+
+        /** Removed, descriptor-changed, or narrowed method references. */
+        private final Map<String, List<BoundChangePoint>> methods =
+                new LinkedHashMap<>();
+
+        /** Removed, descriptor-changed, or narrowed field references. */
+        private final Map<String, List<BoundChangePoint>> fields =
+                new LinkedHashMap<>();
+
+        /** Removed or narrowed class references. */
+        private final Map<String, List<BoundChangePoint>> classes =
+                new LinkedHashMap<>();
+
+        /** @param unit canonical Module input */
+        ChangeMatcherIndex(final ModuleAnalysisUnit unit) {
+            for (BoundChangePoint point : unit.getChangePoints()) {
+                final ChangePoint change = point.getChangePoint();
+                switch (change.getKind()) {
+                    case METHOD_BODY_CHANGED -> add(declarations,
+                            methodKey(change.getOwner(), change.getName(),
+                                    change.getNewDescriptor()), point);
+                    case METHOD_REMOVED, METHOD_DESCRIPTOR_CHANGED ->
+                            add(methods, methodKey(change.getOwner(),
+                                    change.getName(),
+                                    change.getOldDescriptor()), point);
+                    case METHOD_ACCESS_NARROWED -> add(methods,
+                            methodKey(change.getOwner(), change.getName(),
+                                    change.getNewDescriptor()), point);
+                    case FIELD_REMOVED, FIELD_DESCRIPTOR_CHANGED,
+                            FIELD_ACCESS_NARROWED -> {
+                        add(fields, fieldKey(change.getOwner(),
+                                change.getName(), change.getOldDescriptor()),
+                                point);
+                        if (!java.util.Objects.equals(
+                                change.getOldDescriptor(),
+                                change.getNewDescriptor())) {
+                            add(fields, fieldKey(change.getOwner(),
+                                    change.getName(),
+                                    change.getNewDescriptor()), point);
+                        }
+                    }
+                    case CLASS_REMOVED, CLASS_ACCESS_NARROWED ->
+                            add(classes, change.getOwner(), point);
+                    default -> {
+                        // Change kind has no reachable bytecode matcher.
+                    }
+                }
+            }
+        }
+
+        List<BoundChangePoint> methodDeclarations(
+                final MethodReference method) {
+            return declarations.getOrDefault(methodKey(method), List.of());
+        }
+
+        List<BoundChangePoint> methodReferences(
+                final MethodReference method) {
+            return methods.getOrDefault(methodKey(method), List.of());
+        }
+
+        List<BoundChangePoint> fieldReferences(
+                final FieldReference field) {
+            return fields.getOrDefault(fieldKey(field), List.of());
+        }
+
+        List<BoundChangePoint> classReferences(final String owner) {
+            return classes.getOrDefault(owner, List.of());
+        }
+
+        private void add(
+                final Map<String, List<BoundChangePoint>> target,
+                final String key,
+                final BoundChangePoint point) {
+            if (key == null) {
+                return;
+            }
+            target.computeIfAbsent(key, ignored -> new ArrayList<>())
+                    .add(point);
+        }
+
+        private String methodKey(final MethodReference method) {
+            return methodKey(owner(method), method.getName().toString(),
+                    method.getDescriptor().toString());
+        }
+
+        private String methodKey(
+                final String owner,
+                final String name,
+                final String methodDescriptor) {
+            return owner + "#" + name + methodDescriptor;
+        }
+
+        private String fieldKey(final FieldReference field) {
+            return fieldKey(owner(field.getDeclaringClass()),
+                    field.getName().toString(),
+                    descriptor(field.getFieldType()));
+        }
+
+        private String fieldKey(
+                final String owner,
+                final String name,
+                final String fieldDescriptor) {
+            return owner + "#" + name + ":" + fieldDescriptor;
+        }
     }
 
     /**

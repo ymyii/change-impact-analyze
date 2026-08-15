@@ -4,7 +4,7 @@ import io.github.dependencyanalysis.preflight
         .PreflightResult;
 import io.github.dependencyanalysis.preflight
         .PreflightReport;
-import io.github.dependencyanalysis.runtime.ReportTaskCache;
+import io.github.dependencyanalysis.runtime.ReportCache;
 
 import java.io.IOException;
 import java.io.Writer;
@@ -201,7 +201,7 @@ public final class TreeReportRenderer {
      * @param metadata run metadata
      * @param totalReactors expected reactor count
      * @param output output directory
-     * @param cache task-scoped report cache
+     * @param cache command-owned report cache
      * @return initialized report session
      * @throws IOException on write failure
      */
@@ -209,7 +209,7 @@ public final class TreeReportRenderer {
             final TreeReportMetadata metadata,
             final int totalReactors,
             final Path output,
-            final ReportTaskCache cache) throws IOException {
+            final ReportCache cache) throws IOException {
         if (totalReactors < 0) {
             throw new IllegalArgumentException(
                     "Reactor count must not be negative");

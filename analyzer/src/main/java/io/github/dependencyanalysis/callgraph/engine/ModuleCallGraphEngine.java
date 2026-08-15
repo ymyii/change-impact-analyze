@@ -526,10 +526,14 @@ public final class ModuleCallGraphEngine {
                                             .metadata(graph)),
                             topology));
         } catch (CallGraphException exception) {
-            diagnostics.failStage(context, exception.getMessage());
+            diagnostics.failStage(context, "reason="
+                    + Objects.requireNonNullElse(exception.getMessage(),
+                    exception.getClass().getName()));
             throw exception;
         } catch (Exception exception) {
-            diagnostics.failStage(context, exception.getMessage());
+            diagnostics.failStage(context, "reason="
+                    + Objects.requireNonNullElse(exception.getMessage(),
+                    exception.getClass().getName()));
             throw new CallGraphException(
                     "Module Call Graph construction failed", exception);
         }

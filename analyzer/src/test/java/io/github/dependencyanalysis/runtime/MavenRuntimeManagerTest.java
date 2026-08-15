@@ -115,16 +115,16 @@ class MavenRuntimeManagerTest {
                         CONCURRENT_PREPARATIONS);
         try {
             final List<java.util.concurrent.Callable<
-                    MavenRuntimeDescriptor>> tasks =
+                    MavenRuntimeDescriptor>> preparations =
                     new ArrayList<>();
             for (int index = 0;
                  index < CONCURRENT_PREPARATIONS;
                  index++) {
-                tasks.add(() -> manager.prepare(
+                preparations.add(() -> manager.prepare(
                         null, config, null));
             }
             final List<Future<MavenRuntimeDescriptor>>
-                    futures = executor.invokeAll(tasks);
+                    futures = executor.invokeAll(preparations);
             final List<Path> executables =
                     new ArrayList<>();
             for (Future<MavenRuntimeDescriptor> future

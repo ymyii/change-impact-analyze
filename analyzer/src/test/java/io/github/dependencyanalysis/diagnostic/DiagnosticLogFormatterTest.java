@@ -16,6 +16,7 @@ class DiagnosticLogFormatterTest {
                         "2026-08-05T14:30:01.123+08:00"))
                 .stage("module[analysis]")
                 .substage("call-graph")
+                .phase("REVERSE[BFS]")
                 .attribute("module", "g:a=1;path\\value")
                 .attribute("check", "jdk8")
                 .attribute("artifact", "g:a:1")
@@ -26,7 +27,8 @@ class DiagnosticLogFormatterTest {
         assertThat(new DiagnosticLogFormatter().format(event)).isEqualTo(
                 "[2026-08-05T14:30:01.123+08:00]"
                         + "[TRACE][module\\[analysis\\]][call-graph]"
-                        + "[check=jdk8;module=g:a\\=1\\;path\\\\value;"
+                        + "[phase=REVERSE\\[BFS\\];check=jdk8;"
+                        + "module=g:a\\=1\\;path\\\\value;"
                         + "artifact=g:a:1] snapshot");
     }
 
@@ -42,5 +44,23 @@ class DiagnosticLogFormatterTest {
         assertThat(new DiagnosticLogFormatter().format(event))
                 .isEqualTo("[2026-08-05T14:30:01.123+08:00]"
                         + "[INFO][-][-][-] empty");
+    }
+
+    @Test
+    void formatsPhaseWithoutIdentity() {
+        final DiagnosticEvent event = new DiagnosticEvent.Builder()
+                .timestamp(OffsetDateTime.parse(
+                        "2026-08-05T14:30:01.123+08:00"))
+                .stage("module-analysis")
+                .substage("impact-query")
+                .phase("REVERSE_BFS")
+                .level(DiagnosticLevel.TRACE)
+                .message("progress")
+                .build();
+
+        assertThat(new DiagnosticLogFormatter().format(event)).isEqualTo(
+                "[2026-08-05T14:30:01.123+08:00]"
+                        + "[TRACE][module-analysis][impact-query]"
+                        + "[phase=REVERSE_BFS] progress");
     }
 }

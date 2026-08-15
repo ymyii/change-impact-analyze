@@ -115,9 +115,9 @@ public final class ManagedExecutorRegistry {
      * @param maximumPoolSize configured maximum size
      * @param poolSize current worker count
      * @param activeCount active worker count
-     * @param queuedTaskCount queued task count
-     * @param completedTaskCount completed task count
-     * @param taskCount total scheduled task count
+     * @param queuedCount queued operation count
+     * @param completedCount completed operation count
+     * @param submittedCount total submitted operation count
      * @param shutdown whether shutdown started
      * @param terminated whether termination completed
      */
@@ -127,9 +127,9 @@ public final class ManagedExecutorRegistry {
             int maximumPoolSize,
             int poolSize,
             int activeCount,
-            int queuedTaskCount,
-            long completedTaskCount,
-            long taskCount,
+            int queuedCount,
+            long completedCount,
+            long submittedCount,
             boolean shutdown,
             boolean terminated) {
 

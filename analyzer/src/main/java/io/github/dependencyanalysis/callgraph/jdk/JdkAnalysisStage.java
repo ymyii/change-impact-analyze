@@ -64,8 +64,10 @@ public final class JdkAnalysisStage {
             return scope;
         } catch (RuntimeException exception) {
             diagnostics.failStage(STAGE,
-                    "Target JDK scope failed: "
-                            + exception.getMessage());
+                    "reason=Target JDK scope failed: "
+                            + Objects.requireNonNullElse(
+                            exception.getMessage(),
+                            exception.getClass().getName()));
             throw exception;
         }
     }

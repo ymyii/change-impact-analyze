@@ -99,14 +99,14 @@ class CommandRunDirectoryTest {
                      new CommandRunDirectory(config, "impact");
              CommandRunDirectory second =
                      new CommandRunDirectory(config, "impact")) {
-            try (ReportTaskCache firstCache =
-                         new ReportTaskCache(first, "impact");
-                 ReportTaskCache secondCache =
-                         new ReportTaskCache(second, "impact")) {
+            try (ReportCache firstCache =
+                         new ReportCache(first, "impact");
+                 ReportCache secondCache =
+                         new ReportCache(second, "impact")) {
                 firstRoot = firstCache.root();
                 secondRoot = secondCache.root();
                 assertThat(firstRoot).isNotEqualTo(secondRoot);
-                final ReportTaskCache.Fragment fragment =
+                final ReportCache.Fragment fragment =
                         firstCache.writeJsonLines("module-summary",
                                 "module-a", List.of(json -> {
                                     try {
@@ -134,8 +134,8 @@ class CommandRunDirectoryTest {
     void reportCacheRejectsDuplicateRootAndCleansFailurePath() {
         try (CommandRunDirectory run =
                      new CommandRunDirectory(config, "tree");
-             ReportTaskCache cache = new ReportTaskCache(run, "tree")) {
-            assertThatThrownBy(() -> new ReportTaskCache(run, "tree"))
+             ReportCache cache = new ReportCache(run, "tree")) {
+            assertThatThrownBy(() -> new ReportCache(run, "tree"))
                     .isInstanceOf(MavenRuntimeException.class)
                     .hasMessageContaining("prepare report cache");
             assertThat(cache.root()).isDirectory();
@@ -147,8 +147,8 @@ class CommandRunDirectoryTest {
             throws Exception {
         try (CommandRunDirectory run =
                      new CommandRunDirectory(config, "impact");
-             ReportTaskCache cache = new ReportTaskCache(run, "impact")) {
-            final ReportTaskCache.Fragment fragment = cache.writeJsonLines(
+             ReportCache cache = new ReportCache(run, "impact")) {
+            final ReportCache.Fragment fragment = cache.writeJsonLines(
                     "module-summary", "module-a", json -> {
                         json.writeStartObject();
                         json.writeBooleanField("complete", true);
@@ -184,7 +184,7 @@ class CommandRunDirectoryTest {
             throws Exception {
         try (CommandRunDirectory run =
                      new CommandRunDirectory(config, "tree")) {
-            final ReportTaskCache cache = new ReportTaskCache(run, "tree");
+            final ReportCache cache = new ReportCache(run, "tree");
             final Path outside = config.resolve("outside.txt");
             Files.writeString(outside, "keep");
             final Path link = cache.root().resolve("unsafe-link");

@@ -105,11 +105,11 @@ final class SeedProgressReporter implements AutoCloseable {
     }
 
     /**
-     * Starts one QueryNode task with a fresh clock and metrics.
+     * Starts one QueryNode query with a fresh clock and metrics.
      *
      * @param ordinal stable Module-local QueryNode ordinal
      * @param node exact QueryNode
-     * @param evidenceSeeds evidence bindings consumed by the task
+     * @param evidenceSeeds evidence bindings consumed by the query
      * @return isolated QueryNode tracker
      */
     SeedProgressTracker startQueryNode(
@@ -120,11 +120,11 @@ final class SeedProgressReporter implements AutoCloseable {
             return SeedProgressTracker.disabled();
         }
         final NodeProgress progress = NodeProgress.from(node);
-        diagnostics.transientLog(context, DiagnosticLevel.TRACE,
+        diagnostics.transientLog(context.withPhase("REVERSE_BFS"),
+                DiagnosticLevel.TRACE,
                 LogVerbosity.TRACE,
                 "event=query-node-started; queryNodeOrdinal=" + ordinal
                         + "; evidenceSeeds=" + evidenceSeeds
-                        + "; phase=REVERSE_BFS"
                         + "; elapsedMs=0; visited=0; "
                         + progress.render("recent"));
         final SeedProgressTracker tracker = new SeedProgressTracker(
@@ -146,23 +146,23 @@ final class SeedProgressReporter implements AutoCloseable {
     interface HeartbeatScheduler extends AutoCloseable {
 
         /**
-         * Schedules a fixed-rate task.
+         * Schedules a fixed-rate heartbeat action.
          *
-         * @param task task
+         * @param action heartbeat action
          * @param initialDelay initial delay
          * @param period fixed period
          * @param unit delay unit
-         * @return cancellable task
+         * @return cancellable schedule
          */
         Cancellable scheduleAtFixedRate(
-                Runnable task, long initialDelay, long period,
+                Runnable action, long initialDelay, long period,
                 TimeUnit unit);
 
         @Override
         void close();
     }
 
-    /** Cancellable scheduled task. */
+    /** Cancellable heartbeat schedule. */
     interface Cancellable {
 
         /** Cancels future heartbeats. */
@@ -182,12 +182,12 @@ final class SeedProgressReporter implements AutoCloseable {
 
         @Override
         public Cancellable scheduleAtFixedRate(
-                final Runnable task,
+                final Runnable action,
                 final long initialDelay,
                 final long period,
                 final TimeUnit unit) {
             final ScheduledFuture<?> future = executor.scheduleAtFixedRate(
-                    task, initialDelay, period, unit);
+                    action, initialDelay, period, unit);
             return () -> future.cancel(false);
         }
 
@@ -215,7 +215,7 @@ record TrackerConfiguration(
         long heartbeatNanos) {
 }
 
-/** Thread-safe metrics for exactly one QueryNode task. */
+/** Thread-safe metrics for exactly one QueryNode query. */
 final class SeedProgressTracker implements AutoCloseable {
 
     /** Shared disabled tracker; it owns no mutable query state. */
@@ -237,7 +237,7 @@ final class SeedProgressTracker implements AutoCloseable {
     /** Interval. */
     private final long heartbeatNanos;
 
-    /** Per-QueryNode start; never shared with another task. */
+    /** Per-QueryNode start; never shared with another query. */
     private final long startedNanos;
 
     /** Log identity. */
@@ -265,8 +265,8 @@ final class SeedProgressTracker implements AutoCloseable {
     /** Serializes heartbeat completion ordering. */
     private final Object lifecycle = new Object();
 
-    /** Scheduled task. */
-    private volatile SeedProgressReporter.Cancellable task;
+    /** Active heartbeat schedule. */
+    private volatile SeedProgressReporter.Cancellable heartbeatSchedule;
 
     private SeedProgressTracker() {
         diagnostics = null;
@@ -305,7 +305,7 @@ final class SeedProgressTracker implements AutoCloseable {
         if (!active.get()) {
             return;
         }
-        task = scheduler.scheduleAtFixedRate(this::heartbeat,
+        heartbeatSchedule = scheduler.scheduleAtFixedRate(this::heartbeat,
                 heartbeatNanos, heartbeatNanos, TimeUnit.NANOSECONDS);
     }
 
@@ -354,11 +354,11 @@ final class SeedProgressTracker implements AutoCloseable {
                 return;
             }
             cancel();
-            diagnostics.transientLog(context, DiagnosticLevel.TRACE,
+            diagnostics.transientLog(context.withPhase(phase.get().name()),
+                    DiagnosticLevel.TRACE,
                     LogVerbosity.TRACE,
                     "event=query-node-completed; queryNodeOrdinal=" + ordinal
                             + "; evidenceSeeds=" + evidenceSeeds
-                            + "; phase=" + phase.get()
                             + "; elapsedMs=" + elapsedMillis()
                             + "; visited=" + visited.get() + "; "
                             + recentNode.get().render("recent"));
@@ -372,13 +372,13 @@ final class SeedProgressTracker implements AutoCloseable {
             }
             final long heartbeat = heartbeats.incrementAndGet();
             final NodeProgress node = recentNode.get();
-            diagnostics.transientLog(context, DiagnosticLevel.TRACE,
+            diagnostics.transientLog(context.withPhase(phase.get().name()),
+                    DiagnosticLevel.TRACE,
                     LogVerbosity.TRACE,
                     "event=query-node-progress; queryNodeOrdinal=" + ordinal
                             + "; evidenceSeeds=" + evidenceSeeds
                             + "; heartbeat=" + heartbeat
                             + "; elapsedMs=" + elapsedMillis()
-                            + "; phase=" + phase.get()
                             + "; visited=" + visited.get()
                             + "; " + node.render("recent"));
         }
@@ -390,7 +390,7 @@ final class SeedProgressTracker implements AutoCloseable {
     }
 
     private void cancel() {
-        final SeedProgressReporter.Cancellable scheduled = task;
+        final SeedProgressReporter.Cancellable scheduled = heartbeatSchedule;
         if (scheduled != null) {
             scheduled.cancel();
         }

@@ -83,7 +83,7 @@ public final class JdkModelFixture {
         ((BusinessValue) local.get()).downstream();
 
         Executor executor = new DirectExecutor();
-        executor.execute(new Task());
+        executor.execute(new Callback());
         CompletableFuture.supplyAsync(new Supply())
                 .thenApply(new Mapper()).thenAccept(new Sink());
 
@@ -173,7 +173,7 @@ public final class JdkModelFixture {
         }
     }
 
-    public static final class Task implements Runnable {
+    public static final class Callback implements Runnable {
         @Override
         public void run() {
             new BusinessValue().downstream();

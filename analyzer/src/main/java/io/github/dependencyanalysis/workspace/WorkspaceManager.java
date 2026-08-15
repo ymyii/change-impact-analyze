@@ -138,7 +138,8 @@ public final class WorkspaceManager
             return result;
         } catch (WorkspacePrepareException e) {
             diag.failStage(STAGE,
-                    e.getMessage());
+                    "reason=" + Objects.requireNonNullElse(
+                            e.getMessage(), e.getClass().getName()));
             cleanupAll();
             throw e;
         }

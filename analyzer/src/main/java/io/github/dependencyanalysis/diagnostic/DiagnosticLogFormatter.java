@@ -1,6 +1,7 @@
 package io.github.dependencyanalysis.diagnostic;
 
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -41,7 +42,7 @@ public final class DiagnosticLogFormatter {
                 + "[" + event.getLevel() + "]"
                 + segment(event.getStage())
                 + segment(event.getSubstage())
-                + attributes(event.getAttributes());
+                + context(event.getPhase(), event.getAttributes());
     }
 
     private String segment(final String value) {
@@ -51,18 +52,23 @@ public final class DiagnosticLogFormatter {
         return "[" + escape(value) + "]";
     }
 
-    private String attributes(final Map<String, String> values) {
-        if (values.isEmpty()) {
-            return "[-]";
+    private String context(
+            final String phase,
+            final Map<String, String> values) {
+        final List<String> entries = new ArrayList<>();
+        if (phase != null && !phase.isBlank()) {
+            entries.add("phase=" + escape(phase));
         }
-        final String joined = values.entrySet().stream()
+        values.entrySet().stream()
                 .filter(entry -> !entry.getValue().isBlank())
                 .sorted(attributeComparator())
                 .map(entry -> escape(entry.getKey()) + "="
                         + escape(entry.getValue()))
-                .reduce((left, right) -> left + ";" + right)
-                .orElse("-");
-        return "[" + joined + "]";
+                .forEach(entries::add);
+        if (entries.isEmpty()) {
+            return "[-]";
+        }
+        return "[" + String.join(";", entries) + "]";
     }
 
     private Comparator<Map.Entry<String, String>> attributeComparator() {

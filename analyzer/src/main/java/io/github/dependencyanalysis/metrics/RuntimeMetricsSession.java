@@ -228,9 +228,9 @@ public final class RuntimeMetricsSession implements AutoCloseable {
                         + "; max=" + pool.maximumPoolSize()
                         + "; size=" + pool.poolSize()
                         + "; active=" + pool.activeCount()
-                        + "; queued=" + pool.queuedTaskCount()
-                        + "; completed=" + pool.completedTaskCount()
-                        + "; tasks=" + pool.taskCount()
+                        + "; queued=" + pool.queuedCount()
+                        + "; completed=" + pool.completedCount()
+                        + "; submitted=" + pool.submittedCount()
                         + "; shutdown=" + pool.shutdown()
                         + "; terminated=" + pool.terminated());
     }

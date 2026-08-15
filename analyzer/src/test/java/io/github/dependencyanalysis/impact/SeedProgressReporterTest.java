@@ -89,8 +89,12 @@ class SeedProgressReporterTest {
                 "event=query-node-started"))
                 .hasSize(2)
                 .allMatch(line -> line.contains(
-                        "phase=REVERSE_BFS; elapsedMs=0; visited=0"));
+                        "[phase=REVERSE_BFS;module=sample]"))
+                .allMatch(line -> line.contains(
+                        "evidenceSeeds=") && line.contains(
+                        "; elapsedMs=0; visited=0"));
         assertThat(lines).anySatisfy(line -> assertThat(line)
+                .contains("[phase=REVERSE_BFS;module=sample]")
                 .contains("event=query-node-progress; queryNodeOrdinal=1")
                 .contains("evidenceSeeds=2")
                 .contains("heartbeat=1; elapsedMs=10000")
@@ -100,8 +104,8 @@ class SeedProgressReporterTest {
                 .contains("event=query-node-progress; queryNodeOrdinal=1")
                 .contains("heartbeat=2; elapsedMs=20000"));
         assertThat(lines).anySatisfy(line -> assertThat(line)
+                .contains("[phase=REPRESENTATIVE_SELECTION;module=sample]")
                 .contains("event=query-node-completed; queryNodeOrdinal=1")
-                .contains("phase=REPRESENTATIVE_SELECTION")
                 .contains("elapsedMs=25000; visited=4")
                 .contains("recentMethodName=RecentA"));
         assertThat(lines).anySatisfy(line -> assertThat(line)
@@ -110,6 +114,7 @@ class SeedProgressReporterTest {
                 .contains("elapsedMs=0; visited=0")
                 .contains("recentMethodName=SeedB"));
         assertThat(lines).anySatisfy(line -> assertThat(line)
+                .contains("[phase=PATH_MATERIALIZATION;module=sample]")
                 .contains("event=query-node-progress; queryNodeOrdinal=2")
                 .contains("heartbeat=1; elapsedMs=10000")
                 .contains("visited=7")
@@ -117,6 +122,7 @@ class SeedProgressReporterTest {
         assertThat(lines).filteredOn(line -> line.contains(
                 "event=query-node-progress; queryNodeOrdinal=1"))
                 .hasSize(2);
+        assertThat(lines).allMatch(line -> !line.contains("; phase="));
         assertThat(lines).allMatch(line -> !line.contains("methodBody"));
         assertThat(log.getEvents()).isEmpty();
         assertThat(scheduler.closed).isTrue();
@@ -141,7 +147,7 @@ class SeedProgressReporterTest {
         }
 
         assertThat(bytes.toString(StandardCharsets.UTF_8)).isEmpty();
-        assertThat(scheduler.tasks).isEmpty();
+        assertThat(scheduler.schedules).isEmpty();
     }
 
     private List<String> eventLines(final ByteArrayOutputStream bytes) {
@@ -169,28 +175,28 @@ class SeedProgressReporterTest {
     private static final class ManualScheduler
             implements SeedProgressReporter.HeartbeatScheduler {
 
-        /** Scheduled tasks. */
-        private final List<ManualTask> tasks = new ArrayList<>();
+        /** Heartbeat schedules. */
+        private final List<ManualSchedule> schedules = new ArrayList<>();
 
         /** Closed state. */
         private boolean closed;
 
         @Override
         public SeedProgressReporter.Cancellable scheduleAtFixedRate(
-                final Runnable task,
+                final Runnable action,
                 final long initialDelay,
                 final long period,
                 final TimeUnit unit) {
             assertThat(unit.toNanos(initialDelay)).isEqualTo(TEN_SECONDS);
             assertThat(unit.toNanos(period)).isEqualTo(TEN_SECONDS);
-            final ManualTask result = new ManualTask(task);
-            tasks.add(result);
+            final ManualSchedule result = new ManualSchedule(action);
+            schedules.add(result);
             return result;
         }
 
         void fire() {
-            tasks.stream().filter(task -> !task.cancelled)
-                    .forEach(task -> task.runnable.run());
+            schedules.stream().filter(schedule -> !schedule.cancelled)
+                    .forEach(schedule -> schedule.runnable.run());
         }
 
         @Override
@@ -199,8 +205,8 @@ class SeedProgressReporterTest {
         }
     }
 
-    /** One manual scheduled task. */
-    private static final class ManualTask
+    /** One manual heartbeat schedule. */
+    private static final class ManualSchedule
             implements SeedProgressReporter.Cancellable {
 
         /** Runnable. */
@@ -209,7 +215,7 @@ class SeedProgressReporterTest {
         /** Cancelled flag. */
         private boolean cancelled;
 
-        ManualTask(final Runnable value) {
+        ManualSchedule(final Runnable value) {
             runnable = value;
         }
 

@@ -136,7 +136,7 @@ public final class BuildRunner {
     }
 
     /**
-     * Selects the diagnostic task context.
+     * Selects the diagnostic Stage context.
      *
      * @param context context
      * @return this runner
@@ -238,9 +238,9 @@ public final class BuildRunner {
 
     private void fail(final String message) {
         if (diagnosticContext == null) {
-            diag.failStage(STAGE, message);
+            diag.failStage(STAGE, "reason=" + message);
         } else {
-            diag.failStage(diagnosticContext, message);
+            diag.failStage(diagnosticContext, "reason=" + message);
         }
     }
 

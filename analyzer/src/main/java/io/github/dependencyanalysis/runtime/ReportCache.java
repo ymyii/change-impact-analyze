@@ -26,9 +26,9 @@ import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 // Wiki: wiki/architecture/dependency-analysis-pipelines.md
-// - Task cache lifecycle
-/** Owned, versioned, task-scoped cache for report pipeline fragments. */
-public final class ReportTaskCache implements AutoCloseable {
+// - Report cache lifecycle
+/** Owned, versioned cache for one command's report pipeline fragments. */
+public final class ReportCache implements AutoCloseable {
 
     /** Internal report-cache schema. */
     public static final int SCHEMA_VERSION = 1;
@@ -43,7 +43,7 @@ public final class ReportTaskCache implements AutoCloseable {
     private static final JsonFactory JSON = new JsonFactory();
 
     /** Owned command temporary directory. */
-    private final Path taskTemporaryDirectory;
+    private final Path commandTemporaryDirectory;
 
     /** Dedicated cache root. */
     private final Path root;
@@ -66,15 +66,15 @@ public final class ReportTaskCache implements AutoCloseable {
      * @param run owned command run
      * @param commandName impact or tree
      */
-    public ReportTaskCache(
+    public ReportCache(
             final CommandRunDirectory run,
             final String commandName) {
         Objects.requireNonNull(run, "run");
         command = requireCommand(commandName);
         runId = run.getRunId();
-        taskTemporaryDirectory = run.getTemporaryDirectory()
+        commandTemporaryDirectory = run.getTemporaryDirectory()
                 .toAbsolutePath().normalize();
-        root = taskTemporaryDirectory.resolve(CACHE_DIRECTORY).normalize();
+        root = commandTemporaryDirectory.resolve(CACHE_DIRECTORY).normalize();
         requireOwnedChild(root);
         try {
             if (Files.exists(root, LinkOption.NOFOLLOW_LINKS)) {
@@ -390,18 +390,19 @@ public final class ReportTaskCache implements AutoCloseable {
 
     private void requireOwnedChild(final Path value) {
         final Path normalized = value.toAbsolutePath().normalize();
-        if (!normalized.startsWith(taskTemporaryDirectory)
-                || normalized.equals(taskTemporaryDirectory)
-                || !rootParent(normalized).startsWith(taskTemporaryDirectory)) {
+        if (!normalized.startsWith(commandTemporaryDirectory)
+                || normalized.equals(commandTemporaryDirectory)
+                || !rootParent(normalized).startsWith(
+                commandTemporaryDirectory)) {
             throw new IllegalArgumentException(
-                    "Cache path escapes owned task directory: " + value);
+                    "Cache path escapes owned command directory: " + value);
         }
     }
 
     private Path rootParent(final Path value) {
         Path current = value;
         while (current.getParent() != null
-                && !current.getParent().equals(taskTemporaryDirectory)) {
+                && !current.getParent().equals(commandTemporaryDirectory)) {
             current = current.getParent();
         }
         return current.getParent() == null ? current : current.getParent();
@@ -482,7 +483,7 @@ public final class ReportTaskCache implements AutoCloseable {
 
         /** @return complete marker path */
         public Path completeMarker() {
-            return ReportTaskCache.completeMarker(path);
+            return ReportCache.completeMarker(path);
         }
     }
 

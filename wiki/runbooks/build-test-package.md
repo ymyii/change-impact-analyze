@@ -31,6 +31,8 @@ code_refs:
     desc: "Maven Plugin、shading、flatten 与 repository ZIP packaging"
   - path: "analyzer/src/integration-test/java/io/github/dependencyanalysis/cli/PackagedJarCliIT.java"
     desc: "最终 shaded JAR 与真实 command black-box gate"
+  - path: "analyzer/src/integration-test/java/io/github/dependencyanalysis/cli/HtmlReportUsabilityVerifier.java"
+    desc: "Impact单文件与Tree多页面HTML可用性gate"
 ---
 
 # Runbook: Build, Test, Package
@@ -121,12 +123,16 @@ java -jar target/dependency-analyzer.jar impact --help
 java -jar target/dependency-analyzer.jar tree --help
 ```
 
+最终HTML可用性不是手工`ls`检查。`mvn clean verify`中的`PackagedJarCliIT`使用shaded JAR生成真实Impact与Tree输出，并由`HtmlReportUsabilityVerifier`递归检查HTML结构、本地资源、Report root边界和Tree Reactor page可达性。失败详情位于`target/failsafe-reports/`。
+
 ## Success Criteria
 
 - Plugin reactor 输出 `0 Checkstyle violations`，tests 全部通过，Plugin class major 不超过 `52`。Graph tests 覆盖scope-conflict pruning、multi-path winner normalization、missing winner fail-fast；output tests 覆盖owner/path/symlink 与 atomic publication。
 - Plugin repository ZIP 只有 Maven layout 下当前 version 的 JAR 与 consumer POM，不包含项目生成的 checksum sidecar。
 - Analyzer `mvn clean verify` 的 Surefire 与 Failsafe tests 全部通过且 `Skipped: 0`。
 - `PackageArchitectureTest`在`mvn verify`中强制Call Graph与Impact/Report解耦、CHA与`k-obj`隔离、protocol依赖方向、根包无production class以及Report不访问live strategy。
+- `StagePhaseTerminologyTest`在unit test中扫描主代码、测试、Wiki和用户文档；除WALA/Java强制外部API名称外，不允许项目自有控制流程重新引入旧术语。
+- Diagnostic与Impact Query tests验证五段prefix、可选Phase、Phase不进入Stage计时key、统一`started/completed/failed`正文，以及QueryNode消息正文不再重复`phase=`。
 - 真实JDK 8 test完成JDK probe、WALA scope、默认CHA与显式`k-obj`，不因缺少环境变量跳过。CHA验证JDK leaf不展开；`k-obj`验证JDK model callback dispatch。
 - CLI/config/report tests确认默认组合为`cha + none`；`k-obj`默认`jdk8`且可显式`none`；`cha + jdk8`统一拒绝。Reflection配置只应用于`k-obj`。
 - CHA与`k-obj`通过统一Evidence Schema、timeout和metadata regression；MethodHandle、ServiceLoader、Class.forName与`invokedynamic`由聚焦`k-obj` capability tests覆盖。CHA额外覆盖local constant、JDK leaf、路径外external target pruning和完整external祖先链。
@@ -141,6 +147,7 @@ java -jar target/dependency-analyzer.jar tree --help
 - Packaged help只接受`cha`与`k-obj`，后者标记`experimental`；`rta`、`zero-cfa`和`optimized-0-1-cfa`在解析阶段失败。
 - Packaged JAR保留公共JDK model engine、JDK 8 façade与catalog；不包含已删除algorithm class、旧Call Graph根包class或兼容wrapper。
 - `PackagedJarCliIT`使用真实changed-dependency fixture执行默认JDK 8的`k-obj`，要求fixed point完成、报告生成并显示`experimental`。
+- `PackagedJarCliIT`使用最终shaded JAR生成真实Impact与Tree Report。`HtmlReportUsabilityVerifier`要求entry file可读、HTML/head/title/body结构完整、无未展开模板标记；所有本地`href/src`必须留在Report root内且目标可读，Tree Index必须能到达至少一个Reactor page。
 - Analyzer能力新增或行为扩展时，必须同步新增/更新benchmark fixture、verification与expected baseline。只有用户明确要求执行benchmark时才运行matrix；获得授权后，14个JVM、4组semantic baseline和两份HTML Report必须全部成功。当前4个`PENDING`baseline必须先经授权calibration和人工review锁定；calibration不得发布tracked snapshot。
 
 ## Failure Entrypoints

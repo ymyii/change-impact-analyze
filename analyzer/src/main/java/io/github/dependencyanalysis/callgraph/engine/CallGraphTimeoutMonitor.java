@@ -27,13 +27,13 @@ public final class CallGraphTimeoutMonitor
     }
 
     @Override
-    public void beginTask(final String task, final int totalWork) {
+    public void beginTask(final String ignoredName, final int totalWork) {
         // WALA progress units are intentionally not surfaced.
     }
 
     @Override
-    public void subTask(final String subTask) {
-        // WALA subtask names are implementation details.
+    public void subTask(final String ignoredName) {
+        // WALA progress callback names are implementation details.
     }
 
     @Override

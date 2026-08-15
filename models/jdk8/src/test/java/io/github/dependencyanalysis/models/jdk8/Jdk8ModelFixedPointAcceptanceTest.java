@@ -44,7 +44,7 @@ class Jdk8ModelFixedPointAcceptanceTest {
             "fixture/JdkModelFixture$DateQuery.queryFrom("
                     + "Ljava/time/temporal/TemporalAccessor;)"
                     + "Ljava/lang/Object;",
-            "fixture/JdkModelFixture$Task.run()V",
+            "fixture/JdkModelFixture$Callback.run()V",
             "fixture/JdkModelFixture$Visitor.visitFile("
                     + "Ljava/lang/Object;"
                     + "Ljava/nio/file/attribute/BasicFileAttributes;)"

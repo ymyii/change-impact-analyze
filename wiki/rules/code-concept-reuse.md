@@ -8,7 +8,7 @@ relations:
     desc: "共享抽象的职责归属与依赖方向约束"
 code_refs:
   - path: "AGENTS.md"
-    desc: "编码任务遵循Wiki规范的全局入口"
+    desc: "编码工作遵循Wiki规范的全局入口"
 ---
 
 # Rule: Code and Concept Reuse
@@ -64,7 +64,7 @@ Design review和Code review必须确认：
 
 ## Reference Files
 
-- `AGENTS.md` - 编码任务检索并遵循Wiki规范的全局入口。
+- `AGENTS.md` - 编码工作检索并遵循Wiki规范的全局入口。
 
 ## Non-Goals
 

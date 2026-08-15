@@ -85,7 +85,7 @@ class JdkCallbackReachabilityTest {
 
             assertRealJdkDispatch(session,
                     CallGraphAlgorithm.K_OBJ,
-                    "PreciseJdkCallback$Task", "run");
+                    "PreciseJdkCallback$Callback", "run");
         }
     }
 
@@ -233,9 +233,9 @@ class JdkCallbackReachabilityTest {
         Files.writeString(source, """
                 public final class PreciseJdkCallback {
                     public static void execute() {
-                        new Thread(new Task()).run();
+                        new Thread(new Callback()).run();
                     }
-                    static final class Task implements Runnable {
+                    static final class Callback implements Runnable {
                         public void run() { }
                     }
                 }

@@ -227,13 +227,13 @@ class BuildRunnerIT {
                                 e.getStage())
                         && e.getMessage()
                                 .equals(
-                                        "Task started"))
+                                        "started"))
                 .anyMatch(e ->
                         "build".equals(
                                 e.getStage())
                         && e.getMessage()
                                 .startsWith(
-                                        "Task completed; elapsedMs=")
+                                        "completed; elapsedMs=")
                         && e.getElapsedMillis() >= 0L);
     }
 

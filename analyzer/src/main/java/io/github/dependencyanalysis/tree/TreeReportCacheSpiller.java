@@ -2,26 +2,26 @@ package io.github.dependencyanalysis.tree;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 
-import io.github.dependencyanalysis.runtime.ReportTaskCache;
+import io.github.dependencyanalysis.runtime.ReportCache;
 
 import java.io.IOException;
 import java.util.Comparator;
 import java.util.List;
 
 // Wiki: wiki/architecture/dependency-analysis-pipelines.md - Tree cache spill
-/** Writes one Reactor's ordered report evidence to task-scoped JSON Lines. */
+/** Writes one Reactor's ordered report evidence to cached JSON Lines. */
 final class TreeReportCacheSpiller {
 
     /**
      * Spills ordered tree and normalized occurrence records.
      *
      * @param result completed reactor result
-     * @param cache task cache
+     * @param cache command report cache
      * @return prefix used for post-publication discard
      */
     String spill(
             final ReactorTreeResult result,
-            final ReportTaskCache cache) {
+            final ReportCache cache) {
         final String prefix = result.getReactor().getId() + "\n";
         for (ModuleTreeResult module : result.getModules().stream()
                 .sorted(Comparator.comparing(value ->
@@ -37,7 +37,7 @@ final class TreeReportCacheSpiller {
                     json -> {
                         json.writeStartObject();
                         json.writeNumberField("schemaVersion",
-                                ReportTaskCache.SCHEMA_VERSION);
+                                ReportCache.SCHEMA_VERSION);
                         json.writeStringField("reactor",
                                 result.getReactor().getId());
                         json.writeStringField("pom",
@@ -56,7 +56,7 @@ final class TreeReportCacheSpiller {
     }
 
     private void spillOccurrences(
-            final ReportTaskCache cache,
+            final ReportCache cache,
             final String kind,
             final String key,
             final ModuleTreeResult module,

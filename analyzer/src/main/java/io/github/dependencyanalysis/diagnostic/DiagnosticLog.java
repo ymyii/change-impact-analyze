@@ -110,20 +110,21 @@ public final class DiagnosticLog {
      * @param context context
      */
     public synchronized void startStage(final DiagnosticContext context) {
-        startStage(context, "Task started");
+        startStage(context, "");
     }
 
     /**
-     * Starts one complete-context timer with a caller-supplied message.
+     * Starts one complete-context timer with caller-supplied details.
      *
      * @param context context
-     * @param message message
+     * @param details optional semicolon-delimited details
      */
     public synchronized void startStage(
             final DiagnosticContext context,
-            final String message) {
+            final String details) {
         stageStarts.put(context.stableKey(), nanoTime.getAsLong());
-        emitRetained(context, DiagnosticLevel.INFO, message);
+        emitRetained(context, DiagnosticLevel.INFO,
+                lifecycle("started", details));
     }
 
     /**
@@ -141,47 +142,49 @@ public final class DiagnosticLog {
      * @param context context
      */
     public synchronized void endStage(final DiagnosticContext context) {
-        endStage(context, "Task completed");
+        endStage(context, "");
     }
 
     /**
-     * Ends one complete-context timer with a caller-supplied message.
+     * Ends one complete-context timer with caller-supplied details.
      *
      * @param context context
-     * @param message message before elapsed details
+     * @param details optional semicolon-delimited details
      */
     public synchronized void endStage(
             final DiagnosticContext context,
-            final String message) {
+            final String details) {
         final long elapsed = elapsedMillis(context);
         emitRetained(context, DiagnosticLevel.INFO,
-                withElapsed(message, elapsed), elapsed);
+                withElapsed(lifecycle("completed", details), elapsed),
+                elapsed);
     }
 
     /**
      * Fails one stage-only timer.
      *
      * @param stage stage
-     * @param reason failure reason
+     * @param details failure details
      */
     public synchronized void failStage(
             final String stage,
-            final String reason) {
-        failStage(DiagnosticContext.stage(stage), reason);
+            final String details) {
+        failStage(DiagnosticContext.stage(stage), details);
     }
 
     /**
      * Fails one complete-context timer.
      *
      * @param context context
-     * @param reason failure reason
+     * @param details failure details
      */
     public synchronized void failStage(
             final DiagnosticContext context,
-            final String reason) {
+            final String details) {
         final long elapsed = elapsedMillis(context);
         emitRetained(context, DiagnosticLevel.ERROR,
-                withElapsed(reason, elapsed), elapsed);
+                withElapsed(lifecycle("failed", details), elapsed),
+                elapsed);
     }
 
     /**
@@ -364,6 +367,14 @@ public final class DiagnosticLog {
         return normalized.isBlank()
                 ? "elapsedMs=" + elapsed
                 : normalized + "; elapsedMs=" + elapsed;
+    }
+
+    private String lifecycle(
+            final String state,
+            final String details) {
+        final String normalized = Objects.requireNonNullElse(details, "")
+                .trim();
+        return normalized.isBlank() ? state : state + "; " + normalized;
     }
 
     private void emitRetained(

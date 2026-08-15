@@ -160,12 +160,14 @@ class MavenDependencyPluginRuntimeManagerTest {
                 new ArrayList<>();
         try {
             final List<java.util.concurrent.Callable<
-                    MavenDependencyPluginRuntime>> tasks = new ArrayList<>();
+                    MavenDependencyPluginRuntime>> preparations =
+                    new ArrayList<>();
             for (int index = 0; index < CONCURRENT_PREPARATIONS; index++) {
-                tasks.add(() -> manager.prepare(config, List.of(), null));
+                preparations.add(() -> manager.prepare(
+                        config, List.of(), null));
             }
             final List<Future<MavenDependencyPluginRuntime>> futures =
-                    executor.invokeAll(tasks);
+                    executor.invokeAll(preparations);
             for (Future<MavenDependencyPluginRuntime> future : futures) {
                 runtimes.add(future.get());
             }

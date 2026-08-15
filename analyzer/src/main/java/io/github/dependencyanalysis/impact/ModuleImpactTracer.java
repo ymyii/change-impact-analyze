@@ -62,7 +62,7 @@ public final class ModuleImpactTracer {
     /** Command-wide result-refinement selection. */
     private final ResultRefinementSelection resultRefinements;
 
-    /** Active QueryNode tasks for this serial Module. */
+    /** Active QueryNode queries for this serial Module. */
     private final AtomicInteger activeWorkers = new AtomicInteger();
 
     /** Active-worker termination monitor after Module-local cancellation. */
@@ -149,17 +149,22 @@ public final class ModuleImpactTracer {
         final DiagnosticContext context = DiagnosticContext.of(
                 "module-analysis", "impact-query").withModule(
                 unit.getModuleId().stableKey());
-        final QueryPlan plan = plan(unit, session, changePointEvidence);
-        final ChaLocalReceiverEdgeRefiner edgeRefiner =
-                new ChaLocalReceiverEdgeRefiner(session, resultRefinements);
-        final int workers = plan.works().isEmpty() ? 0
-                : executor == null ? 1
-                : Math.min(parallelism, plan.works().size());
-        diagnostics.startStage(context, "Task started; seeds="
-                + plan.seedCount() + "; queryNodes=" + plan.works().size()
-                + "; workers=" + workers);
-        try (SeedProgressReporter seedProgress =
-                     SeedProgressReporter.open(diagnostics, context)) {
+        diagnostics.startStage(context, "changes="
+                + unit.getChangePoints().size() + "; evidenceBindings="
+                + changePointEvidence.reverseBfsBindings().size());
+        try {
+            final QueryPlan plan = plan(unit, session, changePointEvidence);
+            final ChaLocalReceiverEdgeRefiner edgeRefiner =
+                    new ChaLocalReceiverEdgeRefiner(
+                            session, resultRefinements);
+            final int workers = plan.works().isEmpty() ? 0
+                    : executor == null ? 1
+                    : Math.min(parallelism, plan.works().size());
+            diagnostics.debug(context, "Query planning completed; seeds="
+                    + plan.seedCount() + "; queryNodes="
+                    + plan.works().size() + "; workers=" + workers);
+            try (SeedProgressReporter seedProgress =
+                         SeedProgressReporter.open(diagnostics, context)) {
             final QueryExecution execution = execute(
                     unit.getModuleId(), session, plan.works(), workers,
                     seedProgress, edgeRefiner);
@@ -168,7 +173,7 @@ public final class ModuleImpactTracer {
             final ModuleImpactQueryResult result = finish(
                     plan, execution, context, refinement);
             traceRefinementExamples(context, refinement);
-            diagnostics.endStage(context, "Task completed; seeds="
+            diagnostics.endStage(context, "seeds="
                     + plan.seedCount() + "; queryNodes="
                     + plan.works().size() + "; workers=" + workers
                     + "; chaLocalReceiver="
@@ -179,8 +184,9 @@ public final class ModuleImpactTracer {
                     + "; unknownEdges="
                     + refinement.metrics().retainedUnknownEdges());
             return result;
+            }
         } catch (RuntimeException exception) {
-            diagnostics.failStage(context, "Task failed: "
+            diagnostics.failStage(context, "reason="
                     + Objects.requireNonNullElse(
                     exception.getMessage(), exception.getClass().getName()));
             throw exception;
@@ -203,6 +209,8 @@ public final class ModuleImpactTracer {
                 new ArrayList<>();
         final Set<StructuralReferenceMatch> plannedStructural =
                 new LinkedHashSet<>();
+        final Map<String, StructuralReferenceMatch> structuralByKey =
+                new LinkedHashMap<>();
         int seedCount = 0;
         final ChangePointSeedResolverRegistry seedResolvers =
                 new ChangePointSeedResolverRegistry();
@@ -223,8 +231,25 @@ public final class ModuleImpactTracer {
                 continue;
             }
             plannedStructural.add(match);
-            for (QueryNode node : structuralSeeds(
-                    unit.getModuleId(), match.reference(), session)) {
+            structuralByKey.put(referenceKey(match), match);
+        }
+        for (Map.Entry<QueryNode, List<ChangePointTerminal>> entry
+                : changePointEvidence.reverseBfsBindings().entrySet()) {
+            for (ChangePointTerminal terminal : entry.getValue()) {
+                final EvidenceAnchor rawAnchor = terminal.getImpactEvidence()
+                        .anchor().orElse(null);
+                if (!(rawAnchor instanceof StructuralEvidenceAnchor anchor)) {
+                    continue;
+                }
+                final StructuralReferenceMatch candidate =
+                        new StructuralReferenceMatch(
+                                terminal.getChangePoint(), anchor.reference());
+                final StructuralReferenceMatch match = structuralByKey.get(
+                        referenceKey(candidate));
+                if (match == null) {
+                    continue;
+                }
+                final QueryNode node = entry.getKey();
                 grouped.computeIfAbsent(node, QueryWorkBuilder::new)
                         .structural().add(
                         new StructuralSeedBinding(match, node));
@@ -256,6 +281,15 @@ public final class ModuleImpactTracer {
             pointStates.put(point, new PointState(change.getKind(),
                     resolution.observation(), !seeds.isEmpty()));
             for (ImpactSeed seed : seeds) {
+                final ChangePointTerminal terminal = new ChangePointTerminal(
+                        point, seed.evidence());
+                if (!changePointEvidence.bindingsFor(seed.node())
+                        .contains(terminal)) {
+                    throw new IllegalStateException(
+                            "Impact seed is absent from unified Evidence "
+                                    + "binding: " + point.stableKey() + "|"
+                                    + seed.evidence().stableKey());
+                }
                 grouped.computeIfAbsent(seed.node(), QueryWorkBuilder::new)
                         .ordinary().add(new OrdinarySeedBinding(point, seed));
                 seedCount++;
@@ -332,7 +366,7 @@ public final class ModuleImpactTracer {
             throw new ImpactException("Impact Query interrupted", exception);
         } catch (ExecutionException exception) {
             cancelAndAwait(active);
-            throw new ImpactException("QueryNode task failed",
+            throw new ImpactException("QueryNode query failed",
                     exception.getCause());
         }
     }
@@ -347,7 +381,7 @@ public final class ModuleImpactTracer {
                 } catch (InterruptedException exception) {
                     Thread.currentThread().interrupt();
                     throw new ImpactException(
-                            "Interrupted while cancelling QueryNode tasks",
+                            "Interrupted while cancelling QueryNode queries",
                             exception);
                 }
             }
@@ -374,7 +408,7 @@ public final class ModuleImpactTracer {
         final int active;
         synchronized (workerLifecycle) {
             if (Thread.currentThread().isInterrupted()) {
-                throw new ImpactException("QueryNode task cancelled");
+                throw new ImpactException("QueryNode query cancelled");
             }
             active = activeWorkers.incrementAndGet();
         }
@@ -567,42 +601,6 @@ public final class ModuleImpactTracer {
                 ? ChangePointDisposition.SHADOWED_BY_DUPLICATE : null;
     }
 
-    private List<QueryNode> structuralSeeds(
-            final ModuleId moduleId,
-            final StructuralReference reference,
-            final ModuleCallGraphSession session) {
-        final Set<QueryNode> result = new LinkedHashSet<>();
-        for (CGNode node : session.getGraph()) {
-            if (!isSyntheticRoot(node, session)
-                    && reference.getReferencingClass().equals(
-                    owner(node.getMethod().getReference()))
-                    && matchesStructuralMember(reference,
-                    node.getMethod().getReference())) {
-                result.add(queryNode(moduleId, node, session));
-            }
-        }
-        return result.stream().sorted(queryNodeComparator()).toList();
-    }
-
-    private boolean matchesStructuralMember(
-            final StructuralReference reference,
-            final MethodReference method) {
-        return matchesStructuralMember(reference,
-                new MethodId(owner(method), method.getName().toString(),
-                        method.getDescriptor().toString(), "", ""));
-    }
-
-    private boolean matchesStructuralMember(
-            final StructuralReference reference,
-            final MethodId method) {
-        final String member = reference.getReferencingMember();
-        final int descriptor = member.indexOf('(');
-        if (descriptor < 0) {
-            return true;
-        }
-        return member.startsWith(method.name() + method.descriptor());
-    }
-
     private List<StructuralReferencePath> materializeStructural(
             final BoundChangePoint point,
             final StructuralReference reference,
@@ -667,7 +665,7 @@ public final class ModuleImpactTracer {
         tracker.reverseProgress(seed, visited.size());
         while (!queue.isEmpty()) {
             if (Thread.currentThread().isInterrupted()) {
-                throw new ImpactException("QueryNode task cancelled");
+                throw new ImpactException("QueryNode query cancelled");
             }
             final QueryNode current = queue.remove();
             tracker.reverseProgress(current, visited.size());
@@ -884,7 +882,7 @@ public final class ModuleImpactTracer {
 
 
     /**
-     * QueryNode-local backward slice, released before the task returns.
+     * QueryNode-local backward slice, released before the query returns.
      *
      * @param seed query seed
      * @param next next-node links toward the seed

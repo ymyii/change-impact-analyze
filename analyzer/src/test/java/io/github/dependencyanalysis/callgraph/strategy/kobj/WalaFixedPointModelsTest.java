@@ -809,7 +809,7 @@ class WalaFixedPointModelsTest {
                     public interface Base { Object get(); }
                     public interface Narrow { String get(); }
                     public interface Marker { }
-                    public static Base task(String captured) {
+                    public static Base create(String captured) {
                         return (Base & Narrow & Marker & Serializable)
                                 () -> captured;
                     }
@@ -818,7 +818,7 @@ class WalaFixedPointModelsTest {
         final Path classes = compile("AltLambdaApp", """
                 public class AltLambdaApp {
                     public Object execute() {
-                        return AltFactory.task("value").get();
+                        return AltFactory.create("value").get();
                     }
                 }
                 """, List.of(reactor));
@@ -859,7 +859,7 @@ class WalaFixedPointModelsTest {
                                         .isEqualTo("AltFactory");
                                 assertThat(target.getMethod().getName()
                                         .toString())
-                                        .startsWith("lambda$task$");
+                                        .startsWith("lambda$create$");
                             });
                 });
             }
@@ -876,11 +876,11 @@ class WalaFixedPointModelsTest {
                 """);
         final Path classes = compile("RemovedLambdaApp", """
                 public class RemovedLambdaApp {
-                    public Runnable task() {
+                    public Runnable callback() {
                         return LambdaLibrary::implementation;
                     }
                     public void execute() {
-                        task().run();
+                        callback().run();
                     }
                 }
                 """, List.of(reactor));

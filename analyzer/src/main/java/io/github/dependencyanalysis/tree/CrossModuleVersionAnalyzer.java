@@ -108,10 +108,10 @@ public final class CrossModuleVersionAnalyzer {
     }
 
     /**
-     * Uses selected-only task-cache external grouping for one reactor.
+     * Uses selected-only cached external grouping for one reactor.
      *
      * @param reactor reactor result
-     * @param cacheRoot task cache root
+     * @param cacheRoot report cache root
      * @return deterministic divergence issues
      * @throws IOException on cache grouping failure
      */

@@ -418,13 +418,23 @@ class PerModuleHtmlReportGeneratorTest {
                 .artifact(artifact.toString())
                 .level(DiagnosticLevel.WARN)
                 .message(warning.summary()).build();
+        final DiagnosticEvent phaseDiagnostic =
+                new DiagnosticEvent.Builder()
+                        .stage("module-analysis")
+                        .substage("impact-query")
+                        .phase("REVERSE_BFS")
+                        .module(moduleId.stableKey())
+                        .level(DiagnosticLevel.TRACE)
+                        .message("event=query-node-progress")
+                        .build();
         final MavenDependencyPluginRuntime plugin =
                 new MavenDependencyPluginRuntimeManager().prepare(
                         temporary.resolve("config-scope-warning"),
                         List.of(), null);
 
         new PerModuleHtmlReportGenerator().generate(run,
-                List.of(diagnostic), new PreflightReport(List.of()),
+                List.of(diagnostic, phaseDiagnostic),
+                new PreflightReport(List.of()),
                 maven(), plugin, java(), output);
 
         assertThat(output).content()
@@ -452,6 +462,8 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("INCONCLUSIVE_SCOPE_VALIDATION")
                 .contains("[scope-validation][module][module=")
                 .contains(";artifact=example:legacy:jar:1]")
+                .contains("[module-analysis][impact-query]"
+                        + "[phase=REVERSE_BFS;module=")
                 .doesNotContain("legacy.jar")
                 .doesNotContain("<strong>Failed:</strong>");
         assertThat(index.indexOf(warningPrefix, limitationHeading))

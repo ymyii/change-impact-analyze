@@ -83,14 +83,14 @@ class JdkAnalysisStageTest {
         Files.createDirectories(classes);
         Files.writeString(source, """
                 public class App {
-                    interface Task { void run(); }
-                    static class Worker implements Task {
+                    interface Callback { void run(); }
+                    static class Worker implements Callback {
                         public void run() { helper(); }
                         static void helper() { }
                     }
                     public void execute() {
-                        Task task = new Worker();
-                        task.run();
+                        Callback callback = new Worker();
+                        callback.run();
                         Runnable lambda = Worker::helper;
                         lambda.run();
                     }

@@ -51,7 +51,7 @@ import io.github.dependencyanalysis.metrics.ManagedExecutorRegistry
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 import io.github.dependencyanalysis.runtime.MavenDependencyPluginRuntime;
 import io.github.dependencyanalysis.runtime.MavenRuntimeDescriptor;
-import io.github.dependencyanalysis.runtime.ReportTaskCache;
+import io.github.dependencyanalysis.runtime.ReportCache;
 import io.github.dependencyanalysis.workspace.WorkspaceResult;
 
 import java.io.File;
@@ -77,9 +77,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /** Executes the Spring backend per-module Call Graph pipeline. */
-final class PerModuleImpactPipeline {
+final class PerModuleImpactPipeline implements ImpactExecutionEngine {
 
-    /** Maximum wait for canceled preparation tasks to release processes. */
+    /** Maximum wait for canceled preparation branches to release processes. */
     private static final long PREPARATION_SHUTDOWN_SECONDS = 30L;
 
     /** Diagnostics. */
@@ -136,8 +136,8 @@ final class PerModuleImpactPipeline {
     /** Optional Call Graph benchmark diagnostics JSON. */
     private final Path callGraphDiagnosticsOutput;
 
-    /** Optional task-scoped report cache for the production command. */
-    private final ReportTaskCache reportCache;
+    /** Optional command-owned report cache. */
+    private final ReportCache reportCache;
 
     /** Immutable JAR repository for the active command. */
     private IJarRepository jarRepository;
@@ -197,7 +197,9 @@ final class PerModuleImpactPipeline {
      * @return complete analysis run
      * @throws Exception on global preparation failure
      */
-    AnalysisRunResult run(final WorkspaceResult workspace) throws Exception {
+    @Override
+    public AnalysisRunResult run(final WorkspaceResult workspace)
+            throws Exception {
         final Map<String, Long> elapsed = new LinkedHashMap<>();
         final long planningStart = System.currentTimeMillis();
         final ModuleScopePlanner planner = new ModuleScopePlanner();
@@ -338,7 +340,7 @@ final class PerModuleImpactPipeline {
                     spillCodeComparison(value);
                 } catch (ExecutionException exception) {
                     throw new IllegalStateException(
-                            "Unexpected code comparison task failure",
+                            "Unexpected code comparison failure",
                             exception.getCause());
                 }
                 completed++;
@@ -581,7 +583,7 @@ final class PerModuleImpactPipeline {
             }
             if (!executor.isTerminated()) {
                 diagnostics.warn("front-parallel",
-                        "Preparation task did not terminate within "
+                        "Preparation branch did not terminate within "
                                 + PREPARATION_SHUTDOWN_SECONDS + "s");
             }
         } finally {
@@ -685,18 +687,18 @@ final class PerModuleImpactPipeline {
                 : Math.min(groups.size(), jarDiffWorkerLimit());
         final DiagnosticContext context = DiagnosticContext.of(
                 "jar-diff", "aggregate");
-        diagnostics.startStage(context, "Task started; pairs="
+        diagnostics.startStage(context, "pairs="
                 + groups.size() + "; workers=" + workers);
         try {
             final BindingResult result = parallelJarDiff(groups);
-            diagnostics.endStage(context, "Task completed; changes="
+            diagnostics.endStage(context, "changes="
                     + result.changeCount() + "; pairs="
                     + result.pairCount() + "; failedPairs="
                     + result.failedPairCount() + "; workers="
                     + result.actualWorkers());
             return result;
         } catch (InterruptedException | RuntimeException exception) {
-            diagnostics.failStage(context, "Task failed; pairs="
+            diagnostics.failStage(context, "pairs="
                     + groups.size() + "; workers=" + workers + "; reason="
                     + Objects.requireNonNullElse(exception.getMessage(),
                     exception.getClass().getName()));
@@ -740,7 +742,7 @@ final class PerModuleImpactPipeline {
                     pair = future.get();
                 } catch (ExecutionException exception) {
                     throw new IllegalStateException(
-                            "Unexpected JAR diff task failure",
+                            "Unexpected JAR comparison failure",
                             exception.getCause());
                 }
                 if (pair.failure() == null) {
@@ -982,7 +984,7 @@ final class PerModuleImpactPipeline {
         try {
             for (ModuleAnalysisUnit unit : active) {
                 final String key = unit.getModuleId().coordinateKey();
-                ModuleAnalysisResult module = analyzeModuleTask(
+                ModuleAnalysisResult module = analyzeModuleStage(
                         unit, failedDiffModules.contains(key),
                         entrypoints.indexes().get(key),
                         entrypoints.failures().get(key), queryExecutor,
@@ -1096,7 +1098,7 @@ final class PerModuleImpactPipeline {
             final ModuleAnalysisResult module) throws IOException {
         json.writeStartObject();
         json.writeNumberField("schemaVersion",
-                ReportTaskCache.SCHEMA_VERSION);
+                ReportCache.SCHEMA_VERSION);
         json.writeStringField("module", module.getModuleId().stableKey());
         json.writeStringField("status", module.getStatus().name());
         json.writeStringField("reason", module.getReason().name());
@@ -1209,7 +1211,7 @@ final class PerModuleImpactPipeline {
         void write(JsonGenerator json) throws IOException;
     }
 
-    private ModuleAnalysisResult analyzeModuleTask(
+    private ModuleAnalysisResult analyzeModuleStage(
             final ModuleAnalysisUnit unit,
             final boolean diffFailed,
             final EntrypointClassIndex preparedEntrypoints,
@@ -1221,7 +1223,7 @@ final class PerModuleImpactPipeline {
                 unit.getModuleId().stableKey());
         diagnostics.startStage(context);
         try {
-            return analyzeModule(unit, diffFailed,
+            return executeModuleAnalysis(unit, diffFailed,
                     preparedEntrypoints, entrypointFailure, queryExecutor,
                     actualImpactQueryWorkers);
         } finally {
@@ -1229,7 +1231,7 @@ final class PerModuleImpactPipeline {
         }
     }
 
-    private ModuleAnalysisResult analyzeModule(
+    private ModuleAnalysisResult executeModuleAnalysis(
             final ModuleAnalysisUnit unit,
             final boolean diffFailed,
             final EntrypointClassIndex preparedEntrypoints,
@@ -1278,15 +1280,48 @@ final class PerModuleImpactPipeline {
             stageElapsed.put("call-graph",
                     System.currentTimeMillis() - stageStart);
             stageStart = System.currentTimeMillis();
-            final StructuralReferenceIndex structuralReferences =
-                    new StructuralImpactScanner(repository()).scan(
-                            unit, session.getOwnership());
-            final ChangePointEvidenceIndex changePointEvidence =
-                    new ChangePointEvidenceCollector().collect(
+            final DiagnosticContext evidenceContext = DiagnosticContext.of(
+                    "module-analysis", "evidence-analysis").withModule(
+                    unit.getModuleId().stableKey());
+            diagnostics.startStage(evidenceContext,
+                    "changes=" + unit.getChangePoints().size()
+                            + "; graphNodes="
+                            + session.getGraph().getNumberOfNodes());
+            final StructuralReferenceIndex structuralReferences;
+            final ChangePointEvidenceIndex changePointEvidence;
+            try {
+                structuralReferences = new StructuralImpactScanner(
+                        repository()).scan(unit, session.getOwnership());
+                changePointEvidence = new ChangePointEvidenceCollector(
+                        diagnostics).collect(
                             unit, session.getGraph(), session.getOwnership(),
                             session.getDynamicEvidence(), structuralReferences,
                             session.getStrategyCapabilities(),
                             session::isBodyAvailable);
+                final int evidenceCount = changePointEvidence.resolutions()
+                        .stream().mapToInt(value -> value.evidence().size())
+                        .sum();
+                final int bindingCount = changePointEvidence
+                        .reverseBfsBindings().values().stream()
+                        .mapToInt(List::size).sum();
+                diagnostics.endStage(evidenceContext,
+                        "structuralReferences="
+                                + structuralReferences.references().size()
+                                + "; evidence=" + evidenceCount
+                                + "; queryNodes=" + changePointEvidence
+                                .reverseBfsBindings().size()
+                                + "; bindings=" + bindingCount);
+            } catch (RuntimeException exception) {
+                diagnostics.failStage(evidenceContext,
+                        "reason="
+                                + Objects.requireNonNullElse(
+                                exception.getMessage(),
+                                exception.getClass().getName()));
+                throw exception;
+            }
+            stageElapsed.put("evidence-analysis",
+                    System.currentTimeMillis() - stageStart);
+            stageStart = System.currentTimeMillis();
             final ModuleImpactQueryResult query =
                     new ModuleImpactTracer(diagnostics, queryExecutor,
                             analysisParallelism, workers ->
@@ -1294,58 +1329,11 @@ final class PerModuleImpactPipeline {
                                     workers, Math::max),
                             resultRefinements).trace(
                                     unit, session, changePointEvidence);
-            stageElapsed.put("call-graph-query",
+            stageElapsed.put("impact-query",
                     System.currentTimeMillis() - stageStart);
-            final List<String> limitations = new ArrayList<>(
-                    scopeValidation.limitations());
-            limitations.addAll(session.getModelLimitations());
-            final CallGraphCoverageMapper coverageMapper =
-                    new CallGraphCoverageMapper();
-            final List<CoverageLimitation> boundaryLimitations =
-                    coverageMapper.boundary(session.getDependencyBoundary());
-            limitations.addAll(boundaryLimitations
-                    .stream().map(CoverageLimitation::summary).toList());
-            limitations.addAll(query.getLimitations().stream()
-                    .map(QueryLimitation::summary).toList());
-            if (diffFailed) {
-                limitations.addAll(unit.getJarDiffFailureSummaries());
-            }
-            final List<CoverageLimitation> coverage = new ArrayList<>();
-            scopeValidation.warnings().stream().map(coverageMapper::scope)
-                    .forEach(coverage::add);
-            session.getCoverageLimitations().stream()
-                    .map(coverageMapper::model).forEach(coverage::add);
-            coverage.addAll(boundaryLimitations);
-            coverage.addAll(changePointEvidence.limitations());
-            coverage.addAll(query.getLimitations());
-            final ModuleAnalysisReason reason =
-                    ModuleCoverageReducer.reduce(diffFailed, coverage);
-            final boolean inconclusive = reason
-                    != ModuleAnalysisReason.NONE;
-            return new ModuleAnalysisResult.Builder(unit)
-                    .status(inconclusive
-                                    ? ModuleAnalysisStatus.INCONCLUSIVE
-                                    : ModuleAnalysisStatus.SUCCESS,
-                            reason,
-                            inconclusive
-                                    ? "Analysis completed with coverage "
-                                    + "limitations"
-                                    : "Analysis completed within declared "
-                                    + "model")
-                    .session(session)
-                    .changePointEvidence(changePointEvidence)
-                    .duplicateClassResolutions(
-                            session.getDuplicateClassResolutions())
-                    .candidatePaths(query.getPaths())
-                    .finalPaths(query.getPaths())
-                    .structuralPaths(query.getStructuralPaths())
-                    .dispositions(query.getDispositions())
-                    .observations(query.getObservations())
-                    .receiverRefinement(query.getReceiverRefinement())
-                    .limitations(limitations)
-                    .elapsedMillis(System.currentTimeMillis() - start)
-                    .stageElapsedMillis(stageElapsed)
-                    .build();
+            return finalizeModule(new ModuleFinalizationInput(
+                    unit, diffFailed, start, stageElapsed,
+                    scopeValidation, session, changePointEvidence, query));
         } catch (ScopeValidationException exception) {
             return failed(unit,
                     ModuleAnalysisReason.FAILED_SCOPE_VALIDATION,
@@ -1362,6 +1350,84 @@ final class PerModuleImpactPipeline {
             }
             return failed(unit, ModuleAnalysisReason.FAILED_ANALYSIS,
                     exception, start, stageElapsed);
+        }
+    }
+
+    private ModuleAnalysisResult finalizeModule(
+            final ModuleFinalizationInput input) {
+        final long stageStart = System.currentTimeMillis();
+        final ModuleAnalysisUnit unit = input.unit();
+        final DiagnosticContext context = DiagnosticContext.of(
+                "module-analysis", "module-finalization").withModule(
+                unit.getModuleId().stableKey());
+        diagnostics.startStage(context);
+        try {
+            final ModuleCallGraphSession session = input.session();
+            final ModuleImpactQueryResult query = input.query();
+            final List<String> limitations = new ArrayList<>(
+                    input.scopeValidation().limitations());
+            limitations.addAll(session.getModelLimitations());
+            final CallGraphCoverageMapper coverageMapper =
+                    new CallGraphCoverageMapper();
+            final List<CoverageLimitation> boundaryLimitations =
+                    coverageMapper.boundary(session.getDependencyBoundary());
+            limitations.addAll(boundaryLimitations.stream()
+                    .map(CoverageLimitation::summary).toList());
+            limitations.addAll(query.getLimitations().stream()
+                    .map(QueryLimitation::summary).toList());
+            if (input.diffFailed()) {
+                limitations.addAll(unit.getJarDiffFailureSummaries());
+            }
+            final List<CoverageLimitation> coverage = new ArrayList<>();
+            input.scopeValidation().warnings().stream()
+                    .map(coverageMapper::scope).forEach(coverage::add);
+            session.getCoverageLimitations().stream()
+                    .map(coverageMapper::model).forEach(coverage::add);
+            coverage.addAll(boundaryLimitations);
+            coverage.addAll(input.evidence().limitations());
+            coverage.addAll(query.getLimitations());
+            final ModuleAnalysisReason reason = ModuleCoverageReducer.reduce(
+                    input.diffFailed(), coverage);
+            final boolean inconclusive = reason != ModuleAnalysisReason.NONE;
+            input.stageElapsed().put("module-finalization",
+                    System.currentTimeMillis() - stageStart);
+            final ModuleAnalysisResult result =
+                    new ModuleAnalysisResult.Builder(unit)
+                            .status(inconclusive
+                                            ? ModuleAnalysisStatus.INCONCLUSIVE
+                                            : ModuleAnalysisStatus.SUCCESS,
+                                    reason, inconclusive
+                                            ? "Analysis completed with "
+                                            + "coverage limitations"
+                                            : "Analysis completed within "
+                                            + "declared model")
+                            .session(session)
+                            .changePointEvidence(input.evidence())
+                            .duplicateClassResolutions(
+                                    session.getDuplicateClassResolutions())
+                            .candidatePaths(query.getPaths())
+                            .finalPaths(query.getPaths())
+                            .structuralPaths(query.getStructuralPaths())
+                            .dispositions(query.getDispositions())
+                            .observations(query.getObservations())
+                            .receiverRefinement(query.getReceiverRefinement())
+                            .limitations(limitations)
+                            .elapsedMillis(System.currentTimeMillis()
+                                    - input.moduleStart())
+                            .stageElapsedMillis(input.stageElapsed())
+                            .build();
+            diagnostics.endStage(context,
+                    "status=" + result.getStatus()
+                            + "; candidatePaths="
+                            + result.getCandidatePaths().size()
+                            + "; structuralPaths="
+                            + result.getStructuralPaths().size());
+            return result;
+        } catch (RuntimeException exception) {
+            diagnostics.failStage(context, "reason="
+                    + Objects.requireNonNullElse(exception.getMessage(),
+                    exception.getClass().getName()));
+            throw exception;
         }
     }
 
@@ -1646,6 +1712,29 @@ final class PerModuleImpactPipeline {
             int changeCount,
             int pairCount,
             int failedPairCount) {
+    }
+
+    /**
+     * Typed Module finalization input.
+     *
+     * @param unit canonical Module input
+     * @param diffFailed whether any relevant JAR diff failed
+     * @param moduleStart Module analysis wall-clock start
+     * @param stageElapsed mutable completed stage timings
+     * @param scopeValidation validated target scope
+     * @param session live Call Graph session
+     * @param evidence complete ChangePoint Evidence index
+     * @param query completed Impact Query result
+     */
+    private record ModuleFinalizationInput(
+            ModuleAnalysisUnit unit,
+            boolean diffFailed,
+            long moduleStart,
+            Map<String, Long> stageElapsed,
+            ScopeValidationResult scopeValidation,
+            ModuleCallGraphSession session,
+            ChangePointEvidenceIndex evidence,
+            ModuleImpactQueryResult query) {
     }
 
     /**

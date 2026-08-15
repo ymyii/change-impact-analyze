@@ -78,7 +78,7 @@ final class TreeExternalOccurrenceSorter {
      *
      * @param modules source modules
      * @param selectedOnly whether omitted occurrences are excluded
-     * @param cacheRoot task cache root
+     * @param cacheRoot report cache root
      * @param scope stable grouping scope
      * @param consumer group consumer
      * @throws IOException on cache I/O failure
