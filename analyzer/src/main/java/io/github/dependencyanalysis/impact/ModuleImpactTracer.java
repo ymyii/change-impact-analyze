@@ -18,6 +18,7 @@ import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.scope.DuplicateClassResolution;
 import io.github.dependencyanalysis.callgraph.model.MethodId;
 import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphSession;
+import io.github.dependencyanalysis.callgraph.topology.StronglyConnectedComponents;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 
@@ -42,6 +43,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntConsumer;
+import java.util.stream.Collectors;
 
 // Wiki: wiki/features/impact-tracing.md - Node-only reverse query entrypoint
 /** QueryNode-grouped Impact Path query over a frozen per-module session. */
@@ -418,10 +420,11 @@ public final class ModuleImpactTracer {
             ReverseTrace reverse = reverse(
                     moduleId, work.node(), session, tracker, edgeRefiner);
             tracker.reverseCompleted(reverse.visited().size());
+            final List<ImpactRoot> roots = roots(reverse, session);
             final List<ImpactPath> paths = new ArrayList<>();
             for (OrdinarySeedBinding binding : work.ordinary()) {
                 for (ImpactPath path : materialize(binding.point(),
-                        binding.seed(), reverse, tracker)) {
+                        binding.seed(), reverse, roots, tracker)) {
                     tracker.representativeSelection(path.getNodes().get(0));
                     paths.add(path);
                 }
@@ -434,7 +437,7 @@ public final class ModuleImpactTracer {
                 final List<StructuralReferencePath> materialized =
                         materializeStructural(
                                 binding.match().changePoint(),
-                                binding.match().reference(), reverse,
+                                binding.match().reference(), reverse, roots,
                                 tracker);
                 if (!materialized.isEmpty()) {
                     recovered.add(binding.match());
@@ -468,7 +471,7 @@ public final class ModuleImpactTracer {
         for (ImpactPath path : execution.paths()) {
             final BoundChangePoint point =
                     path.getTerminal().getChangePoint();
-            final String affected = methodIdentity(path.getAffectedMethod());
+            final String affected = methodIdentity(path.getRootMethod());
             final Map<String, ImpactPath> selected = ordinary
                     .computeIfAbsent(point, ignored -> new LinkedHashMap<>());
             final ImpactPath previous = selected.get(affected);
@@ -516,7 +519,21 @@ public final class ModuleImpactTracer {
         dispositions.entrySet().stream().sorted(Comparator.comparing(entry ->
                 entry.getKey().stableKey())).forEach(entry ->
                 stableDispositions.put(entry.getKey(), entry.getValue()));
+        final long uniqueImpactPaths = paths.stream()
+                .map(this::pathIdentity).distinct().count();
+        final long rootMethods = paths.stream().map(ImpactPath::getRootMethod)
+                .map(this::methodIdentity).distinct().count();
+        final long affectedMethods = paths.stream()
+                .flatMap(path -> path.getAffectedMethods().stream())
+                .map(this::methodIdentity).distinct().count();
+        final long changedMembers = paths.stream().map(path -> path
+                        .getTerminal().getChangePoint().stableKey())
+                .distinct().count();
         diagnostics.info(context, "candidatePaths=" + paths.size()
+                + "; uniqueImpactPaths=" + uniqueImpactPaths
+                + "; rootMethods=" + rootMethods
+                + "; affectedMethods=" + affectedMethods
+                + "; changedMembers=" + changedMembers
                 + "; structuralPaths=" + structuralPaths.size()
                 + "; reverseBfs=" + plan.works().size());
         return new ModuleImpactQueryResult(paths, structuralPaths,
@@ -605,17 +622,17 @@ public final class ModuleImpactTracer {
             final BoundChangePoint point,
             final StructuralReference reference,
             final ReverseTrace reverse,
+            final List<ImpactRoot> roots,
             final SeedProgressTracker tracker) {
         final Map<String, StructuralReferencePath> result =
                 new LinkedHashMap<>();
-        for (QueryNode root : reverse.visited().stream()
-                .filter(node -> node.origin() == CodeOrigin.PROJECT)
-                .sorted(queryNodeComparator()).toList()) {
-            final List<QueryNode> nodes = pathNodes(root, reverse, tracker);
+        for (ImpactRoot root : roots) {
+            final List<QueryNode> nodes = pathNodes(
+                    root.node(), reverse, tracker);
             if (nodes.isEmpty()) {
                 continue;
             }
-            result.putIfAbsent(methodIdentity(root.methodId()),
+            result.putIfAbsent(methodIdentity(root.node().methodId()),
                     new StructuralReferencePath(point, reference,
                             nodes, ImpactClassification.TRANSITIVE));
         }
@@ -658,6 +675,8 @@ public final class ModuleImpactTracer {
             final SeedProgressTracker tracker,
             final ChaLocalReceiverEdgeRefiner edgeRefiner) {
         final Map<QueryNode, QueryNode> next = new HashMap<>();
+        final Map<QueryNode, Set<QueryNode>> incoming = new HashMap<>();
+        final Map<QueryNode, Set<QueryNode>> successors = new HashMap<>();
         final Queue<QueryNode> queue = new ArrayDeque<>();
         final Set<QueryNode> visited = new HashSet<>();
         queue.add(seed);
@@ -669,33 +688,106 @@ public final class ModuleImpactTracer {
             }
             final QueryNode current = queue.remove();
             tracker.reverseProgress(current, visited.size());
-            final List<QueryNode> predecessors = predecessors(
+            final List<QueryNode> callers = predecessors(
                     moduleId, current, session, edgeRefiner);
-            predecessors.sort(queryNodeComparator());
-            for (QueryNode predecessor : predecessors) {
-                if (visited.add(predecessor)) {
-                    next.put(predecessor, current);
-                    queue.add(predecessor);
+            callers.sort(queryNodeComparator());
+            for (QueryNode caller : callers) {
+                incoming.computeIfAbsent(current,
+                        ignored -> new LinkedHashSet<>()).add(caller);
+                successors.computeIfAbsent(caller,
+                        ignored -> new LinkedHashSet<>()).add(current);
+                if (visited.add(caller)) {
+                    next.put(caller, current);
+                    queue.add(caller);
                     tracker.visited(visited.size());
                 }
             }
         }
-        return new ReverseTrace(seed, next, visited);
+        return new ReverseTrace(seed, next, visited,
+                immutableAdjacency(incoming),
+                immutableAdjacency(successors));
+    }
+
+    private Map<QueryNode, Set<QueryNode>> immutableAdjacency(
+            final Map<QueryNode, Set<QueryNode>> source) {
+        final Map<QueryNode, Set<QueryNode>> result = new HashMap<>();
+        source.forEach((node, adjacent) ->
+                result.put(node, Set.copyOf(adjacent)));
+        return Map.copyOf(result);
+    }
+
+    private List<ImpactRoot> roots(
+            final ReverseTrace reverse,
+            final ModuleCallGraphSession session) {
+        final Comparator<QueryNode> order = queryNodeComparator();
+        final List<ImpactRoot> result = new ArrayList<>();
+        final Set<String> calledProjectMethods = reverse.visited().stream()
+                .filter(node -> node.origin() == CodeOrigin.PROJECT)
+                .filter(node -> !reverse.predecessors()
+                        .getOrDefault(node, Set.of()).isEmpty())
+                .map(node -> methodIdentity(node.methodId()))
+                .collect(Collectors.toSet());
+        for (List<QueryNode> component
+                : StronglyConnectedComponents.decompose(reverse.visited(),
+                node -> reverse.successors().getOrDefault(node, Set.of()),
+                node -> reverse.predecessors().getOrDefault(node, Set.of()),
+                order)) {
+            final Set<QueryNode> members = Set.copyOf(component);
+            final boolean hasIncoming = component.stream()
+                    .flatMap(node -> reverse.predecessors()
+                            .getOrDefault(node, Set.of()).stream())
+                    .anyMatch(node -> !members.contains(node));
+            if (hasIncoming) {
+                continue;
+            }
+            final List<QueryNode> project = component.stream()
+                    .filter(node -> node.origin() == CodeOrigin.PROJECT)
+                    .toList();
+            if (project.isEmpty()) {
+                continue;
+            }
+            final List<QueryNode> entrypoints = project.stream()
+                    .filter(node -> isEntrypoint(node, session)).toList();
+            final List<QueryNode> choices = entrypoints.isEmpty()
+                    ? project : entrypoints;
+            final QueryNode representative = choices.stream()
+                    .min(order).orElseThrow();
+            final boolean cycle = component.size() > 1
+                    || component.stream().anyMatch(node -> reverse
+                            .successors().getOrDefault(node, Set.of())
+                            .contains(node));
+            if (!cycle && calledProjectMethods.contains(
+                    methodIdentity(representative.methodId()))) {
+                continue;
+            }
+            result.add(new ImpactRoot(representative,
+                    cycle ? ImpactPathRootKind
+                            .STRONGLY_CONNECTED_COMPONENT
+                            : ImpactPathRootKind.METHOD));
+        }
+        return result.stream().sorted(Comparator
+                .comparing(ImpactRoot::node, order)).toList();
+    }
+
+    private boolean isEntrypoint(
+            final QueryNode node,
+            final ModuleCallGraphSession session) {
+        return node instanceof WalaQueryNode wala
+                && session.getGraph().getEntrypointNodes()
+                .contains(wala.walaNode());
     }
 
     private List<ImpactPath> materialize(
             final BoundChangePoint point,
             final ImpactSeed seed,
             final ReverseTrace reverse,
+            final List<ImpactRoot> roots,
             final SeedProgressTracker tracker) {
         final Map<String, ImpactPath> byAffectedMethod =
                 new LinkedHashMap<>();
-        final List<QueryNode> candidates = reverse.visited().stream()
-                .filter(node -> node.origin() == CodeOrigin.PROJECT)
-                .sorted(queryNodeComparator())
-                .toList();
-        for (QueryNode root : candidates) {
-            final List<QueryNode> nodes = pathNodes(root, reverse, tracker);
+        for (ImpactRoot root : roots) {
+            final List<QueryNode> nodes = pathNodes(
+                    root.node(), reverse, tracker);
             if (nodes.isEmpty()) {
                 continue;
             }
@@ -705,9 +797,9 @@ public final class ModuleImpactTracer {
                             : ImpactClassification.TRANSITIVE;
             final ImpactPath path = new ImpactPath(nodes,
                     new ChangePointTerminal(point, seed.evidence()),
-                    classification);
+                    classification, root.kind());
             final String key = methodIdentity(
-                    root.methodId());
+                    root.node().methodId());
             byAffectedMethod.putIfAbsent(key, path);
         }
         return List.copyOf(byAffectedMethod.values());
@@ -764,10 +856,10 @@ public final class ModuleImpactTracer {
     private Comparator<ImpactPath> pathComparator() {
         return Comparator
                 .comparing((ImpactPath path) ->
-                        path.getAffectedMethod().owner())
-                .thenComparing(path -> path.getAffectedMethod().name())
+                        path.getRootMethod().owner())
+                .thenComparing(path -> path.getRootMethod().name())
                 .thenComparing(path ->
-                        path.getAffectedMethod().descriptor())
+                        path.getRootMethod().descriptor())
                 .thenComparing(path -> path.getTerminal()
                         .getChangePoint().stableKey());
     }
@@ -803,6 +895,16 @@ public final class ModuleImpactTracer {
     private String affectedMethodKey(final StructuralReferencePath path) {
         return path.getAffectedMethod() == null ? ""
                 : methodIdentity(path.getAffectedMethod());
+    }
+
+    private String pathIdentity(final ImpactPath path) {
+        final StringBuilder result = new StringBuilder();
+        for (QueryNode node : path.getNodes()) {
+            result.append(methodIdentity(node.methodId())).append('@')
+                    .append(queryNodeNumber(node)).append('|');
+        }
+        return result.append(path.getClassification()).append('|')
+                .append(path.getRootKind()).toString();
     }
 
     private int compareNodeSequences(
@@ -887,11 +989,26 @@ public final class ModuleImpactTracer {
      * @param seed query seed
      * @param next next-node links toward the seed
      * @param visited nodes visited by this QueryNode only
+     * @param predecessors retained incoming edges in the backward slice
+     * @param successors retained outgoing edges in the backward slice
      */
     private record ReverseTrace(
             QueryNode seed,
             Map<QueryNode, QueryNode> next,
-            Set<QueryNode> visited) {
+            Set<QueryNode> visited,
+            Map<QueryNode, Set<QueryNode>> predecessors,
+            Map<QueryNode, Set<QueryNode>> successors) {
+    }
+
+    /**
+     * Selected PROJECT representative of one root component.
+     *
+     * @param node representative PROJECT node
+     * @param kind ordinary method root or root SCC
+     */
+    private record ImpactRoot(
+            QueryNode node,
+            ImpactPathRootKind kind) {
     }
 
     /** Mutable planning bucket for one exact QueryNode. */

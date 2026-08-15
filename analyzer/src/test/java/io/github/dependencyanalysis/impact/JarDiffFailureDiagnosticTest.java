@@ -2,7 +2,6 @@ package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.bytecode.BytecodeDiffException;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
-import io.github.dependencyanalysis.diagnostic.DiagnosticLevel;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import org.junit.jupiter.api.Test;
@@ -40,13 +39,6 @@ class JarDiffFailureDiagnosticTest {
                 .contains("JAR comparison failed: " + summary)
                 .doesNotContain("\tat ")
                 .doesNotContain("Caused by:");
-        assertThat(diagnostics.getEvents()).singleElement()
-                .satisfies(event -> {
-                    assertThat(event.getLevel()).isEqualTo(
-                            DiagnosticLevel.WARN);
-                    assertThat(event.getMessage()).isEqualTo(
-                            "JAR comparison failed: " + summary);
-                });
     }
 
     @Test
@@ -64,9 +56,6 @@ class JarDiffFailureDiagnosticTest {
                 .contains("BytecodeDiffException: Bytecode diff error")
                 .contains("Caused by: java.lang.IllegalStateException: "
                         + "invalid opcode");
-        assertThat(diagnostics.getEvents()).singleElement()
-                .satisfies(event -> assertThat(event.getLevel())
-                        .isEqualTo(DiagnosticLevel.WARN));
     }
 
     private DiagnosticLog log(

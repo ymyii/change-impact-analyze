@@ -64,7 +64,7 @@ final class ModuleAnalysisSnapshotter {
         return new ImpactPath(nodes, new ChangePointTerminal(
                 terminal.getChangePoint(), freeze(
                 terminal.getImpactEvidence(), evidence)),
-                path.getClassification());
+                path.getClassification(), path.getRootKind());
     }
 
     private ChangePointEvidenceIndex freezeEvidence(

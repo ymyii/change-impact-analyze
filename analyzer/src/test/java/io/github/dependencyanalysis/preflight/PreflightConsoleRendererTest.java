@@ -57,7 +57,6 @@ class PreflightConsoleRendererTest {
         assertThat(output.lines()).allMatch(line -> line.matches(
                 "^\\[[^]]+]\\[(INFO|WARN|ERROR)]\\[preflight]"
                         + "\\[[^]]+]\\[[^]]+] .*$"));
-        assertThat(log.getEvents()).isEmpty();
     }
 
     private PreflightCheck check(

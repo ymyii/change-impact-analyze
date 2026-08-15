@@ -8,8 +8,6 @@ import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.bytecode.AccessTransition;
 import io.github.dependencyanalysis.bytecode.JvmAccess;
-import io.github.dependencyanalysis.diagnostic.DiagnosticEvent;
-import io.github.dependencyanalysis.diagnostic.DiagnosticLevel;
 import io.github.dependencyanalysis.impact.AnalysisMode;
 import io.github.dependencyanalysis.impact.AnalysisConcurrency;
 import io.github.dependencyanalysis.impact.AnalysisRunResult;
@@ -31,6 +29,7 @@ import io.github.dependencyanalysis.impact.CodeComparisonEvidence;
 import io.github.dependencyanalysis.impact.CodeComparisonStatus;
 import io.github.dependencyanalysis.impact.ImpactClassification;
 import io.github.dependencyanalysis.impact.ImpactPath;
+import io.github.dependencyanalysis.impact.ImpactPathRootKind;
 import io.github.dependencyanalysis.impact.refinement.ssa.MethodEquivalenceResult;
 import io.github.dependencyanalysis.impact.refinement.ssa.MethodEquivalenceStatus;
 import io.github.dependencyanalysis.impact.QueryNode;
@@ -70,6 +69,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -92,11 +92,11 @@ class PerModuleHtmlReportGeneratorTest {
     /** Pages per analyzed Module. */
     private static final int MODULE_PAGE_COUNT = 2;
 
+    /** Dense changed member fixture size. */
+    private static final int DENSE_MEMBER_COUNT = 2_501;
+
     /** Unicode line separator protected in embedded JSON. */
     private static final int LINE_SEPARATOR = 0x2028;
-
-    /** Normalized paths sharing the same member. */
-    private static final int SHARED_MEMBER_PATH_COUNT = 3;
 
     /** Temporary output directory. */
     @TempDir
@@ -171,16 +171,7 @@ class PerModuleHtmlReportGeneratorTest {
         final MavenDependencyPluginRuntime plugin =
                 new MavenDependencyPluginRuntimeManager().prepare(
                         temporary.resolve("config"), List.of(), null);
-        final DiagnosticEvent exact = new DiagnosticEvent.Builder()
-                .stage("module-analysis").substage("module")
-                .module(moduleId.stableKey()).level(DiagnosticLevel.INFO)
-                .message("exact module event").build();
-        final DiagnosticEvent misleading = new DiagnosticEvent.Builder()
-                .stage("other").module("different-module")
-                .level(DiagnosticLevel.INFO)
-                .message(moduleId.stableKey() + " substring event").build();
         new PerModuleHtmlReportGenerator().generate(run,
-                List.of(exact, misleading),
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
@@ -223,31 +214,89 @@ class PerModuleHtmlReportGeneratorTest {
                             .contains("-impact"))
                     .findFirst().orElseThrow();
             assertThat(Files.readString(moduleIndex))
-                    .contains("Module Diagnostics")
                     .contains("Stage elapsed time")
                     .contains("embedded 3.6.1")
                     .contains("Affected Paths")
+                    .contains("id=\"changed-member-table\"")
                     .doesNotContain("Dependency Changes")
                     .contains("Technical details")
                     .contains("aria-label=\"Table of contents\"")
-                    .contains("exact module event")
                     .contains("complete &lt;unsafe&gt;")
                     .contains("fixture comparison failure")
+                    .doesNotContain("Module Diagnostics", "Diagnostics")
                     .doesNotContain("<unsafe>")
                     .doesNotContain("substring event");
             assertThat(Files.readString(impact))
-                    .contains("No affected call chain was found within the "
-                            + "documented analysis scope.")
+                    .contains("No affected path matched the current filters.")
                     .contains("id=\"path-type\"")
-                    .contains("<option value=\"10\" selected>10</option>")
+                    .contains("<option value=\"20\" selected>20</option>")
                     .contains("<option value=\"100\">100</option>")
                     .contains("type=\"application/json\"")
+                    .doesNotContain("Diagnostics")
                     .doesNotContain("-changes.html");
         }
     }
 
     @Test
-    void showsOnlyPathAssociatedChangesAndFoldsFilteredCodeEvidence()
+    void keepsDenseChangedMemberTableBrowserResidentAndPageRendered()
+            throws Exception {
+        final Path output = temporary.resolve("dense.html");
+        final ModuleId moduleId = new ModuleId(new ArtifactCoord(
+                "example", "app", "jar", "1"), Path.of("app"));
+        final ArtifactCoord oldArtifact = new ArtifactCoord(
+                "example", "library", "jar", "1");
+        final ArtifactCoord newArtifact = new ArtifactCoord(
+                "example", "library", "jar", "2");
+        final DependencyUpgradeKey upgrade = new DependencyUpgradeKey(
+                moduleId, DependencyScope.COMPILE,
+                oldArtifact, newArtifact);
+        final List<BoundChangePoint> changes = new ArrayList<>();
+        for (int index = 0; index < DENSE_MEMBER_COUNT; index++) {
+            changes.add(new BoundChangePoint(upgrade, new ChangePoint(
+                    newArtifact, ChangePointKind.METHOD_REMOVED,
+                    "example/library/Api", "method" + index,
+                    "()V", null, null)));
+        }
+        final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
+                moduleId, ModulePresence.BOTH,
+                temporary.resolve("dense-classes"), List.of(),
+                List.of(), List.of(),
+                new ModuleChangeSet(changes, List.of()));
+        final ModuleAnalysisResult module = new ModuleAnalysisResult.Builder(
+                unit).status(ModuleAnalysisStatus.SUCCESS,
+                        ModuleAnalysisReason.NONE, "complete").build();
+        final AnalysisRunResult run = new AnalysisRunResult(
+                AnalysisMode.REACTOR, AnalysisStatus.SUCCESS, List.of(),
+                List.of(module), new AnalysisConcurrency(1, 1, 0, 0),
+                Map.of(), EntrypointSelection.allProjectClasses());
+        final MavenDependencyPluginRuntime plugin =
+                new MavenDependencyPluginRuntimeManager().prepare(
+                        temporary.resolve("config-dense"), List.of(), null);
+
+        new PerModuleHtmlReportGenerator().generate(run,
+                new PreflightReport(List.of()), maven(), plugin,
+                java(), output);
+
+        final Path owned = temporary.resolve("dense-modules");
+        final String moduleIndex;
+        try (Stream<Path> pages = Files.list(owned)) {
+            moduleIndex = Files.readString(pages.filter(path ->
+                    !path.getFileName().toString().contains("-impact"))
+                    .findFirst().orElseThrow());
+        }
+        assertThat(occurrences(moduleIndex,
+                "\"changePointKind\":\"METHOD_REMOVED\""))
+                .isEqualTo(DENSE_MEMBER_COUNT);
+        assertThat(moduleIndex)
+                .contains("<tbody id=\"member-rows\"></tbody>")
+                .contains("filtered.slice(start, end)")
+                .contains("rowsNode.replaceChildren(fragment)")
+                .contains("const state = {query: \"\", kind: \"all\", "
+                        + "pageSize: 20, page: 1}");
+    }
+
+    @Test
+    void normalizesFinalAndStructuralRowsWithoutFilteredDetails()
             throws Exception {
         final Path output = temporary.resolve("filtered.html");
         final ModuleId moduleId = new ModuleId(new ArtifactCoord(
@@ -280,11 +329,12 @@ class PerModuleHtmlReportGeneratorTest {
         final ImpactPath candidate = new ImpactPath(List.of(root),
                 new ChangePointTerminal(affected, referenceEvidence(
                         EvidenceMechanism.METHOD_DECLARATION, unsafeDetail)),
-                ImpactClassification.TRANSITIVE);
+                ImpactClassification.TRANSITIVE,
+                ImpactPathRootKind.METHOD);
         final ImpactPath secondCandidate = new ImpactPath(List.of(secondRoot),
                 new ChangePointTerminal(affected, referenceEvidence(
                         EvidenceMechanism.METHOD_DECLARATION, "fixture two")),
-                ImpactClassification.DIRECT);
+                ImpactClassification.DIRECT, ImpactPathRootKind.METHOD);
         final StructuralReferencePath structural =
                 new StructuralReferencePath(affected,
                         new StructuralReference("example/app/Config",
@@ -295,7 +345,7 @@ class PerModuleHtmlReportGeneratorTest {
         final CodeComparisonEvidence code = new CodeComparisonEvidence(
                 CodeComparisonStatus.AVAILABLE,
                 List.of(new UnifiedDiffHunk(1, 1, 1, 1,
-                        List.of("-return 1;", "+return 2;"))), "", "");
+                        List.of("-return 1;", "+return 2;"))), "");
         final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
                 moduleId, ModulePresence.BOTH, temporary.resolve("classes"),
                 List.of(), List.of(), List.of(),
@@ -333,40 +383,56 @@ class PerModuleHtmlReportGeneratorTest {
                         temporary.resolve("config-filtered"),
                         List.of(), null);
 
-        new PerModuleHtmlReportGenerator().generate(run, List.of(),
+        new PerModuleHtmlReportGenerator().generate(run,
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
         final Path owned = temporary.resolve("filtered-modules");
         final String impact;
+        final String moduleIndex;
         try (Stream<Path> pages = Files.list(owned)) {
             final List<Path> values = pages.toList();
             assertThat(values).hasSize(MODULE_PAGE_COUNT);
             impact = Files.readString(values.stream().filter(path ->
                     path.getFileName().toString().contains("-impact"))
                     .findFirst().orElseThrow());
+            moduleIndex = Files.readString(values.stream().filter(path ->
+                    !path.getFileName().toString().contains("-impact"))
+                    .findFirst().orElseThrow());
         }
         assertThat(impact)
                 .contains("<option value=\"final\" selected>Final</option>")
-                .contains("<option value=\"filtered\">Equivalent filtered")
                 .contains("<option value=\"structural\">Structural")
                 .contains("<option value=\"all\">All</option>")
                 .contains("example.app.Controller#handle")
-                .contains("example.app.Controller#search")
-                .contains("\"type\":\"filtered\"")
-                .contains("\"type\":\"structural\"")
-                .contains("\"memberId\":0")
-                .contains("\\u003c/script\\u003e")
+                .contains("\"dependencyUpgrades\"")
+                .contains("\"changedMembers\"")
+                .contains("\"pathSteps\"")
+                .contains("\"codeDiffs\"")
+                .contains("\"pathMemberRows\"")
+                .contains("\"changePointKind\":\"METHOD_BODY_CHANGED\"")
                 .contains("diff-line diff-add")
                 .contains("<tbody id=\"path-rows\"></tbody>")
+                .doesNotContain("Equivalent filtered",
+                        "example.app.Controller#search")
+                .doesNotContain("\"evidence\":", "oldDescriptor",
+                        "newDescriptor", "oldHash", "newHash",
+                        "ssaReason", "observations", "asmFallback")
                 .doesNotContain("/secret/work/classes")
                 .doesNotContain("fixture </script><script>alert(1)")
                 .doesNotContain(Character.toString(LINE_SEPARATOR))
                 .doesNotContain("#hidden", "-changes.html");
         assertThat(occurrences(impact, "\"unifiedDiff\""))
                 .isEqualTo(1);
-        assertThat(occurrences(impact, "\"memberId\":0"))
-                .isEqualTo(SHARED_MEMBER_PATH_COUNT);
+        assertThat(occurrences(impact, "\"changedMemberId\":0"))
+                .isEqualTo(1);
+        assertThat(moduleIndex)
+                .contains("id=\"changed-member-table\"")
+                .contains("\"candidate\":2")
+                .contains("\"filtered\":2")
+                .contains("\"final\":0")
+                .contains("\"structural\":1")
+                .contains("\"name\":\"hidden\"");
         assertThat(output).content()
                 .contains("<th>Result refinement algorithms</th><td>"
                         + "ssa-equivalence (experimental)</td>")
@@ -377,7 +443,7 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("<th>SSA equivalent / different / unknown</th>"
                         + "<td>1 / 0 / 0</td>");
         assertThat(impact)
-                .contains("example:library 1 → 2")
+                .contains("example:library:jar:1", "example:library:jar:2")
                 .contains("-return 1;")
                 .contains("+return 2;");
     }
@@ -412,28 +478,12 @@ class PerModuleHtmlReportGeneratorTest {
                 List.of(), List.of(module),
                 new AnalysisConcurrency(2, 1, 1, 1), Map.of(),
                 EntrypointSelection.allProjectClasses());
-        final DiagnosticEvent diagnostic = new DiagnosticEvent.Builder()
-                .stage("scope-validation").substage("module")
-                .module(moduleId.stableKey())
-                .artifact(artifact.toString())
-                .level(DiagnosticLevel.WARN)
-                .message(warning.summary()).build();
-        final DiagnosticEvent phaseDiagnostic =
-                new DiagnosticEvent.Builder()
-                        .stage("module-analysis")
-                        .substage("impact-query")
-                        .phase("REVERSE_BFS")
-                        .module(moduleId.stableKey())
-                        .level(DiagnosticLevel.TRACE)
-                        .message("event=query-node-progress")
-                        .build();
         final MavenDependencyPluginRuntime plugin =
                 new MavenDependencyPluginRuntimeManager().prepare(
                         temporary.resolve("config-scope-warning"),
                         List.of(), null);
 
         new PerModuleHtmlReportGenerator().generate(run,
-                List.of(diagnostic, phaseDiagnostic),
                 new PreflightReport(List.of()),
                 maven(), plugin, java(), output);
 
@@ -454,22 +504,16 @@ class PerModuleHtmlReportGeneratorTest {
                 "External dependency references excluded JDK classes";
         final int limitationHeading = index.indexOf(
                 "Coverage limitations</h2>");
-        final int diagnosticHeading = index.indexOf(
-                "Module Diagnostics</h2>");
         assertThat(index)
                 .contains("<strong>Completed with coverage limitations:"
                         + "</strong>")
                 .contains("INCONCLUSIVE_SCOPE_VALIDATION")
-                .contains("[scope-validation][module][module=")
-                .contains(";artifact=example:legacy:jar:1]")
-                .contains("[module-analysis][impact-query]"
-                        + "[phase=REVERSE_BFS;module=")
+                .doesNotContain("Diagnostics", "scope-validation",
+                        "REVERSE_BFS")
                 .doesNotContain("legacy.jar")
                 .doesNotContain("<strong>Failed:</strong>");
         assertThat(index.indexOf(warningPrefix, limitationHeading))
-                .isLessThan(diagnosticHeading);
-        assertThat(index.indexOf(warningPrefix, diagnosticHeading))
-                .isGreaterThan(diagnosticHeading);
+                .isGreaterThan(limitationHeading);
     }
 
     @Test
@@ -519,7 +563,7 @@ class PerModuleHtmlReportGeneratorTest {
                         temporary.resolve("config-duplicate"),
                         List.of(), null);
 
-        new PerModuleHtmlReportGenerator().generate(run, List.of(),
+        new PerModuleHtmlReportGenerator().generate(run,
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
@@ -562,7 +606,7 @@ class PerModuleHtmlReportGeneratorTest {
                         temporary.resolve("config-cha"),
                         List.of(), null);
 
-        new PerModuleHtmlReportGenerator().generate(run, List.of(),
+        new PerModuleHtmlReportGenerator().generate(run,
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
@@ -595,7 +639,7 @@ class PerModuleHtmlReportGeneratorTest {
                         temporary.resolve("config-one-object"),
                         List.of(), null);
 
-        new PerModuleHtmlReportGenerator().generate(run, List.of(),
+        new PerModuleHtmlReportGenerator().generate(run,
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
@@ -641,7 +685,7 @@ class PerModuleHtmlReportGeneratorTest {
                         List.of(new UnifiedDiffHunk(1, 1, 1, 1,
                                 List.of("-public void call()",
                                         "+protected void call()"))),
-                        "", "");
+                        "");
         final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
                 moduleId, ModulePresence.BOTH,
                 temporary.resolve("access-classes"), List.of(),
@@ -664,7 +708,7 @@ class PerModuleHtmlReportGeneratorTest {
                 new MavenDependencyPluginRuntimeManager().prepare(
                         temporary.resolve("config-access"), List.of(), null);
 
-        new PerModuleHtmlReportGenerator().generate(run, List.of(),
+        new PerModuleHtmlReportGenerator().generate(run,
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
@@ -678,8 +722,10 @@ class PerModuleHtmlReportGeneratorTest {
                     .findFirst().orElseThrow());
         }
         assertThat(impact)
-                .contains("No affected call chain was found")
-                .contains("\"members\":[],\"paths\":[]")
+                .contains("No affected path matched the current filters.")
+                .contains("\"changedMembers\":[]")
+                .contains("\"paths\":[]")
+                .contains("\"pathMemberRows\":[]")
                 .doesNotContain("example.library.Api#call")
                 .doesNotContain("decision=ACCESSIBLE")
                 .doesNotContain("-public void call()")
@@ -722,7 +768,8 @@ class PerModuleHtmlReportGeneratorTest {
                         referenceEvidence(
                                 EvidenceMechanism.DECLARED_INVOKE,
                                 evidence.render())),
-                ImpactClassification.TRANSITIVE);
+                ImpactClassification.TRANSITIVE,
+                ImpactPathRootKind.METHOD);
         final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
                 moduleId, ModulePresence.BOTH,
                 temporary.resolve("potential-classes"), List.of(),
@@ -747,7 +794,7 @@ class PerModuleHtmlReportGeneratorTest {
                         temporary.resolve("config-potential"),
                         List.of(), null);
 
-        new PerModuleHtmlReportGenerator().generate(run, List.of(),
+        new PerModuleHtmlReportGenerator().generate(run,
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
@@ -760,11 +807,12 @@ class PerModuleHtmlReportGeneratorTest {
                     .findFirst().orElseThrow());
         }
         assertThat(impact)
-                .contains("decision=POTENTIALLY_INACCESSIBLE")
-                .contains("reason=PROTECTED_RECEIVER_UNKNOWN")
-                .contains("\"target\":\"example/library/Api#changed()V\"")
-                .contains("\"source\":\"report-fixture\"")
-                .contains("\"bytecodePc\":0")
+                .contains("\"changePointKind\":"
+                        + "\"METHOD_ACCESS_NARROWED\"")
+                .contains("example.app.Controller#handle")
+                .doesNotContain("decision=POTENTIALLY_INACCESSIBLE",
+                        "PROTECTED_RECEIVER_UNKNOWN", "report-fixture",
+                        "bytecodePc", "\"evidence\":")
                 .doesNotContain("IllegalAccessError");
     }
 

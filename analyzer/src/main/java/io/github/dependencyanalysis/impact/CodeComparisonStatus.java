@@ -6,8 +6,8 @@ public enum CodeComparisonStatus {
     /** Decompiled Java representations produced a Unified diff. */
     AVAILABLE,
 
-    /** Decompiled text was identical; ASM evidence produced the diff. */
-    ASM_FALLBACK,
+    /** Decompiled Java representations are identical. */
+    JAVA_TEXT_IDENTICAL,
 
     /** Decompiled Java comparison could not be produced. */
     UNAVAILABLE

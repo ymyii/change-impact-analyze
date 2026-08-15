@@ -3,10 +3,6 @@ package io.github.dependencyanalysis.build;
 import io.github.dependencyanalysis
         .diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.LogVerbosity;
-import io.github.dependencyanalysis
-        .diagnostic.DiagnosticEvent;
-import io.github.dependencyanalysis
-        .diagnostic.DiagnosticLevel;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,6 +38,9 @@ class BuildRunnerIT {
     /** Diagnostic collector. */
     private DiagnosticLog diag;
 
+    /** Captured Console output. */
+    private ByteArrayOutputStream console;
+
     @BeforeAll
     static void checkMvn() throws Exception {
         final ProcessBuilder pb =
@@ -56,8 +55,9 @@ class BuildRunnerIT {
 
     @BeforeEach
     void setUpDiag() {
+        console = new ByteArrayOutputStream();
         diag = new DiagnosticLog(new PrintStream(
-                new ByteArrayOutputStream()), LogVerbosity.INFO);
+                console), LogVerbosity.INFO);
     }
 
     @Test
@@ -219,22 +219,10 @@ class BuildRunnerIT {
                         projectDir,
                         diag);
         runner.build();
-        final List<DiagnosticEvent> evts =
-                diag.getEvents();
-        assertThat(evts)
-                .anyMatch(e ->
-                        "build".equals(
-                                e.getStage())
-                        && e.getMessage()
-                                .equals(
-                                        "started"))
-                .anyMatch(e ->
-                        "build".equals(
-                                e.getStage())
-                        && e.getMessage()
-                                .startsWith(
-                                        "completed; elapsedMs=")
-                        && e.getElapsedMillis() >= 0L);
+        assertThat(console.toString())
+                .contains("[INFO][build]")
+                .contains(" started")
+                .contains(" completed; elapsedMs=");
     }
 
     @Test
@@ -249,15 +237,9 @@ class BuildRunnerIT {
                         projectDir,
                         diag);
         runner.build();
-        final List<DiagnosticEvent> evts =
-                diag.getEvents();
-        assertThat(evts)
-                .anyMatch(e ->
-                        "build".equals(
-                                e.getStage())
-                        && e.getMessage()
-                                .contains(
-                                        "Found"));
+        assertThat(console.toString())
+                .contains("[INFO][build]")
+                .contains("Found");
         try (java.util.stream.Stream<Path> paths =
                      Files.walk(tempDir)) {
             assertThat(paths
@@ -284,15 +266,7 @@ class BuildRunnerIT {
         } catch (BuildException ex) {
             // expected
         }
-        final List<DiagnosticEvent> evts =
-                diag.getEvents();
-        assertThat(evts)
-                .anyMatch(e ->
-                        "build".equals(
-                                e.getStage())
-                        && e.getLevel()
-                                == DiagnosticLevel
-                                        .ERROR);
+        assertThat(console.toString()).contains("[ERROR][build]");
     }
 
     private void createSingleModuleProject(

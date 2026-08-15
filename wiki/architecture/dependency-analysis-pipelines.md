@@ -39,7 +39,7 @@ code_refs:
 
 Root CLI 分发 `impact` 与 `tree`。`impact` 只编译 target，并为每个 relevant Module 构建一张 selected Call Graph；baseline 提供 dependency evidence 与 old artifact。默认组合为 `cha + changed-paths + jdk-model none + result refinement none`。`k-obj` 是显式选择的实验性 algorithm。
 
-`ImpactCommand`通过`ImpactExecutionEngine`启动默认per-Module实现；Relevant Module按stable key串行。当前Module依次完成Call Graph、单线程Evidence analysis、Impact Query、optional refinement、diagnostics与report-safe snapshot后，才进入下一个Module。`TreeCommand`只承载CLI，`TreeExecutionEngine`负责preflight、Reactor processing与发布。两条pipeline不共享业务Stage，只共享runtime、workspace、diagnostics与report cache基础设施。
+`ImpactCommand`通过`ImpactExecutionEngine`启动默认per-Module实现；Relevant Module按stable key串行。当前Module依次完成Call Graph、单线程Evidence analysis、Impact Query、optional refinement、Final/Structural code comparison与report-safe snapshot后，才进入下一个Module。`TreeCommand`只承载CLI，`TreeExecutionEngine`负责preflight、Reactor processing与发布。两条pipeline不共享业务Stage，只共享runtime、workspace、Console diagnostics与command runtime基础设施。
 
 ## Key Terms
 
@@ -103,9 +103,10 @@ flowchart TD
   Local -->|no| SSAChoice{"SSA equivalence selected?"}
   ChaRefine --> SSAChoice
   SSAChoice -->|yes| SSA["serial SSA equivalence"]
-  SSAChoice -->|no| Spill["detach + report-safe snapshot"]
-  SSA --> Spill
-  Spill --> Report["stream HTML + atomic publication"]
+  SSAChoice -->|no| Compare["Final/Structural code comparison"]
+  SSA --> Compare
+  Compare --> Snapshot["unconditional report-safe snapshot"]
+  Snapshot --> Report["stream HTML + atomic publication"]
 ```
 
 ## Call Graph Boundary
@@ -140,8 +141,9 @@ flowchart TD
 
 - Module 严格串行，避免同时持有多张 WALA graph。
 - Impact Query 与 code comparison 受 `--analysis-parallelism` 的 bounded pool 控制。
-- 当前Module snapshot把path node转换为`SnapshotQueryNode`，把method Evidence anchor转换为stable-only anchor，清空只供Reverse BFS使用的binding并释放live WALA state。
-- Diagnostics JSON 为 Schema v9；Report 和 diagnostics 都读取已冻结 metadata/evidence。
+- 当前Module snapshot无条件把path node转换为`SnapshotQueryNode`，把method Evidence anchor转换为stable-only anchor，清空只供Reverse BFS使用的binding并释放live WALA state；该生命周期不依赖`ReportCache`是否存在。
+- Impact正常HTML发布不启用`ReportCache`，也不写`candidate-path`、`final-path`、`structural-path`、`observation`或`code-comparison`fragment。只有显式`--call-graph-diagnostics-output`启用cache并在live session期流式写`diagnostic-module`fragment。
+- HTML只读取已冻结Module result；显式Schema v9 topology JSON从diagnostic fragment输出。
 - Report完整写入同filesystem staging后原子替换；失败清理command-owned cache。
 
 ## Failure Boundaries

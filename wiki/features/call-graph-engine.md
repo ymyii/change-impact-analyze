@@ -29,6 +29,8 @@ code_refs:
     desc: "ModuleAnalysisUnit 到 Call Graph input 的业务适配"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/CallGraphCoverageMapper.java"
     desc: "Call Graph typed code 到业务 reason/evidence 的单一 mapper"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/topology/StronglyConnectedComponents.java"
+    desc: "拓扑分析与Impact root selection共用的deterministic SCC utility"
 ---
 
 # Feature: Call Graph Engine
@@ -53,7 +55,7 @@ Call Graph 层只接收自身 immutable input，输出 graph、metadata、typed 
 | `callgraph.entrypoint` | entrypoint selection、scanner、metrics、synthetic type registry |
 | `callgraph.scope` | ownership、classpath source、scope validation 与 projection |
 | `callgraph.boundary` | dependency body boundary 与 immutable finding |
-| `callgraph.topology` | diagnostics topology、node identity、rank、path、IR snapshot |
+| `callgraph.topology` | canonical SCC、diagnostics topology、node identity、rank、path、IR snapshot |
 | `callgraph.model` | `MethodId`、`CodeOrigin` 等共享 immutable value |
 | `callgraph.local` | caller-local constant recovery |
 
@@ -121,6 +123,7 @@ Strategy 完成 fixed point 后返回 `CallGraphStrategyResult`。Engine 冻结 
 - ownership precedence 为 `JDK > PROJECT > REACTOR_DEPENDENCY > DEPENDENCY`，duplicate class只保留稳定 winner。
 - 每个 Module 独立拥有 scope、hierarchy、cache 和 graph，不共享可变 WALA state。
 - topology capture只在显式 diagnostics 时执行；Schema v9 保存 node identity、Context、rank、path、source/IR snapshot、scope 与 boundary metadata。
+- `StronglyConnectedComponents`是全项目canonical SCC实现：使用调用方提供的incoming/outgoing adjacency与stable comparator，采用iterative traversal并返回稳定排序组件。`CallGraphTopologyAnalyzer`的cycle识别与Impact root selection必须复用该utility，禁止维护平行SCC算法。
 
 ## Failure Contract
 

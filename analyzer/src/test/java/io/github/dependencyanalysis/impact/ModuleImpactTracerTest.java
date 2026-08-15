@@ -12,6 +12,7 @@ import io.github.dependencyanalysis.bytecode.JvmAccess;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.scope.ClassOwnershipIndex;
 import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.callgraph.model.MethodId;
 import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSelection;
 import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphEngine;
 import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphSession;
@@ -106,6 +107,14 @@ class ModuleImpactTracerTest {
                         package app;
                         public class Entry {
                             public void call() {
+                                new Service().bridge();
+                            }
+                        }
+                        """,
+                "app/Service.java", """
+                        package app;
+                        public class Service {
+                            public void bridge() {
                                 new lib.Middle().touch();
                             }
                         }
@@ -181,8 +190,21 @@ class ModuleImpactTracerTest {
                                 unit, session, evidence);
                 assertThat(result.getPaths())
                         .as(algorithm.identifier())
-                        .anyMatch(path -> path.getTerminal()
-                                .getChangePoint().equals(bodyPoint));
+                        .filteredOn(path -> path.getTerminal()
+                                .getChangePoint().equals(bodyPoint))
+                        .singleElement().satisfies(path -> {
+                            assertThat(path.getRootMethod().owner())
+                                    .isEqualTo("app/Entry");
+                            assertThat(path.getAffectedMethods())
+                                    .extracting(MethodId::owner,
+                                            MethodId::name)
+                                    .containsExactly(
+                                            org.assertj.core.groups.Tuple
+                                                    .tuple("app/Entry", "call"),
+                                            org.assertj.core.groups.Tuple
+                                                    .tuple("app/Service",
+                                                            "bridge"));
+                        });
                 assertThat(result.getStructuralPaths())
                         .as(algorithm.identifier())
                         .anyMatch(path -> path.getChangePoint()
@@ -649,7 +671,8 @@ class ModuleImpactTracerTest {
     private List<String> affectedNames(
             final ModuleImpactQueryResult result) {
         return result.getPaths().stream()
-                .map(path -> path.getAffectedMethod().name()).toList();
+                .flatMap(path -> path.getAffectedMethods().stream())
+                .map(MethodId::name).distinct().toList();
     }
 
     private BoundChangePoint bound(final ArtifactCoord newArtifact) {

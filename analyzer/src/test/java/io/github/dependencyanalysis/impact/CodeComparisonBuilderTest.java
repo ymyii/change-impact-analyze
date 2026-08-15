@@ -68,6 +68,38 @@ class CodeComparisonBuilderTest {
     }
 
     @Test
+    void reportsIdenticalJavaWithoutAsmFallback() throws Exception {
+        final Path oldJar = jar("identical-old.jar", bytes(1, true));
+        final Path newJar = jar("identical-new.jar", bytes(1, true));
+        final ChangePoint point = new ChangePoint(TARGET,
+                ChangePointKind.METHOD_BODY_CHANGED, OWNER, "value", "()I",
+                "old", "new");
+
+        final CodeComparisonEvidence evidence = builder(oldJar, newJar)
+                .build(bound(point));
+
+        assertThat(evidence.getStatus())
+                .isEqualTo(CodeComparisonStatus.JAVA_TEXT_IDENTICAL);
+        assertThat(evidence.getUnifiedDiff()).isEmpty();
+    }
+
+    @Test
+    void reportsUnavailableWhenJavaCannotBeDecompiled() throws Exception {
+        final Path oldJar = jar("missing-old.jar", bytes(1, true));
+        final Path newJar = jar("missing-new.jar", bytes(2, true));
+        final ChangePoint point = new ChangePoint(TARGET,
+                ChangePointKind.METHOD_BODY_CHANGED, "missing/Changed",
+                "value", "()I", "old", "new");
+
+        final CodeComparisonEvidence evidence = builder(oldJar, newJar)
+                .build(bound(point));
+
+        assertThat(evidence.getStatus())
+                .isEqualTo(CodeComparisonStatus.UNAVAILABLE);
+        assertThat(evidence.getUnifiedDiff()).isEmpty();
+    }
+
+    @Test
     void rendersRemovedFieldDeclarationAgainstEmptyTarget() throws Exception {
         final Path oldJar = jar("field-old.jar", bytes(1, true));
         final Path newJar = jar("field-new.jar", bytes(1, false));

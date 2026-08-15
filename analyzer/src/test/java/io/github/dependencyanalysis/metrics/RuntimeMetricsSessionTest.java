@@ -97,7 +97,6 @@ class RuntimeMetricsSessionTest {
                 .contains("[TRACE][runtime-metrics][sampler][-]"
                         + " Sampling failed; sample=1; elapsedMs=")
                 .contains("error=IllegalStateException: unavailable");
-        assertThat(log.getEvents()).isEmpty();
     }
 
     @Test

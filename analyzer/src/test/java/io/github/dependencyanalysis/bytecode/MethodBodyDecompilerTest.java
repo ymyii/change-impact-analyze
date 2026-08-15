@@ -6,7 +6,6 @@ import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.dependency.DependencyScope;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.LogVerbosity;
-import io.github.dependencyanalysis.diagnostic.DiagnosticLevel;
 import io.github.dependencyanalysis.jar.IJarRepository;
 import io.github.dependencyanalysis.testing.TestJarRepositories;
 
@@ -53,13 +52,16 @@ class MethodBodyDecompilerTest {
     /** Diagnostics. */
     private DiagnosticLog diagnostics;
 
+    /** Captured Console output. */
+    private ByteArrayOutputStream console;
+
     /** Decompiler under test. */
     private MethodBodyDecompiler decompiler;
 
     @BeforeEach
     void setUp() {
-        final PrintStream sink = new PrintStream(
-                new ByteArrayOutputStream());
+        console = new ByteArrayOutputStream();
+        final PrintStream sink = new PrintStream(console);
         diagnostics = new DiagnosticLog(sink, LogVerbosity.INFO);
         decompiler = new MethodBodyDecompiler(diagnostics);
     }
@@ -155,15 +157,9 @@ class MethodBodyDecompilerTest {
                 .contains("Class entry not found");
         assertThat(evidence.getNewMethod().isAvailable())
                 .isTrue();
-        assertThat(diagnostics.getEvents())
-                .anySatisfy(event -> {
-                    assertThat(event.getStage()).isEqualTo(
-                            MethodBodyDecompiler.STAGE);
-                    assertThat(event.getLevel()).isEqualTo(
-                            DiagnosticLevel.WARN);
-                    assertThat(event.getMessage())
-                            .contains("old method");
-                });
+        assertThat(console.toString())
+                .contains("[WARN][" + MethodBodyDecompiler.STAGE + "]")
+                .contains("old method");
     }
 
     private ChangePoint point(

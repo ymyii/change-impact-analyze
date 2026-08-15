@@ -36,7 +36,6 @@ class ProcessConsoleExecutorTest {
                 .contains("][WARN][process][fixture][-] [WARNING] warning")
                 .contains("][ERROR][process][fixture][-] [ERROR] error")
                 .doesNotContain("[INFO] info", "plain");
-        assertThat(diagnostics.getEvents()).isEmpty();
     }
 
     @Test
@@ -55,7 +54,6 @@ class ProcessConsoleExecutorTest {
                 .contains("][WARN][process][fixture][-] [WARNING] warning")
                 .contains("][ERROR][process][fixture][-] [ERROR] error")
                 .contains("][DEBUG][process][fixture][-] plain");
-        assertThat(diagnostics.getEvents()).isEmpty();
     }
 
     private ProcessConsoleResult execute(

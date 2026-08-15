@@ -2,8 +2,6 @@ package io.github.dependencyanalysis.workspace;
 
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.LogVerbosity;
-import io.github.dependencyanalysis.diagnostic.DiagnosticEvent;
-import io.github.dependencyanalysis.diagnostic.DiagnosticLevel;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -39,12 +37,16 @@ class WorkspaceManagerIT {
     /** Diagnostics collector. */
     private DiagnosticLog diag;
 
+    /** Captured Console output. */
+    private ByteArrayOutputStream console;
+
     @BeforeEach
     void setUp() throws Exception {
         repoDir = tempDir.resolve("repo");
         Files.createDirectories(repoDir);
+        console = new ByteArrayOutputStream();
         diag = new DiagnosticLog(new PrintStream(
-                new ByteArrayOutputStream()), LogVerbosity.INFO);
+                console), LogVerbosity.INFO);
         git("init");
         git("config", "user.email",
                 "test@test.com");
@@ -282,15 +284,7 @@ class WorkspaceManagerIT {
         } finally {
             mgr.close();
         }
-        final List<DiagnosticEvent> events =
-                diag.getEvents();
-        assertThat(events)
-                .anyMatch(e ->
-                        "workspace".equals(
-                                e.getStage())
-                        && e.getLevel()
-                                == DiagnosticLevel
-                                        .ERROR);
+        assertThat(console.toString()).contains("[ERROR][workspace]");
     }
 
     @Test
@@ -301,27 +295,11 @@ class WorkspaceManagerIT {
                         repoDir, diag)) {
             mgr.prepare(firstCommit, null);
         }
-        final List<DiagnosticEvent> events =
-                diag.getEvents();
-        assertThat(events)
-                .anyMatch(e ->
-                        "workspace".equals(
-                                e.getStage())
-                        && e.getMessage()
-                                .equals("started"))
-                .anyMatch(e ->
-                        "workspace".equals(
-                                e.getStage())
-                        && e.getMessage()
-                                .startsWith(
-                                        "completed; elapsedMs=")
-                        && e.getElapsedMillis() >= 0L)
-                .anyMatch(e ->
-                        "workspace".equals(
-                                e.getStage())
-                        && e.getMessage()
-                                .contains("Baseline"
-                                        + " commit"));
+        assertThat(console.toString())
+                .contains("[INFO][workspace]")
+                .contains(" started")
+                .contains(" completed; elapsedMs=")
+                .contains("Baseline commit");
     }
 
     @Test

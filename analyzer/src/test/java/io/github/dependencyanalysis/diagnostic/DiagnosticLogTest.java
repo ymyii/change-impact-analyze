@@ -13,14 +13,11 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Tests unified retained and transient Diagnostic logging. */
+/** Tests unified Diagnostic Console logging. */
 class DiagnosticLogTest {
 
     /** Test timezone offset hours. */
     private static final int TEST_OFFSET_HOURS = 8;
-
-    /** Expected elapsed milliseconds. */
-    private static final long EXPECTED_ELAPSED_MILLIS = 12L;
 
     /** Fixed timestamp. */
     private static final Instant NOW = Instant.parse(
@@ -47,11 +44,8 @@ class DiagnosticLogTest {
                         + " started")
                 .contains("[module=sample] completed; elapsedMs=12")
                 .doesNotContain("[module=sample;elapsedMs=");
-        assertThat(log.getEvents()).hasSize(2);
-        assertThat(log.getEvents().get(1).getElapsedMillis())
-                .isEqualTo(EXPECTED_ELAPSED_MILLIS);
-        assertThat(log.getEvents().get(1).getAttributes())
-                .doesNotContainKey("elapsedMs");
+        assertThat(bytes.toString(StandardCharsets.UTF_8).lines())
+                .hasSize(2);
     }
 
     @Test
@@ -70,10 +64,6 @@ class DiagnosticLogTest {
                 .contains("[module=sample] failed; reason=unavailable;"
                         + " elapsedMs=12")
                 .doesNotContain("[module=sample;elapsedMs=");
-        assertThat(log.getEvents().get(1).getElapsedMillis())
-                .isEqualTo(EXPECTED_ELAPSED_MILLIS);
-        assertThat(log.getEvents().get(1).getAttributes())
-                .doesNotContainKey("elapsedMs");
     }
 
     @Test
@@ -94,16 +84,10 @@ class DiagnosticLogTest {
         assertThat(bytes.toString(StandardCharsets.UTF_8))
                 .contains("[phase=REVERSE_BFS;module=sample] progress")
                 .contains("[module=sample] completed; elapsedMs=12");
-        assertThat(log.getEvents().get(1).getPhase())
-                .isEqualTo("REVERSE_BFS");
-        assertThat(log.getEvents().get(1).getAttributes())
-                .doesNotContainKey("phase");
-        assertThat(log.getEvents().get(2).getElapsedMillis())
-                .isEqualTo(EXPECTED_ELAPSED_MILLIS);
     }
 
     @Test
-    void filtersByVerbosityAndKeepsTransientLinesOutOfEvents() {
+    void filtersByVerbosityForAllConsoleLines() {
         final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         final DiagnosticLog log = log(bytes, LogVerbosity.INFO,
                 new AtomicLong());
@@ -116,8 +100,6 @@ class DiagnosticLogTest {
         log.transientLog(context, DiagnosticLevel.INFO,
                 LogVerbosity.DEBUG, "hidden-process-info");
 
-        assertThat(log.getEvents()).extracting(DiagnosticEvent::getMessage)
-                .containsExactly("retained");
         assertThat(bytes.toString(StandardCharsets.UTF_8))
                 .contains("[INFO][stage][-][-] retained")
                 .contains("[WARN][stage][-][-] transient-warning")
@@ -148,7 +130,7 @@ class DiagnosticLogTest {
     }
 
     @Test
-    void warnExceptionRetainsOnlyWarningAndEmitsDebugCauseChain() {
+    void warnExceptionEmitsWarningAndDebugCauseChain() {
         final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         final DiagnosticLog log = log(bytes, LogVerbosity.DEBUG,
                 new AtomicLong());
@@ -167,13 +149,6 @@ class DiagnosticLogTest {
                         + "java.lang.RuntimeException: comparison failed")
                 .contains("Caused by: java.lang.IllegalStateException: "
                         + "root cause");
-        assertThat(log.getEvents()).singleElement()
-                .satisfies(event -> {
-                    assertThat(event.getLevel()).isEqualTo(
-                            DiagnosticLevel.WARN);
-                    assertThat(event.getMessage()).isEqualTo(
-                            "complete warning");
-                });
     }
 
     @Test

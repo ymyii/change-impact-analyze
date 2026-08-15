@@ -41,7 +41,8 @@ class ImpactPathTest {
         final ChangePointTerminal terminal = new ChangePointTerminal(
                 point, evidence);
         final ImpactPath path = new ImpactPath(nodes, terminal,
-                ImpactClassification.TRANSITIVE);
+                ImpactClassification.TRANSITIVE,
+                ImpactPathRootKind.METHOD);
 
         nodes.clear();
 
@@ -55,10 +56,16 @@ class ImpactPathTest {
                         "sample/Controller#call()V", TERMINAL_PC));
         assertThat(path.getTerminal().getEvidenceMechanism())
                 .isEqualTo(EvidenceMechanism.DECLARED_INVOKE);
+        assertThat(path.getRootMethod())
+                .isEqualTo(path.getNodes().get(0).methodId());
+        assertThat(path.getAffectedMethods())
+                .containsExactly(path.getNodes().get(0).methodId());
+        assertThat(path.getRootKind()).isEqualTo(ImpactPathRootKind.METHOD);
         assertThatThrownBy(() -> path.getNodes().clear())
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThat(new ImpactPath(List.copyOf(path.getNodes()), terminal,
-                ImpactClassification.TRANSITIVE)).isEqualTo(path)
+                ImpactClassification.TRANSITIVE,
+                ImpactPathRootKind.METHOD)).isEqualTo(path)
                 .hasSameHashCodeAs(path);
     }
 
@@ -73,7 +80,8 @@ class ImpactPathTest {
                         "declaration"));
 
         assertThatThrownBy(() -> new ImpactPath(List.of(), terminal,
-                ImpactClassification.DIRECT))
+                ImpactClassification.DIRECT,
+                ImpactPathRootKind.METHOD))
                 .isInstanceOf(IllegalArgumentException.class);
 
         final StructuralReference reference = new StructuralReference(

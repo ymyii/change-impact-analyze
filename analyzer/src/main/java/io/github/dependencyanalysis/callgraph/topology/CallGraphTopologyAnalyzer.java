@@ -385,66 +385,19 @@ public final class CallGraphTopologyAnalyzer {
                     Set<CallGraphNodeIdentity>> outgoing,
             final Map<CallGraphNodeIdentity,
                     Set<CallGraphNodeIdentity>> incoming) {
-        final List<CallGraphNodeIdentity> order = finishingOrder(
-                nodes, outgoing);
-        final Set<CallGraphNodeIdentity> assigned = new HashSet<>();
         final Set<CallGraphNodeIdentity> cycles = new HashSet<>();
-        for (int index = order.size() - 1; index >= 0; index--) {
-            final CallGraphNodeIdentity root = order.get(index);
-            if (!assigned.add(root)) {
-                continue;
-            }
-            final Set<CallGraphNodeIdentity> component = new HashSet<>();
-            final Deque<CallGraphNodeIdentity> stack = new ArrayDeque<>();
-            stack.push(root);
-            while (!stack.isEmpty()) {
-                final CallGraphNodeIdentity current = stack.pop();
-                component.add(current);
-                for (CallGraphNodeIdentity predecessor
-                        : incoming.getOrDefault(current, Set.of())) {
-                    if (assigned.add(predecessor)) {
-                        stack.push(predecessor);
-                    }
-                }
-            }
+        for (List<CallGraphNodeIdentity> component
+                : StronglyConnectedComponents.decompose(nodes,
+                value -> outgoing.getOrDefault(value, Set.of()),
+                value -> incoming.getOrDefault(value, Set.of()),
+                NODE_ORDER)) {
+            final CallGraphNodeIdentity root = component.get(0);
             if (component.size() > 1
                     || outgoing.getOrDefault(root, Set.of()).contains(root)) {
                 cycles.addAll(component);
             }
         }
         return cycles;
-    }
-
-    private List<CallGraphNodeIdentity> finishingOrder(
-            final Set<CallGraphNodeIdentity> nodes,
-            final Map<CallGraphNodeIdentity,
-                    Set<CallGraphNodeIdentity>> outgoing) {
-        final List<CallGraphNodeIdentity> order = new ArrayList<>();
-        final Set<CallGraphNodeIdentity> visited = new HashSet<>();
-        for (CallGraphNodeIdentity node : nodes) {
-            if (!visited.add(node)) {
-                continue;
-            }
-            final Deque<TraversalFrame> stack = new ArrayDeque<>();
-            stack.push(new TraversalFrame(node,
-                    outgoing.getOrDefault(node, Set.of()).iterator()));
-            while (!stack.isEmpty()) {
-                final TraversalFrame frame = stack.peek();
-                if (frame.successors().hasNext()) {
-                    final CallGraphNodeIdentity successor =
-                            frame.successors().next();
-                    if (visited.add(successor)) {
-                        stack.push(new TraversalFrame(successor,
-                                outgoing.getOrDefault(
-                                        successor, Set.of()).iterator()));
-                    }
-                } else {
-                    order.add(frame.node());
-                    stack.pop();
-                }
-            }
-        }
-        return order;
     }
 
     /**
@@ -477,14 +430,4 @@ public final class CallGraphTopologyAnalyzer {
             List<CallGraphNodeIdentity> nodes) {
     }
 
-    /**
-     * Iterative depth-first traversal frame.
-     *
-     * @param node current node
-     * @param successors remaining successors
-     */
-    private record TraversalFrame(
-            CallGraphNodeIdentity node,
-            Iterator<CallGraphNodeIdentity> successors) {
-    }
 }

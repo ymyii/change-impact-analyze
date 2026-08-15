@@ -124,7 +124,6 @@ class SeedProgressReporterTest {
                 .hasSize(2);
         assertThat(lines).allMatch(line -> !line.contains("; phase="));
         assertThat(lines).allMatch(line -> !line.contains("methodBody"));
-        assertThat(log.getEvents()).isEmpty();
         assertThat(scheduler.closed).isTrue();
     }
 

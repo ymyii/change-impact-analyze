@@ -338,8 +338,9 @@ public final class ImpactCommand
                 ImpactPreflightService.COMMAND_RUN,
                 CommandRunDirectory.class);
         final AnalysisRunResult result;
-        try (ReportCache reportCache = new ReportCache(
-                commandRun, "impact")) {
+        final ReportCache reportCache = normalizedDiagnostics == null
+                ? null : new ReportCache(commandRun, "impact");
+        try (reportCache) {
             final ImpactExecutionEngine engine = new PerModuleImpactPipeline(
                     diagnostics, kinds, mavenRuntime, pluginRuntime,
                     context.get(ImpactPreflightService.MAVEN_ARGS, List.class),
@@ -353,7 +354,9 @@ public final class ImpactCommand
                     metrics.executors(), reportCache));
             result = engine.run(context.get(
                     ImpactPreflightService.WORKSPACE, WorkspaceResult.class));
-            reportCache.complete();
+            if (reportCache != null) {
+                reportCache.complete();
+            }
             publishReport(result, report, diagnostics, mavenRuntime,
                     pluginRuntime, targetJava);
         }
@@ -376,8 +379,8 @@ public final class ImpactCommand
                 "path=" + reportPath);
         try {
             new PerModuleHtmlReportGenerator().generate(
-                    result, diagnostics.getEvents(), report,
-                    mavenRuntime, pluginRuntime, targetJava, output.toPath());
+                    result, report, mavenRuntime, pluginRuntime,
+                    targetJava, output.toPath());
             diagnostics.endStage(reportContext,
                     "path=" + reportPath);
         } catch (RuntimeException exception) {
@@ -424,7 +427,32 @@ public final class ImpactCommand
             final AnalysisRunResult result) {
         final DiagnosticContext context = DiagnosticContext.of(
                 "summary", "result");
+        final long uniqueImpactPaths = result.getModuleResults().stream()
+                .flatMap(module -> module.getFinalPaths().stream())
+                .map(impactPath -> impactPath.getNodes().stream()
+                        .map(node -> node.methodId().toString())
+                        .toList().toString())
+                .distinct().count();
+        final long rootMethods = result.getModuleResults().stream()
+                .flatMap(module -> module.getFinalPaths().stream())
+                .map(ImpactPath::getRootMethod).distinct().count();
+        final long affectedMethods = result.getModuleResults().stream()
+                .flatMap(module -> module.getFinalPaths().stream())
+                .flatMap(impactPath -> impactPath.getAffectedMethods()
+                        .stream())
+                .distinct().count();
+        final long changedMembers = result.getModuleResults().stream()
+                .flatMap(module -> java.util.stream.Stream.concat(
+                        module.getFinalPaths().stream().map(impactPath ->
+                                impactPath.getTerminal().getChangePoint()),
+                        module.getStructuralPaths().stream().map(
+                                StructuralReferencePath::getChangePoint)))
+                .distinct().count();
         final String details = "; status=" + result.getStatus()
+                + "; uniqueImpactPaths=" + uniqueImpactPaths
+                + "; rootMethods=" + rootMethods
+                + "; affectedMethods=" + affectedMethods
+                + "; changedMembers=" + changedMembers
                 + "; path=" + output.toPath().toAbsolutePath()
                 .normalize();
         switch (result.getStatus()) {

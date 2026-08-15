@@ -7,25 +7,19 @@ import com.fasterxml.jackson.core.io.CharacterEscapes;
 import com.fasterxml.jackson.core.io.SerializedString;
 
 import io.github.dependencyanalysis.bytecode.ChangePoint;
-import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.engine.CallGraphStats;
 import io.github.dependencyanalysis.callgraph.scope.ClassOwnership;
 import io.github.dependencyanalysis.callgraph.scope.DuplicateClassResolution;
 import io.github.dependencyanalysis.callgraph.model.MethodId;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
-import io.github.dependencyanalysis.diagnostic.DiagnosticEvent;
-import io.github.dependencyanalysis.diagnostic.DiagnosticLogFormatter;
 import io.github.dependencyanalysis.impact.AnalysisRunResult;
 import io.github.dependencyanalysis.impact.BoundChangePoint;
 import io.github.dependencyanalysis.impact.CodeComparisonEvidence;
 import io.github.dependencyanalysis.impact.ChangePointDisposition;
 import io.github.dependencyanalysis.impact.DependencyBoundarySnapshot;
 import io.github.dependencyanalysis.impact.DependencyUpgradeKey;
-import io.github.dependencyanalysis.impact.ImpactClassification;
 import io.github.dependencyanalysis.impact.ImpactPath;
-import io.github.dependencyanalysis.impact.ImpactEvidence;
-import io.github.dependencyanalysis.impact.refinement.ssa.MethodEquivalenceResult;
 import io.github.dependencyanalysis.impact.refinement.ssa.MethodEquivalenceStatus;
 import io.github.dependencyanalysis.impact.ModuleAnalysisResult;
 import io.github.dependencyanalysis.impact.ModuleAnalysisStatus;
@@ -34,8 +28,6 @@ import io.github.dependencyanalysis.impact.refinement.ResultRefinementAlgorithm;
 import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
 import io.github.dependencyanalysis.impact.refinement.cha.ChaLocalReceiverRefinementSummary;
 import io.github.dependencyanalysis.impact.StructuralReferencePath;
-import io.github.dependencyanalysis.impact.WalaQueryNode;
-import io.github.dependencyanalysis.impact.SnapshotQueryNode;
 import io.github.dependencyanalysis.preflight.PreflightReport;
 import io.github.dependencyanalysis.preflight.PreflightResult;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
@@ -65,10 +57,6 @@ import java.util.UUID;
 /** Atomically publishes the English multi-page Impact HTML report. */
 public final class PerModuleHtmlReportGenerator {
 
-    /** Shared Console/Report Diagnostic prefix formatter. */
-    private final DiagnosticLogFormatter diagnosticFormatter =
-            new DiagnosticLogFormatter();
-
     /** SHA-256 algorithm. */
     private static final String SHA_256 = "SHA-256";
 
@@ -88,66 +76,101 @@ public final class PerModuleHtmlReportGenerator {
     private static final String AFFECTED_PATHS_SCRIPT = resource(
             "/io/github/dependencyanalysis/report/affected-paths.js");
 
+    /** Inlined offline Changed Members interaction script. */
+    private static final String CHANGED_MEMBERS_SCRIPT = resource(
+            "/io/github/dependencyanalysis/report/changed-members.js");
+
     /** Shared offline CSS. */
     private static final String CSS =
-            ":root{color-scheme:light;--line:#d8dee4;--soft:#f6f8fa;"
-            + "--ink:#1f2328;--accent:#0969da}*{box-sizing:border-box}"
-            + "body{margin:0;color:var(--ink);font:15px/1.55 system-ui,"
-            + "sans-serif}a{color:var(--accent)}header{border-bottom:1px solid"
-            + " var(--line);padding:14px 24px;background:#fff}"
+            ":root{color-scheme:light;--page:#f6f8fb;--surface:#fff;"
+            + "--surface-alt:#f7f9fc;--line:#d7dee8;--line-strong:#b8c2cf;"
+            + "--ink:#172033;--muted:#5b6678;--accent:#175cd3;"
+            + "--focus:#84adff;--success-bg:#dcfae6;--success:#05603a;"
+            + "--warn-bg:#fef0c7;--warn:#7a2e0e;--danger-bg:#fee4e2;"
+            + "--danger:#b42318;--info-bg:#e0f2fe;--info:#075985;"
+            + "--radius:10px;--control-height:36px}*{box-sizing:border-box}"
+            + "body{margin:0;color:var(--ink);background:var(--page);"
+            + "font:14px/1.5 system-ui,-apple-system,sans-serif}"
+            + "a{color:var(--accent)}header{border-bottom:1px solid"
+            + " var(--line);padding:14px 24px;background:var(--surface)}"
             + ".breadcrumbs,.siblings{display:flex;gap:8px;flex-wrap:wrap}"
             + ".siblings{margin-top:8px}.layout{display:grid;grid-template-"
             + "columns:240px minmax(0,1fr);gap:28px;max-width:1440px;"
             + "margin:auto;padding:22px}.toc{position:sticky;top:18px;"
-            + "align-self:start;border:1px solid var(--line);border-radius:8px;"
-            + "padding:14px;background:#fff}.toc ul{margin:8px 0 0;"
+            + "align-self:start;border:1px solid var(--line);"
+            + "border-radius:var(--radius);padding:14px;"
+            + "background:var(--surface)}.toc ul{margin:8px 0 0;"
             + "padding-left:20px}.toc a[aria-current=\"page\"]{font-weight:700}"
             + "main{min-width:0}h1{margin-top:0}h2{margin-top:34px;"
-            + "border-bottom:1px solid var(--line);padding-bottom:5px}"
-            + "table{border-collapse:collapse;width:100%;margin:12px 0}"
-            + "th,td{border:1px solid var(--line);padding:8px;text-align:left;"
-            + "vertical-align:top}th{background:var(--soft)}code,pre{"
-            + "font-family:"
-            + "ui-monospace,monospace}code{overflow-wrap:anywhere}pre{overflow:"
-            + "auto;background:var(--soft);border:1px solid var(--line);"
-            + "padding:12px}.card{border:1px solid var(--line);"
-            + "border-radius:8px;"
-            + "padding:14px;margin:14px 0}.ok{color:#167d36}"
-            + ".warn{color:#9a6700}"
-            + ".fail{color:#cf222e}.muted{color:#59636e}details{margin:10px 0;"
-            + "padding:9px;border:1px solid var(--line);border-radius:6px}"
-            + ".badge{display:inline-block;margin-left:7px;padding:1px 7px;"
-            + "border-radius:999px;background:#ddf4ff;color:#0550ae;"
-            + "font-size:12px;font-weight:700}.badge.filtered{background:"
-            + "#fff8c5;color:#7d4e00}.badge.structural{background:#dafbe1;"
-            + "color:#116329}.diff{white-space:pre;tab-size:4}"
-            + ".report-controls{display:flex;gap:14px;align-items:end;"
+            + "padding-bottom:5px}section{background:var(--surface);"
+            + "border:1px solid var(--line);border-radius:var(--radius);"
+            + "padding:18px;margin:18px 0;box-shadow:0 1px 2px #1018280d}"
+            + "section h2{margin-top:0}table{border-collapse:separate;"
+            + "border-spacing:0;width:100%;margin:12px 0}th,td{"
+            + "border-bottom:1px solid var(--line);padding:7px 9px;"
+            + "text-align:left;vertical-align:top}thead th{position:sticky;"
+            + "top:0;z-index:1;background:var(--surface-alt);"
+            + "border-right:1px solid var(--line);font-weight:650;"
+            + "white-space:nowrap}tbody tr:nth-child(even){"
+            + "background:#f9fafc}tbody tr:hover{background:#eef4ff}"
+            + "code,pre,.method-cell,.member-cell,.dependency-cell,"
+            + ".path-sequence{font-family:ui-monospace,SFMono-Regular,"
+            + "Consolas,monospace}code{overflow-wrap:anywhere}pre{"
+            + "overflow:auto;"
+            + "background:#0b1220;color:#e5e7eb;border:1px solid #273244;"
+            + "border-radius:8px;padding:12px}.card{border:1px solid"
+            + " var(--line);"
+            + "border-radius:var(--radius);padding:14px;margin:14px 0}"
+            + ".ok{color:var(--success)}.warn{color:var(--warn)}"
+            + ".fail{color:var(--danger)}.muted{color:var(--muted)}"
+            + "details{margin:10px 0;padding:9px;border:1px solid var(--line);"
+            + "border-radius:8px}.badge{display:inline-flex;align-items:center;"
+            + "padding:2px 8px;border-radius:999px;background:var(--info-bg);"
+            + "color:var(--info);font-size:11px;font-weight:750;"
+            + "white-space:nowrap}.badge.final{background:var(--info-bg);"
+            + "color:var(--info)}.badge.structural{background:"
+            + "var(--success-bg);"
+            + "color:var(--success)}.badge.kind{background:#ede9fe;"
+            + "color:#5b21b6}.diff{white-space:pre;tab-size:4;margin:0}"
+            + ".report-controls{display:flex;gap:12px;align-items:end;"
             + "flex-wrap:wrap;margin:12px 0}.report-control{display:grid;"
-            + "gap:4px}.report-control input,.report-control select,button{"
-            + "font:inherit;padding:6px 8px}.table-scroll{overflow-x:auto}"
-            + ".path-table{min-width:1120px}.path-sequence{min-width:300px;"
-            + "overflow-wrap:anywhere}.pagination{display:flex;gap:8px;"
-            + "align-items:center;flex-wrap:wrap;margin:12px 0}"
-            + ".pagination input{width:72px}.path-details-row td{padding:0}"
-            + ".path-details{padding:16px;background:#fbfcfe}"
-            + ".path-details h3{margin-top:0}.diff-code{display:block}"
+            + "gap:4px;color:var(--muted);font-size:12px}"
+            + ".report-control input,.report-control select,button,"
+            + ".pagination input{height:var(--control-height);border:1px solid"
+            + " var(--line-strong);border-radius:8px;background:var(--surface);"
+            + "color:var(--ink);font:inherit;padding:6px 10px}"
+            + "button{cursor:pointer}button:disabled{cursor:not-allowed;"
+            + "opacity:.5}button:hover:not(:disabled){background:#eef4ff}"
+            + "button:focus-visible,input:focus-visible,select:focus-visible,"
+            + "a:focus-visible,summary:focus-visible{outline:3px solid"
+            + " var(--focus);outline-offset:2px}.table-scroll{overflow-x:auto;"
+            + "border:1px solid var(--line);border-radius:var(--radius);"
+            + "background:var(--surface)}.table-scroll table{margin:0}"
+            + ".path-table{min-width:1320px}.changed-member-table{"
+            + "min-width:1100px}.path-sequence{min-width:340px;"
+            + "white-space:nowrap}.numeric{text-align:right!important;"
+            + "font-variant-numeric:tabular-nums}.pagination{display:flex;"
+            + "gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0}"
+            + ".pagination input{width:76px}.path-diff-row td{padding:0}"
+            + ".path-diff{background:#0b1220;padding:12px!important}"
+            + ".diff-code{display:block}"
             + ".diff-line{display:block;min-height:1.55em;padding:0 6px}"
-            + ".diff-add,.diff-file-new{color:#116329;background:#dafbe1}"
-            + ".diff-delete,.diff-file-old{color:#cf222e;background:#ffebe9}"
-            + ".diff-hunk{color:#0550ae;background:#ddf4ff}"
+            + ".diff-add,.diff-file-new{color:#86efac;background:#052e1b}"
+            + ".diff-delete,.diff-file-old{color:#fca5a5;background:#3f1115}"
+            + ".diff-hunk{color:#93c5fd;background:#172554}"
             + ".diff-file-new,.diff-file-old,.diff-hunk{font-weight:700}"
-            + ".hidden{display:none!important}"
-            + "summary{cursor:pointer;font-weight:600}.sequence{font-size:14px}"
+            + ".hidden{display:none!important}summary{cursor:pointer;"
+            + "font-weight:600}.sequence{font-size:14px}caption{padding:8px;"
+            + "text-align:left}"
             + "@media(max-width:800px){.layout{display:block;padding:14px}"
             + ".toc{position:static;margin-bottom:20px}"
-            + "header{padding:12px 14px}"
-            + "table{display:block;overflow-x:auto}}";
+            + "header{padding:12px 14px}section{padding:13px}"
+            + ".table-scroll{max-width:100%}}";
 
     /**
      * Writes pages to staging and atomically replaces command-owned output.
      *
      * @param run analysis result
-     * @param events diagnostics
      * @param preflight preflight report
      * @param maven selected Maven runtime
      * @param plugin embedded Dependency Plugin runtime
@@ -156,7 +179,6 @@ public final class PerModuleHtmlReportGenerator {
      */
     public void generate(
             final AnalysisRunResult run,
-            final List<DiagnosticEvent> events,
             final PreflightReport preflight,
             final MavenRuntimeDescriptor maven,
             final MavenDependencyPluginRuntime plugin,
@@ -180,12 +202,12 @@ public final class PerModuleHtmlReportGenerator {
                     "embedded " + plugin.getVersion(),
                     run.getResultRefinementSelection());
             final Map<ModuleAnalysisResult, ModulePages> pages =
-                    writeModulePages(run, modules, events,
+                    writeModulePages(run, modules,
                             absolute.getFileName().toString(), moduleRuntime);
             final OverallContext context = new OverallContext(
                     maven, plugin, javaRuntime, ownedName, pages);
             writeOverallPage(staging.resolve(absolute.getFileName()),
-                    run, events, preflight, context);
+                    run, preflight, context);
             publish(staging, absolute, ownedName);
         } catch (IOException exception) {
             throw new ReportException(
@@ -199,7 +221,6 @@ public final class PerModuleHtmlReportGenerator {
     private Map<ModuleAnalysisResult, ModulePages> writeModulePages(
             final AnalysisRunResult run,
             final Path directory,
-            final List<DiagnosticEvent> events,
             final String overallFile,
             final ModuleRuntime runtime) throws IOException {
         final Map<ModuleAnalysisResult, ModulePages> result =
@@ -212,7 +233,7 @@ public final class PerModuleHtmlReportGenerator {
             final ModulePages pages = new ModulePages(
                     base + ".html", base + "-impact.html");
             writeModuleIndexPage(directory.resolve(pages.index()), module,
-                    events, pages, overallFile, runtime);
+                    pages, overallFile, runtime);
             writeImpactPage(directory.resolve(pages.impact()), module,
                     pages, overallFile);
             result.put(module, pages);
@@ -223,7 +244,6 @@ public final class PerModuleHtmlReportGenerator {
     private void writeOverallPage(
             final Path target,
             final AnalysisRunResult run,
-            final List<DiagnosticEvent> events,
             final PreflightReport preflight,
             final OverallContext context) throws IOException {
         writeDocument(target, "Impact Analysis Report", "Overall", "", "",
@@ -290,9 +310,9 @@ public final class PerModuleHtmlReportGenerator {
                         duplicateConflictCount(run)))
                 .append(row("Shadowed dependency changes",
                         shadowedChangeCount(run)))
-                .append(row("Candidate / final call chains",
-                        pathCount(run, true) + " / "
-                                + pathCount(run, false)))
+                .append(row("Final / structural impact records",
+                        pathCount(run, false) + " / "
+                                + structuralPathCount(run)))
                 .append("</table>");
         appendStageMetrics(body, run.getStageElapsedMillis());
         body.append("<details><summary>Technical details</summary><table>")
@@ -371,7 +391,6 @@ public final class PerModuleHtmlReportGenerator {
         }
         body.append("</table></section>");
         appendPreflight(body, preflight);
-        appendDiagnostics(body, events);
         });
     }
 
@@ -390,7 +409,6 @@ public final class PerModuleHtmlReportGenerator {
     private void writeModuleIndexPage(
             final Path target,
             final ModuleAnalysisResult module,
-            final List<DiagnosticEvent> events,
             final ModulePages pages,
             final String overallFile,
             final ModuleRuntime runtime) throws IOException {
@@ -412,13 +430,12 @@ public final class PerModuleHtmlReportGenerator {
                         affectedMethodCount(module)))
                 .append(row("Affected application classes",
                         affectedClassCount(module)))
-                .append(row("Candidate / filtered / final call chains",
+                .append(row("Candidate / filtered / final / structural",
                         module.getCandidatePaths().size() + " / "
                                 + (module.getCandidatePaths().size()
                                 - module.getFinalPaths().size()) + " / "
-                                + module.getFinalPaths().size()))
-                .append(row("Class structure references",
-                        module.getStructuralPaths().size()))
+                                + module.getFinalPaths().size() + " / "
+                                + module.getStructuralPaths().size()))
                 .append(row("Dependency / member changes",
                         module.getUnit().getDependencyChanges().size()
                                 + " / "
@@ -436,8 +453,9 @@ public final class PerModuleHtmlReportGenerator {
                         "1 (call relationship build and query are "
                                 + "single-threaded)"))
                 .append(row("Analysis elapsed", module.getElapsedMillis()
-                        + " ms")).append("</table></section>")
-                .append("<section id=\"scope\"><h2>Analysis scope</h2><p>")
+                        + " ms")).append("</table></section>");
+        appendChangedMemberMetrics(body, module);
+        body.append("<section id=\"scope\"><h2>Analysis scope</h2><p>")
                 .append("Application module: <code>")
                 .append(escape(module.getModuleId().getCoordinate().toString()))
                 .append("</code>. Reactor dependencies: ")
@@ -502,11 +520,7 @@ public final class PerModuleHtmlReportGenerator {
                         + failure.reason()));
         appendList(body, limitations,
                 "No module-specific limitation was recorded.");
-        body.append("</section><section id=\"diagnostics\"><h2>Module ")
-                .append("Diagnostics</h2><details><summary>Technical details")
-                .append("</summary>");
-        appendDiagnosticList(body, moduleEvents(module, events));
-        body.append("</details></section>");
+        body.append("</section>");
         });
     }
 
@@ -721,6 +735,134 @@ public final class PerModuleHtmlReportGenerator {
         body.append("</table></details></section>");
     }
 
+    // Wiki: wiki/features/report-generator.md - Changed member metrics
+    private void appendChangedMemberMetrics(
+            final HtmlSink body,
+            final ModuleAnalysisResult module) {
+        body.append("<section id=\"changed-members\"><h2>Changed members")
+                .append("</h2><p>Candidate and Filtered are aggregate counts;")
+                .append(" path details contain Final and Structural records ")
+                .append("only.</p><div class=\"report-controls\">")
+                .append("<label class=\"report-control\">Dependency or ")
+                .append("member search<input id=\"member-search\" type=")
+                .append("\"search\" aria-controls=\"changed-member-table\">")
+                .append("</label><label class=\"report-control\">")
+                .append("ChangePointKind<select id=\"member-kind\" ")
+                .append("aria-controls=\"changed-member-table\">")
+                .append("<option value=\"all\">All</option>");
+        module.getUnit().getChangePoints().stream()
+                .map(value -> value.getChangePoint().getKind().name())
+                .distinct().sorted().forEach(kind -> body
+                        .append("<option value=\"").append(attribute(kind))
+                        .append("\">").append(escape(kind))
+                        .append("</option>"));
+        body.append("</select></label><label class=\"report-control\">")
+                .append("Rows per page<select id=\"member-page-size\" ")
+                .append("aria-controls=\"changed-member-table\">")
+                .append("<option value=\"20\" selected>20</option>")
+                .append("<option value=\"50\">50</option>")
+                .append("<option value=\"100\">100</option></select>")
+                .append("</label></div><p id=\"member-result-summary\" ")
+                .append("class=\"muted\" aria-live=\"polite\"></p>")
+                .append("<div class=\"table-scroll data-table-wrap\">")
+                .append("<table id=\"changed-member-table\" class=")
+                .append("\"data-table changed-member-table\"><caption ")
+                .append("class=\"muted\">All changed members</caption>")
+                .append("<thead><tr><th>Changed dependency</th>")
+                .append("<th>ChangePointKind</th><th>Changed member/class")
+                .append("</th><th class=\"numeric\">Candidate</th>")
+                .append("<th class=\"numeric\">Filtered</th>")
+                .append("<th class=\"numeric\">Final</th>")
+                .append("<th class=\"numeric\">Structural</th>")
+                .append("<th class=\"numeric\">Final impact total</th>")
+                .append("</tr></thead><tbody id=\"member-rows\"></tbody>")
+                .append("</table></div><p id=\"member-empty\" class=")
+                .append("\"muted hidden\" aria-live=\"polite\"></p>")
+                .append("<nav class=\"pagination\" aria-label=")
+                .append("\"Changed member pages\"><button id=")
+                .append("\"member-first\" type=\"button\">First</button>")
+                .append("<button id=\"member-previous\" type=\"button\">")
+                .append("Previous</button><label>Page <input id=")
+                .append("\"member-page\" type=\"number\" min=\"1\" ")
+                .append("value=\"1\" aria-label=\"Current changed member ")
+                .append("page\"></label><span id=\"member-page-count\">")
+                .append("of 1</span><button id=\"member-next\" type=")
+                .append("\"button\">Next</button><button id=\"member-last\"")
+                .append(" type=\"button\">Last</button></nav><noscript>")
+                .append("<p class=\"warn\">Changed member browsing ")
+                .append("requires JavaScript. Module totals remain in the ")
+                .append("Summary section.</p></noscript><script id=")
+                .append("\"changed-member-data\" type=")
+                .append("\"application/json\">");
+        writeChangedMemberMetricData(body, module);
+        body.append("</script><script>").append(CHANGED_MEMBERS_SCRIPT)
+                .append("</script></section>");
+    }
+
+    private void writeChangedMemberMetricData(
+            final HtmlSink body,
+            final ModuleAnalysisResult module) {
+        final List<BoundChangePoint> members = module.getUnit()
+                .getChangePoints().stream().distinct()
+                .sorted(Comparator.comparing(BoundChangePoint::stableKey))
+                .toList();
+        final List<DependencyUpgradeKey> dependencies = members.stream()
+                .map(BoundChangePoint::getDependencyUpgradeKey).distinct()
+                .sorted(Comparator.comparing(DependencyUpgradeKey::stableKey))
+                .toList();
+        final Map<DependencyUpgradeKey, Integer> dependencyIds =
+                new LinkedHashMap<>();
+        for (int index = 0; index < dependencies.size(); index++) {
+            dependencyIds.put(dependencies.get(index), index);
+        }
+        try (JsonGenerator json = JSON.createGenerator(body.writer())) {
+            json.disable(JsonGenerator.Feature.AUTO_CLOSE_TARGET);
+            json.writeStartObject();
+            json.writeArrayFieldStart("dependencyUpgrades");
+            for (int index = 0; index < dependencies.size(); index++) {
+                writeDependencyData(json, dependencies.get(index), index);
+            }
+            json.writeEndArray();
+            json.writeArrayFieldStart("changedMembers");
+            for (int index = 0; index < members.size(); index++) {
+                writeChangedMemberData(json, members.get(index), index,
+                        dependencyIds.get(members.get(index)
+                                .getDependencyUpgradeKey()), null);
+            }
+            json.writeEndArray();
+            json.writeArrayFieldStart("memberMetrics");
+            for (int index = 0; index < members.size(); index++) {
+                final BoundChangePoint member = members.get(index);
+                final long candidate = pathCount(module.getCandidatePaths(),
+                        member);
+                final long finalCount = pathCount(module.getFinalPaths(),
+                        member);
+                final long structural = module.getStructuralPaths().stream()
+                        .filter(path -> path.getChangePoint().equals(member))
+                        .count();
+                json.writeStartObject();
+                json.writeNumberField("memberId", index);
+                json.writeNumberField("candidate", candidate);
+                json.writeNumberField("filtered",
+                        Math.max(0L, candidate - finalCount));
+                json.writeNumberField("final", finalCount);
+                json.writeNumberField("structural", structural);
+                json.writeEndObject();
+            }
+            json.writeEndArray();
+            json.writeEndObject();
+        } catch (IOException exception) {
+            throw new UncheckedIOException(exception);
+        }
+    }
+
+    private long pathCount(
+            final List<ImpactPath> paths,
+            final BoundChangePoint member) {
+        return paths.stream().filter(path -> path.getTerminal()
+                .getChangePoint().equals(member)).count();
+    }
+
     // Wiki: wiki/features/report-generator.md - Affected Paths projection
     private void writeImpactPage(
             final Path target,
@@ -734,14 +876,13 @@ public final class PerModuleHtmlReportGenerator {
         body.append("<h1 id=\"top\">Affected Paths: ")
                 .append(escape(moduleLabel(module)))
                 .append("</h1><section id=\"paths\"><h2>Affected paths</h2>")
-                .append("<p>Filter the browser-resident path data and open ")
-                .append("one row at a time to inspect evidence and code ")
-                .append("changes.</p><div class=\"report-controls\">")
+                .append("<p>Each row links one root impact path to one ")
+                .append("changed member. Only the current page is rendered.")
+                .append("</p><div class=\"report-controls\">")
                 .append("<label class=\"report-control\">View type<select ")
                 .append("id=\"path-type\" aria-controls=\"path-table\">")
                 .append("<option value=\"final\" selected>Final</option>")
-                .append("<option value=\"filtered\">Equivalent filtered")
-                .append("</option><option value=\"structural\">Structural")
+                .append("<option value=\"structural\">Structural")
                 .append("</option><option value=\"all\">All</option>")
                 .append("</select></label><label class=\"report-control\">")
                 .append("Affected method search<input id=\"path-search\" ")
@@ -750,8 +891,8 @@ public final class PerModuleHtmlReportGenerator {
                 .append("<label class=\"report-control\">Rows per page")
                 .append("<select id=\"path-page-size\" ")
                 .append("aria-controls=\"path-table\">")
-                .append("<option value=\"10\" selected>10</option>")
-                .append("<option value=\"20\">20</option>")
+                .append("<option value=\"20\" selected>20</option>")
+                .append("<option value=\"50\">50</option>")
                 .append("<option value=\"100\">100</option>")
                 .append("</select></label></div>")
                 .append("<p id=\"path-result-summary\" class=\"muted\" ")
@@ -759,9 +900,10 @@ public final class PerModuleHtmlReportGenerator {
                 .append("<table id=\"path-table\" class=\"path-table\">")
                 .append("<caption class=\"muted\">Affected path records")
                 .append("</caption><thead><tr><th>Type</th><th>Impact</th>")
-                .append("<th>Affected application method/member</th>")
-                .append("<th>Changed dependency</th><th>Changed member/class")
-                .append("</th><th>Impact path</th><th>Details</th></tr>")
+                .append("<th>Affected application methods</th>")
+                .append("<th>Changed dependency</th><th>ChangePointKind</th>")
+                .append("<th>Changed member/class</th><th>Impact path</th>")
+                .append("<th>Code diff</th></tr>")
                 .append("</thead><tbody id=\"path-rows\"></tbody></table>")
                 .append("</div><p id=\"path-empty\" class=\"muted hidden\"")
                 .append(" aria-live=\"polite\"></p>")
@@ -776,8 +918,8 @@ public final class PerModuleHtmlReportGenerator {
                 .append("<button id=\"path-next\" type=\"button\">Next")
                 .append("</button><button id=\"path-last\" type=\"button\">")
                 .append("Last</button></nav><noscript><p class=\"warn\">")
-                .append("Affected path browsing requires JavaScript. All ")
-                .append("report data remains embedded in this offline file.")
+                .append("Affected path browsing requires JavaScript. ")
+                .append("Summary counts remain available on Module Index.")
                 .append("</p></noscript></section>")
                 .append("<script id=\"affected-path-data\" ")
                 .append("type=\"application/json\">");
@@ -796,29 +938,126 @@ public final class PerModuleHtmlReportGenerator {
         for (int index = 0; index < members.size(); index++) {
             memberIds.put(members.get(index), index);
         }
+        final List<DependencyUpgradeKey> dependencies = members.stream()
+                .map(BoundChangePoint::getDependencyUpgradeKey).distinct()
+                .sorted(Comparator.comparing(DependencyUpgradeKey::stableKey))
+                .toList();
+        final Map<DependencyUpgradeKey, Integer> dependencyIds =
+                new LinkedHashMap<>();
+        for (int index = 0; index < dependencies.size(); index++) {
+            dependencyIds.put(dependencies.get(index), index);
+        }
+        final Map<String, ImpactPath> callPaths = new java.util.TreeMap<>();
+        final Map<String, StructuralReferencePath> structuralPaths =
+                new java.util.TreeMap<>();
+        module.getFinalPaths().forEach(path -> callPaths.putIfAbsent(
+                callPathKey(path), path));
+        module.getStructuralPaths().forEach(path -> structuralPaths
+                .putIfAbsent(structuralPathKey(path), path));
+        final Map<String, Integer> pathIds = new LinkedHashMap<>();
+        callPaths.keySet().forEach(key -> pathIds.put(
+                "call|" + key, pathIds.size()));
+        structuralPaths.keySet().forEach(key -> pathIds.put(
+                "structural|" + key, pathIds.size()));
+        final Map<String, MethodId> methods = new java.util.TreeMap<>();
+        final Map<String, Boolean> projectMethods = new LinkedHashMap<>();
+        callPaths.values().forEach(path -> collectMethods(
+                path.getNodes(), methods, projectMethods));
+        structuralPaths.values().forEach(path -> collectMethods(
+                path.getNodes(), methods, projectMethods));
+        final Map<String, Integer> methodIds = new LinkedHashMap<>();
+        methods.keySet().forEach(key -> methodIds.put(key, methodIds.size()));
+        final Map<BoundChangePoint, Integer> codeDiffIds =
+                new LinkedHashMap<>();
+        for (BoundChangePoint member : members) {
+            if (module.getCodeComparisons().get(member) != null) {
+                codeDiffIds.put(member, codeDiffIds.size());
+            }
+        }
         try (JsonGenerator json = JSON.createGenerator(body.writer())) {
             json.disable(JsonGenerator.Feature.AUTO_CLOSE_TARGET);
             json.writeStartObject();
-            json.writeArrayFieldStart("members");
+            json.writeNumberField("schemaVersion", 2);
+            json.writeArrayFieldStart("dependencyUpgrades");
+            for (int index = 0; index < dependencies.size(); index++) {
+                writeDependencyData(json, dependencies.get(index), index);
+            }
+            json.writeEndArray();
+            json.writeArrayFieldStart("changedMembers");
             for (int index = 0; index < members.size(); index++) {
-                writeMemberData(json, module, members.get(index), index);
+                writeChangedMemberData(json, members.get(index), index,
+                        dependencyIds.get(members.get(index)
+                                .getDependencyUpgradeKey()),
+                        codeDiffIds.get(members.get(index)));
+            }
+            json.writeEndArray();
+            json.writeArrayFieldStart("methods");
+            for (Map.Entry<String, MethodId> entry : methods.entrySet()) {
+                json.writeStartObject();
+                json.writeNumberField("id", methodIds.get(entry.getKey()));
+                json.writeStringField("label", humanMethod(entry.getValue()));
+                json.writeBooleanField("project",
+                        projectMethods.getOrDefault(entry.getKey(), false));
+                json.writeEndObject();
             }
             json.writeEndArray();
             json.writeArrayFieldStart("paths");
-            int pathId = 0;
-            for (ImpactPath path : module.getFinalPaths().stream()
-                    .sorted(impactComparator()).toList()) {
-                writeCallPathData(json, path, memberIds, "final", pathId++);
+            for (Map.Entry<String, ImpactPath> entry
+                    : callPaths.entrySet()) {
+                final ImpactPath path = entry.getValue();
+                json.writeStartObject();
+                json.writeNumberField("id", pathIds.get(
+                        "call|" + entry.getKey()));
+                json.writeStringField("classification",
+                        path.getClassification().name());
+                json.writeStringField("rootKind",
+                        path.getRootKind().name());
+                json.writeBooleanField("cycle", path.getRootKind()
+                        == io.github.dependencyanalysis.impact
+                        .ImpactPathRootKind.STRONGLY_CONNECTED_COMPONENT);
+                json.writeEndObject();
             }
-            for (ImpactPath path : filteredPaths(module).stream()
-                    .sorted(impactComparator()).toList()) {
-                writeCallPathData(json, path, memberIds,
-                        "filtered", pathId++);
+            json.writeEndArray();
+            json.writeArrayFieldStart("structuralPaths");
+            for (Map.Entry<String, StructuralReferencePath> entry
+                    : structuralPaths.entrySet()) {
+                final StructuralReferencePath path = entry.getValue();
+                json.writeStartObject();
+                json.writeNumberField("id", pathIds.get(
+                        "structural|" + entry.getKey()));
+                json.writeStringField("classification",
+                        path.getClassification().name());
+                json.writeStringField("applicationMember",
+                        structuralOwner(path));
+                json.writeStringField("relation",
+                        path.getReference().getKind().getLabel());
+                json.writeStringField("changedClass", path.getReference()
+                        .getChangedClass().replace('/', '.'));
+                json.writeEndObject();
             }
-            for (StructuralReferencePath path : module.getStructuralPaths()
-                    .stream().sorted(structuralComparator()).toList()) {
-                writeStructuralPathData(json, path, memberIds, pathId++);
+            json.writeEndArray();
+            json.writeArrayFieldStart("pathSteps");
+            for (Map.Entry<String, ImpactPath> entry
+                    : callPaths.entrySet()) {
+                writePathSteps(json, pathIds.get("call|" + entry.getKey()),
+                        entry.getValue().getNodes(), methodIds);
             }
+            for (Map.Entry<String, StructuralReferencePath> entry
+                    : structuralPaths.entrySet()) {
+                writePathSteps(json, pathIds.get(
+                        "structural|" + entry.getKey()),
+                        entry.getValue().getNodes(), methodIds);
+            }
+            json.writeEndArray();
+            json.writeArrayFieldStart("codeDiffs");
+            for (Map.Entry<BoundChangePoint, Integer> entry
+                    : codeDiffIds.entrySet()) {
+                writeCodeDiffData(json, entry.getValue(), module
+                        .getCodeComparisons().get(entry.getKey()));
+            }
+            json.writeEndArray();
+            json.writeArrayFieldStart("pathMemberRows");
+            writePathMemberRows(json, module, memberIds, pathIds);
             json.writeEndArray();
             json.writeEndObject();
         } catch (IOException exception) {
@@ -831,191 +1070,137 @@ public final class PerModuleHtmlReportGenerator {
         final Set<BoundChangePoint> points = new LinkedHashSet<>();
         module.getFinalPaths().forEach(path -> points.add(
                 path.getTerminal().getChangePoint()));
-        filteredPaths(module).forEach(path -> points.add(
-                path.getTerminal().getChangePoint()));
         module.getStructuralPaths().forEach(path -> points.add(
                 path.getChangePoint()));
         return points.stream().sorted(Comparator.comparing(
                 BoundChangePoint::stableKey)).toList();
     }
 
-    private List<ImpactPath> filteredPaths(
-            final ModuleAnalysisResult module) {
-        return module.getCandidatePaths().stream()
-                .filter(path -> isEquivalent(module,
-                        path.getTerminal().getChangePoint()))
-                .toList();
+    private void writeDependencyData(
+            final JsonGenerator json,
+            final DependencyUpgradeKey dependency,
+            final int dependencyId) throws IOException {
+        json.writeStartObject();
+        json.writeNumberField("id", dependencyId);
+        json.writeStringField("oldArtifact",
+                dependency.getOldArtifact().toString());
+        json.writeStringField("newArtifact",
+                dependency.getNewArtifact().toString());
+        json.writeStringField("scope", dependency.getScope().getValue());
+        json.writeEndObject();
     }
 
-    private void writeMemberData(
+    private void writeChangedMemberData(
             final JsonGenerator json,
-            final ModuleAnalysisResult module,
             final BoundChangePoint bound,
-            final int memberId) throws IOException {
+            final int memberId,
+            final int dependencyId,
+            final Integer codeDiffId) throws IOException {
         final ChangePoint point = bound.getChangePoint();
-        final MethodEquivalenceResult equivalence = module
-                .getEquivalenceResults().get(bound);
-        final ChangePointDisposition disposition = module
-                .getDispositions().get(bound);
         json.writeStartObject();
         json.writeNumberField("id", memberId);
-        json.writeStringField("dependency",
-                jarLabel(bound.getDependencyUpgradeKey()));
-        json.writeStringField("scope", bound.getDependencyUpgradeKey()
-                .getScope().getValue());
-        json.writeStringField("changeKind", changeKindText(point.getKind()));
-        json.writeStringField("member", memberLabel(point));
-        json.writeStringField("rawKind", point.getKind().name());
-        writeNullableString(json, "disposition",
-                disposition == null ? null : disposition.name());
-        json.writeStringField("dispositionExplanation",
-                dispositionText(disposition));
-        writeNullableString(json, "oldDescriptor", point.getOldDescriptor());
-        writeNullableString(json, "newDescriptor", point.getNewDescriptor());
-        writeNullableString(json, "oldHash", point.getOldHash());
-        writeNullableString(json, "newHash", point.getNewHash());
-        json.writeStringField("oldAccess", point.getAccessTransition()
-                .map(value -> value.oldAccess().name())
-                .orElse("Not applicable"));
-        json.writeStringField("newAccess", point.getAccessTransition()
-                .map(value -> value.newAccess().name())
-                .orElse("Not applicable"));
-        json.writeStringField("ssaStatus", equivalence == null
-                ? "Not compared" : equivalence.getStatus().name());
-        json.writeStringField("ssaReason", equivalence == null
-                ? "Not compared" : equivalence.getReason());
-        json.writeStringField("oldArtifact", bound.getDependencyUpgradeKey()
-                .getOldArtifact().toString());
-        json.writeStringField("newArtifact", bound.getDependencyUpgradeKey()
-                .getNewArtifact().toString());
-        json.writeArrayFieldStart("observations");
-        for (ImpactEvidence observation : module.getObservations()
-                .getOrDefault(bound, List.of())) {
-            json.writeString(observation.render());
+        json.writeNumberField("dependencyUpgradeId", dependencyId);
+        json.writeStringField("changePointKind", point.getKind().name());
+        json.writeStringField("owner", point.getOwner().replace('/', '.'));
+        writeNullableString(json, "name", point.getName());
+        if (codeDiffId == null) {
+            json.writeNullField("codeDiffId");
+        } else {
+            json.writeNumberField("codeDiffId", codeDiffId);
         }
-        json.writeEndArray();
-        writeDuplicateData(json, module, bound);
-        writeComparisonData(json, module.getCodeComparisons().get(bound));
         json.writeEndObject();
     }
 
-    private void writeDuplicateData(
+    private void collectMethods(
+            final List<QueryNode> nodes,
+            final Map<String, MethodId> methods,
+            final Map<String, Boolean> projectMethods) {
+        for (QueryNode node : nodes) {
+            final String key = methodKey(node.methodId());
+            methods.putIfAbsent(key, node.methodId());
+            projectMethods.merge(key, node.origin()
+                    == io.github.dependencyanalysis.callgraph.model
+                    .CodeOrigin.PROJECT, Boolean::logicalOr);
+        }
+    }
+
+    private void writePathSteps(
+            final JsonGenerator json,
+            final int pathId,
+            final List<QueryNode> nodes,
+            final Map<String, Integer> methodIds) throws IOException {
+        for (int ordinal = 0; ordinal < nodes.size(); ordinal++) {
+            json.writeStartObject();
+            json.writeNumberField("pathId", pathId);
+            json.writeNumberField("ordinal", ordinal);
+            json.writeNumberField("methodId", methodIds.get(
+                    methodKey(nodes.get(ordinal).methodId())));
+            json.writeEndObject();
+        }
+    }
+
+    private void writeCodeDiffData(
+            final JsonGenerator json,
+            final int codeDiffId,
+            final CodeComparisonEvidence comparison) throws IOException {
+        json.writeStartObject();
+        json.writeNumberField("id", codeDiffId);
+        json.writeStringField("status", comparison.getStatus().name());
+        json.writeStringField("unifiedDiff",
+                comparison.getStatus()
+                        == io.github.dependencyanalysis.impact
+                        .CodeComparisonStatus.AVAILABLE
+                        ? comparison.getUnifiedDiff() : "");
+        json.writeEndObject();
+    }
+
+    private void writePathMemberRows(
             final JsonGenerator json,
             final ModuleAnalysisResult module,
-            final BoundChangePoint bound) throws IOException {
-        final DuplicateClassResolution resolution = duplicateResolution(
-                module, bound);
-        if (resolution == null) {
-            json.writeNullField("duplicate");
-            return;
-        }
-        json.writeObjectFieldStart("duplicate");
-        json.writeStringField("winner",
-                ownershipLabel(resolution.getWinner()));
-        json.writeStringField("logicalSource",
-                resolution.getWinner().getSource().toString());
-        json.writeStringField("precedence",
-                resolution.getPrecedenceReason());
-        json.writeEndObject();
-    }
-
-    private void writeComparisonData(
-            final JsonGenerator json,
-            final CodeComparisonEvidence comparison) throws IOException {
-        if (comparison == null) {
-            json.writeNullField("comparison");
-            return;
-        }
-        json.writeObjectFieldStart("comparison");
-        json.writeStringField("status", comparison.getStatus().name());
-        json.writeStringField("reason", comparison.getReason());
-        json.writeStringField("unifiedDiff", comparison.getUnifiedDiff());
-        json.writeStringField("asmFallback", comparison.getAsmFallback());
-        json.writeEndObject();
-    }
-
-    private void writeCallPathData(
-            final JsonGenerator json,
-            final ImpactPath path,
             final Map<BoundChangePoint, Integer> memberIds,
-            final String type,
-            final int pathId) throws IOException {
-        final BoundChangePoint point = path.getTerminal().getChangePoint();
-        final io.github.dependencyanalysis.impact.ReferenceEvidence terminal =
-                path.getTerminal().getImpactEvidence();
-        json.writeStartObject();
-        json.writeNumberField("id", pathId);
-        json.writeStringField("type", type);
-        json.writeStringField("impact",
-                path.getClassification() == ImpactClassification.DIRECT
-                        ? "Direct dependency impact"
-                        : "Transitive dependency impact");
-        json.writeStringField("affected",
-                humanMethod(path.getAffectedMethod()));
-        json.writeNumberField("memberId", memberIds.get(point));
-        json.writeArrayFieldStart("segments");
-        for (QueryNode node : path.getNodes()) {
-            json.writeString(humanMethod(node.methodId()));
+            final Map<String, Integer> pathIds) throws IOException {
+        final Set<String> rows = new java.util.TreeSet<>();
+        for (ImpactPath path : module.getFinalPaths()) {
+            rows.add(pathIds.get("call|" + callPathKey(path)) + "|"
+                    + memberIds.get(path.getTerminal().getChangePoint()));
         }
-        json.writeString("Changed member: "
-                + memberLabel(point.getChangePoint()));
-        json.writeEndArray();
-        json.writeObjectFieldStart("evidence");
-        json.writeStringField("kind",
-                path.getTerminal().getEvidenceKind().name());
-        json.writeStringField("mechanism",
-                path.getTerminal().getEvidenceMechanism().name());
-        json.writeStringField("rendered", path.getTerminal().getEvidence());
-        json.writeStringField("target", terminal.target().stableKey());
-        json.writeStringField("source", terminal.location().source());
-        json.writeNumberField("bytecodePc",
-                terminal.location().bytecodePc());
-        json.writeStringField("detail", terminal.detail());
-        json.writeEndObject();
-        json.writeEndObject();
+        for (StructuralReferencePath path : module.getStructuralPaths()) {
+            rows.add(pathIds.get("structural|" + structuralPathKey(path))
+                    + "|" + memberIds.get(path.getChangePoint()));
+        }
+        int rowId = 0;
+        for (String row : rows) {
+            final String[] foreignKeys = row.split("\\|", -1);
+            json.writeStartObject();
+            json.writeNumberField("rowId", rowId++);
+            json.writeNumberField("pathId",
+                    Integer.parseInt(foreignKeys[0]));
+            json.writeNumberField("changedMemberId",
+                    Integer.parseInt(foreignKeys[1]));
+            json.writeEndObject();
+        }
     }
 
-    private void writeStructuralPathData(
-            final JsonGenerator json,
-            final StructuralReferencePath path,
-            final Map<BoundChangePoint, Integer> memberIds,
-            final int pathId) throws IOException {
-        json.writeStartObject();
-        json.writeNumberField("id", pathId);
-        json.writeStringField("type", "structural");
-        json.writeStringField("impact",
-                path.getClassification() == ImpactClassification.DIRECT
-                        ? "Direct structural impact"
-                        : "Transitive structural impact");
-        json.writeStringField("affected", path.getAffectedMethod() == null
-                ? structuralOwner(path)
-                : humanMethod(path.getAffectedMethod()));
-        json.writeNumberField("memberId",
-                memberIds.get(path.getChangePoint()));
-        json.writeArrayFieldStart("segments");
-        for (QueryNode node : path.getNodes()) {
-            json.writeString(humanMethod(node.methodId()));
-        }
-        json.writeString("Application class/member: "
-                + structuralOwner(path));
-        json.writeString(path.getReference().getKind().getLabel());
-        json.writeString("Changed dependency class: "
-                + path.getReference().getChangedClass().replace('/', '.'));
-        json.writeEndArray();
-        json.writeObjectFieldStart("evidence");
-        json.writeStringField("origin",
-                path.getReference().getOrigin().name());
-        json.writeStringField("referenceKind",
-                path.getReference().getKind().getLabel());
-        json.writeStringField("rendered",
-                path.getReference().getEvidence());
-        json.writeArrayFieldStart("contexts");
-        for (QueryNode node : path.getNodes()) {
-            json.writeString(contextEvidence(node));
-        }
-        json.writeEndArray();
-        json.writeEndObject();
-        json.writeEndObject();
+    private String callPathKey(final ImpactPath path) {
+        return path.getClassification() + "|" + path.getRootKind() + "|"
+                + path.getNodes().stream().map(node -> methodKey(
+                        node.methodId())).collect(
+                                java.util.stream.Collectors.joining("->"));
+    }
+
+    private String structuralPathKey(final StructuralReferencePath path) {
+        return path.getClassification() + "|" + structuralOwner(path) + "|"
+                + path.getReference().getKind() + "|"
+                + path.getReference().getChangedClass() + "|"
+                + path.getNodes().stream().map(node -> methodKey(
+                        node.methodId())).collect(
+                                java.util.stream.Collectors.joining("->"));
+    }
+
+    private String methodKey(final MethodId method) {
+        return method.module() + "|" + method.sourceId() + "|"
+                + method.owner() + "|" + method.name() + "|"
+                + method.descriptor();
     }
 
     private void writeNullableString(
@@ -1167,32 +1352,6 @@ public final class PerModuleHtmlReportGenerator {
         body.append("</table></details></section>");
     }
 
-    private void appendDiagnostics(
-            final HtmlSink body,
-            final List<DiagnosticEvent> events) {
-        body.append("<section id=\"diagnostics\"><h2>Diagnostics</h2>");
-        body.append("<details><summary>Technical details</summary>");
-        appendDiagnosticList(body, events);
-        body.append("</details></section>");
-    }
-
-    private void appendDiagnosticList(
-            final HtmlSink body,
-            final List<DiagnosticEvent> events) {
-        if (events.isEmpty()) {
-            body.append("<p>No diagnostic event was recorded.</p>");
-            return;
-        }
-        body.append("<ul>");
-        for (DiagnosticEvent event : events) {
-            body.append("<li><code>")
-                    .append(escape(diagnosticFormatter.formatPrefix(event)))
-                    .append("</code> ").append(escape(event.getMessage()))
-                    .append("</li>");
-        }
-        body.append("</ul>");
-    }
-
     private void appendStageMetrics(
             final HtmlSink body,
             final Map<String, Long> stages) {
@@ -1223,58 +1382,6 @@ public final class PerModuleHtmlReportGenerator {
                 + key.getOldArtifact().getArtifactId() + " "
                 + key.getOldArtifact().getVersion() + " → "
                 + key.getNewArtifact().getVersion();
-    }
-
-    private String memberLabel(final ChangePoint point) {
-        final String owner = point.getOwner().replace('/', '.');
-        return point.getName() == null ? owner
-                : owner + "#" + point.getName();
-    }
-
-    private String changeKindText(final ChangePointKind kind) {
-        return switch (kind) {
-            case CLASS_ADDED -> "Class added";
-            case CLASS_REMOVED -> "Class removed";
-            case CLASS_ACCESS_NARROWED -> "Class access narrowed";
-            case METHOD_ADDED -> "Method added";
-            case METHOD_REMOVED -> "Method removed";
-            case METHOD_DESCRIPTOR_CHANGED -> "Method signature changed";
-            case METHOD_BODY_CHANGED -> "Method implementation changed";
-            case METHOD_ACCESS_NARROWED -> "Method access narrowed";
-            case FIELD_ADDED -> "Field added";
-            case FIELD_REMOVED -> "Field removed";
-            case FIELD_DESCRIPTOR_CHANGED -> "Field type changed";
-            case FIELD_ACCESS_NARROWED -> "Field access narrowed";
-            case SERVICE_PROVIDER_REGISTRATION_REMOVED ->
-                    "Service provider registration removed";
-        };
-    }
-
-    private String dispositionText(final ChangePointDisposition value) {
-        if (value == null) {
-            return "No final classification was recorded.";
-        }
-        return switch (value) {
-            case IMPACT_REPORTED -> "At least one affected application call "
-                    + "chain or class structure reference was found.";
-            case FILTERED_EQUIVALENT -> "Candidate chains were removed because "
-                    + "the old and new method models were proven equivalent.";
-            case CHANGE_KIND_NOT_ANALYZED -> "This added member does not "
-                    + "trigger backward impact analysis.";
-            case SHADOWED_BY_DUPLICATE -> "The changed class definition is "
-                    + "shadowed by the selected classpath winner.";
-            case TARGET_NOT_FOUND -> "The target member could not be resolved.";
-            case DECLARED_REFERENCE_NOT_FOUND -> "No reachable bytecode "
-                    + "reference to the previous member was found.";
-            case ACCESS_REMAINS_VALID -> "Relevant bytecode references were "
-                    + "found and remain legal under the narrowed access.";
-            case NO_PROJECT_PATH -> "No application method was found that can "
-                    + "reach the changed member within the analysis scope.";
-            case UNATTRIBUTABLE_CLASS_REFERENCE -> "A class reference was "
-                    + "found but could not be assigned to a method call chain.";
-            case UNREACHABLE_STRUCTURAL_REFERENCE -> "A class structure "
-                    + "reference was found without reachable code evidence.";
-        };
     }
 
     private String statusText(final String status) {
@@ -1312,32 +1419,6 @@ public final class PerModuleHtmlReportGenerator {
                 : "FAILED".equals(status) ? "fail" : "warn";
     }
 
-    private boolean isEquivalent(
-            final ModuleAnalysisResult module,
-            final BoundChangePoint point) {
-        final MethodEquivalenceResult result = module
-                .getEquivalenceResults().get(point);
-        return result != null && result.getStatus()
-                == MethodEquivalenceStatus.PROVEN_EQUIVALENT;
-    }
-
-    private Comparator<StructuralReferencePath> structuralComparator() {
-        return Comparator.comparing((StructuralReferencePath path) ->
-                        path.getChangePoint().stableKey())
-                .thenComparing(path -> path.getReference().stableKey())
-                .thenComparing(path -> path.getAffectedMethod() == null ? ""
-                        : humanMethod(path.getAffectedMethod()));
-    }
-
-    private Comparator<ImpactPath> impactComparator() {
-        return Comparator.comparing((ImpactPath path) -> path.getTerminal()
-                        .getChangePoint().stableKey())
-                .thenComparing(path -> humanMethod(
-                        path.getAffectedMethod()))
-                .thenComparing(path -> path.getTerminal()
-                        .getImpactEvidence().stableKey());
-    }
-
     private String structuralOwner(final StructuralReferencePath path) {
         final String member = path.getReference().getReferencingMember();
         return path.getReference().getReferencingClass().replace('/', '.')
@@ -1348,21 +1429,16 @@ public final class PerModuleHtmlReportGenerator {
         return method.owner().replace('/', '.') + "#" + method.name();
     }
 
-    private String contextEvidence(final QueryNode node) {
-        if (node instanceof WalaQueryNode wala) {
-            return wala.walaNode().getContext().toString();
-        }
-        if (node instanceof SnapshotQueryNode snapshot) {
-            return snapshot.context();
-        }
-        return node.origin() + " synthetic evidence";
-    }
-
     private long pathCount(
             final AnalysisRunResult run, final boolean candidate) {
         return run.getModuleResults().stream().mapToLong(module ->
                 candidate ? module.getCandidatePaths().size()
                         : module.getFinalPaths().size()).sum();
+    }
+
+    private long structuralPathCount(final AnalysisRunResult run) {
+        return run.getModuleResults().stream().mapToLong(module ->
+                module.getStructuralPaths().size()).sum();
     }
 
     private long rawChangeCount(final AnalysisRunResult run) {
@@ -1393,22 +1469,6 @@ public final class PerModuleHtmlReportGenerator {
         return module.getDuplicateClassResolutions();
     }
 
-    private DuplicateClassResolution duplicateResolution(
-            final ModuleAnalysisResult module,
-            final BoundChangePoint point) {
-        return duplicateResolutions(module).stream()
-                .filter(value -> value.getBinaryName().equals(
-                        normalizedClassName(
-                                point.getChangePoint().getOwner())))
-                .findFirst().orElse(null);
-    }
-
-    private String normalizedClassName(final String value) {
-        final String normalized = value.startsWith("L")
-                ? value.substring(1) : value;
-        return normalized.replace('.', '/');
-    }
-
     private String ownershipLabel(final ClassOwnership ownership) {
         final String source = ownership.getSource().artifact()
                 .map(Object::toString)
@@ -1424,8 +1484,15 @@ public final class PerModuleHtmlReportGenerator {
 
     private long affectedMethodCount(final ModuleAnalysisResult module) {
         final java.util.Set<MethodId> methods = new java.util.LinkedHashSet<>();
-        module.getFinalPaths().stream().map(ImpactPath::getAffectedMethod)
+        module.getFinalPaths().stream()
+                .flatMap(path -> path.getAffectedMethods().stream())
                 .forEach(methods::add);
+        module.getStructuralPaths().stream()
+                .flatMap(path -> path.getNodes().stream())
+                .filter(node -> node.origin()
+                        == io.github.dependencyanalysis.callgraph.model
+                        .CodeOrigin.PROJECT)
+                .map(QueryNode::methodId).forEach(methods::add);
         module.getStructuralPaths().stream()
                 .map(StructuralReferencePath::getAffectedMethod)
                 .filter(java.util.Objects::nonNull).forEach(methods::add);
@@ -1435,7 +1502,8 @@ public final class PerModuleHtmlReportGenerator {
     private long affectedClassCount(final ModuleAnalysisResult module) {
         final java.util.Set<String> classes = new java.util.LinkedHashSet<>();
         module.getFinalPaths().stream()
-                .map(path -> path.getAffectedMethod().owner())
+                .flatMap(path -> path.getAffectedMethods().stream())
+                .map(MethodId::owner)
                 .forEach(classes::add);
         module.getStructuralPaths().stream().forEach(path -> {
             if (path.getAffectedMethod() == null) {
@@ -1513,14 +1581,6 @@ public final class PerModuleHtmlReportGenerator {
         return modules.stream().flatMap(module -> module
                         .getEquivalenceResults().values().stream())
                 .filter(result -> result.getStatus() == status).count();
-    }
-
-    private List<DiagnosticEvent> moduleEvents(
-            final ModuleAnalysisResult module,
-            final List<DiagnosticEvent> events) {
-        final String key = module.getModuleId().stableKey();
-        return events.stream().filter(event -> key.equals(event.getModule()))
-                .toList();
     }
 
     private long contextCount(final ModuleAnalysisResult module) {
@@ -1679,16 +1739,15 @@ public final class PerModuleHtmlReportGenerator {
     private String overallToc() {
         return toc("read", "How to read", "limits", "Scope and limitations",
                 "terms", "Terminology", "run", "Run summary",
-                "modules", "Modules", "preflight", "Preflight checks",
-                "diagnostics", "Diagnostics");
+                "modules", "Modules", "preflight", "Preflight checks");
     }
 
     private String moduleIndexToc() {
-        return toc("summary", "Summary", "scope", "Analysis scope",
+        return toc("summary", "Summary", "changed-members",
+                "Changed members", "scope", "Analysis scope",
                 "dependency-body-boundary", "Dependency body boundary",
                 "duplicates", "Duplicate class resolution",
-                "metrics", "Runtime metrics", "limits", "Limitations",
-                "diagnostics", "Diagnostics");
+                "metrics", "Runtime metrics", "limits", "Limitations");
     }
 
     private String impactToc() {

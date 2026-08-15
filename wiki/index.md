@@ -15,12 +15,12 @@ code_refs: []
 ## Architecture
 
 ### [Dependency Analysis Pipelines](architecture/dependency-analysis-pipelines.md)
-- Summary: `ImpactExecutionEngine`严格串行Module、构图后单线程Evidence与按QueryNode并发Query；`TreeExecutionEngine`串行处理Reactor；两者保持独立业务边界并输出冻结Report结果。
+- Summary: `ImpactExecutionEngine`严格串行Module、按QueryNode并发Root Impact Query、Final/Structural code comparison与无条件snapshot；Impact ReportCache仅服务显式topology JSON。
 
 ## Features
 
 ### [CLI Preflight and Diagnostics](features/cli-preflight-diagnostics.md)
-- Summary: stderr-only五段DiagnosticLog、半核analysis parallelism默认值、QueryNode进度、JAR diff汇总，以及`-vv` Runtime Metrics。
+- Summary: Console-only五段DiagnosticLog、半核analysis parallelism默认值、QueryNode进度、JAR diff汇总、`-vv` Runtime Metrics与显式topology JSON边界；HTML不保留Diagnostics。
 
 ### [Maven Runtime](features/maven-runtime.md)
 - Summary: 用户 executable、跨平台内嵌 Maven 3.6.3、两个独立 repository ZIP，以及 Stable/Snapshot 分离 cache 与 command-scoped settings。
@@ -47,16 +47,16 @@ code_refs: []
 - Summary: logical coordinate pair经repository lease并行去重Diff；检测bytecode、JVM access narrowing与ServiceLoader registration removal，并按唯一pair汇总changes/failure。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
-- Summary: 正式CHA与experimental `k-obj`按strategy隔离；engine只接收Call Graph input contract并冻结metadata，Impact层负责Evidence和coverage reason映射。
+- Summary: 正式CHA与experimental `k-obj`按strategy隔离；canonical SCC topology utility由cycle识别和Impact root selection复用。
 
 ### [JDK Method Models](features/jdk-method-models.md)
 - Summary: CHA固定`none`；experimental `k-obj`默认接入独立`models/jdk8`精确catalog，并允许显式`none`。
 
 ### [Impact Tracing](features/impact-tracing.md)
-- Summary: 构图后单线程遍历最终Call Graph一次，普通与Structural Evidence统一进入exact `QueryNode` binding；QueryNode并发reverse BFS，Report snapshot移除全部live WALA anchor。
+- Summary: refined reverse slice按无外部incoming edge的root SCC生成确定性最短代表路径；路径内全部PROJECT methods通过`getAffectedMethods()`报告，不生成中间method后缀路径。
 
 ### [Report Generator](features/report-generator.md)
-- Summary: `impact`通过Writer原子生成Overall与Module页面；最终shaded JAR gate验证Impact/Tree HTML结构、本地资源和多页面链接可用性。
+- Summary: Final/Structural-only Affected Paths采用unique entities加ID relations；Module changed member指标覆盖零路径member，现代数据表按当前页动态渲染。
 
 ## Rules
 

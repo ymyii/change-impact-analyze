@@ -5,22 +5,17 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.time.Clock;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.LongSupplier;
 
 // Wiki: wiki/features/cli-preflight-diagnostics.md - 统一 Diagnostic 日志入口
-/** Unified retained Diagnostic event and transient Console façade. */
+/** Unified Diagnostic Console façade. */
 public final class DiagnosticLog {
 
     /** Nanoseconds per millisecond. */
     private static final long NANOS_PER_MILLISECOND = 1_000_000L;
-
-    /** Retained events. */
-    private final List<DiagnosticEvent> events = new ArrayList<>();
 
     /** Active stage monotonic starts. */
     private final Map<String, Long> stageStarts = new HashMap<>();
@@ -123,7 +118,7 @@ public final class DiagnosticLog {
             final DiagnosticContext context,
             final String details) {
         stageStarts.put(context.stableKey(), nanoTime.getAsLong());
-        emitRetained(context, DiagnosticLevel.INFO,
+        emit(context, DiagnosticLevel.INFO,
                 lifecycle("started", details));
     }
 
@@ -155,7 +150,7 @@ public final class DiagnosticLog {
             final DiagnosticContext context,
             final String details) {
         final long elapsed = elapsedMillis(context);
-        emitRetained(context, DiagnosticLevel.INFO,
+        emit(context, DiagnosticLevel.INFO,
                 withElapsed(lifecycle("completed", details), elapsed),
                 elapsed);
     }
@@ -182,13 +177,13 @@ public final class DiagnosticLog {
             final DiagnosticContext context,
             final String details) {
         final long elapsed = elapsedMillis(context);
-        emitRetained(context, DiagnosticLevel.ERROR,
+        emit(context, DiagnosticLevel.ERROR,
                 withElapsed(lifecycle("failed", details), elapsed),
                 elapsed);
     }
 
     /**
-     * Emits retained INFO.
+     * Emits INFO.
      *
      * @param stage stage
      * @param message message
@@ -198,7 +193,7 @@ public final class DiagnosticLog {
     }
 
     /**
-     * Emits retained INFO.
+     * Emits INFO.
      *
      * @param context context
      * @param message message
@@ -206,11 +201,11 @@ public final class DiagnosticLog {
     public synchronized void info(
             final DiagnosticContext context,
             final String message) {
-        emitRetained(context, DiagnosticLevel.INFO, message);
+        emit(context, DiagnosticLevel.INFO, message);
     }
 
     /**
-     * Emits retained DEBUG.
+     * Emits DEBUG.
      *
      * @param stage stage
      * @param message message
@@ -220,7 +215,7 @@ public final class DiagnosticLog {
     }
 
     /**
-     * Emits retained DEBUG.
+     * Emits DEBUG.
      *
      * @param context context
      * @param message message
@@ -228,11 +223,11 @@ public final class DiagnosticLog {
     public synchronized void debug(
             final DiagnosticContext context,
             final String message) {
-        emitRetained(context, DiagnosticLevel.DEBUG, message);
+        emit(context, DiagnosticLevel.DEBUG, message);
     }
 
     /**
-     * Emits retained TRACE.
+     * Emits TRACE.
      *
      * @param stage stage
      * @param message message
@@ -242,7 +237,7 @@ public final class DiagnosticLog {
     }
 
     /**
-     * Emits retained TRACE.
+     * Emits TRACE.
      *
      * @param context context
      * @param message message
@@ -250,11 +245,11 @@ public final class DiagnosticLog {
     public synchronized void trace(
             final DiagnosticContext context,
             final String message) {
-        emitRetained(context, DiagnosticLevel.TRACE, message);
+        emit(context, DiagnosticLevel.TRACE, message);
     }
 
     /**
-     * Emits retained WARN.
+     * Emits WARN.
      *
      * @param stage stage
      * @param message message
@@ -264,7 +259,7 @@ public final class DiagnosticLog {
     }
 
     /**
-     * Emits retained WARN.
+     * Emits WARN.
      *
      * @param context context
      * @param message message
@@ -272,11 +267,11 @@ public final class DiagnosticLog {
     public synchronized void warn(
             final DiagnosticContext context,
             final String message) {
-        emitRetained(context, DiagnosticLevel.WARN, message);
+        emit(context, DiagnosticLevel.WARN, message);
     }
 
     /**
-     * Emits retained ERROR.
+     * Emits ERROR.
      *
      * @param stage stage
      * @param message message
@@ -286,7 +281,7 @@ public final class DiagnosticLog {
     }
 
     /**
-     * Emits retained ERROR.
+     * Emits ERROR.
      *
      * @param context context
      * @param message message
@@ -294,7 +289,7 @@ public final class DiagnosticLog {
     public synchronized void error(
             final DiagnosticContext context,
             final String message) {
-        emitRetained(context, DiagnosticLevel.ERROR, message);
+        emit(context, DiagnosticLevel.ERROR, message);
     }
 
     /**
@@ -313,7 +308,7 @@ public final class DiagnosticLog {
         if (!verbosity.includes(minimumVerbosity)) {
             return;
         }
-        emitLines(context, level, message, false);
+        emitLines(context, level, message);
     }
 
     /**
@@ -330,11 +325,11 @@ public final class DiagnosticLog {
         }
         final StringWriter buffer = new StringWriter();
         failure.printStackTrace(new PrintWriter(buffer));
-        emitLines(context, DiagnosticLevel.DEBUG, buffer.toString(), false);
+        emitLines(context, DiagnosticLevel.DEBUG, buffer.toString());
     }
 
     /**
-     * Emits one retained WARN followed atomically by a transient DEBUG
+     * Emits one WARN followed atomically by a transient DEBUG
      * stack trace when DEBUG verbosity is enabled.
      *
      * @param context context
@@ -348,11 +343,6 @@ public final class DiagnosticLog {
         Objects.requireNonNull(failure, "failure");
         warn(context, message);
         transientException(context, failure);
-    }
-
-    /** @return immutable retained event snapshot */
-    public synchronized List<DiagnosticEvent> getEvents() {
-        return List.copyOf(events);
     }
 
     private long elapsedMillis(final DiagnosticContext context) {
@@ -377,14 +367,14 @@ public final class DiagnosticLog {
         return normalized.isBlank() ? state : state + "; " + normalized;
     }
 
-    private void emitRetained(
+    private void emit(
             final DiagnosticContext context,
             final DiagnosticLevel level,
             final String message) {
-        emitRetained(context, level, message, 0L);
+        emit(context, level, message, 0L);
     }
 
-    private void emitRetained(
+    private void emit(
             final DiagnosticContext context,
             final DiagnosticLevel level,
             final String message,
@@ -392,22 +382,20 @@ public final class DiagnosticLog {
         if (!verbosity.includes(minimumVerbosity(level))) {
             return;
         }
-        emitLines(context, level, message, true, elapsedMillis);
+        emitLines(context, level, message, elapsedMillis);
+    }
+
+    private void emitLines(
+            final DiagnosticContext context,
+            final DiagnosticLevel level,
+            final String message) {
+        emitLines(context, level, message, 0L);
     }
 
     private void emitLines(
             final DiagnosticContext context,
             final DiagnosticLevel level,
             final String message,
-            final boolean retain) {
-        emitLines(context, level, message, retain, 0L);
-    }
-
-    private void emitLines(
-            final DiagnosticContext context,
-            final DiagnosticLevel level,
-            final String message,
-            final boolean retain,
             final long elapsedMillis) {
         final String normalized = Objects.requireNonNullElse(message, "")
                 .replace("\r\n", "\n").replace('\r', '\n');
@@ -418,9 +406,6 @@ public final class DiagnosticLog {
             final DiagnosticEvent event = new DiagnosticEvent(
                     OffsetDateTime.now(clock), context, level, lines[index],
                     elapsedMillis);
-            if (retain) {
-                events.add(event);
-            }
             output.println(formatter.format(event));
         }
     }

@@ -73,7 +73,7 @@ final class HtmlReportUsabilityVerifier {
             assertThat(page).isRegularFile().isReadable();
             final String html = Files.readString(
                     page, StandardCharsets.UTF_8);
-            verifyDocument(page, html);
+            verifyDocument(page, html, !requireLinkedPage);
             final Matcher resources = RESOURCE.matcher(html);
             while (resources.find()) {
                 final String reference = resources.group(2).trim();
@@ -98,7 +98,8 @@ final class HtmlReportUsabilityVerifier {
 
     private static void verifyDocument(
             final Path page,
-            final String html) {
+            final String html,
+            final boolean impactReport) {
         final String normalized = html.toLowerCase(Locale.ROOT);
         assertThat(html).as(page.toString()).isNotBlank();
         assertThat(normalized).as(page.toString())
@@ -114,6 +115,30 @@ final class HtmlReportUsabilityVerifier {
         assertThat(UNEXPANDED_TEMPLATE.matcher(html).find())
                 .as("unexpanded template marker in %s", page)
                 .isFalse();
+        if (impactReport) {
+            assertThat(html).as("HTML Diagnostics removed from %s", page)
+                    .doesNotContain("id=\"diagnostics\"");
+        }
+        if (html.contains("id=\"affected-path-data\"")) {
+            assertThat(html).as("Affected Paths contract in %s", page)
+                    .contains("id=\"path-table\"")
+                    .contains("\"dependencyUpgrades\"")
+                    .contains("\"changedMembers\"")
+                    .contains("\"pathSteps\"")
+                    .contains("\"pathMemberRows\"")
+                    .contains("position:sticky")
+                    .contains(".table-scroll")
+                    .contains(".badge")
+                    .contains(":focus-visible")
+                    .contains("<noscript>");
+        }
+        if (html.contains("id=\"changed-member-data\"")) {
+            assertThat(html).as("Changed member table contract in %s", page)
+                    .contains("id=\"changed-member-table\"")
+                    .contains("\"memberMetrics\"")
+                    .contains("id=\"member-page-size\"")
+                    .contains("aria-live=\"polite\"");
+        }
     }
 
     private static boolean ignored(final String reference) {

@@ -12,10 +12,7 @@ public final class CodeComparisonEvidence {
     /** Decompiled Java Unified diff hunks. */
     private final List<UnifiedDiffHunk> hunks;
 
-    /** Technical ASM fallback, empty when unnecessary. */
-    private final String asmFallback;
-
-    /** Failure or fallback reason, empty when unnecessary. */
+    /** Failure reason, empty when unnecessary. */
     private final String reason;
 
     /**
@@ -23,17 +20,14 @@ public final class CodeComparisonEvidence {
      *
      * @param value comparison status
      * @param diffHunks complete Unified diff hunks
-     * @param fallback ASM fallback text
-     * @param detail failure or fallback reason
+     * @param detail failure reason
      */
     public CodeComparisonEvidence(
             final CodeComparisonStatus value,
             final List<UnifiedDiffHunk> diffHunks,
-            final String fallback,
             final String detail) {
         status = Objects.requireNonNull(value, "status");
         hunks = List.copyOf(diffHunks);
-        asmFallback = Objects.requireNonNull(fallback, "fallback");
         reason = Objects.requireNonNull(detail, "detail");
     }
 
@@ -47,12 +41,7 @@ public final class CodeComparisonEvidence {
         return hunks;
     }
 
-    /** @return ASM fallback text, possibly empty */
-    public String getAsmFallback() {
-        return asmFallback;
-    }
-
-    /** @return failure or fallback reason, possibly empty */
+    /** @return failure reason, possibly empty */
     public String getReason() {
         return reason;
     }

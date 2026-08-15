@@ -11,11 +11,11 @@ relations:
 code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactCommand.java"
     desc: "统一result refinement CLI selection"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ResultRefinementSelection.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/refinement/ResultRefinementSelection.java"
     desc: "immutable算法选择与稳定执行顺序"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChaLocalReceiverEdgeRefiner.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/refinement/cha/ChaLocalReceiverEdgeRefiner.java"
     desc: "查询期CHA局部Receiver推导与edge decision cache"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChaLocalReceiverRefinementSummary.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/refinement/cha/ChaLocalReceiverRefinementSummary.java"
     desc: "Module级typed metrics与bounded examples"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
     desc: "command-wide Impact Query pool、串行Module生命周期与session释放边界"
@@ -56,24 +56,28 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChangePointSeedResolution.java"
     desc: "seed、三态observation、typed evidence与query limitation不变量"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactPath.java"
-    desc: "ordered QueryNode与完整ChangePointTerminal组成的node-only path"
+    desc: "root method、ordered affected PROJECT methods与root kind contract"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactPathRootKind.java"
+    desc: "普通method root与root SCC分类"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/topology/StronglyConnectedComponents.java"
+    desc: "Call Graph topology与Impact root selection复用的canonical SCC实现"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChangePointTerminal.java"
     desc: "路径末端BoundChangePoint与exact ReferenceEvidence"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/SeedProgressReporter.java"
     desc: "-vv下单个QueryNode独立计时、visited与10秒心跳"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChangePointDisposition.java"
     desc: "ChangePoint 最终 disposition contract"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/SsaEquivalenceEngine.java"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/refinement/ssa/SsaEquivalenceEngine.java"
     desc: "显式启用后的global serial candidate-only filtering"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/CodeComparisonBuilder.java"
-    desc: "repository-backed old/new decompiled Java 与 ASM fallback"
+    desc: "Final/Structural member的repository-backed decompiled Java diff"
 ---
 
 # Feature: Impact Tracing
 
 ## Summary
 
-Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`ModuleCallGraphSession`。`StructuralImpactScanner`先扫描全部effective class metadata；随后算法无关`ChangePointEvidenceCollector`在同一线程顺序遍历最终Call Graph一次，不建立node/IR snapshot，也不创建Evidence线程池。ordinary invoke、field/type、Class.forName、ServiceLoader、dynamic handle和Structural Reference统一转换为`ReferenceEvidence`，并写入每个`BoundChangePoint`唯一resolution与exact `QueryNode` Reverse BFS binding。Query先做Structural access准备、ordinary seed resolution和access observation，再按exact `QueryNode`分组执行deterministic reverse breadth-first search（BFS，广度优先搜索）。Impact Path只保存有序`QueryNode`与完整`ChangePointTerminal`；Removed subject永远是terminal，不进入WALA topology。
+Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`ModuleCallGraphSession`。`StructuralImpactScanner`先扫描全部effective class metadata；随后算法无关`ChangePointEvidenceCollector`在同一线程顺序遍历最终Call Graph一次。Query按exact `QueryNode`分组执行deterministic reverse breadth-first search（BFS，广度优先搜索），在`cha-local-receiver-inference`裁剪后的实际切片边上计算root strongly connected component（SCC，强连通分量）。Impact Path只物化“root PROJECT method → seed → changed member”的确定性最短代表路径；路径中的PROJECT methods通过`getAffectedMethods()`统一报告，不再为每个中间method生成后缀路径。
 
 ## Design Decisions
 
@@ -120,14 +124,18 @@ Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`Mo
 - 每个QueryNode query使用局部queue、`visited`、`next`和唯一`ReverseTrace`执行一次deterministic reverse BFS；Module级`traceCache`不存在。
 - worker只返回immutable ordinary path、structural path与recovery结果，不返回`ReverseTrace`、`visited`或`next`。query返回前释放局部`ReverseTrace`强引用；同时存活的反向切片不超过active QueryNode worker数。
 - Traversal identity 是 exact `CGNode`，禁止使用 `Context.toString()` 作为 stable identity。
-- Reverse BFS 访问全部 predecessor；每个访问到的 `CodeOrigin.PROJECT` node 都是 affected method，包括 call chain 中间的 PROJECT method。
+- Reverse BFS保留`cha-local-receiver-inference`判断后的实际predecessor/successor切片边；WALA fake root与fake world-clinit先移除，不参与root判断或Report。
+- canonical SCC utility对切片分解组件。没有外部incoming edge的SCC是root component；普通单节点root必须是无真实caller的PROJECT method。
+- root SCC优先选择declared PROJECT entrypoint；不存在时选择stable comparator最小的PROJECT node。root component不含PROJECT node时不生成Impact Path，并沿用`NO_PROJECT_PATH` disposition。
+- 每个root component只生成一条到seed的deterministic shortest path；多个root component分别保留。A→B→seed只物化A root path，B通过affected methods关系报告，不执行path containment比较。
 - 选择`cha-local-receiver-inference`且实际algorithm为CHA时，Reverse BFS在predecessor进入`visited/next/queue`前校验exact `(caller CGNode, callee CGNode)` edge。只有关联的全部callsite及其全部`IR.getCalls(site)` invoke instance均证明排除callee时才跳过；任一feasible、unknown、fixed dispatch或缺失证据均保留。
 - Fake root、static/special invoke、缺失IR/callsite与原callsite单target不执行Receiver推导。Module Query内全部QueryNode worker共享edge、caller IR/Def-Use与caller/value resolution cache；Query结束即释放。Impact Path与Structural Reference Path使用同一结果。
 - Receiver v1仅识别`new`非数组reference exact type、exact `phi`并集、透明`pi`及单一可解析非数组reference `checkcast`。显式`null`不产生正常target，`phi(null,new B)`为exact `B`；exact/upper-bound混合、全upper-bound或任一unknown `phi`整体unknown。
 - `this`、参数、field/array load、method return、collection content、数组、多类型或unresolved cast及其他unsupported SSA instruction均unknown。推导使用iterative worklist和visited value set，不递归、不设数值预算；可恢复异常fail-open，线程中断继续传播。
 - exact集合逐个通过target Class Hierarchy解析继承方法或interface default method；unresolved、abstract或不一致结果保留edge。Upper bound只在完整class/interface cone target排除callee时删除edge。
 - Impact Path与Structural Reference Path只保存有序node sequence和terminal，不调用`getPossibleSites(caller, callee)`反查中间callsite。
-- completion result到达后立即归并，不保存全部query结果。同一 `ChangePoint + affected PROJECT method` 汇总不同 seed 与不同 Context：先选hop数最少的path，再逐node按method owner/name/descriptor、module/source、origin和graph node id比较，最后按terminal evidence stable key决胜。
+- completion result到达后立即归并，不保存全部query结果。同一`changed member + root MethodId`汇总不同seed、Context和路线：先选hop数最少的path，再比较exact node sequence，最后按terminal evidence stable key决胜。serial与parallel执行得到相同代表路径。
+- `ImpactPath.getRootMethod()`返回路径首个PROJECT method；`getAffectedMethods()`返回路径内全部PROJECT `MethodId`，按路径顺序并跨Context去重；`getRootKind()`区分普通method root与root SCC。旧的单数affected method接口不保留。
 - Fake root/world-clinit 不进入 Report。Seed origin 是 PROJECT 时 classification 为 `DIRECT`，否则为 `TRANSITIVE`。
 - 不同 Module 独立 query、独立 disposition、独立 Report。
 
@@ -140,7 +148,7 @@ Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`Mo
 - `-vv`为每个QueryNode输出transient Console-only `query-node-started`、可选`query-node-progress`与`query-node-completed`；Phase位于五段prefix第五段最前面，值保持`REVERSE_BFS`、`PATH_MATERIALIZATION`与`REPRESENTATIVE_SELECTION`，message不再重复`phase=`。字段包含稳定`queryNodeOrdinal`、`evidenceSeeds`、elapsed、recent node及本QueryNode独立的`visited`。PROJECT direct structural reference不输出QueryNode事件。
 - 每个QueryNode从`elapsedMs=0`、`visited=0`独立计时。单个query运行满10秒后输出首个progress，以后按自身20、30、40秒周期输出；query之间不继承elapsed、visited、recent node、Phase或heartbeat ordinal。
 - BFS期间visited表示当前QueryNode已发现节点数；BFS完成后固定为该QueryNode局部`ReverseTrace.visited`总数。心跳只读取per-QueryNode thread-safe snapshot，不遍历正在修改的graph collection，也不读取method body、IR或SSA instruction。
-- QueryNode正常完成时先停止心跳再输出total elapsed与visited；异常路径只停止心跳并传播异常，不伪造completed。INFO/DEBUG不创建scheduler；这些事件不进入retained events、JSON或HTML Report。
+- QueryNode正常完成时先停止心跳再输出total elapsed与visited；异常路径只停止心跳并传播异常，不伪造completed。INFO/DEBUG不创建scheduler；这些line只进入Console，不进入JSON或HTML Report。
 - 任一QueryNode失败时取消并等待当前Module已启动的其他query退出，再将该Module转换为`FAILED_ANALYSIS`。共享pool继续服务后续Module；pipeline结束或全局异常时统一关闭。
 
 ## Dynamic Terminal Evidence
@@ -156,7 +164,7 @@ Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`Mo
 - superclass、interface、annotation、generic signature、method/field descriptor、throws reference在ASM visitor中直接形成typed `MetadataReference(kind, member, target, evidence)`，再投影为`StructuralReference`；kind/member不从evidence文字反向解析。
 - PROJECT metadata reference 直接展示 `application class/member -> structural relation -> changed dependency class`，不虚构 method call。
 - REACTOR_DEPENDENCY/DEPENDENCY reference 使用 live WALA graph 做同样的 read-only reverse BFS，恢复 PROJECT boundary。
-- 每个 affected PROJECT method保留一条 shortest representative structural path；无法回到 PROJECT 时为 `UNREACHABLE_STRUCTURAL_REFERENCE`。
+- 每个PROJECT root component保留一条shortest representative structural path；无法回到PROJECT时为`UNREACHABLE_STRUCTURAL_REFERENCE`。
 
 ## ChangePoint Disposition
 
@@ -190,14 +198,14 @@ Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`Mo
 - Target IR 来自 target session；old IR 使用 baseline ArtifactCoord closure、repository lease 与同一 JDK 8 构建 old-side CHA，不构建 baseline Call Graph。
 - 两侧使用相同 `SSAOptions` 和独立 cache。比较 typed constants、Def-Use、normal/exception CFG、catch type、declared references、phi/pi/catch 与 side-effect order。
 - `PROVEN_EQUIVALENT` 删除该 ChangePoint 的全部 path；`DIFFERENT`、`UNKNOWN` 保留。`UNKNOWN` 将原 `SUCCESS` Module 转为 `INCONCLUSIVE`。
-- 结果收窄选择不控制基础Bytecode Diff或Code Comparison Evidence；`none`仍生成`METHOD_BODY_CHANGED`、Impact Path、decompiled Java和ASM fallback。
+- 结果收窄选择不控制基础Bytecode Diff；Code Comparison在SSA完成后根据Final/Structural关联member裁剪。
 
 ## Code Comparison Evidence
 
-- 只为Candidate Impact Path与Structural Reference Path关联的唯一ChangePoint构建code comparison evidence；Final与Equivalent filtered均来自Candidate集合。`ACCESS_REMAINS_VALID`等无路径change不触发反编译。
-- JAR 通过 `IJarRepository.open(ArtifactCoord)` 获取；physical path 只由当前 temporary `JarLease.jarFile()` handle 传给 Vineflower/ASM，不进入 domain key 或 Report dependency detail。
+- 只为Final Impact Path与Structural Reference Path关联的唯一ChangePoint构建code comparison evidence；filtered-only与无路径change不触发反编译。
+- JAR通过`IJarRepository.open(ArtifactCoord)`获取；physical path只由当前temporary `JarLease.jarFile()` handle传给Vineflower或field declaration reader，不进入domain key或Report。
 - Vineflower 使用 exact old/new artifact 与 JDK 8 context；结果按 logical old/new coordinate 与 member identity 去重。
-- 输出Git-style Unified diff；反编译失败或bytecode不同但Java text相同时保留ASM fallback。Report按changed member只存一份raw diff，并在用户打开path详情时按行着色。
+- 输出decompiled Java Git-style Unified diff；状态为`AVAILABLE`、`JAVA_TEXT_IDENTICAL`或`UNAVAILABLE`。不生成ASM fallback；failure reason只写Console。Report按changed member只存一份diff。
 - Code evidence 不参与 Impact/SSA 判定，失败不改变 Module status。
 
 ## Read-only Boundary

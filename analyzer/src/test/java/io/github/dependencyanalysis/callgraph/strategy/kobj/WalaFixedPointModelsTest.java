@@ -394,7 +394,9 @@ class WalaFixedPointModelsTest {
         final JavaRuntimeDescriptor runtime = new Jdk8RuntimeProvider()
                 .probe(Path.of(System.getenv("TEST_JDK8_HOME")));
         for (CallGraphAlgorithm algorithm : CallGraphAlgorithm.values()) {
-            final DiagnosticLog collector = diagnostics();
+            final ByteArrayOutputStream console = new ByteArrayOutputStream();
+            final DiagnosticLog collector = new DiagnosticLog(
+                    new PrintStream(console), LogVerbosity.INFO);
             try (IJarRepository repository = TestJarRepositories.empty()) {
                 new ModuleCallGraphEngine(collector, runtime,
                         EntrypointSelection.allProjectClasses(), algorithm,
@@ -403,15 +405,14 @@ class WalaFixedPointModelsTest {
                         .build(new ModuleCallGraphInputAdapter().adapt(unit),
                                 GRAPH_TIMEOUT_SECONDS);
             }
-            assertThat(collector.getEvents())
-                    .anySatisfy(event -> assertThat(event.getMessage())
-                            .startsWith("algorithm="
+            assertThat(console.toString())
+                    .contains("algorithm="
                                     + algorithm.identifier()
                                     + (algorithm == CallGraphAlgorithm.K_OBJ
                                     ? " (experimental);" : ";"))
                             .contains("jdkModel=none")
                             .doesNotContain("availableTarget",
-                                    "unavailableTarget", "hitTarget"));
+                                    "unavailableTarget", "hitTarget");
         }
     }
 
@@ -924,7 +925,7 @@ class WalaFixedPointModelsTest {
                                 .trace(unit, session, evidence(unit, session));
                 assertThat(query.getPaths())
                         .as(algorithm.identifier()).anySatisfy(path -> {
-                            assertThat(path.getAffectedMethod().owner())
+                            assertThat(path.getRootMethod().owner())
                                     .isEqualTo("RemovedLambdaApp");
                             assertThat(path.getTerminal()
                                     .getEvidenceMechanism()).isEqualTo(
@@ -1059,9 +1060,9 @@ class WalaFixedPointModelsTest {
                 assertThat(new ModuleImpactTracer(diagnostics()).trace(
                         unit, session, evidence(unit, session)).getPaths())
                         .anySatisfy(path -> {
-                            assertThat(path.getAffectedMethod().owner())
+                            assertThat(path.getRootMethod().owner())
                                     .isEqualTo("ObjectDispatchApp");
-                            assertThat(path.getAffectedMethod().name())
+                            assertThat(path.getRootMethod().name())
                                     .isEqualTo("execute");
                         });
             }

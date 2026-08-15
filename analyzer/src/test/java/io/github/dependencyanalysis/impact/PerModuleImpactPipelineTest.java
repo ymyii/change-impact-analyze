@@ -104,7 +104,7 @@ class PerModuleImpactPipelineTest {
     }
 
     @Test
-    void codeComparisonSelectionDeduplicatesCandidateAndStructuralPaths() {
+    void codeComparisonSelectionUsesFinalAndStructuralPathsOnly() {
         final ModuleId moduleId = new ModuleId(new ArtifactCoord(
                 "example", "app", "jar", "1"), Path.of("app"));
         final ArtifactCoord oldArtifact = new ArtifactCoord(
@@ -130,7 +130,7 @@ class PerModuleImpactPipelineTest {
                 new EvidenceLocation("fixture", 0), "fixture");
         final ImpactPath candidate = new ImpactPath(List.of(root),
                 new ChangePointTerminal(point, evidence),
-                ImpactClassification.DIRECT);
+                ImpactClassification.DIRECT, ImpactPathRootKind.METHOD);
         final StructuralReferencePath structural =
                 new StructuralReferencePath(point,
                         new StructuralReference("example/app/Controller",
@@ -138,12 +138,19 @@ class PerModuleImpactPipelineTest {
                                 StructuralReferenceKind.ANNOTATION, "",
                                 "example/library/Api", "fixture"),
                         List.of(root), ImpactClassification.DIRECT);
+        final ModuleAnalysisResult filteredOnly =
+                new ModuleAnalysisResult.Builder(
+                        unit(moduleId, List.of(point)))
+                        .candidatePaths(List.of(candidate)).build();
         final ModuleAnalysisResult module = new ModuleAnalysisResult.Builder(
                 unit(moduleId, List.of(point)))
                 .candidatePaths(List.of(candidate, candidate))
+                .finalPaths(List.of(candidate, candidate))
                 .structuralPaths(List.of(structural))
                 .build();
 
+        assertThat(PerModuleImpactPipeline.codeComparisonPoints(filteredOnly))
+                .isEmpty();
         assertThat(PerModuleImpactPipeline.codeComparisonPoints(module))
                 .containsExactly(point);
     }
