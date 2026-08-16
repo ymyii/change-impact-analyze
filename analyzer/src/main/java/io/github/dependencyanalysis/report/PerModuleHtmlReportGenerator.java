@@ -95,14 +95,16 @@ public final class PerModuleHtmlReportGenerator {
             + " var(--line);padding:14px 24px;background:var(--surface)}"
             + ".breadcrumbs,.siblings{display:flex;gap:8px;flex-wrap:wrap}"
             + ".siblings{margin-top:8px}.layout{display:grid;grid-template-"
-            + "columns:240px minmax(0,1fr);gap:28px;max-width:1440px;"
-            + "margin:auto;padding:22px}.toc{position:sticky;top:18px;"
+            + "columns:240px minmax(0,1fr);gap:clamp(18px,2vw,32px);"
+            + "width:100%;margin:0 auto;padding:clamp(14px,2vw,28px)}"
+            + ".toc{position:sticky;top:18px;"
             + "align-self:start;border:1px solid var(--line);"
             + "border-radius:var(--radius);padding:14px;"
             + "background:var(--surface)}.toc ul{margin:8px 0 0;"
             + "padding-left:20px}.toc a[aria-current=\"page\"]{font-weight:700}"
             + "main{min-width:0}h1{margin-top:0}h2{margin-top:34px;"
-            + "padding-bottom:5px}section{background:var(--surface);"
+            + "padding-bottom:5px}section{min-width:0;"
+            + "background:var(--surface);"
             + "border:1px solid var(--line);border-radius:var(--radius);"
             + "padding:18px;margin:18px 0;box-shadow:0 1px 2px #1018280d}"
             + "section h2{margin-top:0}table{border-collapse:separate;"
@@ -135,6 +137,7 @@ public final class PerModuleHtmlReportGenerator {
             + ".report-controls{display:flex;gap:12px;align-items:end;"
             + "flex-wrap:wrap;margin:12px 0}.report-control{display:grid;"
             + "gap:4px;color:var(--muted);font-size:12px}"
+            + ".search-fields{display:contents}"
             + ".report-control input,.report-control select,button,"
             + ".pagination input{height:var(--control-height);border:1px solid"
             + " var(--line-strong);border-radius:8px;background:var(--surface);"
@@ -332,7 +335,7 @@ public final class PerModuleHtmlReportGenerator {
                 .append(row("Maven Dependency Plugin",
                         "embedded " + context.plugin().getVersion()))
                 .append(concurrencyRows(run))
-                .append(row("Dependency changes",
+                .append(row("Complete dependency changes",
                         run.getDependencyChanges().size()))
                 .append(row("Conflicting duplicate classes",
                         duplicateConflictCount(run)))
@@ -367,9 +370,7 @@ public final class PerModuleHtmlReportGenerator {
                         chaReceiverStatus(run)))
                 .append(row("SSA equivalence",
                         experimentalStatus(semanticComparison)))
-                .append(row("WALA", walaVersion()))
-                .append(row("Effective changed members",
-                        effectiveChangeCount(run)))
+                .append(changeSelectionRows(run))
                 .append(row("Entrypoint includes",
                         run.getEntrypointSelection().includes()))
                 .append(row("Entrypoint excludes",
@@ -384,7 +385,8 @@ public final class PerModuleHtmlReportGenerator {
                 uniqueSsaComparisons(run.getModuleResults())));
         body.append("</section><section id=\"modules\"><h2>Modules</h2>")
                 .append("<table><tr><th>Module</th><th>Status</th>")
-                .append("<th>Explanation</th><th>Dependencies changed</th>")
+                .append("<th>Explanation</th><th>Complete dependency ")
+                .append("changes</th>")
                 .append("<th>Duplicate classes</th>")
                 .append("<th>Shadowed changes</th>")
                 .append("<th>Impact paths</th><th>Affected methods</th>")
@@ -435,6 +437,15 @@ public final class PerModuleHtmlReportGenerator {
                         + run.getConfiguredAnalysisParallelism() + ")");
     }
 
+    private String changeSelectionRows(final AnalysisRunResult run) {
+        return row("WALA", walaVersion())
+                + row("Effective changed members", effectiveChangeCount(run))
+                + row("Dependency includes",
+                run.getDependencySelection().includes())
+                + row("Dependency excludes",
+                run.getDependencySelection().excludes());
+    }
+
     private void writeModuleIndexPage(
             final Path target,
             final ModuleAnalysisResult module,
@@ -462,7 +473,8 @@ public final class PerModuleHtmlReportGenerator {
                 .append(row("Impact / structural",
                         module.getImpactPaths().size() + " / "
                                 + module.getStructuralPaths().size()))
-                .append(row("Dependency / member changes",
+                .append(row("Complete dependency changes / selected "
+                                + "effective members",
                         module.getUnit().getDependencyChanges().size()
                                 + " / "
                                 + module.getUnit().getChangePoints().size()))
@@ -532,7 +544,8 @@ public final class PerModuleHtmlReportGenerator {
                         ssaCounts(List.of(module), runtime.refinements()
                                 .isEnabled(ResultRefinementAlgorithm
                                         .SSA_EQUIVALENCE))))
-                .append(row("Dependency / effective member changes",
+                .append(row("Complete dependency changes / selected "
+                                + "effective members",
                         module.getUnit().getDependencyChanges().size() + " / "
                                 + module.getUnit().getChangePoints().size()))
                 .append("</table></details>");
@@ -775,6 +788,15 @@ public final class PerModuleHtmlReportGenerator {
                 .append("member search<input id=\"member-search\" type=")
                 .append("\"search\" aria-controls=\"changed-member-table\">")
                 .append("</label><label class=\"report-control\">")
+                .append("Include dependencies<input id=")
+                .append("\"member-dependency-include\" type=\"text\" ")
+                .append("placeholder=\"com.acme.*:*\" aria-controls=")
+                .append("\"changed-member-table\"></label><label class=")
+                .append("\"report-control\">Exclude dependencies<input id=")
+                .append("\"member-dependency-exclude\" type=\"text\" ")
+                .append("placeholder=\"com.acme.internal:*\" aria-controls=")
+                .append("\"changed-member-table\"></label><label class=")
+                .append("\"report-control\">")
                 .append("ChangePointKind<select id=\"member-kind\" ")
                 .append("aria-controls=\"changed-member-table\">")
                 .append("<option value=\"all\">All</option>");
@@ -906,10 +928,22 @@ public final class PerModuleHtmlReportGenerator {
                 .append("<option value=\"impact\" selected>Impact</option>")
                 .append("<option value=\"structural\">Structural")
                 .append("</option><option value=\"all\">All</option>")
-                .append("</select></label><label class=\"report-control\">")
+                .append("</select></label><form id=\"path-search-form\" ")
+                .append("class=\"search-fields\"><label class=")
+                .append("\"report-control\">")
                 .append("Affected method search<input id=\"path-search\" ")
                 .append("type=\"search\" placeholder=\"package.Class#method\"")
-                .append(" aria-controls=\"path-table\"></label>")
+                .append(" aria-controls=\"path-table\"></label><label class=")
+                .append("\"report-control\">Include dependencies<input id=")
+                .append("\"path-dependency-include\" type=\"text\" ")
+                .append("placeholder=\"com.acme.*:*\" aria-controls=")
+                .append("\"path-table\"></label><label class=")
+                .append("\"report-control\">Exclude dependencies<input id=")
+                .append("\"path-dependency-exclude\" type=\"text\" ")
+                .append("placeholder=\"com.acme.internal:*\" aria-controls=")
+                .append("\"path-table\"></label><button id=")
+                .append("\"path-search-submit\" type=\"submit\">Search")
+                .append("</button></form>")
                 .append("<label class=\"report-control\">Rows per page")
                 .append("<select id=\"path-page-size\" ")
                 .append("aria-controls=\"path-table\">")
@@ -962,6 +996,9 @@ public final class PerModuleHtmlReportGenerator {
         json.writeStringField("newArtifact",
                 dependency.getNewArtifact().toString());
         json.writeStringField("scope", dependency.getScope().getValue());
+        json.writeStringField("source",
+                dependency.getNewArtifact().getGroupId() + ":"
+                        + dependency.getNewArtifact().getArtifactId());
         json.writeEndObject();
     }
 
@@ -975,6 +1012,10 @@ public final class PerModuleHtmlReportGenerator {
         json.writeStartObject();
         json.writeNumberField("id", memberId);
         json.writeNumberField("dependencyUpgradeId", dependencyId);
+        json.writeStringField("source",
+                bound.getDependencyUpgradeKey().getNewArtifact().getGroupId()
+                        + ":" + bound.getDependencyUpgradeKey()
+                        .getNewArtifact().getArtifactId());
         json.writeStringField("changePointKind", point.getKind().name());
         json.writeStringField("owner", point.getOwner().replace('/', '.'));
         writeNullableString(json, "name", point.getName());

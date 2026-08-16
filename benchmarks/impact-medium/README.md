@@ -1,6 +1,6 @@
 # Impact Medium CHA Benchmark
 
-本 benchmark 对打包后的 `dependency-analyzer impact` 执行 Class Hierarchy Analysis（CHA，类层次分析）canonical matrix。覆盖 `changed-paths` 与 `full` 两种 dependency analysis scope、Static Single Assignment（SSA，静态单赋值）equivalence 默认 refinement，以及 CHA local receiver control。Fixture 固定包含 40 个 direct dependencies、10 类 change、external ancestor retention、external-target pruning 和真实/虚假 receiver path。
+本 benchmark 对打包后的 `dependency-analyzer impact` 执行 Class Hierarchy Analysis（CHA，类层次分析）canonical matrix。覆盖 `changed-paths` 与 `full` 两种 dependency analysis scope、`--dependency-include 'com.acme.impact:scenario-api'` changed-member来源边界、Static Single Assignment（SSA，静态单赋值）equivalence 默认 refinement，以及 CHA local receiver control。Fixture 固定包含 40 个 direct dependencies、10 类 change、external ancestor retention、external-target pruning 和真实/虚假 receiver path；semantic verification继续要求`path-a → path-c → scenario-api`与`path-x → path-y → scenario-api`中间JAR路径存在。
 
 ## Canonical suite
 

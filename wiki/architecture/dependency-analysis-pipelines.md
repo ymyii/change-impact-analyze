@@ -19,6 +19,8 @@ code_refs:
     desc: "command-level Impact 执行边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
     desc: "pair diff、构图、evidence、query、code comparison和snapshot编排"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/DependencyArtifactSelection.java"
+    desc: "JAR Diff前的changed dependency source边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/BytecodeDiffResult.java"
     desc: "ChangePoint收集期SSA filtering结果与审计证据"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleCallGraphInputAdapter.java"
@@ -88,8 +90,10 @@ flowchart LR
 flowchart TD
   Scope["repository / Module scope planning"] --> Prepare["baseline dependency + target compile"]
   Prepare --> Evidence["Schema v3 dependency evidence"]
-  Evidence --> Diff["dependency + bytecode + resource diff"]
-  Diff --> SSAChoice{"SSA equivalence selected and class major differs?"}
+  Evidence --> Diff["complete Maven Dependency Diff"]
+  Diff --> Selection["dependency-selection: changed JAR Glob boundary"]
+  Selection --> JarDiff["selected bytecode + resource diff"]
+  JarDiff --> SSAChoice{"SSA equivalence selected and class major differs?"}
   SSAChoice -->|yes| SSA["pair-local normalized SSA filtering"]
   SSAChoice -->|no| Effective["effective ChangePoints"]
   SSA --> Effective
@@ -130,6 +134,7 @@ flowchart TD
 - 当前 Module classes 为 `PROJECT`；上游 reactor Module 为 `REACTOR_DEPENDENCY`；外部 selected artifact 为 `DEPENDENCY`；target JDK 为 `JDK`。
 - Entrypoint class 只来自当前 Module classes index。Scope、hierarchy、cache 和 Call Graph 均为 per-Module。
 - Requested dependency scope 与 actual scope 分开保存。无法稳定恢复完整 changed path 时，只对当前 Module fallback 到 `full`，并生成 typed warning。
+- `DependencyArtifactSelection`只裁剪`VERSION_CHANGED` JAR logical pair产生的Bytecode Diff、ServiceLoader Diff、SSA、ChangePoint、Evidence、Impact Query与code comparison。完整Dependency Diff和target/baseline classpath不裁剪；`changed-paths`仍从选中seed反向保留全部中间依赖，路径外sibling继续使用既有no-op policy。
 
 ## Algorithm and Refinement Contract
 

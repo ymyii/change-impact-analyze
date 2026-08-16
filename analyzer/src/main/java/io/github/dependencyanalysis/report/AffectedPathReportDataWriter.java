@@ -39,7 +39,7 @@ import java.util.stream.Collectors;
 final class AffectedPathReportDataWriter {
 
     /** Browser report data schema. */
-    private static final int SCHEMA_VERSION = 3;
+    private static final int SCHEMA_VERSION = 4;
 
     /** JavaScript callback installed by the Affected Paths page. */
     private static final String CALLBACK =
@@ -96,6 +96,10 @@ final class AffectedPathReportDataWriter {
                 projection.paths().size(), index -> indexRecord(
                         projection.paths().get(index)), directory,
                 relativeDirectory, context, metrics));
+        descriptors.put("source-index", writeShards("source-index",
+                projection.sourceRanges().size(), index -> sourceRangeRecord(
+                        projection.sourceRanges().get(index)), directory,
+                relativeDirectory, context, metrics));
         descriptors.put("rows", writeShards("rows",
                 projection.rows().size(), index -> rowRecord(
                         projection.rows().get(index)), directory,
@@ -133,6 +137,7 @@ final class AffectedPathReportDataWriter {
         return new AffectedPathReportManifest(
                 SCHEMA_VERSION, projection.impactRows(),
                 projection.rows().size() - projection.impactRows(),
+                projection.sources(),
                 Collections.unmodifiableMap(
                         new LinkedHashMap<>(descriptors)));
     }
@@ -218,12 +223,51 @@ final class AffectedPathReportDataWriter {
             dependencyRecords.add(new DependencyProjection(id,
                     dependency.getOldArtifact().toString(),
                     dependency.getNewArtifact().toString(),
-                    dependency.getScope().getValue()));
+                    dependency.getScope().getValue(),
+                    sourceKey(dependency)));
         }
+        final Map<String, List<Integer>> rowsBySource = new TreeMap<>();
+        for (RowProjection row : rows) {
+            final DependencyUpgradeKey dependency = members.get(
+                    row.memberId()).getDependencyUpgradeKey();
+            rowsBySource.computeIfAbsent(sourceKey(dependency), ignored ->
+                    new ArrayList<>()).add(row.id());
+        }
+        final List<SourceRangeProjection> sourceRanges = new ArrayList<>();
+        final List<AffectedPathReportManifest.SourceDescriptor> sources =
+                new ArrayList<>();
+        rowsBySource.forEach((source, rowIds) -> {
+            final int firstId = sourceRanges.size();
+            int rangeStart = -1;
+            int previous = -1;
+            for (int rowId : rowIds) {
+                if (rowId != previous + 1 && rangeStart >= 0) {
+                    sourceRanges.add(new SourceRangeProjection(
+                            sourceRanges.size(), rangeStart,
+                            previous - rangeStart + 1));
+                    rangeStart = rowId;
+                } else if (rangeStart < 0) {
+                    rangeStart = rowId;
+                }
+                previous = rowId;
+            }
+            if (rangeStart >= 0) {
+                sourceRanges.add(new SourceRangeProjection(
+                        sourceRanges.size(), rangeStart,
+                        previous - rangeStart + 1));
+            }
+            sources.add(new AffectedPathReportManifest.SourceDescriptor(
+                    source, firstId, sourceRanges.size() - firstId));
+        });
         return new Projection(List.copyOf(paths), List.copyOf(rows),
                 List.copyOf(methods), List.copyOf(memberRecords),
                 List.copyOf(dependencyRecords), List.copyOf(diffs),
-                impactRows);
+                List.copyOf(sourceRanges), List.copyOf(sources), impactRows);
+    }
+
+    private String sourceKey(final DependencyUpgradeKey dependency) {
+        return dependency.getNewArtifact().getGroupId() + ":"
+                + dependency.getNewArtifact().getArtifactId();
     }
 
     private void addImpactPath(
@@ -465,6 +509,17 @@ final class AffectedPathReportDataWriter {
         };
     }
 
+    private JsonRecord sourceRangeRecord(
+            final SourceRangeProjection value) {
+        return json -> {
+            json.writeStartObject();
+            json.writeNumberField("id", value.id());
+            json.writeNumberField("rowStart", value.rowStart());
+            json.writeNumberField("rowCount", value.rowCount());
+            json.writeEndObject();
+        };
+    }
+
     private JsonRecord pathRecord(final PathProjection value) {
         return json -> {
             json.writeStartObject();
@@ -530,6 +585,7 @@ final class AffectedPathReportDataWriter {
             json.writeStringField("oldArtifact", value.oldArtifact());
             json.writeStringField("newArtifact", value.newArtifact());
             json.writeStringField("scope", value.scope());
+            json.writeStringField("source", value.source());
             json.writeEndObject();
         };
     }
@@ -590,6 +646,8 @@ final class AffectedPathReportDataWriter {
             List<MemberProjection> members,
             List<DependencyProjection> dependencies,
             List<DiffProjection> diffs,
+            List<SourceRangeProjection> sourceRanges,
+            List<AffectedPathReportManifest.SourceDescriptor> sources,
             int impactRows) {
     }
 
@@ -632,7 +690,14 @@ final class AffectedPathReportDataWriter {
             int id,
             String oldArtifact,
             String newArtifact,
-            String scope) {
+            String scope,
+            String source) {
+    }
+
+    private record SourceRangeProjection(
+            int id,
+            int rowStart,
+            int rowCount) {
     }
 
     private record DiffProjection(int id, String unifiedDiff) {

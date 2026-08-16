@@ -39,7 +39,8 @@ public final class TreeReportRenderer {
             --ok:#157347;--warn:#9a6700;--fail:#b42318}
             *{box-sizing:border-box}body{margin:0;background:var(--bg);
             color:var(--text);font:14px/1.55 system-ui,sans-serif}
-            main{max-width:1440px;margin:auto;padding:28px}h1{margin:0 0 8px}
+            main{width:100%;margin:0 auto;padding:clamp(14px,2vw,28px)}
+            h1{margin:0 0 8px}
             h2{margin-top:28px}.muted{color:var(--muted)}
             .card{background:var(--card);border:1px solid var(--line);
             border-radius:10px;padding:18px;margin:14px 0}

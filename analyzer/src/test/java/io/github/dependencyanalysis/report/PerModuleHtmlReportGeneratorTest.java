@@ -309,8 +309,8 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("<tbody id=\"member-rows\"></tbody>")
                 .contains("filtered.slice(start, end)")
                 .contains("rowsNode.replaceChildren(fragment)")
-                .contains("const state = {query: \"\", kind: \"all\", "
-                        + "pageSize: 20, page: 1}");
+                .contains("const state = {query: \"\", includes: [], "
+                        + "excludes: [], kind: \"all\"");
     }
 
     @Test
@@ -415,7 +415,9 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("<option value=\"structural\">Structural")
                 .contains("<option value=\"all\">All</option>")
                 .contains("id=\"affected-path-manifest\"")
-                .contains("\"schemaVersion\":3")
+                .contains("\"schemaVersion\":4")
+                .contains("\"sources\"")
+                .contains("source-index-00000.js")
                 .contains("\"shards\"")
                 .contains("index-00001.js")
                 .contains("paths-00001.js")
@@ -433,6 +435,7 @@ class PerModuleHtmlReportGeneratorTest {
                 .doesNotContain(Character.toString(LINE_SEPARATOR))
                 .doesNotContain("fetch(")
                 .doesNotContain("#hidden", "-changes.html");
+        assertAffectedPathInteraction(report.impact());
         assertAffectedPathShards(report.shards());
         assertShardLimits(report.directory());
         assertShardDiagnostics(report.diagnostics());
@@ -514,12 +517,25 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("\"type\":\"structural\"")
                 .contains("\"project\":true")
                 .contains("\"scope\":\"compile\"")
+                .contains("\"source\":\"example:library\"")
+                .contains("\"rowStart\":0", "\"rowCount\":")
                 .contains("\"codeDiffStatus\":\"AVAILABLE\"")
                 .contains("\"changePointKind\":"
                         + "\"METHOD_BODY_CHANGED\"")
                 .doesNotContain("fixture </script><script>alert(1)")
                 .doesNotContain(Character.toString(LINE_SEPARATOR))
                 .doesNotContain(Character.toString(PARAGRAPH_SEPARATOR));
+    }
+
+    private void assertAffectedPathInteraction(final String impact) {
+        assertThat(impact)
+                .contains("id=\"path-search-form\"")
+                .contains("id=\"path-search-submit\"")
+                .contains("id=\"path-dependency-include\"")
+                .contains("id=\"path-dependency-exclude\"")
+                .contains("searchForm.addEventListener(\"submit\"")
+                .doesNotContain("searchInput.addEventListener(\"input\"")
+                .doesNotContain("max-width:1440px");
     }
 
     private void assertShardLimits(final Path reportDirectory)
@@ -854,7 +870,7 @@ class PerModuleHtmlReportGeneratorTest {
         }
         assertThat(impact)
                 .contains("No affected path matched the current filters.")
-                .contains("\"schemaVersion\":3")
+                .contains("\"schemaVersion\":4")
                 .contains("\"count\":0")
                 .doesNotContain("example.library.Api#call")
                 .doesNotContain("decision=ACCESSIBLE")
@@ -963,7 +979,7 @@ class PerModuleHtmlReportGeneratorTest {
     }
 
     /**
-     * Generated Schema 3 fixture and its captured diagnostics.
+     * Generated Schema 4 fixture and its captured diagnostics.
      *
      * @param directory command-owned Module directory
      * @param impact Affected Paths HTML
@@ -1030,6 +1046,9 @@ class PerModuleHtmlReportGeneratorTest {
     private void assertChangedMemberMetrics(final String moduleIndex) {
         assertThat(moduleIndex)
                 .contains("id=\"changed-member-table\"")
+                .contains("id=\"member-dependency-include\"")
+                .contains("id=\"member-dependency-exclude\"")
+                .contains("\"source\":\"example:library\"")
                 .contains("\"impact\":2")
                 .contains("\"structural\":1")
                 .contains("\"name\":\"hidden\"");

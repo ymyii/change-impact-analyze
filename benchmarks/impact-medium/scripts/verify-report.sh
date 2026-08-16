@@ -127,6 +127,10 @@ grep -F -q "<th>WALA ReflectionOptions</th><td>not applied by cha (configured: $
   || fail "CHA ReflectionOptions not-applied state is missing"
 grep -F -q "<th>Requested dependency scope</th><td>$dependency_scope</td>" "$report" \
   || fail "dependency scope does not match requested $dependency_scope"
+grep -F -q '<th>Dependency includes</th><td>[com.acme.impact:scenario-api]</td>' "$report" \
+  || fail "dependency include selector is missing"
+grep -F -q '<th>Dependency excludes</th><td>[]</td>' "$report" \
+  || fail "dependency exclude selector state is missing"
 grep -F -q "<th>JDK method model</th><td>$jdk_model</td>" "$report" \
   || fail "JDK method model does not match requested $jdk_model"
 grep -R -q --include='*-impact.html' --include='*.js' \
@@ -141,6 +145,18 @@ grep -R -q --include='*-impact.html' --include='*.js' \
 grep -R -q --include='*-impact.html' --include='*.js' \
   'SERVICE_LOADER_PROVIDER' "$module_dir" \
   || fail "ServiceLoader provider evidence is missing"
+grep -q '"schemaVersion":4' "$module_dir"/*-impact.html \
+  || fail "Affected Paths Schema 4 manifest is missing"
+grep -q 'id="path-search-form"' "$module_dir"/*-impact.html \
+  || fail "Affected Paths explicit Search form is missing"
+grep -q 'id="path-dependency-include"' "$module_dir"/*-impact.html \
+  || fail "Affected Paths dependency include control is missing"
+grep -q 'id="path-dependency-exclude"' "$module_dir"/*-impact.html \
+  || fail "Affected Paths dependency exclude control is missing"
+find "$module_dir" -type f -name 'source-index-*.js' -print \
+  | grep -q . || fail "Affected Paths source-range index is missing"
+! grep -q 'searchInput.addEventListener("input"' "$module_dir"/*-impact.html \
+  || fail "Affected Paths search still scans while typing"
 if [ "$algorithm" = cha ]; then
   grep -R -q --include='*-impact.html' --include='*.js' \
     'ObjectDispatchUseCase' "$module_dir" \

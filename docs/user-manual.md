@@ -186,6 +186,8 @@ dependency-analyzer impact \
 |  | `--result-refinement-algorithms` | `none`、`cha-local-receiver-inference`、`ssa-equivalence`或组合；默认`ssa-equivalence`。 |
 |  | `--entrypoint-include` | 只选择匹配 slash class path 的 target class declared methods；可重复。 |
 |  | `--entrypoint-exclude` | 从 include/default selection 中排除匹配 slash class path 的 target class；可重复且优先。 |
+|  | `--dependency-include` | 只分析匹配`groupPattern:artifactPattern`的changed JAR；可重复，多个include取并集。 |
+|  | `--dependency-exclude` | 从include/default selection中排除匹配的changed JAR；可重复且始终优先。 |
 | `-k` | `--include-change-kinds` | 纳入分析的 `ChangePointKind` CSV。 |
 |  | `--call-graph-timeout-seconds` | Per-Module WALA timeout；`0` 表示无限等待。 |
 
@@ -215,6 +217,20 @@ java -jar dependency-analyzer.jar \
   --entrypoint-include 'com/acme/payment/**' \
   --entrypoint-exclude 'com/acme/payment/generated/**'
 ```
+
+只分析`com.acme.payment`下的changed dependency，但排除internal artifact：
+
+```sh
+java -jar dependency-analyzer.jar impact \
+  --java-home /opt/jdk8 \
+  --baseline main \
+  --target feature/dependency-upgrade \
+  --output build/impact.html \
+  --dependency-include 'com.acme.payment:*' \
+  --dependency-exclude 'com.acme.payment:*-internal'
+```
+
+Dependency Glob必须恰好包含一个`:`，两段均非空且不含空白。`*`匹配当前段零到多个字符（包括`groupId`中的`.`），`?`匹配一个字符；二者不跨`:`，`**`没有特殊语义。匹配区分大小写，只比较target `groupId:artifactId`，忽略version、type与classifier。重复pattern按首次出现去重；未传include表示全部，exclude始终优先。格式错误或显式selector整体未选中任何`VERSION_CHANGED` JAR pair时返回exit code `1`，并保留旧Report与diagnostics output。
 
 显式使用experimental `k-obj`与WALA `FULL` reflection：
 
@@ -336,7 +352,9 @@ JSON 为 UTF-8，固定包含 Module coordinate、canonical Module directory、s
 
 Scope 由结构化 dependency 与 occurrence 节点直接携带。相同 coordinates/version 只有 scope 变化时不产生 impact change；version 与 scope 同时变化时只产生一个 `VERSION_CHANGED`。Baseline 与 target physical path 分别按各自 Module-local Schema v3 evidence 查找，不使用展示标签或 `DependencyChange.scope`。
 
-Physical JAR pair按`--analysis-parallelism`并行执行bytecode Diff与`META-INF/services/*`resource Diff。Resource配置会删除comment/空行、去重并校验baseline provider；仅registration删除生成`SERVICE_PROVIDER_REGISTRATION_REMOVED`，provider class与配置同时删除时只保留`CLASS_REMOVED`。每个logical pair只生成一组immutable ChangePoint，由多个Module共享。
+完整Maven Dependency Diff后先执行`dependency-selection` Stage：从`VERSION_CHANGED`且old/new type均为`jar`的logical pair应用Dependency Glob。只有selected pair按`--analysis-parallelism`并行执行bytecode Diff、`META-INF/services/*`resource Diff与SSA比较；`--include-change-kinds`在该选择之后作用于selected JAR。Resource配置会删除comment/空行、去重并校验baseline provider；仅registration删除生成`SERVICE_PROVIDER_REGISTRATION_REMOVED`，provider class与配置同时删除时只保留`CLASS_REMOVED`。每个logical pair只生成一组immutable ChangePoint，由多个Module共享。
+
+Selector不裁剪baseline/target resolved classpath，也不改变完整dependency change统计。`changed-paths`只用selected changed artifact作为seed，但仍反向保留到seed的全部真实中间dependency；例如排除A的changed-member来源、选择B，且A依赖B时，A的方法体仍进入Analysis Scope。Evidence、Impact/Structural path、Module relevance与code comparison只来自selected ChangePoint；无selected ChangePoint的Module沿用`SKIPPED_NO_RELEVANT_CHANGE`。
 
 JAR diff聚合结束的INFO日志包含`changes`、`pairs`、`failedPairs`和`workers`。`changes`只汇总成功logical pair的唯一ChangePoint，同一pair绑定多个Module只统计一次；空diff四项均为`0`。
 
@@ -379,13 +397,15 @@ Module analysis 检查分类如下。这里的“阻塞”只终止当前 Module
 
 Overall Index提供`How to read this report`、`Analysis scope and limitations`、`Terminology`、Impact/Structural汇总与Module表，不展示path-level SSA filtering状态或Diagnostics。Technical details展示effective Algorithm、JDK Method Model、WALA Reflection applied状态、SSA matched/different/unknown总数，以及逐方法class version、body hash、status、reason和timing。即使SSA抑制全部ChangePoint并使Module跳过后续分析，Overall仍保留该证据。
 
-Module Index展示status、scope、runtime metrics、typed coverage limitations，以及本Module全部effective changed members指标表。指标列为Changed dependency、精确`ChangePointKind`、Changed member/class、Impact、Structural、Impact total；`Impact total = Impact + Structural`。默认按Impact total降序，并支持dependency/member搜索、`ChangePointKind`筛选和20/50/100分页。Impact/Structural均为0的member仍会显示。
+Module Index展示status、scope、runtime metrics、typed coverage limitations，以及本Module全部selected effective changed members指标表。指标列为Changed dependency、精确`ChangePointKind`、Changed member/class、Impact、Structural、Impact total；`Impact total = Impact + Structural`。默认按Impact total降序，并支持dependency/member搜索、changed-member target `groupId:artifactId`的Include/Exclude Glob、`ChangePointKind`筛选和20/50/100分页。各条件使用AND组合；Impact/Structural均为0的member仍会显示。浏览器selector只能缩小CLI已分析数据，不能恢复CLI排除的changed member。
 
-Affected Paths只提供Impact、Structural、All视图。每行对应唯一`(impactPath, changedMember)`，列出完整Root Impact Path中的全部PROJECT methods、changed dependency、精确`ChangePointKind`、changed member、path与Java code diff。A→B→changed member只显示A root path，B作为Affected application methods的一部分；不会为B生成后缀路径。主HTML只保存Schema 3 manifest；index、row、path、method、member、dependency与diff按4 MiB目标上限写入本地JavaScript分片。直接通过`file://`打开时，默认分页只加载当前页，全局affected method子串搜索逐片扫描轻量index并显示进度，Java diff在展开时才加载；不使用backend、network request或`fetch`。`-v`按Module输出分片数量与字节汇总；`-vv`追加每个分片的kind、进度、record数与字节数。
+Affected Paths只提供Impact、Structural、All视图。每行对应唯一`(impactPath, changedMember)`，列出完整Root Impact Path中的全部PROJECT methods、changed dependency、精确`ChangePointKind`、changed member、path与Java code diff。A→B→changed member只显示A root path，B作为Affected application methods的一部分；不会为B生成后缀路径。Affected method与dependency Include/Exclude是draft条件，只有点击Search或在输入框按Enter才提交；输入期间不扫描分片。View type、分页与Rows per page复用最近一次已提交结果，不重新扫描index。
+
+主HTML只保存Schema 4 manifest、排序后的source catalog与row ranges；source-index、affected-method index、row、path、method、member、dependency与diff按4 MiB目标上限写入本地JavaScript分片。Dependency Glob只匹配changed member的target source，不匹配path中的应用方法或中间依赖；合法未命中返回零结果，非法Glob内联报错并保留最近成功页面。直接通过`file://`打开时，source filter先加载轻量source ranges，再与affected-method ranges和View type求交；默认分页只加载当前页，Java diff在展开时才加载，不使用backend、network request、`fetch`或local storage。`-v`按Module输出分片数量与字节汇总；`-vv`追加每个分片的kind、进度、record数与字节数。
 
 Affected Paths不展示path evidence、member Technical details、Context、descriptor/hash、SSA reason、observations或raw comparison reason。Code diff展开区只包含Vineflower decompiled Java unified diff；Java文本相同显示`Java text identical`，无法生成显示`Unavailable`，不提供ASM fallback。只有Impact或Structural path关联member生成comparison；无路径member不反编译。Comparison使用`common`pool滚动并发执行，并按logical member去重。
 
-页面数据按dependency、member、method、path、path step、diff和path-member relation分表并通过整数ID连接。同一path关联多个member时path只存一次，每个member的diff最多存一次。JavaScript只为当前页创建DOM，搜索、筛选与翻页使用`DocumentFragment`替换`tbody`。全部表格使用紧凑sticky header、横向滚动、badge、数字对齐与键盘focus样式；页面不访问网络、不使用CDN、外部asset或浏览器持久化存储。
+页面数据按dependency、member、method、path、path step、diff和path-member relation分表并通过整数ID连接。同一path关联多个member时path只存一次，每个member的diff最多存一次。JavaScript只为当前页创建DOM，搜索、筛选与翻页使用`DocumentFragment`替换`tbody`。全部Report页面使用完整viewport宽度与响应式padding；桌面目录栏保持稳定宽度，主内容占满剩余空间。表格使用紧凑sticky header、横向滚动、badge、数字对齐与键盘focus样式；800px以下目录堆叠且表格不造成页面级横向溢出。页面不访问网络、不使用CDN、外部asset或浏览器持久化存储。
 
 Module failure不取消其他Module；handled failure仍发布partial Report。Affected Paths空态不表示已经证明没有业务影响；应同时查看Module changed member指标和Coverage limitations。
 

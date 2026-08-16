@@ -10,6 +10,8 @@ import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelectionC
 
 import io.github.dependencyanalysis.bytecode
         .ChangePointKind;
+import io.github.dependencyanalysis.dependency
+        .DependencyArtifactSelection;
 import io.github.dependencyanalysis.cli
         .DependencyAnalyzerCli;
 import io.github.dependencyanalysis.cli.OutputFormat;
@@ -180,6 +182,18 @@ public final class ImpactCommand
                     + "PROJECT entrypoint exclude.")
     private List<String> entrypointExcludes = new java.util.ArrayList<>();
 
+    /** Included changed Maven dependency JAR sources. */
+    @Option(names = "--dependency-include",
+            description = "Repeatable changed dependency include Glob: "
+                    + "groupPattern:artifactPattern.")
+    private List<String> dependencyIncludes = new java.util.ArrayList<>();
+
+    /** Excluded changed Maven dependency JAR sources. */
+    @Option(names = "--dependency-exclude",
+            description = "Repeatable changed dependency exclude Glob: "
+                    + "groupPattern:artifactPattern; exclude wins.")
+    private List<String> dependencyExcludes = new java.util.ArrayList<>();
+
     /** Included change point kinds. */
     @Option(names = {"-k", "--include-change-kinds"},
             split = ",",
@@ -247,6 +261,14 @@ public final class ImpactCommand
             diagnostics.error("preflight", exception.getMessage());
             return 1;
         }
+        final DependencyArtifactSelection dependencySelection;
+        try {
+            dependencySelection = DependencyArtifactSelection.parse(
+                    dependencyIncludes, dependencyExcludes);
+        } catch (IllegalArgumentException exception) {
+            diagnostics.error("preflight", exception.getMessage());
+            return 1;
+        }
         if (!"spring-backend".equalsIgnoreCase(analysisTarget)) {
             diagnostics.error("preflight",
                     "--analysis-target currently accepts only spring-backend");
@@ -287,7 +309,8 @@ public final class ImpactCommand
                         ? "; experimental=true; kObjDepth="
                         + selectedKObjDepth : "")
                         + "; jdkModel=" + jdkModel.identifier()
-                        + "; resultRefinements=" + resultRefinements);
+                        + "; resultRefinements=" + resultRefinements
+                        + "; dependencySelection=" + dependencySelection);
         try (PreflightContext context =
                      new PreflightContext()) {
             final PreflightReport report =
@@ -301,10 +324,14 @@ public final class ImpactCommand
                 return 1;
             }
             return analyzeAndReport(context, report, diagnostics, metrics,
-                    entrypointSelection, selectedKObjDepth,
-                    normalizedDiagnostics);
+                    normalizedDiagnostics, new AnalysisSelections(
+                            entrypointSelection, selectedKObjDepth,
+                            dependencySelection));
         } catch (EntrypointSelectionException exception) {
             diagnostics.error("entrypoint-selection", exception.getMessage());
+            return 1;
+        } catch (DependencySelectionException exception) {
+            diagnostics.error("dependency-selection", exception.getMessage());
             return 1;
         } catch (Exception exception) {
             diagnostics.error("pipeline",
@@ -321,9 +348,9 @@ public final class ImpactCommand
             final PreflightReport report,
             final DiagnosticLog diagnostics,
             final RuntimeMetricsSession metrics,
-            final EntrypointSelection entrypointSelection,
-            final int selectedKObjDepth,
-            final java.nio.file.Path normalizedDiagnostics) throws Exception {
+            final java.nio.file.Path normalizedDiagnostics,
+            final AnalysisSelections selections)
+            throws Exception {
         final MavenRuntimeDescriptor mavenRuntime = context.get(
                 ImpactPreflightService.MAVEN_RUNTIME,
                 MavenRuntimeDescriptor.class);
@@ -346,10 +373,11 @@ public final class ImpactCommand
                     targetJava, new PerModulePipelineOptions(
                     callGraphTimeoutSeconds, analysisParallelism,
                     new PipelineOutputPaths(commandRun.getTemporaryDirectory(),
-                            normalizedDiagnostics), entrypointSelection,
-                    callGraphAlgorithm, selectedKObjDepth, reflectionOptions,
+                            normalizedDiagnostics), selections.entrypoints(),
+                    callGraphAlgorithm, selections.kObjDepth(),
+                    reflectionOptions,
                     dependencyAnalysisScope, jdkModel,
-                    resultRefinements,
+                    resultRefinements, selections.dependencies(),
                     metrics.executors(), reportCache));
             result = engine.run(context.get(
                     ImpactPreflightService.WORKSPACE, WorkspaceResult.class));
@@ -469,5 +497,18 @@ public final class ImpactCommand
     private boolean successful(final AnalysisStatus status) {
         return status == AnalysisStatus.SUCCESS
                 || status == AnalysisStatus.INCONCLUSIVE;
+    }
+
+    /**
+     * Validated command selections passed into the analysis pipeline.
+     *
+     * @param entrypoints PROJECT entrypoint boundary
+     * @param kObjDepth k-object allocation-string depth
+     * @param dependencies changed dependency source boundary
+     */
+    private record AnalysisSelections(
+            EntrypointSelection entrypoints,
+            int kObjDepth,
+            DependencyArtifactSelection dependencies) {
     }
 }

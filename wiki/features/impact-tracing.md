@@ -19,6 +19,8 @@ code_refs:
     desc: "Module级typed metrics与bounded examples"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
     desc: "command-wide common pool、串行Module生命周期与session释放边界"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/DependencyArtifactSelection.java"
+    desc: "进入Evidence与Impact Query前的changed-member来源边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleImpactTracer.java"
     desc: "Evidence anchor驱动的deterministic reverse BFS与representative path"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ReferenceEvidence.java"
@@ -92,7 +94,7 @@ Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`Mo
 ## Actors / Entrypoints
 
 - per-Module pipeline在selected Call Graph完成后调用query。
-- 输入是`ModuleAnalysisUnit`、read-only `ModuleCallGraphSession`和BoundChangePoint；输出是immutable `ModuleImpactQueryResult`。
+- 输入是`ModuleAnalysisUnit`、read-only `ModuleCallGraphSession`和已通过`DependencyArtifactSelection`选择的BoundChangePoint；输出是immutable `ModuleImpactQueryResult`。
 
 ## Behavior Contract
 
@@ -138,6 +140,7 @@ Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`Mo
 - `ImpactPath.getRootMethod()`返回路径首个PROJECT method；`getAffectedMethods()`返回路径内全部PROJECT `MethodId`，按路径顺序并跨Context去重；`getRootKind()`区分普通method root与root SCC。旧的单数affected method接口不保留。
 - Fake root/world-clinit 不进入 Report。Seed origin 是 PROJECT 时 classification 为 `DIRECT`，否则为 `TRANSITIVE`。
 - 不同 Module 独立 query、独立 disposition、独立 Report。
+- ChangePoint来源边界在JAR Diff前确定；Evidence collection、seed、Impact/Structural path和code comparison不得重新引入被排除的`groupId:artifactId`。该边界不删除Call Graph scope中的中间dependency method body。
 
 ## QueryNode Concurrency and TRACE Progress
 

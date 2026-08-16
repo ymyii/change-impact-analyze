@@ -8,6 +8,7 @@ import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSelection;
 import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
 import io.github.dependencyanalysis.metrics.ManagedExecutorRegistry;
+import io.github.dependencyanalysis.dependency.DependencyArtifactSelection;
 import io.github.dependencyanalysis.runtime.ReportCache;
 
 import java.nio.file.Path;
@@ -25,6 +26,7 @@ import java.nio.file.Path;
  * @param dependencyAnalysisScope dependency method-body scope
  * @param jdkModel command-wide JDK Method Model selection
  * @param resultRefinements command-wide result-refinement selection
+ * @param dependencySelection changed Maven dependency source boundary
  * @param executors Analyzer-owned pool registry
  * @param reportCache command report cache, nullable for compatibility callers
  */
@@ -39,6 +41,7 @@ record PerModulePipelineOptions(
         DependencyAnalysisScopeMode dependencyAnalysisScope,
         JdkModelSelection jdkModel,
         ResultRefinementSelection resultRefinements,
+        DependencyArtifactSelection dependencySelection,
         ManagedExecutorRegistry executors,
         ReportCache reportCache) {
 
@@ -57,6 +60,7 @@ record PerModulePipelineOptions(
                 CallGraphAlgorithm.defaultKObjDepth(), reflection,
                 dependencyScope, selectedJdkModel,
                 ResultRefinementSelection.defaultSelection(),
+                DependencyArtifactSelection.allDependencies(),
                 executorRegistry, null);
     }
 
@@ -75,6 +79,7 @@ record PerModulePipelineOptions(
                 dependencyScope,
                 CallGraphPolicy.defaultJdkModel(algorithm),
                 ResultRefinementSelection.defaultSelection(),
+                DependencyArtifactSelection.allDependencies(),
                 executorRegistry, null);
     }
 
@@ -93,6 +98,7 @@ record PerModulePipelineOptions(
                 DependencyAnalysisScopeMode.defaultMode(),
                 CallGraphPolicy.defaultJdkModel(algorithm),
                 ResultRefinementSelection.defaultSelection(),
+                DependencyArtifactSelection.allDependencies(),
                 executorRegistry, null);
     }
 
@@ -110,6 +116,7 @@ record PerModulePipelineOptions(
                 DependencyAnalysisScopeMode.defaultMode(),
                 CallGraphPolicy.defaultJdkModel(algorithm),
                 ResultRefinementSelection.defaultSelection(),
+                DependencyArtifactSelection.allDependencies(),
                 executorRegistry, null);
     }
 

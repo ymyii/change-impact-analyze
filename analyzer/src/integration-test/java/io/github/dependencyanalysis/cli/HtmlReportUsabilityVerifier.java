@@ -26,10 +26,10 @@ final class HtmlReportUsabilityVerifier {
     private static final Pattern SHARD_RESOURCE = Pattern.compile(
             "\\\"file\\\":\\\"([^\\\"]+\\.js)\\\"");
 
-    /** Canonical Schema 3 shard header matcher. */
+    /** Canonical Schema 4 shard header matcher. */
     private static final Pattern SHARD_HEADER = Pattern.compile(
             "^window\\.__CIA_AFFECTED_PATH_SHARD__\\(\\{"
-            + "\\\"schemaVersion\\\":3,\\\"kind\\\":\\\"([a-z]+)\\\","
+            + "\\\"schemaVersion\\\":4,\\\"kind\\\":\\\"([a-z-]+)\\\","
             + "\\\"shardId\\\":([0-9]+),\\\"records\\\":\\[");
 
     /** Non-empty title matcher. */
@@ -143,8 +143,12 @@ final class HtmlReportUsabilityVerifier {
         if (html.contains("id=\"affected-path-manifest\"")) {
             assertThat(html).as("Affected Paths contract in %s", page)
                     .contains("id=\"path-table\"")
-                    .contains("\"schemaVersion\":3")
+                    .contains("\"schemaVersion\":4")
                     .contains("\"rowRanges\"")
+                    .contains("\"sources\"")
+                    .contains("id=\"path-search-form\"")
+                    .contains("id=\"path-dependency-include\"")
+                    .contains("id=\"path-dependency-exclude\"")
                     .contains("\"shards\"")
                     .contains("__CIA_AFFECTED_PATH_SHARD__")
                     .contains("position:sticky")
@@ -166,7 +170,7 @@ final class HtmlReportUsabilityVerifier {
             final Path file,
             final String content) {
         final Matcher header = SHARD_HEADER.matcher(content);
-        assertThat(header.find()).as("Schema 3 header in %s", file)
+        assertThat(header.find()).as("Schema 4 header in %s", file)
                 .isTrue();
         final String expectedName = header.group(1) + "-" + String.format(
                 Locale.ROOT, "%05d", Integer.parseInt(header.group(2)))

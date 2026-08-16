@@ -1,6 +1,7 @@
 package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
+import io.github.dependencyanalysis.dependency.DependencyArtifactSelection;
 
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphPolicy;
@@ -20,6 +21,7 @@ import java.util.Objects;
  * @param dependencyAnalysisScope requested dependency method-body scope
  * @param jdkModel command-wide JDK Method Model selection
  * @param resultRefinements command-wide result-refinement selection
+ * @param dependencySelection command-wide changed-dependency selection
  */
 public record AnalysisRunConfiguration(
         EntrypointSelection entrypointSelection,
@@ -28,7 +30,8 @@ public record AnalysisRunConfiguration(
         WalaReflectionOptions reflectionOptions,
         DependencyAnalysisScopeMode dependencyAnalysisScope,
         JdkModelSelection jdkModel,
-        ResultRefinementSelection resultRefinements) {
+        ResultRefinementSelection resultRefinements,
+        DependencyArtifactSelection dependencySelection) {
 
     /** Validates command-wide configuration. */
     public AnalysisRunConfiguration {
@@ -40,7 +43,22 @@ public record AnalysisRunConfiguration(
                 "dependencyAnalysisScope");
         Objects.requireNonNull(jdkModel, "jdkModel");
         Objects.requireNonNull(resultRefinements, "resultRefinements");
+        Objects.requireNonNull(dependencySelection, "dependencySelection");
         CallGraphPolicy.validate(callGraphAlgorithm, jdkModel);
+    }
+
+    /** Compatibility constructor with all changed dependencies selected. */
+    public AnalysisRunConfiguration(
+            final EntrypointSelection selection,
+            final CallGraphAlgorithm algorithm,
+            final int depth,
+            final WalaReflectionOptions reflection,
+            final DependencyAnalysisScopeMode dependencyScope,
+            final JdkModelSelection selectedJdkModel,
+            final ResultRefinementSelection refinements) {
+        this(selection, algorithm, depth, reflection, dependencyScope,
+                selectedJdkModel, refinements,
+                DependencyArtifactSelection.allDependencies());
     }
 
     /** Compatibility constructor with result refinement disabled. */
@@ -53,7 +71,8 @@ public record AnalysisRunConfiguration(
             final JdkModelSelection selectedJdkModel) {
         this(selection, algorithm, depth, reflection, dependencyScope,
                 selectedJdkModel,
-                ResultRefinementSelection.defaultSelection());
+                ResultRefinementSelection.defaultSelection(),
+                DependencyArtifactSelection.allDependencies());
     }
 
     /** Compatibility constructor using the default JDK model. */
@@ -65,7 +84,8 @@ public record AnalysisRunConfiguration(
             final JdkModelSelection selectedJdkModel) {
         this(selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
                 reflection, dependencyScope, selectedJdkModel,
-                ResultRefinementSelection.defaultSelection());
+                ResultRefinementSelection.defaultSelection(),
+                DependencyArtifactSelection.allDependencies());
     }
 
     /** Compatibility constructor using default k depth and JDK model. */
@@ -77,7 +97,8 @@ public record AnalysisRunConfiguration(
         this(selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
                 reflection, dependencyScope,
                 CallGraphPolicy.defaultJdkModel(algorithm),
-                ResultRefinementSelection.defaultSelection());
+                ResultRefinementSelection.defaultSelection(),
+                DependencyArtifactSelection.allDependencies());
     }
 
     /**
@@ -93,7 +114,8 @@ public record AnalysisRunConfiguration(
                 WalaReflectionOptions.defaultOptions(),
                 DependencyAnalysisScopeMode.defaultMode(),
                 CallGraphPolicy.defaultJdkModel(algorithm),
-                ResultRefinementSelection.defaultSelection());
+                ResultRefinementSelection.defaultSelection(),
+                DependencyArtifactSelection.allDependencies());
     }
 
     /** Compatibility constructor using the default dependency scope. */
@@ -105,6 +127,7 @@ public record AnalysisRunConfiguration(
                 reflection,
                 DependencyAnalysisScopeMode.defaultMode(),
                 CallGraphPolicy.defaultJdkModel(algorithm),
-                ResultRefinementSelection.defaultSelection());
+                ResultRefinementSelection.defaultSelection(),
+                DependencyArtifactSelection.allDependencies());
     }
 }

@@ -17,6 +17,10 @@ code_refs:
     desc: "Root CLI"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactCommand.java"
     desc: "spring-backend options、validation、exit code"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/MavenArtifactPattern.java"
+    desc: "groupId:artifactId Glob validation与segment matcher"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/DependencyArtifactSelection.java"
+    desc: "include union、exclude precedence与稳定去重"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/refinement/ResultRefinementSelectionConverter.java"
     desc: "result refinement列表parse与CLI error"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/refinement/cha/ChaLocalReceiverRefinementSummary.java"
@@ -93,6 +97,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - `--wala-reflection-options <enum-name>`：默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`，接受WALA `ReflectionOptions` enum name；`--reflection-options`为alias。CHA保留配置值但不应用，Report显示`not applied by cha`。
 - `--result-refinement-algorithms <selection>`：command-wide选择`none`、`cha-local-receiver-inference`、`ssa-equivalence`或两者逗号组合，默认`ssa-equivalence`。显式值完整覆盖默认值；`none`关闭全部refinement。标识符大小写不敏感、逗号两侧空白忽略、重复去重，输出按local-first固定顺序；空项、unknown及`none`与其他值混用在Preflight前exit code`1`。旧`--experimental-bytecode-semantic-comparison`不保留alias。
 - `--entrypoint-include '<class-path-pattern>'` 与 `--entrypoint-exclude ...`：可重复；直接匹配 slash-separated JVM internal class path，include 取并集，exclude 优先。普通 segment支持 `*`、`?`；`**` 只能作为最后一个完整 segment。Colon/dot旧语法、leading/trailing slash、空 segment与嵌入式 `**` 在 CLI validation阶段 exit `1`。
+- `--dependency-include '<groupPattern>:<artifactPattern>'`与`--dependency-exclude ...`：可重复并按首次出现去重；include取并集，未传include表示全部，exclude始终优先。两段均非空且不含空白，只允许一个`:`；`*`和`?`分别匹配当前段任意长度与单字符，`**`没有特殊语义，匹配区分大小写。只比较target `groupId:artifactId`，忽略version、type和classifier。格式错误exit `1`；显式selector整体未选中任何`VERSION_CHANGED` JAR pair时在JAR Diff前exit `1`，不替换旧Report或diagnostics output。
 - `--call-graph-timeout-seconds <N>`：默认 `0`；按 Module、从实际 WALA build 开始计时。
 - `--call-graph-diagnostics-output <json>`：可选benchmark-only只读输出；未设置时不执行CGNode ranking、IMethod子榜、shortest path、IR capture或decompilation。路径不得与`--output`相同。
 - `--format html`：唯一有效格式；`md` fail fast。
@@ -110,6 +115,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 
 - 校验 path/Git/root POM/output/JDK 8/Maven version/Maven arguments、内嵌 Dependency Plugin `3.6.1` 与 Dependency Evidence Plugin `3.0.0` runtime、workspace/structured evidence capability。
 - Preflight failure 不启动 pipeline，不触碰旧 Report。
+- 完整Dependency Diff后的`dependency-selection` Stage输出candidate/selected/excluded pair、include/exclude数量与耗时；DEBUG逐pattern输出匹配数。JAR Diff生命周期只统计selected pair。单个pattern未命中不是failure，只要整体仍有selected pair即继续。
 - Reactor/leaf mode、Module coordinate collision、physical artifact ambiguity 属于 preparation failure。
 - entrypoint selector 使用当前 Module `target/classes` 的 immutable index；interface、annotation、private nested class与private method/constructor不进入root范围。Filtered门禁与Call Graph roots复用同一index；privacy过滤不从scope删除class/method。Relevant Module无可执行root时为`SKIPPED_USER_ENTRYPOINT_SCOPE`；所有relevant Module均无匹配时command exit `1`，不替换旧Report。
 - `PROJECT`/`REACTOR_DEPENDENCY` excluded JDK reference、scope I/O/scanner failure 与 Call Graph failure 属于 handled failed Module result，可产生 partial Report。外部 `DEPENDENCY` reference 只产生 `INCONCLUSIVE` warning。

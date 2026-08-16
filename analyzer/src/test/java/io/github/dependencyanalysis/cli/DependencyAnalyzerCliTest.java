@@ -137,6 +137,8 @@ class DependencyAnalyzerCliTest {
                 .contains("--wala-reflection-options")
                 .contains("--entrypoint-include")
                 .contains("--entrypoint-exclude")
+                .contains("--dependency-include")
+                .contains("--dependency-exclude")
                 .contains("--analysis-target");
         assertThat(impactText.toString().replaceAll("\\s+", " "))
                 .contains("Call Graph algorithm: cha or k-obj "

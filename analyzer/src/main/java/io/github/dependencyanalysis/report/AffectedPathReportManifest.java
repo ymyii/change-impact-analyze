@@ -13,12 +13,14 @@ import java.util.Map;
  * @param schemaVersion browser data schema
  * @param impactRows Impact relation count
  * @param structuralRows Structural relation count
+ * @param sources sorted changed-member source catalog
  * @param shards descriptors grouped by entity kind
  */
 record AffectedPathReportManifest(
         int schemaVersion,
         long impactRows,
         long structuralRows,
+        List<SourceDescriptor> sources,
         Map<String, List<ShardDescriptor>> shards) {
 
     /** Serializes the browser manifest. */
@@ -33,6 +35,15 @@ record AffectedPathReportManifest(
             range(json, "structural", impactRows, structuralRows);
             range(json, "all", 0L, impactRows + structuralRows);
             json.writeEndObject();
+            json.writeArrayFieldStart("sources");
+            for (SourceDescriptor source : sources) {
+                json.writeStartObject();
+                json.writeStringField("source", source.source());
+                json.writeNumberField("firstId", source.firstId());
+                json.writeNumberField("count", source.count());
+                json.writeEndObject();
+            }
+            json.writeEndArray();
             json.writeObjectFieldStart("shards");
             for (Map.Entry<String, List<ShardDescriptor>> entry
                     : shards.entrySet()) {
@@ -55,6 +66,16 @@ record AffectedPathReportManifest(
             throw new java.io.UncheckedIOException(exception);
         }
         return output.toString();
+    }
+
+    /**
+     * One source catalog entry into the lightweight source-range index.
+     *
+     * @param source target groupId:artifactId key
+     * @param firstId first source-range record ID
+     * @param count source-range record count
+     */
+    record SourceDescriptor(String source, int firstId, int count) {
     }
 
     private void range(

@@ -37,8 +37,10 @@ import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.ChangeType;
 import io.github.dependencyanalysis.dependency.DependencyAnalysisResult;
 import io.github.dependencyanalysis.dependency.DependencyAnalyzer;
+import io.github.dependencyanalysis.dependency.DependencyArtifactSelection;
 import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.dependency.DependencyDiffEngine;
+import io.github.dependencyanalysis.dependency.MavenArtifactPattern;
 import io.github.dependencyanalysis.dependency.ModuleDependencyEvidence;
 import io.github.dependencyanalysis.dependency.ResolvedArtifact;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
@@ -131,6 +133,9 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
     /** Command-wide result-refinement selection. */
     private final ResultRefinementSelection resultRefinements;
 
+    /** Changed-dependency source selection. */
+    private final DependencyArtifactSelection dependencySelection;
+
     /** Command temporary directory. */
     private final Path temporaryDirectory;
 
@@ -189,6 +194,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
         jdkModel = Objects.requireNonNull(options.jdkModel(), "jdkModel");
         resultRefinements = Objects.requireNonNull(
                 options.resultRefinements(), "resultRefinements");
+        dependencySelection = Objects.requireNonNull(
+                options.dependencySelection(), "dependencySelection");
     }
 
     /**
@@ -262,10 +269,15 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
         final List<DependencyChange> changes =
                 new DependencyDiffEngine().diff(
                         baselineEvidence, targetEvidence);
+        final long selectionStart = System.currentTimeMillis();
+        final Map<String, List<DependencyUpgradeKey>> selectedPairs =
+                selectDependencyPairs(changes, targetScope,
+                        baselineEvidence, targetEvidence);
+        elapsed.put("dependency-selection",
+                System.currentTimeMillis() - selectionStart);
         final long diffStart = System.currentTimeMillis();
-        final BindingResult bindings = bindAndDiff(changes,
-                targetScope, baselineEvidence, targetEvidence,
-                commonExecutor);
+        final BindingResult bindings = bindAndDiff(
+                selectedPairs, commonExecutor);
         elapsed.put("jar-diff", System.currentTimeMillis() - diffStart);
         final List<ModuleAnalysisUnit> units = units(
                 new PreparedAnalysis(baselineScope, targetScope,
@@ -293,7 +305,7 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                         entrypointSelection, callGraphAlgorithm,
                         kObjDepth, reflectionOptions,
                         dependencyAnalysisScope, jdkModel,
-                        resultRefinements);
+                        resultRefinements, dependencySelection);
         if (callGraphDiagnosticsOutput != null && reportCache != null) {
             new CallGraphDiagnosticsExporter(
                     diagnostics, javaRuntime, repository()).writeFragments(
@@ -325,9 +337,16 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
         final Map<String, List<BoundChangePoint>> requests =
                 new LinkedHashMap<>();
         for (ModuleAnalysisResult module : modules) {
-            codeComparisonPoints(module).forEach(point -> requests
-                    .computeIfAbsent(codeEvidenceKey(point), ignored ->
-                            new ArrayList<>()).add(point));
+            codeComparisonPoints(module).forEach(point -> {
+                if (!dependencySelection.matches(point
+                        .getDependencyUpgradeKey().getNewArtifact())) {
+                    throw new IllegalStateException(
+                            "Code comparison escaped dependency selection: "
+                                    + point.stableKey());
+                }
+                requests.computeIfAbsent(codeEvidenceKey(point), ignored ->
+                        new ArrayList<>()).add(point);
+            });
         }
         if (requests.isEmpty()) {
             return new CodeEvidenceResult(modules, 0);
@@ -637,13 +656,53 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                 .toList();
     }
 
-    private BindingResult bindAndDiff(
+    // Wiki: wiki/architecture/dependency-analysis-pipelines.md - Impact Flow
+    private Map<String, List<DependencyUpgradeKey>> selectDependencyPairs(
             final List<DependencyChange> changes,
             final ReactorAnalysisScope targetScope,
             final List<ModuleDependencyEvidence> baselineEvidence,
-            final List<ModuleDependencyEvidence> targetEvidence,
-            final ExecutorService commonExecutor)
-            throws Exception {
+            final List<ModuleDependencyEvidence> targetEvidence) {
+        final DiagnosticContext context = DiagnosticContext.of(
+                "dependency-selection", "changed-jars");
+        diagnostics.startStage(context, "includes="
+                + dependencySelection.includes().size() + "; excludes="
+                + dependencySelection.excludes().size());
+        Map<String, List<DependencyUpgradeKey>> groups = Map.of();
+        try {
+            groups = dependencyPairCandidates(changes, targetScope,
+                    baselineEvidence, targetEvidence);
+            logPatternMatches("include", dependencySelection.includes(),
+                    groups);
+            logPatternMatches("exclude", dependencySelection.excludes(),
+                    groups);
+            final Map<String, List<DependencyUpgradeKey>> selected =
+                    filterDependencyPairs(groups, dependencySelection);
+            if (dependencySelection.isFiltered() && selected.isEmpty()) {
+                throw new DependencySelectionException(
+                        "Dependency selector matched no VERSION_CHANGED "
+                                + "JAR pair");
+            }
+            diagnostics.endStage(context, "candidatePairs=" + groups.size()
+                    + "; selectedPairs=" + selected.size()
+                    + "; excludedPairs=" + (groups.size() - selected.size())
+                    + "; includes=" + dependencySelection.includes().size()
+                    + "; excludes=" + dependencySelection.excludes().size());
+            return selected;
+        } catch (RuntimeException exception) {
+            diagnostics.failStage(context, "candidatePairs=" + groups.size()
+                    + "; includes=" + dependencySelection.includes().size()
+                    + "; excludes=" + dependencySelection.excludes().size()
+                    + "; reason=" + Objects.requireNonNullElse(
+                    exception.getMessage(), exception.getClass().getName()));
+            throw exception;
+        }
+    }
+
+    private Map<String, List<DependencyUpgradeKey>> dependencyPairCandidates(
+            final List<DependencyChange> changes,
+            final ReactorAnalysisScope targetScope,
+            final List<ModuleDependencyEvidence> baselineEvidence,
+            final List<ModuleDependencyEvidence> targetEvidence) {
         final Map<String, ModuleId> targetModules = moduleMap(
                 targetScope.getModules());
         final Map<String, ModuleDependencyEvidence> baselineEvidenceMap =
@@ -681,6 +740,44 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
             groups.computeIfAbsent(pairKey(key), ignored ->
                     new ArrayList<>()).add(key);
         }
+        return groups;
+    }
+
+    static Map<String, List<DependencyUpgradeKey>> filterDependencyPairs(
+            final Map<String, List<DependencyUpgradeKey>> groups,
+            final DependencyArtifactSelection selection) {
+        final Map<String, List<DependencyUpgradeKey>> selected =
+                new LinkedHashMap<>();
+        groups.forEach((key, upgrades) -> {
+            if (selection.matches(
+                    upgrades.get(0).getNewArtifact())) {
+                selected.put(key, upgrades);
+            }
+        });
+        return selected;
+    }
+
+    private void logPatternMatches(
+            final String kind,
+            final List<MavenArtifactPattern> patterns,
+            final Map<String, List<DependencyUpgradeKey>> groups) {
+        for (MavenArtifactPattern pattern : patterns) {
+            final long matches = groups.values().stream()
+                    .filter(values -> pattern.matches(
+                            values.get(0).getNewArtifact()))
+                    .count();
+            diagnostics.debug(DiagnosticContext.of(
+                    "dependency-selection", "changed-jars"),
+                    "patternKind=" + kind + "; pattern="
+                            + pattern.expression() + "; matchedPairs="
+                            + matches);
+        }
+    }
+
+    private BindingResult bindAndDiff(
+            final Map<String, List<DependencyUpgradeKey>> groups,
+            final ExecutorService commonExecutor)
+            throws Exception {
         final int workers = groups.isEmpty() ? 0
                 : Math.min(groups.size(), jarDiffWorkerLimit());
         final DiagnosticContext context = DiagnosticContext.of(

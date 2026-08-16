@@ -21,6 +21,8 @@
         [value.id, value]));
     const members = new Map(data.changedMembers.map(value => [value.id, value]));
     const searchInput = document.getElementById("member-search");
+    const includeInput = document.getElementById("member-dependency-include");
+    const excludeInput = document.getElementById("member-dependency-exclude");
     const kindSelect = document.getElementById("member-kind");
     const pageSizeSelect = document.getElementById("member-page-size");
     const summaryNode = document.getElementById("member-result-summary");
@@ -30,7 +32,8 @@
     const previousButton = document.getElementById("member-previous");
     const nextButton = document.getElementById("member-next");
     const lastButton = document.getElementById("member-last");
-    const state = {query: "", kind: "all", pageSize: 20, page: 1};
+    const state = {query: "", includes: [], excludes: [], kind: "all",
+        pageSize: 20, page: 1};
 
     function node(tag, className, text) {
         const value = document.createElement(tag);
@@ -41,6 +44,45 @@
             value.textContent = text;
         }
         return value;
+    }
+
+    function glob(expression) {
+        const separator = expression.indexOf(":");
+        if (!expression || separator <= 0
+                || separator !== expression.lastIndexOf(":")
+                || separator === expression.length - 1 || /\s/.test(expression)) {
+            throw new Error(`Invalid dependency Glob: ${expression}`);
+        }
+        const segment = value => new RegExp(`^${[...value].map(character => {
+            if (character === "*") {
+                return ".*";
+            }
+            if (character === "?") {
+                return ".";
+            }
+            return character.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        }).join("")}$`);
+        return {expression,
+            group: segment(expression.slice(0, separator)),
+            artifact: segment(expression.slice(separator + 1))};
+    }
+
+    function globs(value) {
+        return value.split(",").map(item => item.trim()).filter(Boolean)
+            .map(glob);
+    }
+
+    function sourceMatches(source, pattern) {
+        const separator = source.indexOf(":");
+        return pattern.group.test(source.slice(0, separator))
+            && pattern.artifact.test(source.slice(separator + 1));
+    }
+
+    function selectedSource(source) {
+        const included = state.includes.length === 0
+            || state.includes.some(pattern => sourceMatches(source, pattern));
+        return included && !state.excludes.some(pattern =>
+            sourceMatches(source, pattern));
     }
 
     function memberLabel(member) {
@@ -56,8 +98,9 @@
 
     const metrics = data.memberMetrics.map(metric => {
         const member = members.get(metric.memberId);
-        return {metric, member, dependency: dependencyLabel(member),
-            label: memberLabel(member), total: metric.impact + metric.structural};
+        return {metric, member, source: member.source,
+            dependency: dependencyLabel(member), label: memberLabel(member),
+            total: metric.impact + metric.structural};
     }).sort((left, right) => right.total - left.total
         || right.metric.impact - left.metric.impact
         || right.metric.structural - left.metric.structural
@@ -79,7 +122,8 @@
                 || value.member.changePointKind === state.kind;
             const haystack = `${value.dependency} ${value.label}`
                 .toLocaleLowerCase();
-            return kindMatches && haystack.includes(state.query);
+            return kindMatches && selectedSource(value.source)
+                && haystack.includes(state.query);
         });
     }
 
@@ -127,14 +171,25 @@
         lastButton.disabled = atEnd;
     }
 
-    let searchTimer;
-    searchInput.addEventListener("input", () => {
-        window.clearTimeout(searchTimer);
-        searchTimer = window.setTimeout(() => {
+    function submitFilters() {
+        try {
+            const includes = globs(includeInput.value);
+            const excludes = globs(excludeInput.value);
             state.query = searchInput.value.toLocaleLowerCase();
+            state.includes = includes;
+            state.excludes = excludes;
             render(true);
-        }, 120);
-    });
+        } catch (error) {
+            summaryNode.textContent = `${error.message}. The last successful result was retained.`;
+        }
+    }
+
+    let searchTimer;
+    [searchInput, includeInput, excludeInput].forEach(input =>
+        input.addEventListener("input", () => {
+            window.clearTimeout(searchTimer);
+            searchTimer = window.setTimeout(submitFilters, 120);
+        }));
     kindSelect.addEventListener("change", () => {
         state.kind = kindSelect.value;
         render(true);

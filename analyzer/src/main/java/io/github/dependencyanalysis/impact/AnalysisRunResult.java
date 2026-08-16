@@ -1,6 +1,7 @@
 package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
+import io.github.dependencyanalysis.dependency.DependencyArtifactSelection;
 
 import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
@@ -55,6 +56,9 @@ public final class AnalysisRunResult {
 
     /** Command-wide result-refinement selection. */
     private final ResultRefinementSelection resultRefinements;
+
+    /** Command-wide changed-dependency selection. */
+    private final DependencyArtifactSelection dependencySelection;
 
     /**
      * Creates a completed run result.
@@ -126,6 +130,8 @@ public final class AnalysisRunResult {
                 settings.jdkModel(), "jdkModel");
         resultRefinements = java.util.Objects.requireNonNull(
                 settings.resultRefinements(), "resultRefinements");
+        dependencySelection = java.util.Objects.requireNonNull(
+                settings.dependencySelection(), "dependencySelection");
     }
 
     /** @return analysis mode */
@@ -206,6 +212,11 @@ public final class AnalysisRunResult {
     /** @return command-wide result-refinement selection */
     public ResultRefinementSelection getResultRefinementSelection() {
         return resultRefinements;
+    }
+
+    /** @return command-wide changed-dependency selection */
+    public DependencyArtifactSelection getDependencySelection() {
+        return dependencySelection;
     }
 
     /** @return stage elapsed metrics */

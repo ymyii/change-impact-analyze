@@ -16,11 +16,13 @@ import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSelection;
 import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
+import io.github.dependencyanalysis.dependency.DependencyArtifactSelection;
 import io.github.dependencyanalysis.dependency.DependencyScope;
 
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -75,6 +77,32 @@ class PerModuleImpactPipelineTest {
 
         assertThat(configuration.resultRefinements().algorithms())
                 .containsExactly(ResultRefinementAlgorithm.SSA_EQUIVALENCE);
+    }
+
+    @Test
+    void dependencySelectionLimitsJarDiffPairWorkBeforeChangeKinds() {
+        final ModuleId module = new ModuleId(new ArtifactCoord(
+                "example", "app", "jar", "1"), Path.of("app"));
+        final DependencyUpgradeKey selected = upgrade(
+                module, "selected");
+        final DependencyUpgradeKey excluded = upgrade(
+                module, "excluded");
+        final Map<String, List<DependencyUpgradeKey>> candidates =
+                new LinkedHashMap<>();
+        candidates.put("selected", List.of(selected));
+        candidates.put("excluded", List.of(excluded));
+        final DependencyArtifactSelection selection =
+                DependencyArtifactSelection.parse(
+                        List.of("example:*"), List.of("example:excluded"));
+
+        assertThat(PerModuleImpactPipeline.filterDependencyPairs(
+                candidates, selection))
+                .containsOnlyKeys("selected")
+                .containsValue(List.of(selected));
+        assertThat(PerModuleImpactPipeline.filterDependencyPairs(
+                candidates, DependencyArtifactSelection.parse(
+                        List.of("missing:*"), List.of())))
+                .isEmpty();
     }
 
     @Test
@@ -250,6 +278,14 @@ class PerModuleImpactPipelineTest {
         return new ModuleAnalysisUnit(module, ModulePresence.BOTH,
                 Path.of("classes"), List.of(), List.of(), List.of(),
                 new ModuleChangeSet(points, List.of()));
+    }
+
+    private DependencyUpgradeKey upgrade(
+            final ModuleId module,
+            final String artifact) {
+        return new DependencyUpgradeKey(module, DependencyScope.COMPILE,
+                new ArtifactCoord("example", artifact, "jar", "1"),
+                new ArtifactCoord("example", artifact, "jar", "2"));
     }
 
     /**

@@ -56,7 +56,7 @@ code_refs: []
 - Summary: ChangePoint收集期SSA与query期CHA local receiver分阶段执行；reverse slice按root SCC生成确定性最短Impact Path，不保留candidate/final双模型。
 
 ### [Report Generator](features/report-generator.md)
-- Summary: Impact/Structural Affected Paths采用Schema 3 unique entities、4 MiB离线分片与按需查询；报告展示SSA证据，code comparison通过`common` pool并发生成。
+- Summary: Impact/Structural Affected Paths采用Schema 4 source-range index、4 MiB离线分片与显式Search；Module与Path按changed-member Maven Glob缩小展示范围，页面自适应占满viewport。
 
 ## Rules
 

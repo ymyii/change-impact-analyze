@@ -11,8 +11,8 @@
     let manifest;
     try {
         manifest = JSON.parse(manifestNode.textContent);
-        if (manifest.schemaVersion !== 3 || !manifest.rowRanges
-                || !manifest.shards) {
+        if (manifest.schemaVersion !== 4 || !manifest.rowRanges
+                || !manifest.shards || !Array.isArray(manifest.sources)) {
             throw new Error("Unsupported Affected Paths schema.");
         }
     } catch (error) {
@@ -23,7 +23,10 @@
     manifestNode.remove();
 
     const typeSelect = document.getElementById("path-type");
+    const searchForm = document.getElementById("path-search-form");
     const searchInput = document.getElementById("path-search");
+    const includeInput = document.getElementById("path-dependency-include");
+    const excludeInput = document.getElementById("path-dependency-exclude");
     const pageSizeSelect = document.getElementById("path-page-size");
     const summaryNode = document.getElementById("path-result-summary");
     const pageInput = document.getElementById("path-page");
@@ -32,9 +35,10 @@
     const previousButton = document.getElementById("path-previous");
     const nextButton = document.getElementById("path-next");
     const lastButton = document.getElementById("path-last");
-    const state = {type: "impact", query: "", pageSize: 20, page: 1,
-        expandedRowId: null, ranges: [], searchGeneration: 0,
-        renderGeneration: 0};
+    const state = {type: "impact", pageSize: 20, page: 1,
+        expandedRowId: null, baseRanges: [], ranges: [],
+        applied: {query: "", includes: [], excludes: []},
+        searchGeneration: 0, renderGeneration: 0};
     const requests = new Map();
     const pending = new Map();
 
@@ -74,6 +78,10 @@
                 && text(record.searchText) && integer(record.rowStart)
                 && integer(record.rowCount);
         }
+        if (kind === "source-index") {
+            return integer(record.id) && integer(record.rowStart)
+                && integer(record.rowCount);
+        }
         if (kind === "rows") {
             return integer(record.rowId) && integer(record.pathId)
                 && integer(record.changedMemberId);
@@ -95,12 +103,12 @@
                 && text(record.changePointKind) && text(record.owner)
                 && (record.name === null || text(record.name))
                 && text(record.codeDiffStatus)
-                && (record.codeDiffId === null
-                    || integer(record.codeDiffId));
+                && (record.codeDiffId === null || integer(record.codeDiffId));
         }
         if (kind === "dependencies") {
             return integer(record.id) && text(record.oldArtifact)
-                && text(record.newArtifact) && text(record.scope);
+                && text(record.newArtifact) && text(record.scope)
+                && text(record.source);
         }
         return kind === "diffs" && integer(record.id)
             && text(record.unifiedDiff);
@@ -122,8 +130,7 @@
                     === waiter.descriptor.firstId + index);
         if (!payload || payload.schemaVersion !== manifest.schemaVersion
                 || payload.kind !== waiter.kind
-                || payload.shardId !== waiter.descriptor.id
-                || !validRecords) {
+                || payload.shardId !== waiter.descriptor.id || !validRecords) {
             waiter.reject(new Error(
                 `Invalid ${waiter.file} shard payload or schema.`));
             return;
@@ -206,22 +213,55 @@
         return result;
     }
 
-    function defaultRanges() {
-        const selected = manifest.rowRanges[state.type];
-        return selected && selected.count > 0
-            ? [{start: selected.start, count: selected.count}] : [];
+    function oneRange(name) {
+        const value = manifest.rowRanges[name];
+        return value && value.count > 0
+            ? [{start: value.start, count: value.count}] : [];
     }
 
-    function mergeRange(target, start, count) {
-        if (count <= 0) {
-            return;
+    function normalizeRanges(values) {
+        const result = [];
+        [...values].filter(value => value.count > 0)
+            .sort((left, right) => left.start - right.start)
+            .forEach(value => {
+                const previous = result[result.length - 1];
+                const end = value.start + value.count;
+                if (previous && value.start <= previous.start + previous.count) {
+                    previous.count = Math.max(previous.start + previous.count,
+                        end) - previous.start;
+                } else {
+                    result.push({start: value.start, count: value.count});
+                }
+            });
+        return result;
+    }
+
+    function intersectRanges(leftValues, rightValues) {
+        const left = normalizeRanges(leftValues);
+        const right = normalizeRanges(rightValues);
+        const result = [];
+        let leftIndex = 0;
+        let rightIndex = 0;
+        while (leftIndex < left.length && rightIndex < right.length) {
+            const start = Math.max(left[leftIndex].start, right[rightIndex].start);
+            const end = Math.min(left[leftIndex].start + left[leftIndex].count,
+                right[rightIndex].start + right[rightIndex].count);
+            if (end > start) {
+                result.push({start, count: end - start});
+            }
+            if (left[leftIndex].start + left[leftIndex].count <
+                    right[rightIndex].start + right[rightIndex].count) {
+                leftIndex += 1;
+            } else {
+                rightIndex += 1;
+            }
         }
-        const previous = target[target.length - 1];
-        if (previous && previous.start + previous.count === start) {
-            previous.count += count;
-        } else {
-            target.push({start, count});
-        }
+        return result;
+    }
+
+    function applyViewType() {
+        state.ranges = state.type === "all" ? normalizeRanges(state.baseRanges)
+            : intersectRanges(state.baseRanges, oneRange(state.type));
     }
 
     function matchingCount() {
@@ -248,46 +288,137 @@
         return result;
     }
 
-    async function search(resetPage) {
+    function glob(expression) {
+        const separator = expression.indexOf(":");
+        if (!expression || separator <= 0
+                || separator !== expression.lastIndexOf(":")
+                || separator === expression.length - 1 || /\s/.test(expression)) {
+            throw new Error(`Invalid dependency Glob: ${expression}`);
+        }
+        const segment = value => new RegExp(`^${[...value].map(character => {
+            if (character === "*") {
+                return ".*";
+            }
+            if (character === "?") {
+                return ".";
+            }
+            return character.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        }).join("")}$`);
+        return {expression,
+            group: segment(expression.slice(0, separator)),
+            artifact: segment(expression.slice(separator + 1))};
+    }
+
+    function globs(value) {
+        return value.split(",").map(item => item.trim()).filter(Boolean)
+            .map(glob);
+    }
+
+    function sourceMatches(source, pattern) {
+        const separator = source.indexOf(":");
+        return pattern.group.test(source.slice(0, separator))
+            && pattern.artifact.test(source.slice(separator + 1));
+    }
+
+    function selectedSources(includes, excludes) {
+        return manifest.sources.filter(value => {
+            const included = includes.length === 0 || includes.some(pattern =>
+                sourceMatches(value.source, pattern));
+            return included && !excludes.some(pattern =>
+                sourceMatches(value.source, pattern));
+        });
+    }
+
+    async function sourceRanges(includes, excludes, generation) {
+        if (includes.length === 0 && excludes.length === 0) {
+            return oneRange("all");
+        }
+        const sources = selectedSources(includes, excludes);
+        const ranges = [];
+        for (let index = 0; index < sources.length; index += 1) {
+            summaryNode.textContent = `Loading source ranges ${index + 1} of ${sources.length}…`;
+            const ids = new Set();
+            for (let offset = 0; offset < sources[index].count; offset += 1) {
+                ids.add(sources[index].firstId + offset);
+            }
+            const records = await recordsForIds("source-index", ids);
+            if (generation !== state.searchGeneration) {
+                return null;
+            }
+            records.forEach(record => ranges.push({
+                start: record.rowStart, count: record.rowCount}));
+        }
+        return normalizeRanges(ranges);
+    }
+
+    async function methodRanges(query, generation) {
+        if (!query) {
+            return oneRange("all");
+        }
+        const ranges = [];
+        const values = descriptors("index");
+        for (let index = 0; index < values.length; index += 1) {
+            summaryNode.textContent =
+                `Searching affected methods: index shard ${index + 1} of ${values.length}…`;
+            const records = await loadShard("index", values[index]);
+            if (generation !== state.searchGeneration) {
+                return null;
+            }
+            records.forEach(record => {
+                if (record.searchText.toLocaleLowerCase().includes(query)) {
+                    ranges.push({start: record.rowStart, count: record.rowCount});
+                }
+            });
+        }
+        return normalizeRanges(ranges);
+    }
+
+    function appliedSummary() {
+        const values = [];
+        if (state.applied.query) {
+            values.push(`affected method “${state.applied.query}”`);
+        }
+        if (state.applied.includes.length) {
+            values.push(`include ${state.applied.includes.join(", ")}`);
+        }
+        if (state.applied.excludes.length) {
+            values.push(`exclude ${state.applied.excludes.join(", ")}`);
+        }
+        return values.length ? ` Applied: ${values.join("; ")}.` : "";
+    }
+
+    async function submitSearch() {
+        let includes;
+        let excludes;
+        try {
+            includes = globs(includeInput.value);
+            excludes = globs(excludeInput.value);
+        } catch (error) {
+            summaryNode.textContent = `${error.message}. The last successful result was retained.`;
+            return;
+        }
+        const query = searchInput.value.toLocaleLowerCase();
         const generation = ++state.searchGeneration;
         state.renderGeneration += 1;
-        if (resetPage) {
+        try {
+            const [sources, methods] = await Promise.all([
+                sourceRanges(includes, excludes, generation),
+                methodRanges(query, generation)
+            ]);
+            if (generation !== state.searchGeneration || !sources || !methods) {
+                return;
+            }
+            state.baseRanges = intersectRanges(sources, methods);
+            state.applied = {query,
+                includes: includes.map(value => value.expression),
+                excludes: excludes.map(value => value.expression)};
             state.page = 1;
             state.expandedRowId = null;
-        }
-        try {
-            if (!state.query) {
-                state.ranges = defaultRanges();
-                await render(false);
-                return;
-            }
-            const ranges = [];
-            const values = descriptors("index");
-            for (let index = 0; index < values.length; index += 1) {
-                summaryNode.textContent =
-                    `Searching affected methods: index shard ${index + 1} of ${values.length}…`;
-                const records = await loadShard("index", values[index]);
-                if (generation !== state.searchGeneration) {
-                    return;
-                }
-                records.forEach(record => {
-                    const typeMatches = state.type === "all"
-                        || state.type === record.type;
-                    const methodMatches = record.searchText.toLocaleLowerCase()
-                        .includes(state.query);
-                    if (typeMatches && methodMatches) {
-                        mergeRange(ranges, record.rowStart, record.rowCount);
-                    }
-                });
-            }
-            if (generation !== state.searchGeneration) {
-                return;
-            }
-            state.ranges = ranges;
+            applyViewType();
             await render(false);
         } catch (error) {
             if (generation === state.searchGeneration) {
-                throw error;
+                showError(error, submitSearch);
             }
         }
     }
@@ -433,7 +564,7 @@
         const start = (state.page - 1) * state.pageSize;
         const end = Math.min(start + state.pageSize, matches);
         summaryNode.textContent = matches === 0
-            ? "Showing 0 matching records."
+            ? `Showing 0 matching records.${appliedSummary()}`
             : `Loading ${start + 1}–${end} of ${matches} matching records…`;
         try {
             const rowIds = new Set(rowIdsForPage(start, end));
@@ -471,15 +602,13 @@
             }
             const fragment = document.createDocumentFragment();
             [...relations.values()].sort((left, right) =>
-                left.rowId - right.rowId)
-                .forEach(relation => {
+                left.rowId - right.rowId).forEach(relation => {
                     const row = createRow(relation,
                         paths.get(relation.pathId),
                         members.get(relation.changedMemberId),
                         methods, dependencies);
                     fragment.append(row);
-                    if (state.expandedRowId === relation.rowId
-                            && expandedDiff) {
+                    if (state.expandedRowId === relation.rowId && expandedDiff) {
                         fragment.append(createDiffRow(expandedDiff));
                     }
                 });
@@ -488,8 +617,8 @@
                 "No affected path matched the current filters.";
             emptyNode.classList.toggle("hidden", matches !== 0);
             summaryNode.textContent = matches === 0
-                ? "Showing 0 matching records."
-                : `Showing ${start + 1}–${end} of ${matches} matching records.`;
+                ? `Showing 0 matching records.${appliedSummary()}`
+                : `Showing ${start + 1}–${end} of ${matches} matching records.${appliedSummary()}`;
             pageInput.value = state.page;
             pageInput.max = pageCount;
             pageCountNode.textContent = `of ${pageCount}`;
@@ -506,18 +635,14 @@
         }
     }
 
+    searchForm.addEventListener("submit", event => {
+        event.preventDefault();
+        submitSearch();
+    });
     typeSelect.addEventListener("change", () => {
         state.type = typeSelect.value;
-        search(true).catch(error => showError(error, () => search(true)));
-    });
-    let searchTimer;
-    searchInput.addEventListener("input", () => {
-        window.clearTimeout(searchTimer);
-        state.searchGeneration += 1;
-        searchTimer = window.setTimeout(() => {
-            state.query = searchInput.value.toLocaleLowerCase();
-            search(true).catch(error => showError(error, () => search(true)));
-        }, 120);
+        applyViewType();
+        render(true);
     });
     pageSizeSelect.addEventListener("change", () => {
         state.pageSize = Number(pageSizeSelect.value);
@@ -545,6 +670,7 @@
         render(false);
     });
 
-    state.ranges = defaultRanges();
+    state.baseRanges = oneRange("all");
+    applyViewType();
     render(true);
 })();
