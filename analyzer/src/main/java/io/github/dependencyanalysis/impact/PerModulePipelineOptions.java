@@ -16,7 +16,7 @@ import java.nio.file.Path;
  * Runtime controls for the per-module pipeline.
  *
  * @param callGraphTimeoutSeconds per-module timeout
- * @param analysisParallelism configured safe parallel stage limit
+ * @param analysisParallelism configured global analysis concurrency limit
  * @param outputPaths command temporary and optional diagnostics paths
  * @param entrypointSelection user-selected PROJECT entrypoint boundary
  * @param callGraphAlgorithm command-wide Call Graph algorithm

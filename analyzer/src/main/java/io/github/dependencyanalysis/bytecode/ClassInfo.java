@@ -15,6 +15,9 @@ final class ClassInfo {
     /** Internal class name. */
     private final String internalName;
 
+    /** JVM class file major version. */
+    private final int majorVersion;
+
     /** Normalized JVM class access. */
     private final JvmAccess access;
 
@@ -28,18 +31,21 @@ final class ClassInfo {
      * Creates a new class info.
      *
      * @param name   internal name
+     * @param version JVM class file major version
      * @param classAccess normalized class access
      * @param mtds   method list
      * @param flds   field list
      */
     ClassInfo(
             final String name,
+            final int version,
             final JvmAccess classAccess,
             final List<MethodInfo> mtds,
             final List<FieldInfo> flds) {
         this.internalName =
                 Objects.requireNonNull(
                         name, "internalName");
+        this.majorVersion = version;
         this.access = Objects.requireNonNull(classAccess, "access");
         this.methods =
                 Collections.unmodifiableList(
@@ -56,6 +62,11 @@ final class ClassInfo {
      */
     String getInternalName() {
         return internalName;
+    }
+
+    /** @return JVM class file major version */
+    int getMajorVersion() {
+        return majorVersion;
     }
 
     /** @return normalized JVM class access */
@@ -93,6 +104,7 @@ final class ClassInfo {
                 (ClassInfo) o;
         return internalName.equals(
                         that.internalName)
+                && majorVersion == that.majorVersion
                 && methods.equals(
                         that.methods)
                 && access == that.access
@@ -103,7 +115,7 @@ final class ClassInfo {
     @Override
     public int hashCode() {
         return Objects.hash(
-                internalName, access, methods,
+                internalName, majorVersion, access, methods,
                 fields);
     }
 
@@ -112,6 +124,7 @@ final class ClassInfo {
         return "ClassInfo{"
                 + "internalName="
                 + internalName
+                + ", majorVersion=" + majorVersion
                 + ", access=" + access
                 + ", methods=" + methods
                 + ", fields=" + fields

@@ -5,6 +5,8 @@ import io.github.dependencyanalysis.dependency.ChangeType;
 import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.dependency.DependencyScope;
 import io.github.dependencyanalysis.jar.IJarRepository;
+import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
+import io.github.dependencyanalysis.runtime.JavaRuntimeProbe;
 import io.github.dependencyanalysis.testing.TestJarRepositories;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -827,6 +829,112 @@ class BytecodeDiffEngineTest {
                         .CLASS_REMOVED);
     }
 
+    @Test
+    void suppressesCrossCompilerLayoutChangeWhenNormalizedSsaMatches()
+            throws Exception {
+        final Path oldJar = createSsaJar("ssa-old.jar",
+                classWithStaticIntMethod(Opcodes.V1_5, 1, false));
+        final Path newJar = createSsaJar("ssa-new.jar",
+                classWithStaticIntMethod(Opcodes.V1_6, 1, true));
+
+        final BytecodeDiffResult result = diffResult(
+                ssaEngine(javaRuntime()), oldJar, newJar);
+
+        assertThat(result.rawChangePointCount()).isEqualTo(1);
+        assertThat(result.ssaComparisons()).singleElement()
+                .satisfies(evidence -> {
+                    assertThat(evidence.getStatus())
+                            .as(evidence.getReason())
+                            .isEqualTo(SsaComparisonStatus.MATCHED);
+                    assertThat(evidence.getOldMajorVersion())
+                            .isEqualTo(Opcodes.V1_5);
+                    assertThat(evidence.getNewMajorVersion())
+                            .isEqualTo(Opcodes.V1_6);
+                });
+        assertThat(result.changePoints()).isEmpty();
+    }
+
+    @Test
+    void retainsCrossCompilerMethodWhenNormalizedSsaDiffers()
+            throws Exception {
+        final Path oldJar = createSsaJar("ssa-different-old.jar",
+                classWithStaticIntMethod(Opcodes.V1_5, 1, false));
+        final Path newJar = createSsaJar("ssa-different-new.jar",
+                classWithStaticIntMethod(Opcodes.V1_6, 2, false));
+
+        final BytecodeDiffResult result = diffResult(
+                ssaEngine(javaRuntime()), oldJar, newJar);
+
+        assertThat(result.changePoints())
+                .extracting(ChangePoint::getKind)
+                .containsExactly(ChangePointKind.METHOD_BODY_CHANGED);
+        assertThat(result.ssaComparisons())
+                .extracting(SsaComparisonEvidence::getStatus)
+                .containsExactly(SsaComparisonStatus.DIFFERENT);
+    }
+
+    @Test
+    void doesNotRunSsaWhenClassMajorVersionIsUnchanged()
+            throws Exception {
+        final Path oldJar = createSsaJar("ssa-gate-old.jar",
+                classWithStaticIntMethod(Opcodes.V1_6, 1, false));
+        final Path newJar = createSsaJar("ssa-gate-new.jar",
+                classWithStaticIntMethod(Opcodes.V1_6, 1, true));
+
+        final BytecodeDiffResult result = diffResult(
+                ssaEngine(javaRuntime()), oldJar, newJar);
+
+        assertThat(result.changePoints())
+                .extracting(ChangePoint::getKind)
+                .containsExactly(ChangePointKind.METHOD_BODY_CHANGED);
+        assertThat(result.ssaComparisons()).isEmpty();
+    }
+
+    @Test
+    void retainsEligibleChangeWhenSsaSessionIsUnavailable()
+            throws Exception {
+        final Path oldJar = createSsaJar("ssa-unknown-old.jar",
+                classWithStaticIntMethod(Opcodes.V1_5, 1, false));
+        final Path newJar = createSsaJar("ssa-unknown-new.jar",
+                classWithStaticIntMethod(Opcodes.V1_6, 1, true));
+        final JavaRuntimeDescriptor unavailable = new JavaRuntimeDescriptor(
+                tempDir, tempDir, "1.8-test", 8, List.of(), List.of());
+
+        final BytecodeDiffResult result = diffResult(
+                ssaEngine(unavailable), oldJar, newJar);
+
+        assertThat(result.changePoints())
+                .extracting(ChangePoint::getKind)
+                .containsExactly(ChangePointKind.METHOD_BODY_CHANGED);
+        assertThat(result.ssaComparisons())
+                .extracting(SsaComparisonEvidence::getStatus)
+                .containsExactly(SsaComparisonStatus.UNKNOWN);
+    }
+
+    private BytecodeDiffEngine ssaEngine(
+            final JavaRuntimeDescriptor runtime) {
+        return new BytecodeDiffEngine(
+                Set.of(ChangePointKind.METHOD_BODY_CHANGED), runtime);
+    }
+
+    private JavaRuntimeDescriptor javaRuntime() {
+        return new JavaRuntimeProbe().probeJdk8(
+                Path.of(System.getenv("TEST_JDK8_HOME")));
+    }
+
+    private BytecodeDiffResult diffResult(
+            final BytecodeDiffEngine selectedEngine,
+            final Path oldJar,
+            final Path newJar) throws Exception {
+        final DependencyChange change = new DependencyChange(
+                ChangeType.VERSION_CHANGED, OLD, NEW,
+                DependencyScope.COMPILE, "root");
+        try (IJarRepository repository = TestJarRepositories.pair(
+                OLD, oldJar, NEW, newJar)) {
+            return selectedEngine.diff(change, repository);
+        }
+    }
+
     /**
      * Runs the diff engine.
      *
@@ -849,7 +957,7 @@ class BytecodeDiffEngineTest {
                         "root");
         try (IJarRepository repository = TestJarRepositories.pair(
                 OLD, oldJar, NEW, newJar)) {
-            return engine.diff(change, repository);
+            return engine.diff(change, repository).changePoints();
         }
     }
 
@@ -878,7 +986,7 @@ class BytecodeDiffEngineTest {
                         "root");
         try (IJarRepository repository = TestJarRepositories.pair(
                 OLD, oldJar, NEW, newJar)) {
-            return eng.diff(change, repository);
+            return eng.diff(change, repository).changePoints();
         }
     }
 
@@ -897,6 +1005,20 @@ class BytecodeDiffEngineTest {
         final Path jar =
                 tempDir.resolve(name);
         createJarTo(jar, classData);
+        return jar;
+    }
+
+    private Path createSsaJar(
+            final String name,
+            final byte[] classData) throws IOException {
+        final Path jar = tempDir.resolve(name);
+        try (OutputStream output = java.nio.file.Files.newOutputStream(jar);
+             ZipOutputStream zip = new ZipOutputStream(output)) {
+            zip.putNextEntry(new ZipEntry(
+                    "example/CompilerLayout.class"));
+            zip.write(classData);
+            zip.closeEntry();
+        }
         return jar;
     }
 
@@ -1217,6 +1339,30 @@ class BytecodeDiffEngineTest {
         mv.visitEnd();
         cw.visitEnd();
         return cw.toByteArray();
+    }
+
+    private byte[] classWithStaticIntMethod(
+            final int classVersion,
+            final int constant,
+            final boolean localRoundTrip) {
+        final ClassWriter writer = new ClassWriter(0);
+        writer.visit(classVersion, Opcodes.ACC_PUBLIC,
+                "example/CompilerLayout", null, "java/lang/Object", null);
+        final MethodVisitor method = writer.visitMethod(
+                Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "value", "()I", null, null);
+        method.visitCode();
+        method.visitInsn(constant == 1 ? Opcodes.ICONST_1
+                : Opcodes.ICONST_2);
+        if (localRoundTrip) {
+            method.visitVarInsn(Opcodes.ISTORE, 0);
+            method.visitVarInsn(Opcodes.ILOAD, 0);
+        }
+        method.visitInsn(Opcodes.IRETURN);
+        method.visitMaxs(1, localRoundTrip ? 1 : 0);
+        method.visitEnd();
+        writer.visitEnd();
+        return writer.toByteArray();
     }
 
     /**

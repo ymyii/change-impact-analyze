@@ -1,4 +1,4 @@
-package io.github.dependencyanalysis.impact.refinement.ssa;
+package io.github.dependencyanalysis.bytecode;
 
 import com.ibm.wala.ssa.IR;
 import com.ibm.wala.ssa.ISSABasicBlock;
@@ -37,17 +37,16 @@ import java.util.Map;
 import java.util.Set;
 
 /** Conservative alpha-normalized WALA SSA/CFG comparator. */
-public final class NormalizedSsaComparator {
+final class NormalizedSsaComparator {
 
     /**
      * Compares two WALA IR instances within the supported model.
      *
      * @param oldIr baseline IR
      * @param newIr target IR
-     * @return status and reason
+     * @return comparison outcome
      */
-    public MethodEquivalenceResult compare(
-            final IR oldIr, final IR newIr) {
+    SsaComparisonOutcome compare(final IR oldIr, final IR newIr) {
         if (oldIr == null || newIr == null) {
             return unknown("IR_MISSING");
         }
@@ -55,12 +54,12 @@ public final class NormalizedSsaComparator {
             final NormalizedMethod oldMethod = normalize(oldIr);
             final NormalizedMethod newMethod = normalize(newIr);
             if (oldMethod.equals(newMethod)) {
-                return new MethodEquivalenceResult(
-                        MethodEquivalenceStatus.PROVEN_EQUIVALENT,
+                return new SsaComparisonOutcome(
+                        SsaComparisonStatus.MATCHED,
                         "NORMALIZED_SSA_CFG_ISOMORPHIC");
             }
-            return new MethodEquivalenceResult(
-                    MethodEquivalenceStatus.DIFFERENT,
+            return new SsaComparisonOutcome(
+                    SsaComparisonStatus.DIFFERENT,
                     "NORMALIZED_SSA_CFG_DIFFERENT");
         } catch (UnsupportedSsaException exception) {
             return unknown(exception.getMessage());
@@ -70,9 +69,8 @@ public final class NormalizedSsaComparator {
         }
     }
 
-    private MethodEquivalenceResult unknown(final String reason) {
-        return new MethodEquivalenceResult(
-                MethodEquivalenceStatus.UNKNOWN, reason);
+    private SsaComparisonOutcome unknown(final String reason) {
+        return new SsaComparisonOutcome(SsaComparisonStatus.UNKNOWN, reason);
     }
 
     private NormalizedMethod normalize(final IR ir) {
@@ -147,8 +145,7 @@ public final class NormalizedSsaComparator {
         for (int index = 0; index < parameters.length; index++) {
             result.put(parameters[index], "P" + index);
         }
-        for (int value = 1;
-                value <= symbols.getMaxValueNumber(); value++) {
+        for (int value = 1; value <= symbols.getMaxValueNumber(); value++) {
             if (symbols.isConstant(value)) {
                 result.put(value, constant(symbols.getConstantValue(value)));
             }
@@ -198,82 +195,57 @@ public final class NormalizedSsaComparator {
         if (value instanceof SSAInvokeDynamicInstruction) {
             throw new UnsupportedSsaException(
                     "BOOTSTRAP_EVIDENCE_INSUFFICIENT");
-        } else if (value instanceof SSAAbstractInvokeInstruction) {
-            final SSAAbstractInvokeInstruction invoke =
-                    (SSAAbstractInvokeInstruction) value;
+        } else if (value instanceof SSAAbstractInvokeInstruction invoke) {
             result.append("|target=").append(invoke.getDeclaredTarget())
                     .append("|dispatch=").append(invoke.getInvocationCode())
                     .append("|returns=")
                     .append(invoke.getNumberOfReturnValues());
-        } else if (value instanceof SSAFieldAccessInstruction) {
-            final SSAFieldAccessInstruction field =
-                    (SSAFieldAccessInstruction) value;
+        } else if (value instanceof SSAFieldAccessInstruction field) {
             result.append("|field=").append(field.getDeclaredField())
                     .append("|static=").append(field.isStatic());
-        } else if (value instanceof SSANewInstruction) {
-            result.append("|type=")
-                    .append(((SSANewInstruction) value).getConcreteType());
-        } else if (value instanceof SSACheckCastInstruction) {
+        } else if (value instanceof SSANewInstruction instruction) {
+            result.append("|type=").append(instruction.getConcreteType());
+        } else if (value instanceof SSACheckCastInstruction instruction) {
             result.append("|types=").append(List.of(
-                    ((SSACheckCastInstruction) value)
-                            .getDeclaredResultTypes()));
-        } else if (value instanceof SSAInstanceofInstruction) {
-            result.append("|type=").append(
-                    ((SSAInstanceofInstruction) value).getCheckedType());
-        } else if (value instanceof SSAArrayReferenceInstruction) {
-            result.append("|element=").append(
-                    ((SSAArrayReferenceInstruction) value).getElementType());
-        } else if (value instanceof SSALoadMetadataInstruction) {
-            final SSALoadMetadataInstruction metadata =
-                    (SSALoadMetadataInstruction) value;
+                    instruction.getDeclaredResultTypes()));
+        } else if (value instanceof SSAInstanceofInstruction instruction) {
+            result.append("|type=").append(instruction.getCheckedType());
+        } else if (value instanceof SSAArrayReferenceInstruction instruction) {
+            result.append("|element=").append(instruction.getElementType());
+        } else if (value instanceof SSALoadMetadataInstruction metadata) {
             result.append("|type=").append(metadata.getType())
-                    .append("|token=")
-                    .append(constant(metadata.getToken()));
-        } else if (value instanceof SSABinaryOpInstruction) {
-            result.append("|operator=").append(
-                    ((SSABinaryOpInstruction) value).getOperator());
-        } else if (value instanceof SSAPiInstruction) {
-            final SSAPiInstruction pi = (SSAPiInstruction) value;
+                    .append("|token=").append(constant(metadata.getToken()));
+        } else if (value instanceof SSABinaryOpInstruction instruction) {
+            result.append("|operator=").append(instruction.getOperator());
+        } else if (value instanceof SSAPiInstruction pi) {
             final Integer cause = instructionIds.get(pi.getCause());
             if (cause == null) {
-                throw new UnsupportedSsaException(
-                        "UNMAPPED_PI_CAUSE");
+                throw new UnsupportedSsaException("UNMAPPED_PI_CAUSE");
             }
             result.append("|cause=D").append(cause)
                     .append("|causeType=")
                     .append(pi.getCause().getClass().getName());
-        } else if (value instanceof SSAUnaryOpInstruction) {
-            result.append("|operator=").append(
-                    ((SSAUnaryOpInstruction) value).getOpcode());
-        } else if (value instanceof SSAComparisonInstruction) {
-            result.append("|operator=").append(
-                    ((SSAComparisonInstruction) value).getOperator());
-        } else if (value instanceof SSAConditionalBranchInstruction) {
-            final SSAConditionalBranchInstruction branch =
-                    (SSAConditionalBranchInstruction) value;
+        } else if (value instanceof SSAUnaryOpInstruction instruction) {
+            result.append("|operator=").append(instruction.getOpcode());
+        } else if (value instanceof SSAComparisonInstruction instruction) {
+            result.append("|operator=").append(instruction.getOperator());
+        } else if (value
+                instanceof SSAConditionalBranchInstruction branch) {
             result.append("|operator=").append(branch.getOperator())
                     .append("|type=").append(branch.getType());
-        } else if (value instanceof SSASwitchInstruction) {
-            final SSASwitchInstruction switchInstruction =
-                    (SSASwitchInstruction) value;
+        } else if (value instanceof SSASwitchInstruction instruction) {
             result.append("|cases=").append(java.util.Arrays.toString(
-                            switchInstruction.getCasesAndLabels()))
-                    .append("|default=")
-                    .append(switchInstruction.getDefault());
-        } else if (value instanceof SSAConversionInstruction) {
-            final SSAConversionInstruction conversion =
-                    (SSAConversionInstruction) value;
-            result.append("|from=").append(conversion.getFromType())
-                    .append("|to=").append(conversion.getToType());
-        } else if (value instanceof SSAReturnInstruction) {
-            final SSAReturnInstruction returnInstruction =
-                    (SSAReturnInstruction) value;
-            result.append("|void=").append(returnInstruction.returnsVoid())
+                            instruction.getCasesAndLabels()))
+                    .append("|default=").append(instruction.getDefault());
+        } else if (value instanceof SSAConversionInstruction instruction) {
+            result.append("|from=").append(instruction.getFromType())
+                    .append("|to=").append(instruction.getToType());
+        } else if (value instanceof SSAReturnInstruction instruction) {
+            result.append("|void=").append(instruction.returnsVoid())
                     .append("|primitive=")
-                    .append(returnInstruction.returnsPrimitiveType());
-        } else if (value instanceof SSAMonitorInstruction) {
-            result.append("|enter=").append(
-                    ((SSAMonitorInstruction) value).isMonitorEnter());
+                    .append(instruction.returnsPrimitiveType());
+        } else if (value instanceof SSAMonitorInstruction instruction) {
+            result.append("|enter=").append(instruction.isMonitorEnter());
         } else if (value instanceof SSAPhiInstruction
                 || value instanceof SSAGetCaughtExceptionInstruction
                 || value instanceof SSAThrowInstruction) {
@@ -298,10 +270,9 @@ public final class NormalizedSsaComparator {
                 ? null : current.instructions().get(
                 current.instructions().size() - 1);
         final ISSABasicBlock branchTarget = last
-                instanceof SSAConditionalBranchInstruction
+                instanceof SSAConditionalBranchInstruction branch
                 ? ir.getControlFlowGraph().getBlockForInstruction(
-                ((SSAConditionalBranchInstruction) last).getTarget())
-                : null;
+                branch.getTarget()) : null;
         final Iterator<ISSABasicBlock> iterator =
                 ir.getControlFlowGraph().getSuccNodes(block);
         while (iterator.hasNext()) {
@@ -366,11 +337,11 @@ public final class NormalizedSsaComparator {
         if (value == null) {
             return "null";
         }
-        if (value instanceof Float) {
-            return "Float:" + Float.floatToRawIntBits((Float) value);
+        if (value instanceof Float number) {
+            return "Float:" + Float.floatToRawIntBits(number);
         }
-        if (value instanceof Double) {
-            return "Double:" + Double.doubleToRawLongBits((Double) value);
+        if (value instanceof Double number) {
+            return "Double:" + Double.doubleToRawLongBits(number);
         }
         if (value instanceof String
                 || value instanceof Number
@@ -392,8 +363,8 @@ public final class NormalizedSsaComparator {
     /**
      * Normalized method model.
      *
-     * @param instructions alpha-normalized instructions
-     * @param blocks normalized CFG blocks
+     * @param instructions normalized instructions
+     * @param blocks normalized blocks
      */
     private record NormalizedMethod(
             List<String> instructions,
@@ -403,7 +374,7 @@ public final class NormalizedSsaComparator {
     /**
      * Block and its semantic instructions.
      *
-     * @param block WALA block
+     * @param block WALA basic block
      * @param instructions semantic instructions
      */
     private record BlockModel(
@@ -411,15 +382,11 @@ public final class NormalizedSsaComparator {
             List<SSAInstruction> instructions) {
     }
 
-    /** Unsupported evidence that must retain candidate paths. */
+    /** Unsupported evidence that must retain the raw ChangePoint. */
     private static final class UnsupportedSsaException
             extends RuntimeException {
 
-        /**
-         * Creates an unsupported-model failure.
-         *
-         * @param reason stable reason
-         */
+        /** @param reason stable reason */
         UnsupportedSsaException(final String reason) {
             super(reason);
         }

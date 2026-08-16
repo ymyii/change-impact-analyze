@@ -140,22 +140,25 @@ class RuntimeMetricsSessionTest {
         final RuntimeMetricsSession session = RuntimeMetricsSession.create(
                 log, registry, ManagementFactory.getMemoryMXBean(),
                 null, TEST_INTERVAL);
-        final ManagedExecutor managed = registry.fixed("module-analysis", 1);
+        final ManagedExecutor managed = registry.fixed("common", 1);
         final CountDownLatch running = new CountDownLatch(1);
         final CountDownLatch release = new CountDownLatch(1);
-        final Future<?> first = managed.executor().submit(() -> {
+        final Future<String> first = managed.executor().submit(() -> {
             running.countDown();
             release.await();
-            return null;
+            return Thread.currentThread().getName();
         });
         final Future<?> second = managed.executor().submit(() -> null);
         assertThat(running.await(1L, TimeUnit.SECONDS)).isTrue();
+        assertThat(registry.snapshot())
+                .extracting(ManagedExecutorRegistry.ExecutorMetrics::name)
+                .containsExactly("common");
 
         session.sample();
         final String sampled = bytes.toString(StandardCharsets.UTF_8);
         assertThat(sampled)
                 .contains("[TRACE][runtime-metrics][thread-pool]"
-                        + "[pool=module-analysis] Runtime metrics snapshot;")
+                        + "[pool=common] Runtime metrics snapshot;")
                 .contains("core=1; max=1; size=1; active=1; queued=1")
                 .contains("shutdown=false; terminated=false");
 
@@ -165,7 +168,8 @@ class RuntimeMetricsSessionTest {
         session.close();
         assertThat(bytes.size()).isEqualTo(closedLength);
         release.countDown();
-        first.get(1L, TimeUnit.SECONDS);
+        assertThat(first.get(1L, TimeUnit.SECONDS))
+                .startsWith("dependency-analyzer-common-");
         second.get(1L, TimeUnit.SECONDS);
         managed.close();
         assertThat(registry.snapshot()).isEmpty();

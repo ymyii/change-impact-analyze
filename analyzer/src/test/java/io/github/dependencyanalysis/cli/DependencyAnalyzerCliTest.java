@@ -140,7 +140,9 @@ class DependencyAnalyzerCliTest {
                 .contains("--analysis-target");
         assertThat(impactText.toString().replaceAll("\\s+", " "))
                 .contains("Call Graph algorithm: cha or k-obj "
-                        + "(experimental); default: cha.");
+                        + "(experimental); default: cha.")
+                .contains("Maximum concurrent Analyzer operations; default: "
+                        + "half of available processors.");
         assertThat(treeText.toString())
                 .contains("-p, --path")
                 .contains("-r, --ref")
@@ -352,10 +354,12 @@ class DependencyAnalyzerCliTest {
     }
 
     @Test
-    void resultRefinementsDefaultToNoneAndParseCanonicalOrder() {
+    void resultRefinementsDefaultToSsaAndParseCanonicalOrder() {
         final CommandLine defaultCommand = DependencyAnalyzerCli
                 .newCommandLine(new DependencyAnalyzerCli());
         final CommandLine enabledCommand = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli());
+        final CommandLine noneCommand = DependencyAnalyzerCli
                 .newCommandLine(new DependencyAnalyzerCli());
 
         final CommandLine.ParseResult defaultResult =
@@ -368,8 +372,14 @@ class DependencyAnalyzerCliTest {
                         " SSA-EQUIVALENCE, "
                                 + "CHA-LOCAL-RECEIVER-INFERENCE,"
                                 + "ssa-equivalence ");
+        final CommandLine.ParseResult noneResult = noneCommand.parseArgs(
+                "impact", "--baseline", "HEAD", "--output", "report.html",
+                "--result-refinement-algorithms", "none");
 
-        assertThat(resultRefinements(defaultResult).isEmpty()).isTrue();
+        assertThat(resultRefinements(defaultResult).algorithms())
+                .containsExactly(ResultRefinementAlgorithm.SSA_EQUIVALENCE);
+        assertThat(resultRefinements(defaultResult).toString())
+                .isEqualTo("ssa-equivalence");
         assertThat(resultRefinements(enabledResult).algorithms())
                 .containsExactly(
                         ResultRefinementAlgorithm
@@ -377,6 +387,7 @@ class DependencyAnalyzerCliTest {
                         ResultRefinementAlgorithm.SSA_EQUIVALENCE);
         assertThat(resultRefinements(enabledResult).toString()).isEqualTo(
                 "cha-local-receiver-inference,ssa-equivalence");
+        assertThat(resultRefinements(noneResult).isEmpty()).isTrue();
     }
 
     @Test

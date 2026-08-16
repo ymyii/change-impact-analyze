@@ -43,7 +43,7 @@ code_refs:
 
 每个 scope 固定：
 
-1. `cha + jdk-model none + ssa-equivalence` warm-up，开启 Schema v9 topology capture。
+1. `cha + jdk-model none + ssa-equivalence` warm-up，开启Schema 10 topology capture。
 2. 相同配置执行 5 次 formal，每次启动新 JVM。
 3. `cha + jdk-model none + cha-local-receiver-inference` control，不进入性能聚合。
 
@@ -67,7 +67,7 @@ code_refs:
 - `full + ssa-equivalence`
 - `full + cha-local-receiver-inference`
 
-四个 candidate/final call-chain baseline 当前为 `PENDING`。只有显式授权 calibration 后才能生成 candidate，人工确认后再锁定数值。不得混入 `k-obj` historical snapshot。
+四个Impact call-chain baseline当前为`PENDING`。只有显式授权calibration后才能生成candidate artifact，人工确认后再锁定数值。不得混入`k-obj`historical snapshot。
 
 ## Contract Tests
 

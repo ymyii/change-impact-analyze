@@ -24,6 +24,8 @@ import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphSession;
 import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
+import io.github.dependencyanalysis.bytecode.SsaComparisonEvidence;
+import io.github.dependencyanalysis.bytecode.SsaComparisonStatus;
 import io.github.dependencyanalysis.jar.IJarRepository;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 import io.github.dependencyanalysis.runtime.ReportCache;
@@ -47,7 +49,7 @@ import java.util.UUID;
 final class CallGraphDiagnosticsExporter {
 
     /** Diagnostics JSON Schema version. */
-    static final int SCHEMA_VERSION = 9;
+    static final int SCHEMA_VERSION = 10;
 
     /** SHA-256 algorithm name. */
     private static final String SHA_256 = "SHA-256";
@@ -369,15 +371,63 @@ final class CallGraphDiagnosticsExporter {
         }
         json.writeEndArray();
         json.writeEndObject();
-        json.writeObjectFieldStart("ssa-equivalence");
+        json.writeEndObject();
+        json.writeObjectFieldStart("changePointCollection");
+        json.writeObjectFieldStart("ssaEquivalence");
         final boolean ssaSelected = refinements.isEnabled(
                 ResultRefinementAlgorithm.SSA_EQUIVALENCE);
-        json.writeStringField("status", ssaSelected
-                ? "applied" : "not selected");
-        json.writeNumberField("comparisonCount",
-                module.getEquivalenceResults().size());
+        final List<SsaComparisonEvidence> comparisons = module.getUnit()
+                .getSsaComparisons();
+        json.writeBooleanField("enabled", ssaSelected);
+        json.writeNumberField("eligible", comparisons.size());
+        json.writeNumberField("matchedSuppressed",
+                comparisonCount(comparisons, SsaComparisonStatus.MATCHED));
+        json.writeNumberField("differentRetained",
+                comparisonCount(comparisons, SsaComparisonStatus.DIFFERENT));
+        json.writeNumberField("unknownRetained",
+                comparisonCount(comparisons, SsaComparisonStatus.UNKNOWN));
+        json.writeNumberField("elapsedMillis", comparisons.stream()
+                .mapToLong(SsaComparisonEvidence::getElapsedMillis).sum());
+        json.writeStringField("limitation",
+                "Normalized SSA matching is not proof of source or complete "
+                        + "runtime behavior equivalence and may suppress "
+                        + "real changes.");
+        json.writeArrayFieldStart("comparisons");
+        for (SsaComparisonEvidence comparison : comparisons.stream()
+                .sorted(java.util.Comparator.comparing(
+                        SsaComparisonEvidence::stableKey)).toList()) {
+            json.writeStartObject();
+            json.writeStringField("oldArtifact",
+                    comparison.getOldArtifact().toString());
+            json.writeStringField("newArtifact",
+                    comparison.getNewArtifact().toString());
+            json.writeStringField("owner", comparison.getOwner());
+            json.writeStringField("name", comparison.getName());
+            json.writeStringField("descriptor",
+                    comparison.getDescriptor());
+            json.writeStringField("oldHash", comparison.getOldHash());
+            json.writeStringField("newHash", comparison.getNewHash());
+            json.writeNumberField("oldMajorVersion",
+                    comparison.getOldMajorVersion());
+            json.writeNumberField("newMajorVersion",
+                    comparison.getNewMajorVersion());
+            json.writeStringField("status",
+                    comparison.getStatus().name());
+            json.writeStringField("reason", comparison.getReason());
+            json.writeNumberField("elapsedMillis",
+                    comparison.getElapsedMillis());
+            json.writeEndObject();
+        }
+        json.writeEndArray();
         json.writeEndObject();
         json.writeEndObject();
+    }
+
+    private long comparisonCount(
+            final List<SsaComparisonEvidence> comparisons,
+            final SsaComparisonStatus status) {
+        return comparisons.stream()
+                .filter(value -> value.getStatus() == status).count();
     }
 
     private void requireComplete(final ReportCache.Fragment fragment)

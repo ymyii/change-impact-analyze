@@ -4,13 +4,13 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
-/** Experimental algorithms that refine reported impact results. */
+/** Optional algorithms that refine ChangePoints or reported impact results. */
 public enum ResultRefinementAlgorithm {
 
     /** Query-time CHA receiver inference. */
     CHA_LOCAL_RECEIVER_INFERENCE("cha-local-receiver-inference"),
 
-    /** Normalized SSA equivalence filtering. */
+    /** ChangePoint-collection normalized SSA filtering. */
     SSA_EQUIVALENCE("ssa-equivalence");
 
     /** Stable CLI and evidence identifier. */

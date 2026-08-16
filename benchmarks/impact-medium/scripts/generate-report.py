@@ -110,7 +110,7 @@ def load_topology(run_directory: Path) -> dict[str, Any]:
     path = run_directory / "topology.json"
     with path.open(encoding="utf-8") as stream:
         value = json.load(stream)
-    if value.get("schemaVersion") != 9:
+    if value.get("schemaVersion") != 10:
         raise ValueError(f"unsupported topology schema: {path}")
     return value
 

@@ -1,7 +1,6 @@
 package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.impact.refinement.cha.ChaLocalReceiverRefinementSummary;
-import io.github.dependencyanalysis.impact.refinement.ssa.MethodEquivalenceResult;
 
 import io.github.dependencyanalysis.callgraph.engine.CallGraphStats;
 import io.github.dependencyanalysis.callgraph.scope.DuplicateClassResolution;
@@ -29,7 +28,7 @@ public final class ModuleAnalysisResult {
     /** Human-readable detail. */
     private final String detail;
 
-    /** Live session retained through SSA filtering. */
+    /** Live session retained through report snapshotting. */
     private final ModuleCallGraphSession session;
 
     /** Lightweight report metrics detached from the live session. */
@@ -38,11 +37,8 @@ public final class ModuleAnalysisResult {
     /** Frozen post-graph terminal evidence. */
     private final ChangePointEvidenceIndex changePointEvidence;
 
-    /** Candidate paths before SSA filtering. */
-    private final List<ImpactPath> candidatePaths;
-
-    /** Final paths after SSA filtering. */
-    private final List<ImpactPath> finalPaths;
+    /** Reportable Impact Paths. */
+    private final List<ImpactPath> impactPaths;
 
     /** Structural Reference Paths. */
     private final List<StructuralReferencePath> structuralPaths;
@@ -55,10 +51,6 @@ public final class ModuleAnalysisResult {
 
     /** Query-time CHA local-receiver refinement summary. */
     private final ChaLocalReceiverRefinementSummary receiverRefinement;
-
-    /** SSA comparison results. */
-    private final Map<BoundChangePoint,
-            MethodEquivalenceResult> equivalenceResults;
 
     /** User-reviewable code comparisons by relevant changed member. */
     private final Map<BoundChangePoint,
@@ -84,8 +76,7 @@ public final class ModuleAnalysisResult {
         session = builder.session;
         callGraphSnapshot = builder.callGraphSnapshot;
         changePointEvidence = builder.changePointEvidence;
-        candidatePaths = immutable(builder.candidatePaths);
-        finalPaths = immutable(builder.finalPaths);
+        impactPaths = immutable(builder.impactPaths);
         structuralPaths = immutable(builder.structuralPaths);
         dispositions = immutableMap(builder.dispositions);
         final Map<BoundChangePoint, List<ImpactEvidence>> evidence =
@@ -95,7 +86,6 @@ public final class ModuleAnalysisResult {
         observations = immutableMap(evidence);
         receiverRefinement = Objects.requireNonNull(
                 builder.receiverRefinement, "receiverRefinement");
-        equivalenceResults = immutableMap(builder.equivalenceResults);
         codeComparisons = immutableMap(builder.codeComparisons);
         duplicateClassResolutions = immutable(
                 builder.duplicateClassResolutions);
@@ -154,14 +144,9 @@ public final class ModuleAnalysisResult {
         return changePointEvidence;
     }
 
-    /** @return pre-filter candidate paths */
-    public List<ImpactPath> getCandidatePaths() {
-        return candidatePaths;
-    }
-
-    /** @return final paths */
-    public List<ImpactPath> getFinalPaths() {
-        return finalPaths;
+    /** @return reportable Impact Paths */
+    public List<ImpactPath> getImpactPaths() {
+        return impactPaths;
     }
 
     /** @return Structural Reference Paths */
@@ -182,12 +167,6 @@ public final class ModuleAnalysisResult {
     /** @return query-time CHA local-receiver refinement summary */
     public ChaLocalReceiverRefinementSummary getReceiverRefinement() {
         return receiverRefinement;
-    }
-
-    /** @return SSA comparison results */
-    public Map<BoundChangePoint, MethodEquivalenceResult>
-            getEquivalenceResults() {
-        return equivalenceResults;
     }
 
     /** @return path-associated code comparison evidence */
@@ -228,13 +207,11 @@ public final class ModuleAnalysisResult {
                 .session(session)
                 .callGraphSnapshot(callGraphSnapshot)
                 .changePointEvidence(changePointEvidence)
-                .candidatePaths(candidatePaths)
-                .finalPaths(finalPaths)
+                .impactPaths(impactPaths)
                 .structuralPaths(structuralPaths)
                 .dispositions(dispositions)
                 .observations(observations)
                 .receiverRefinement(receiverRefinement)
-                .equivalenceResults(equivalenceResults)
                 .codeComparisons(codeComparisons)
                 .duplicateClassResolutions(duplicateClassResolutions)
                 .limitations(limitations)
@@ -266,11 +243,8 @@ public final class ModuleAnalysisResult {
         /** Frozen terminal evidence. */
         private ChangePointEvidenceIndex changePointEvidence;
 
-        /** Candidate paths. */
-        private List<ImpactPath> candidatePaths = List.of();
-
-        /** Final paths. */
-        private List<ImpactPath> finalPaths = List.of();
+        /** Reportable Impact Paths. */
+        private List<ImpactPath> impactPaths = List.of();
 
         /** Structural Reference Paths. */
         private List<StructuralReferencePath> structuralPaths = List.of();
@@ -286,10 +260,6 @@ public final class ModuleAnalysisResult {
         /** Query-time CHA local-receiver refinement summary. */
         private ChaLocalReceiverRefinementSummary receiverRefinement =
                 ChaLocalReceiverRefinementSummary.notSelected();
-
-        /** Equivalence results. */
-        private Map<BoundChangePoint, MethodEquivalenceResult>
-                equivalenceResults = Map.of();
 
         /** Code comparisons. */
         private Map<BoundChangePoint, CodeComparisonEvidence>
@@ -363,17 +333,8 @@ public final class ModuleAnalysisResult {
          * @param values paths
          * @return this builder
          */
-        public Builder candidatePaths(final List<ImpactPath> values) {
-            candidatePaths = List.copyOf(values);
-            return this;
-        }
-
-        /**
-         * @param values paths
-         * @return this builder
-         */
-        public Builder finalPaths(final List<ImpactPath> values) {
-            finalPaths = List.copyOf(values);
+        public Builder impactPaths(final List<ImpactPath> values) {
+            impactPaths = List.copyOf(values);
             return this;
         }
 
@@ -420,17 +381,6 @@ public final class ModuleAnalysisResult {
         public Builder receiverRefinement(
                 final ChaLocalReceiverRefinementSummary value) {
             receiverRefinement = Objects.requireNonNull(value, "value");
-            return this;
-        }
-
-        /**
-         * @param values comparisons
-         * @return this builder
-         */
-        public Builder equivalenceResults(
-                final Map<BoundChangePoint,
-                        MethodEquivalenceResult> values) {
-            equivalenceResults = Map.copyOf(values);
             return this;
         }
 

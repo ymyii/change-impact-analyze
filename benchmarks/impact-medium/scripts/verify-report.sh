@@ -70,7 +70,7 @@ case "$dependency_scope" in
   changed-paths)
     required_change_kinds="CLASS_REMOVED METHOD_BODY_CHANGED FIELD_DESCRIPTOR_CHANGED SERVICE_PROVIDER_REGISTRATION_REMOVED"
     hidden_change_kinds="CLASS_ADDED METHOD_ADDED FIELD_ADDED METHOD_REMOVED METHOD_DESCRIPTOR_CHANGED FIELD_REMOVED"
-    final_member_text="Method implementation changed"
+    impact_member_text="Method implementation changed"
     grep -q '<th>Status</th><td>Completed with coverage limitations</td>' "$report" \
       || fail "changed-paths Overall status is not INCONCLUSIVE"
     ! grep -q 'DEPENDENCY_BODY_BOUNDARY_REACHED' "$module_dir"/*.html \
@@ -103,7 +103,7 @@ case "$dependency_scope" in
   full)
     required_change_kinds="CLASS_REMOVED METHOD_REMOVED METHOD_DESCRIPTOR_CHANGED METHOD_BODY_CHANGED FIELD_REMOVED FIELD_DESCRIPTOR_CHANGED SERVICE_PROVIDER_REGISTRATION_REMOVED"
     hidden_change_kinds="CLASS_ADDED METHOD_ADDED FIELD_ADDED"
-    final_member_text="Method removed"
+    impact_member_text="Method removed"
     grep -q '<th>Status</th><td>Completed with coverage limitations</td>' "$report" \
       || fail "full CHA Overall status is not INCONCLUSIVE"
     ;;
@@ -154,14 +154,10 @@ grep -F -q "<th>Result refinement algorithms</th><td>$result_refinements (experi
   || fail "result refinement selection does not match $result_refinements"
 case ",$result_refinements," in
   *,ssa-equivalence,*)
-    grep -q 'View candidate chains filtered as equivalent' "$module_dir"/*-impact.html \
-      || fail "filtered candidate chain is missing"
     grep -q '<th>SSA equivalence</th><td>enabled (experimental)</td>' "$report" \
       || fail "SSA equivalence is not enabled"
     ;;
   *)
-    ! grep -q 'View candidate chains filtered as equivalent' "$module_dir"/*-impact.html \
-      || fail "SSA-specific filtered chain is present without SSA equivalence"
     grep -q '<th>SSA equivalence</th><td>disabled (experimental)</td>' "$report" \
       || fail "SSA equivalence disabled state is missing"
     ;;
@@ -214,38 +210,30 @@ for hidden_kind in $hidden_change_kinds; do
     || fail "no-path change should be hidden: $hidden_kind"
 done
 
-case ",$result_refinements," in
-  *,ssa-equivalence,*)
-    grep -q 'Equivalent (filtered)' $changes_pages \
-      || fail "filtered change badge is missing"
-    ;;
-esac
 grep -q 'View code changes' $changes_pages \
   || fail "code comparison controls are missing"
 grep -q 'Decompiled Java representation' $changes_pages \
   || fail "decompiled Java evidence is missing"
-grep -q "$final_member_text" $changes_pages \
-  || fail "final impacted member is missing: $final_member_text"
+grep -q "$impact_member_text" $changes_pages \
+  || fail "impacted member is missing: $impact_member_text"
 grep -q 'Structural impact' $changes_pages \
   || fail "structural impact badge is missing"
 
 [ -f "$expected_results" ] || fail "missing expected results: $expected_results"
 expected=$(awk -F '\t' -v requested_scope="$dependency_scope" -v requested_refinements="$result_refinements" '
-  $0 !~ /^#/ && NF == 4 && $1 == requested_scope && $2 == requested_refinements { print $3 "\t" $4; found++ }
+  $0 !~ /^#/ && NF == 3 && $1 == requested_scope && $2 == requested_refinements { print $3; found++ }
   END { if (found > 1) exit 2 }
 ' "$expected_results") || fail "duplicate expected result for $dependency_scope/$result_refinements"
 
 if [ -n "$expected" ]; then
-  expected_candidate=$(printf '%s\n' "$expected" | awk -F '\t' '{print $1}')
-  expected_final=$(printf '%s\n' "$expected" | awk -F '\t' '{print $2}')
-  if [ "$expected_candidate" = PENDING ] \
-      || [ "$expected_final" = PENDING ]; then
+  expected_impact=$expected
+  if [ "$expected_impact" = PENDING ]; then
     [ "${BENCHMARK_CALIBRATION:-0}" = 1 ] \
       || fail "pending semantic baseline for $dependency_scope/$jdk_model/$algorithm; run an explicitly authorized calibration matrix"
     echo "expected_count=PENDING_CALIBRATION"
   else
-    grep -F -q "<th>Candidate / final call chains</th><td>$expected_candidate / $expected_final</td>" "$report" \
-      || fail "candidate/final call chains do not match $jdk_model/$algorithm/$result_refinements baseline $expected_candidate / $expected_final"
+    grep -F -q "<th>Impact / structural records</th><td>$expected_impact /" "$report" \
+      || fail "impact call chains do not match $jdk_model/$algorithm/$result_refinements baseline $expected_impact"
   fi
 elif [ "${BENCHMARK_CALIBRATION:-0}" != 1 ]; then
   fail "no locked expected count for $jdk_model/$algorithm/$result_refinements; rerun only for review with BENCHMARK_CALIBRATION=1"
@@ -260,8 +248,8 @@ echo "dependency_analysis_scope=$dependency_scope"
 echo "jdk_model=$jdk_model"
 echo "result_refinement_algorithms=$result_refinements"
 echo "visible_change_kinds=$visible_change_kind_count"
-if [ -n "$expected" ] && [ "$expected_candidate" != PENDING ]; then
-  echo "candidate_final_call_chains=$expected_candidate/$expected_final"
+if [ -n "$expected" ] && [ "$expected_impact" != PENDING ]; then
+  echo "impact_call_chains=$expected_impact"
 fi
 echo "structural_impact=present"
 echo "overall_report=$report"

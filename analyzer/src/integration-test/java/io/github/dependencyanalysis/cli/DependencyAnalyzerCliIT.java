@@ -115,6 +115,7 @@ class DependencyAnalyzerCliIT {
                 "--target", "HEAD",
                 "--output", longOutput.toString(),
                 "--format", "html",
+                "--analysis-parallelism", "1",
                 "--include-change-kinds",
                 "METHOD_BODY_CHANGED");
         final int shortCode = command().execute(
@@ -126,6 +127,7 @@ class DependencyAnalyzerCliIT {
                 "-p", repository.toString(),
                 "-b", "HEAD", "-t", "HEAD",
                 "-o", shortOutput.toString(),
+                "--analysis-parallelism", "2",
                 "-f", "html", "-k",
                 "METHOD_BODY_CHANGED");
 
@@ -135,12 +137,16 @@ class DependencyAnalyzerCliIT {
                 .contains("Impact Analysis Report")
                 .contains("Preflight")
                 .contains("impact.path")
-                .contains("impact.maven-version");
+                .contains("impact.maven-version")
+                .contains("JAR comparisons in parallel</th><td>0 "
+                        + "(configured 1)</td>");
         assertThat(shortOutput).content()
                 .contains("Impact Analysis Report")
                 .contains("Preflight")
                 .contains("impact.path")
-                .contains("impact.maven-version");
+                .contains("impact.maven-version")
+                .contains("JAR comparisons in parallel</th><td>0 "
+                        + "(configured 2)</td>");
     }
 
     @Test

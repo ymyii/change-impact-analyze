@@ -86,12 +86,12 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - `--baseline <ref>` required；`--target <ref>` 默认 current checkout。
 - `--path <path>`：reactor root 或 leaf Module。
 - `--analysis-target spring-backend`：默认且唯一 target。
-- `--analysis-parallelism <N>`：未传值时运行期取`max(1, Runtime.getRuntime().availableProcessors() / 2)`，向下取整；显式值必须`>=1`。只控制JAR diff、Impact Query与code comparison pool；显式值超过可用CPU时输出warning，不截断。Help只说明默认使用可用CPU核数的一半，不显示固定数字。
+- `--analysis-parallelism <N>`：未传值时运行期取`max(1, Runtime.getRuntime().availableProcessors() / 2)`，向下取整；显式值必须`>=1`。作为唯一`common`pool大小，全局限制front preparation、JAR diff、Impact Query与code comparison；值为`1`时front preparation串行。显式值超过可用CPU时输出warning，不截断。
 - `--call-graph-algorithm <cha|k-obj>`：默认`cha`，command-wide应用到全部Module；`k-obj`标记为`experimental`。大小写不敏感，不接受alias或自动fallback；其他标识在参数解析阶段失败。
 - `--k-obj-depth <正整数>`：只可与`k-obj`同时使用，默认`1`，不设置人为上限；零值、负值及与其他算法组合均在Preflight前作为参数错误返回。
 - `--jdk-model <jdk8|none>`：默认依algorithm解析。未指定algorithm/model或显式`cha`但未指定model时为`none`；其他algorithm未指定model时为`jdk8`。显式`cha + jdk8`在Preflight前exit code`1`；其他algorithm仍可显式`none`。
 - `--wala-reflection-options <enum-name>`：默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`，接受WALA `ReflectionOptions` enum name；`--reflection-options`为alias。CHA保留配置值但不应用，Report显示`not applied by cha`。
-- `--result-refinement-algorithms <selection>`：command-wide选择`none`、`cha-local-receiver-inference`、`ssa-equivalence`或两者逗号组合，默认`none`。标识符大小写不敏感、逗号两侧空白忽略、重复去重，输出按local-first固定顺序；空项、unknown及`none`与其他值混用在Preflight前exit code`1`。旧`--experimental-bytecode-semantic-comparison`不保留alias。
+- `--result-refinement-algorithms <selection>`：command-wide选择`none`、`cha-local-receiver-inference`、`ssa-equivalence`或两者逗号组合，默认`ssa-equivalence`。显式值完整覆盖默认值；`none`关闭全部refinement。标识符大小写不敏感、逗号两侧空白忽略、重复去重，输出按local-first固定顺序；空项、unknown及`none`与其他值混用在Preflight前exit code`1`。旧`--experimental-bytecode-semantic-comparison`不保留alias。
 - `--entrypoint-include '<class-path-pattern>'` 与 `--entrypoint-exclude ...`：可重复；直接匹配 slash-separated JVM internal class path，include 取并集，exclude 优先。普通 segment支持 `*`、`?`；`**` 只能作为最后一个完整 segment。Colon/dot旧语法、leading/trailing slash、空 segment与嵌入式 `**` 在 CLI validation阶段 exit `1`。
 - `--call-graph-timeout-seconds <N>`：默认 `0`；按 Module、从实际 WALA build 开始计时。
 - `--call-graph-diagnostics-output <json>`：可选benchmark-only只读输出；未设置时不执行CGNode ranking、IMethod子榜、shortest path、IR capture或decompilation。路径不得与`--output`相同。
@@ -104,7 +104,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - `PARTIAL_SUCCESS`、`FAILED`：`2`。
 - Argument validation、Preflight、global preparation failure：`1`。
 
-`INCONCLUSIVE`表示analysis在公开model内完成，但存在JAR diff、`invokedynamic`、MethodHandle、ServiceLoader、启用试验性比较后的SSA或外部dependency excluded JDK reference uncertainty；它不是hard failure。仅由最后一类scope gap触发时，Module reason为`INCONCLUSIVE_SCOPE_VALIDATION`。
+`INCONCLUSIVE`表示analysis在公开model内完成，但存在JAR diff、`invokedynamic`、MethodHandle、ServiceLoader或外部dependency excluded JDK reference uncertainty；它不是hard failure。ChangePoint收集期SSA `UNKNOWN`采用fail-open并保留变化，不再降级Module。仅由最后一类scope gap触发时，Module reason为`INCONCLUSIVE_SCOPE_VALIDATION`。
 
 ## Preflight Boundary
 
@@ -127,12 +127,13 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - JAR pair failure在`INFO`以WARN输出异常类型和完整message；`DEBUG`/`TRACE`紧接输出同context的完整stack与cause chain。
 - 外部 dependency scope warning 使用 `[scope-validation][module][module=…][artifact=…]` context；每个 artifact 一条，warning text 同时进入 Module `Coverage limitations`。
 - `DiagnosticLog`不保留event list或`getEvents()` snapshot；Overall和Module HTML不包含Diagnostics section、目录入口或event formatter。
-- 显式`--call-graph-diagnostics-output`是用户主动请求的Schema v9 topology JSON，独立于HTML。它可保存有序`resultRefinementAlgorithms`、Module algorithm状态、topology、Context、IR snapshot与bounded metrics；Evidence与query-time pruned edge不作为topology node/edge输出。
+- 显式`--call-graph-diagnostics-output`是用户主动请求的Schema 10 topology JSON，独立于HTML。它可保存有序`resultRefinementAlgorithms`、Module algorithm状态、topology、Context、IR snapshot、bounded metrics，以及`changePointCollection.ssaEquivalence`的eligible/status/reason/version/hash/timing证据；Evidence与query-time pruned edge不作为topology node/edge输出。
 - Call Graph completion message包含effective`algorithm`与`jdkModel=jdk8|none`，并仅在`k-obj`时包含实际`kObjDepth`。HTML仍展示CHA Reflection not-applied，但不复制Diagnostic line。
 - `impact-query` INFO completion只输出Module级local receiver applied状态和计数；`-vv`额外输出bounded edge examples。Receiver unknown仍保留原CHA edge，不改变Module status或生成coverage limitation。
 - 每个Module的`evidence-analysis` INFO覆盖Structural metadata scan与唯一Call Graph node scan；start包含`changes/graphNodes`，completion包含`structuralReferences/evidence/queryNodes/bindings`。`-vv` Evidence进度在collector同一线程按5秒门限输出，不创建scheduler。
 - 每个Module的`impact-query` INFO start在planning前输出并包含`changes/evidenceBindings`；planning完成后的DEBUG包含`seeds/queryNodes/workers`。该Stage的开始、完成与失败不携带Phase。`-vv` QueryNode事件使用`query-node-started|progress|completed`，第五段按当前算法活动携带`REVERSE_BFS`、`PATH_MATERIALIZATION`或`REPRESENTATIVE_SELECTION` Phase；message只携带stable ordinal、Evidence seed数、elapsed、recent node和QueryNode-local visited，不重复`phase=`。
 - JAR diff aggregate INFO completion包含成功logical pair的唯一`changes`总数、logical `pairs`、`failedPairs`与实际`workers`；空diff固定输出`changes=0; pairs=0; failedPairs=0; workers=0`。
+- 每个logical JAR pair的DEBUG completion输出`rawChanges/changes/ssaEligible/ssaMatchedSuppressed/ssaDifferentRetained/ssaUnknownRetained/ssaElapsedMillis`；同一pair绑定多个Module不重复比较或重复计入pair日志。
 
 示例：
 
@@ -146,7 +147,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - `INFO`/`DEBUG` 使用 no-op session；不创建 scheduler、不读取 heap、不输出 metrics。
 - `TRACE` 使用 command-scoped daemon scheduler：启动时立即观察并输出snapshot，之后每100 ms fixed-delay观察heap，但只按10 s cadence输出heap/thread-pool snapshot。所有normal return、early return和exception path都通过`close()`停止。
 - Heap 行使用 `stage=runtime-metrics, substage=heap` 和空第五段；`sample/elapsedMs/heapUsedMiB/heapCommittedMiB/heapMaxMiB` 位于 message，MiB 保留 1 位小数。
-- 当前注册的每个 Analyzer-owned pool 单独使用 `stage=runtime-metrics, substage=thread-pool`，第五段只保留 `pool` identity；sample、elapsed、pool size、`queued/completed/submitted` count和lifecycle value位于message。Registry只包含`front-preparation`、`jar-diff`、`impact-query`、`code-comparison`；scheduler、process-output pump、JVM common pool、WALA internal thread和Maven external process不注册。
+- 当前注册的Analyzer-owned pool使用`stage=runtime-metrics, substage=thread-pool`，第五段只保留`pool=common`；sample、elapsed、pool size、`queued/completed/submitted` count和lifecycle value位于message。`common`顺序承载front preparation、JAR diff、Impact Query与code comparison。Scheduler、process-output pump、JVM ForkJoin common pool、WALA internal thread和Maven external process不注册。
 - 单次采样异常使用 `stage=runtime-metrics, substage=sampler` 和空第五段；sample、elapsed 与 error 位于 TRACE transient message，不会改变 command status、Report 或 exit code。
 - `close()`在设置closed flag前强制一次final heap observation，然后使用`stage=runtime-metrics, substage=summary`输出`sample count`、`peakHeapUsedMiB`、`peakHeapCommittedMiB`与`heapMaxMiB`。该summary是benchmark heap主指标来源；process-tree RSS继续由外部runner采集。
 
@@ -156,6 +157,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 
 - Given单个JAR pair抛出`BytecodeDiffException`；When使用INFO；Then同pair WARN包含异常类型与完整message，其他pair继续执行。
 - Given同一failure使用DEBUG或TRACE；When输出诊断；Then完整stack与cause chain逐行携带同一pair prefix，且HTML不包含该内容。
+- Given默认未传result refinement option；When解析Impact CLI；Thenselection为`ssa-equivalence`。Given显式`none`；Thenselection为空且不执行SSA filtering。
 
 ### Non-Functional
 

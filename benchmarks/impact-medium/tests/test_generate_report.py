@@ -169,7 +169,7 @@ class GenerateReportTest(unittest.TestCase):
     @staticmethod
     def _topology() -> dict[str, object]:
         return {
-            "schemaVersion": 9,
+            "schemaVersion": 10,
             "algorithm": "cha",
             "kObjDepth": None,
             "reflectionOptions": REPORT.REFLECTION_DEFAULT,

@@ -45,7 +45,7 @@
     const previousButton = document.getElementById("path-previous");
     const nextButton = document.getElementById("path-next");
     const lastButton = document.getElementById("path-last");
-    const state = {type: "final", query: "", pageSize: 20, page: 1,
+    const state = {type: "impact", query: "", pageSize: 20, page: 1,
         expandedRowId: null};
 
     function node(tag, className, text) {
@@ -67,7 +67,7 @@
     }
 
     function pathType(pathId) {
-        return structuralPaths.has(pathId) ? "structural" : "final";
+        return structuralPaths.has(pathId) ? "structural" : "impact";
     }
 
     function pathEntity(pathId) {
@@ -194,10 +194,10 @@
         const type = pathType(relation.pathId);
         const row = node("tr", "path-row");
         const typeCell = node("td");
-        typeCell.append(node("span", `badge ${type}`, type === "final"
-            ? "Final" : "Structural"));
+        typeCell.append(node("span", `badge ${type}`, type === "impact"
+            ? "Impact" : "Structural"));
         row.append(typeCell);
-        appendCell(row, `${path.classification === "DIRECT" ? "Direct" : "Transitive"} ${type === "final" ? "dependency" : "structural"} impact`);
+        appendCell(row, `${path.classification === "DIRECT" ? "Direct" : "Transitive"} ${type === "impact" ? "dependency" : "structural"} impact`);
         appendCell(row, affectedMethods(relation.pathId), "method-cell", true);
         appendCell(row, dependencyLabel(member), "dependency-cell", true);
         const kindCell = node("td");

@@ -115,11 +115,10 @@ public final class ImpactCommand
             description = "Analysis target: spring-backend.")
     private String analysisTarget;
 
-    /** Concurrent safe analyses. */
+    /** Global Analyzer concurrency limit. */
     @Option(names = "--analysis-parallelism",
-            description = "Maximum concurrent JAR diff, impact query, and "
-                    + "code comparison operations; default: half of available "
-                    + "processors.")
+            description = "Maximum concurrent Analyzer operations; default: "
+                    + "half of available processors.")
     private Integer analysisParallelism;
 
     /** Command-wide Call Graph algorithm. */
@@ -159,14 +158,14 @@ public final class ImpactCommand
                     + "or full; default: changed-paths.")
     private DependencyAnalysisScopeMode dependencyAnalysisScope;
 
-    /** Experimental result-refinement algorithms. */
-    // Wiki: wiki/features/impact-tracing.md - Result-refinement opt-in boundary
+    /** Command-wide ChangePoint and result-refinement algorithms. */
+    // Wiki: wiki/features/impact-tracing.md - Analysis algorithm selection
     @Option(names = "--result-refinement-algorithms",
-            defaultValue = "none",
+            defaultValue = "ssa-equivalence",
             converter = ResultRefinementSelectionConverter.class,
-            description = "Experimental result refinements: "
+            description = "ChangePoint and result refinements: "
                     + "cha-local-receiver-inference, ssa-equivalence, "
-                    + "or none; comma-separated; default: none.")
+                    + "or none; comma-separated; default: ssa-equivalence.")
     private ResultRefinementSelection resultRefinements;
 
     /** Included PROJECT entrypoint classes. */
@@ -428,22 +427,22 @@ public final class ImpactCommand
         final DiagnosticContext context = DiagnosticContext.of(
                 "summary", "result");
         final long uniqueImpactPaths = result.getModuleResults().stream()
-                .flatMap(module -> module.getFinalPaths().stream())
+                .flatMap(module -> module.getImpactPaths().stream())
                 .map(impactPath -> impactPath.getNodes().stream()
                         .map(node -> node.methodId().toString())
                         .toList().toString())
                 .distinct().count();
         final long rootMethods = result.getModuleResults().stream()
-                .flatMap(module -> module.getFinalPaths().stream())
+                .flatMap(module -> module.getImpactPaths().stream())
                 .map(ImpactPath::getRootMethod).distinct().count();
         final long affectedMethods = result.getModuleResults().stream()
-                .flatMap(module -> module.getFinalPaths().stream())
+                .flatMap(module -> module.getImpactPaths().stream())
                 .flatMap(impactPath -> impactPath.getAffectedMethods()
                         .stream())
                 .distinct().count();
         final long changedMembers = result.getModuleResults().stream()
                 .flatMap(module -> java.util.stream.Stream.concat(
-                        module.getFinalPaths().stream().map(impactPath ->
+                        module.getImpactPaths().stream().map(impactPath ->
                                 impactPath.getTerminal().getChangePoint()),
                         module.getStructuralPaths().stream().map(
                                 StructuralReferencePath::getChangePoint)))

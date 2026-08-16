@@ -33,9 +33,6 @@ public enum ModuleAnalysisReason {
     /** Reachable MethodHandle target could not be resolved locally. */
     INCONCLUSIVE_METHOD_HANDLE_MODEL,
 
-    /** At least one candidate method returned SSA UNKNOWN. */
-    INCONCLUSIVE_SSA_UNKNOWN,
-
     /** External dependencies reference excluded JDK classes. */
     INCONCLUSIVE_SCOPE_VALIDATION,
 

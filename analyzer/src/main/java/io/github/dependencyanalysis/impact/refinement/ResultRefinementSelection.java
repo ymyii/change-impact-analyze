@@ -14,10 +14,15 @@ public final class ResultRefinementSelection {
     /** Stable empty-selection identifier. */
     public static final String NONE = "none";
 
-    /** Shared empty selection. */
+    /** Shared explicit empty selection. */
     private static final ResultRefinementSelection EMPTY =
             new ResultRefinementSelection(
                     EnumSet.noneOf(ResultRefinementAlgorithm.class));
+
+    /** Shared default ChangePoint semantic filter selection. */
+    private static final ResultRefinementSelection DEFAULT =
+            new ResultRefinementSelection(EnumSet.of(
+                    ResultRefinementAlgorithm.SSA_EQUIVALENCE));
 
     /** Selected algorithms in enum declaration order. */
     private final Set<ResultRefinementAlgorithm> algorithms;
@@ -30,9 +35,9 @@ public final class ResultRefinementSelection {
         algorithms = Set.copyOf(selected);
     }
 
-    /** @return default empty selection */
+    /** @return default normalized SSA ChangePoint filter selection */
     public static ResultRefinementSelection defaultSelection() {
-        return EMPTY;
+        return DEFAULT;
     }
 
     /**

@@ -39,7 +39,7 @@ code_refs:
 
 Analyzer 正式支持 Class Hierarchy Analysis（CHA，类层次分析），默认 identifier 为 `cha`。`k-obj` 是显式 opt-in 的实验性 context-sensitive algorithm。CLI、日志、Diagnostics JSON 和 HTML 使用 `cha`、`k-obj`；`k-obj` 在 help、启动诊断和 Report 中标记 `experimental`。
 
-Call Graph 层只接收自身 immutable input，输出 graph、metadata、typed limitation 与 boundary finding。它不接收 `ModuleAnalysisUnit`、`BoundChangePoint` 等 impact domain，也不绑定业务 evidence。Diagnostics JSON 保持 Schema v9 wire shape，algorithm 值域为 `cha | k-obj`。
+Call Graph层只接收自身immutable input，输出graph、metadata、typed limitation与boundary finding。它不接收`ModuleAnalysisUnit`、`BoundChangePoint`等impact domain，也不绑定业务evidence。Diagnostics JSON使用Schema 10；algorithm值域为`cha | k-obj`，ChangePoint collection SSA证据由impact orchestration追加，不改变Call Graph topology contract。
 
 ## Package Architecture
 
@@ -122,7 +122,7 @@ Strategy 完成 fixed point 后返回 `CallGraphStrategyResult`。Engine 冻结 
 - 每个 JVM parameter slot使用一个 declared-type candidate；interface/abstract reference使用共享 synthetic placeholder。
 - ownership precedence 为 `JDK > PROJECT > REACTOR_DEPENDENCY > DEPENDENCY`，duplicate class只保留稳定 winner。
 - 每个 Module 独立拥有 scope、hierarchy、cache 和 graph，不共享可变 WALA state。
-- topology capture只在显式 diagnostics 时执行；Schema v9 保存 node identity、Context、rank、path、source/IR snapshot、scope 与 boundary metadata。
+- topology capture只在显式diagnostics时执行；Schema 10保存node identity、Context、rank、path、source/IR snapshot、scope、boundary metadata与独立ChangePoint collection证据。
 - `StronglyConnectedComponents`是全项目canonical SCC实现：使用调用方提供的incoming/outgoing adjacency与stable comparator，采用iterative traversal并返回稳定排序组件。`CallGraphTopologyAnalyzer`的cycle识别与Impact root selection必须复用该utility，禁止维护平行SCC算法。
 
 ## Failure Contract

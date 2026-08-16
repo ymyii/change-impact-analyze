@@ -6,9 +6,6 @@ public enum ChangePointDisposition {
     /** At least one final Impact Path was reported. */
     IMPACT_REPORTED,
 
-    /** Candidate paths were removed by proven SSA equivalence. */
-    FILTERED_EQUIVALENT,
-
     /** The change kind is outside the active impact model. */
     CHANGE_KIND_NOT_ANALYZED,
 

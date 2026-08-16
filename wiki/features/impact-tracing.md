@@ -18,7 +18,7 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/refinement/cha/ChaLocalReceiverRefinementSummary.java"
     desc: "Module级typed metrics与bounded examples"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
-    desc: "command-wide Impact Query pool、串行Module生命周期与session释放边界"
+    desc: "command-wide common pool、串行Module生命周期与session释放边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleImpactTracer.java"
     desc: "Evidence anchor驱动的deterministic reverse BFS与representative path"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ReferenceEvidence.java"
@@ -67,10 +67,10 @@ code_refs:
     desc: "-vv下单个QueryNode独立计时、visited与10秒心跳"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChangePointDisposition.java"
     desc: "ChangePoint 最终 disposition contract"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/refinement/ssa/SsaEquivalenceEngine.java"
-    desc: "显式启用后的global serial candidate-only filtering"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/BytecodeSsaFilter.java"
+    desc: "ChangePoint收集期pair-local normalized SSA filtering"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/CodeComparisonBuilder.java"
-    desc: "Final/Structural member的repository-backed decompiled Java diff"
+    desc: "Impact/Structural member的repository-backed decompiled Java diff"
 ---
 
 # Feature: Impact Tracing
@@ -141,7 +141,7 @@ Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`Mo
 
 ## QueryNode Concurrency and TRACE Progress
 
-- pipeline在Module严格串行的前提下创建一个command-wide managed `impact-query`固定线程池，各Module依次复用。单Module滚动提交最多`min(analysisParallelism, queryNodes)`个query，完成一个再提交一个。
+- pipeline在scope planning后创建唯一command-wide managed `common`固定线程池。front preparation与JAR diff完成后，各Module Impact Query依次复用；全部Module query完成后，并发code comparison继续复用。线程数严格等于`analysisParallelism`，单Module滚动提交最多`min(analysisParallelism, queryNodes)`个query，完成一个再提交一个。
 - 直接构造`ModuleImpactTracer`的Java调用保持inline串行，不创建线程池。
 - 每个Module的`impact-query` INFO start在planning前输出，包含`changes`与`evidenceBindings`。planning完成后DEBUG输出`seeds`、去重后`queryNodes`与该Module worker上限；INFO completion输出最终计数与耗时。
 - `evidence-analysis` INFO覆盖Structural scan与唯一node scan的start/end/fail；`-vv`由collector协调线程按5秒时间门限输出`scannedNodes/scannedBodies/scannedInstructions/evidence/bindings`，不创建heartbeat scheduler。
@@ -169,7 +169,6 @@ Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`Mo
 ## ChangePoint Disposition
 
 - `IMPACT_REPORTED`
-- `FILTERED_EQUIVALENT`
 - `CHANGE_KIND_NOT_ANALYZED`
 - `SHADOWED_BY_DUPLICATE`
 - `TARGET_NOT_FOUND`
@@ -189,20 +188,18 @@ Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`Mo
 - 找到reference且全部仍合法时为`ACCESS_REMAINS_VALID`；完全未找到reference才是`DECLARED_REFERENCE_NOT_FOUND`。
 - Target type/declaration无法解析时生成`ACCESS_TARGET_TYPE_UNRESOLVED`或`ACCESS_DECLARATION_UNRESOLVED`，reason为`INCONCLUSIVE_SCOPE_VALIDATION`。
 
-## Experimental Result Refinement
+## Result Refinement
 
-- `--result-refinement-algorithms`接受`none`、`cha-local-receiver-inference`、`ssa-equivalence`或两者逗号组合，默认`none`。标识符大小写不敏感，重复值去重并按固定顺序序列化；空项、unknown及`none`混用为参数错误。
-- 双选固定先在reverse BFS执行`cha-local-receiver-inference`，再对收窄后的candidate path执行`ssa-equivalence`，CLI列表顺序不改变执行顺序。非CHA接受local selection但显示`not applied by non-cha`。
-- 未选择`ssa-equivalence`时，Receiver收窄后的candidate Impact Path直接成为final path，`equivalenceResults`为空，不创建old-side SSA/Class Hierarchy，也不产生SSA limitation或stage metric。
-- 显式启用后只处理已有candidate Impact Path的唯一`METHOD_BODY_CHANGED`；协调线程在每个Module query完成后串行执行，跨Module不并发。
-- Target IR 来自 target session；old IR 使用 baseline ArtifactCoord closure、repository lease 与同一 JDK 8 构建 old-side CHA，不构建 baseline Call Graph。
-- 两侧使用相同 `SSAOptions` 和独立 cache。比较 typed constants、Def-Use、normal/exception CFG、catch type、declared references、phi/pi/catch 与 side-effect order。
-- `PROVEN_EQUIVALENT` 删除该 ChangePoint 的全部 path；`DIFFERENT`、`UNKNOWN` 保留。`UNKNOWN` 将原 `SUCCESS` Module 转为 `INCONCLUSIVE`。
-- 结果收窄选择不控制基础Bytecode Diff；Code Comparison在SSA完成后根据Final/Structural关联member裁剪。
+- `--result-refinement-algorithms`接受`none`、`cha-local-receiver-inference`、`ssa-equivalence`或两者逗号组合，默认`ssa-equivalence`。显式值是完整覆盖；传`none`关闭全部refinement。标识符大小写不敏感，重复值去重并按固定顺序序列化；空项、unknown及`none`混用为参数错误。
+- `ssa-equivalence`不再消费Impact Path。它在唯一logical JAR pair的ChangePoint收集阶段，只比较body hash不同且class major version不同的`METHOD_BODY_CHANGED`。
+- old/new分别使用同一目标JDK 8建立pair-local Class Hierarchy与独立SSA cache，不构建Call Graph，也不复用Module target session。
+- `MATCHED`在Module binding前抑制ChangePoint；`DIFFERENT`与`UNKNOWN`保留。`UNKNOWN`不改变Module status/reason，证据进入Module input、HTML与Schema 10 diagnostics。
+- `cha-local-receiver-inference`仍只在CHA reverse BFS中收窄已有edge。双选时两种算法位于不同阶段，不存在path-level SSA串联顺序。
+- `ModuleAnalysisResult`只保存`impactPaths`和`structuralPaths`；不保存candidate/final双路径或path-level SSA result。
 
 ## Code Comparison Evidence
 
-- 只为Final Impact Path与Structural Reference Path关联的唯一ChangePoint构建code comparison evidence；filtered-only与无路径change不触发反编译。
+- 只为Impact Path与Structural Reference Path关联的唯一ChangePoint构建code comparison evidence；无路径change不触发反编译。
 - JAR通过`IJarRepository.open(ArtifactCoord)`获取；physical path只由当前temporary `JarLease.jarFile()` handle传给Vineflower或field declaration reader，不进入domain key或Report。
 - Vineflower 使用 exact old/new artifact 与 JDK 8 context；结果按 logical old/new coordinate 与 member identity 去重。
 - 输出decompiled Java Git-style Unified diff；状态为`AVAILABLE`、`JAVA_TEXT_IDENTICAL`或`UNAVAILABLE`。不生成ASM fallback；failure reason只写Console。Report按changed member只存一份diff。
@@ -221,10 +218,11 @@ Call Graph fixed point完成后，Impact query只读graph、`ChangePointEvidence
 - Given access narrowing与reachable pre-existing bytecode reference；When new access明确不允许或protected receiver无法证明合法；Then保留definite/potential Impact Path及typed old/new access evidence。
 - Given全部相关reference在new access下仍合法；When完成query；Then disposition为`ACCESS_REMAINS_VALID`，不生成Affected Call Chain。
 - Given target CHA无法解析必要type/declaration；When完成query；Then limitation通过Result Object进入统一coverage reduction。
-- Given默认`none`；When完成query；Thencandidate/final path一致，Receiver计数为not selected，SSA结果、limitation和stage metric均为空。
+- Given默认selection；When JAR diff发现跨class major的body变化；Then先执行SSA ChangePoint filtering，再决定Module是否需要构建Call Graph。
 - GivenCHA local-only且caller Receiver exact排除当前callee；When reverse BFS访问该原图edge；Then虚假predecessor不进入path、原图node/edge计数不变，且pruned metric大于零。
 - GivenReceiver推导为unknown、单target或不适用；When reverse BFS访问edge；Then保留原CHA edge，不新增coverage limitation。
-- Given双算法选择；When完成分析；Thencandidate定义为local收窄后的path，SSA只过滤这些candidate。
+- Given显式`none`；When执行JAR diff；Then不创建old/new SSA session，body hash变化按普通ChangePoint保留。
+- Given双算法选择；When完成分析；ThenSSA在ChangePoint收集期运行，CHA local receiver只在后续reverse BFS运行，二者不通过path-level中间结果耦合。
 
 ### Non-Functional
 

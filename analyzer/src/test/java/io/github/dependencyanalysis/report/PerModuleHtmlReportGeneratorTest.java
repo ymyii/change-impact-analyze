@@ -8,6 +8,8 @@ import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.bytecode.AccessTransition;
 import io.github.dependencyanalysis.bytecode.JvmAccess;
+import io.github.dependencyanalysis.bytecode.SsaComparisonEvidence;
+import io.github.dependencyanalysis.bytecode.SsaComparisonStatus;
 import io.github.dependencyanalysis.impact.AnalysisMode;
 import io.github.dependencyanalysis.impact.AnalysisConcurrency;
 import io.github.dependencyanalysis.impact.AnalysisRunResult;
@@ -30,8 +32,6 @@ import io.github.dependencyanalysis.impact.CodeComparisonStatus;
 import io.github.dependencyanalysis.impact.ImpactClassification;
 import io.github.dependencyanalysis.impact.ImpactPath;
 import io.github.dependencyanalysis.impact.ImpactPathRootKind;
-import io.github.dependencyanalysis.impact.refinement.ssa.MethodEquivalenceResult;
-import io.github.dependencyanalysis.impact.refinement.ssa.MethodEquivalenceStatus;
 import io.github.dependencyanalysis.impact.QueryNode;
 import io.github.dependencyanalysis.impact.UnifiedDiffHunk;
 import io.github.dependencyanalysis.impact.ModuleAnalysisReason;
@@ -91,6 +91,9 @@ class PerModuleHtmlReportGeneratorTest {
 
     /** Pages per analyzed Module. */
     private static final int MODULE_PAGE_COUNT = 2;
+
+    /** Normalized Impact/Structural relations in the fixture. */
+    private static final int PATH_MEMBER_RELATION_COUNT = 3;
 
     /** Dense changed member fixture size. */
     private static final int DENSE_MEMBER_COUNT = 2_501;
@@ -180,14 +183,13 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("Analysis scope and limitations")
                 .contains("Terminology")
                 .contains("k-Object (experimental)")
-                .contains("<th>Result refinement algorithms</th><td>none"
-                        + "</td>")
+                .contains("<th>Result refinement algorithms</th><td>"
+                        + "ssa-equivalence (experimental)</td>")
                 .contains("<th>SSA equivalence</th><td>"
-                        + "disabled (experimental)</td>")
-                .contains("<th>SSA equivalence workers</th><td>"
-                        + "0 (disabled)</td>")
-                .contains("<th>SSA equivalent / different / unknown</th>"
-                        + "<td>not run</td>")
+                        + "enabled (experimental)</td>")
+                .contains("<th>SSA matched / different / unknown</th>"
+                        + "<td>0 / 0 / 0</td>")
+                .doesNotContain("SSA equivalence workers")
                 .contains("Maven Dependency Plugin")
                 .contains("embedded 3.6.1")
                 .contains("<th>JAR comparisons in parallel</th><td>1 "
@@ -296,7 +298,7 @@ class PerModuleHtmlReportGeneratorTest {
     }
 
     @Test
-    void normalizesFinalAndStructuralRowsWithoutFilteredDetails()
+    void rendersImpactAndStructuralRowsWithoutPathLevelSsaDetails()
             throws Exception {
         final Path output = temporary.resolve("filtered.html");
         final ModuleId moduleId = new ModuleId(new ArtifactCoord(
@@ -326,12 +328,13 @@ class PerModuleHtmlReportGeneratorTest {
                 "/secret/work/classes"), CodeOrigin.PROJECT);
         final String unsafeDetail = "fixture </script><script>alert(1)"
                 + "</script>&" + Character.toString(LINE_SEPARATOR);
-        final ImpactPath candidate = new ImpactPath(List.of(root),
+        final ImpactPath impactPath = new ImpactPath(List.of(root),
                 new ChangePointTerminal(affected, referenceEvidence(
                         EvidenceMechanism.METHOD_DECLARATION, unsafeDetail)),
                 ImpactClassification.TRANSITIVE,
                 ImpactPathRootKind.METHOD);
-        final ImpactPath secondCandidate = new ImpactPath(List.of(secondRoot),
+        final ImpactPath secondImpactPath = new ImpactPath(
+                List.of(secondRoot),
                 new ChangePointTerminal(affected, referenceEvidence(
                         EvidenceMechanism.METHOD_DECLARATION, "fixture two")),
                 ImpactClassification.DIRECT, ImpactPathRootKind.METHOD);
@@ -346,23 +349,25 @@ class PerModuleHtmlReportGeneratorTest {
                 CodeComparisonStatus.AVAILABLE,
                 List.of(new UnifiedDiffHunk(1, 1, 1, 1,
                         List.of("-return 1;", "+return 2;"))), "");
+        final SsaComparisonEvidence ssa = new SsaComparisonEvidence(
+                new DependencyChange(ChangeType.VERSION_CHANGED,
+                        oldArtifact, newArtifact, DependencyScope.COMPILE,
+                        "app"), affected.getChangePoint(), 49, 50,
+                SsaComparisonStatus.MATCHED,
+                "NORMALIZED_SSA_CFG_ISOMORPHIC", 3L);
         final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
                 moduleId, ModulePresence.BOTH, temporary.resolve("classes"),
                 List.of(), List.of(), List.of(),
-                new ModuleChangeSet(List.of(affected, hidden), List.of()));
+                new ModuleChangeSet(List.of(), List.of(affected, hidden),
+                        List.of(), List.of(), List.of(), List.of(),
+                        List.of(ssa)));
         final ModuleAnalysisResult module =
                 new ModuleAnalysisResult.Builder(unit)
-                        .candidatePaths(List.of(candidate, secondCandidate))
-                        .finalPaths(List.of())
+                        .impactPaths(List.of(impactPath, secondImpactPath))
                         .structuralPaths(List.of(structural))
-                        .equivalenceResults(Map.of(affected,
-                                new MethodEquivalenceResult(
-                                        MethodEquivalenceStatus
-                                                .PROVEN_EQUIVALENT,
-                                        "fixture")))
                         .dispositions(Map.of(
                                 affected,
-                                ChangePointDisposition.FILTERED_EQUIVALENT,
+                                ChangePointDisposition.IMPACT_REPORTED,
                                 hidden,
                                 ChangePointDisposition.NO_PROJECT_PATH))
                         .codeComparisons(Map.of(affected, code)).build();
@@ -401,7 +406,7 @@ class PerModuleHtmlReportGeneratorTest {
                     .findFirst().orElseThrow());
         }
         assertThat(impact)
-                .contains("<option value=\"final\" selected>Final</option>")
+                .contains("<option value=\"impact\" selected>Impact</option>")
                 .contains("<option value=\"structural\">Structural")
                 .contains("<option value=\"all\">All</option>")
                 .contains("example.app.Controller#handle")
@@ -413,8 +418,8 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("\"changePointKind\":\"METHOD_BODY_CHANGED\"")
                 .contains("diff-line diff-add")
                 .contains("<tbody id=\"path-rows\"></tbody>")
-                .doesNotContain("Equivalent filtered",
-                        "example.app.Controller#search")
+                .contains("example.app.Controller#search")
+                .doesNotContain("Equivalent filtered")
                 .doesNotContain("\"evidence\":", "oldDescriptor",
                         "newDescriptor", "oldHash", "newHash",
                         "ssaReason", "observations", "asmFallback")
@@ -422,26 +427,20 @@ class PerModuleHtmlReportGeneratorTest {
                 .doesNotContain("fixture </script><script>alert(1)")
                 .doesNotContain(Character.toString(LINE_SEPARATOR))
                 .doesNotContain("#hidden", "-changes.html");
-        assertThat(occurrences(impact, "\"unifiedDiff\""))
-                .isEqualTo(1);
-        assertThat(occurrences(impact, "\"changedMemberId\":0"))
-                .isEqualTo(1);
-        assertThat(moduleIndex)
-                .contains("id=\"changed-member-table\"")
-                .contains("\"candidate\":2")
-                .contains("\"filtered\":2")
-                .contains("\"final\":0")
-                .contains("\"structural\":1")
-                .contains("\"name\":\"hidden\"");
+        assertNormalizedRelationCounts(impact);
+        assertChangedMemberMetrics(moduleIndex);
         assertThat(output).content()
                 .contains("<th>Result refinement algorithms</th><td>"
                         + "ssa-equivalence (experimental)</td>")
                 .contains("<th>SSA equivalence</th><td>"
                         + "enabled (experimental)</td>")
-                .contains("<th>SSA equivalence workers</th><td>"
-                        + "1 (experimental)</td>")
-                .contains("<th>SSA equivalent / different / unknown</th>"
-                        + "<td>1 / 0 / 0</td>");
+                .doesNotContain("SSA equivalence workers")
+                .contains("<th>SSA matched / different / unknown</th>"
+                        + "<td>1 / 0 / 0</td>")
+                .contains("SSA ChangePoint collection evidence")
+                .contains("49 → 50")
+                .contains("NORMALIZED_SSA_CFG_ISOMORPHIC")
+                .contains("3 ms");
         assertThat(impact)
                 .contains("example:library:jar:1", "example:library:jar:2")
                 .contains("-return 1;")
@@ -779,8 +778,7 @@ class PerModuleHtmlReportGeneratorTest {
                 .Builder(unit)
                 .status(ModuleAnalysisStatus.SUCCESS,
                         ModuleAnalysisReason.NONE, "complete")
-                .candidatePaths(List.of(path))
-                .finalPaths(List.of(path))
+                .impactPaths(List.of(path))
                 .dispositions(Map.of(access,
                         ChangePointDisposition.IMPACT_REPORTED))
                 .observations(Map.of(access, List.of(evidence)))
@@ -834,6 +832,21 @@ class PerModuleHtmlReportGeneratorTest {
             offset += value.length();
         }
         return count;
+    }
+
+    private void assertNormalizedRelationCounts(final String impact) {
+        assertThat(occurrences(impact, "\"unifiedDiff\""))
+                .isEqualTo(1);
+        assertThat(occurrences(impact, "\"changedMemberId\":0"))
+                .isEqualTo(PATH_MEMBER_RELATION_COUNT);
+    }
+
+    private void assertChangedMemberMetrics(final String moduleIndex) {
+        assertThat(moduleIndex)
+                .contains("id=\"changed-member-table\"")
+                .contains("\"impact\":2")
+                .contains("\"structural\":1")
+                .contains("\"name\":\"hidden\"");
     }
 
     private void writeClass(

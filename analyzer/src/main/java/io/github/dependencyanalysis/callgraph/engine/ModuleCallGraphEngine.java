@@ -516,7 +516,7 @@ public final class ModuleCallGraphEngine {
                     + entrypoints.size());
             diagnostics.endStage(context);
             return new ModuleCallGraphSession(graph, hierarchy, scope,
-                    ownership, cache, new ModuleCallGraphMetadata(
+                    ownership, new ModuleCallGraphMetadata(
                             algorithm, stats, new EntrypointSelectionMetrics(
                             selectedClasses, entrypoints.size(),
                             parameterCandidates),

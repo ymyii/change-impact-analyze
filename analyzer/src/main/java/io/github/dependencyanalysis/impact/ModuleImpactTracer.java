@@ -529,7 +529,7 @@ public final class ModuleImpactTracer {
         final long changedMembers = paths.stream().map(path -> path
                         .getTerminal().getChangePoint().stableKey())
                 .distinct().count();
-        diagnostics.info(context, "candidatePaths=" + paths.size()
+        diagnostics.info(context, "impactPaths=" + paths.size()
                 + "; uniqueImpactPaths=" + uniqueImpactPaths
                 + "; rootMethods=" + rootMethods
                 + "; affectedMethods=" + affectedMethods

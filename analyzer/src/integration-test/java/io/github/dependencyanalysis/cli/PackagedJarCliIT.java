@@ -309,10 +309,10 @@ class PackagedJarCliIT {
                 .contains("Impact Analysis Report")
                 .contains("<th>Algorithm</th><td>cha</td>")
                 .contains("<th>JDK method model</th><td>none</td>")
-                .contains("<th>Result refinement algorithms</th><td>none"
-                        + "</td>")
+                .contains("<th>Result refinement algorithms</th><td>"
+                        + "ssa-equivalence (experimental)</td>")
                 .contains("<th>SSA equivalence</th><td>"
-                        + "disabled (experimental)</td>")
+                        + "enabled (experimental)</td>")
                 .contains("Preflight")
                 .contains("impact.java-runtime");
         HtmlReportUsabilityVerifier.verifyImpact(impactReport);

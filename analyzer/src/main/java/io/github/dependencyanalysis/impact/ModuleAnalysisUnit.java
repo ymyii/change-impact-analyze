@@ -4,6 +4,7 @@ import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.bytecode.ServiceLoaderResourceIssue;
 import io.github.dependencyanalysis.bytecode.ServiceProviderRegistration;
+import io.github.dependencyanalysis.bytecode.SsaComparisonEvidence;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -29,7 +30,7 @@ public final class ModuleAnalysisUnit {
     /** Target resolved external dependencies. */
     private final List<ArtifactCoord> targetArtifacts;
 
-    /** Baseline resolved external dependencies for old-side SSA. */
+    /** Baseline resolved external dependencies. */
     private final List<ArtifactCoord> baselineArtifacts;
 
     /** Complete module dependency changes. */
@@ -55,6 +56,9 @@ public final class ModuleAnalysisUnit {
     /** Non-fatal ServiceLoader resource Diff issues. */
     private final List<ServiceLoaderResourceIssue>
             serviceLoaderResourceIssues;
+
+    /** ChangePoint-collection normalized SSA evidence. */
+    private final List<SsaComparisonEvidence> ssaComparisons;
 
     /**
      * Creates a module analysis unit.
@@ -113,6 +117,7 @@ public final class ModuleAnalysisUnit {
                 changes.removedServiceRegistrations());
         serviceLoaderResourceIssues = immutable(
                 changes.serviceLoaderResourceIssues());
+        ssaComparisons = immutable(changes.ssaComparisons());
         changedPathSelection = Objects.requireNonNull(
                 dependencyInputs.changedPathSelection(), "pathSelection");
     }
@@ -192,5 +197,10 @@ public final class ModuleAnalysisUnit {
     /** @return non-fatal ServiceLoader resource Diff issues */
     public List<ServiceLoaderResourceIssue> getServiceLoaderResourceIssues() {
         return serviceLoaderResourceIssues;
+    }
+
+    /** @return ChangePoint-collection normalized SSA evidence */
+    public List<SsaComparisonEvidence> getSsaComparisons() {
+        return ssaComparisons;
     }
 }

@@ -11,7 +11,7 @@ import java.util.Map;
 /** Deterministic direct-WALA query output for one module. */
 public final class ModuleImpactQueryResult {
 
-    /** Candidate Impact Paths. */
+    /** Reported Impact Paths. */
     private final List<ImpactPath> paths;
 
     /** Structural Reference Paths. */
@@ -32,7 +32,7 @@ public final class ModuleImpactQueryResult {
     /**
      * Creates a module query result.
      *
-     * @param impactPaths candidate paths
+     * @param impactPaths reported impact paths
      * @param structures structural impacts
      * @param pointDispositions point dispositions
      */
@@ -47,7 +47,7 @@ public final class ModuleImpactQueryResult {
     /**
      * Creates a module query result with typed reference observations.
      *
-     * @param impactPaths candidate paths
+     * @param impactPaths reported impact paths
      * @param structures structural impacts
      * @param pointDispositions point dispositions
      * @param pointObservations typed evidence by ChangePoint
@@ -66,7 +66,7 @@ public final class ModuleImpactQueryResult {
     /**
      * Creates a complete typed query result.
      *
-     * @param impactPaths candidate paths
+     * @param impactPaths reported impact paths
      * @param structures structural impacts
      * @param pointDispositions point dispositions
      * @param pointObservations typed evidence by ChangePoint
@@ -88,7 +88,7 @@ public final class ModuleImpactQueryResult {
     /**
      * Creates a complete typed query result with refinement evidence.
      *
-     * @param impactPaths candidate paths
+     * @param impactPaths reported impact paths
      * @param structures structural impacts
      * @param pointDispositions point dispositions
      * @param pointObservations typed evidence by ChangePoint
@@ -120,7 +120,7 @@ public final class ModuleImpactQueryResult {
                 refinement, "refinement");
     }
 
-    /** @return candidate Impact Paths */
+    /** @return reported Impact Paths */
     public List<ImpactPath> getPaths() {
         return paths;
     }

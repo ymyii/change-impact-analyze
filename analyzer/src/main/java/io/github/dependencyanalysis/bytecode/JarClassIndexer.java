@@ -33,6 +33,9 @@ final class JarClassIndexer {
     private static final String SUFFIX =
             ".class";
 
+    /** Mask for one unsigned class file u2 value. */
+    private static final int UNSIGNED_SHORT_MASK = 0xffff;
+
     /** Private constructor. */
     private JarClassIndexer() {
     }
@@ -101,6 +104,7 @@ final class JarClassIndexer {
                 new String[1];
         final JvmAccess[] classAccess =
                 new JvmAccess[1];
+        final int[] majorVersion = new int[1];
         final ClassVisitor cv =
                 new ClassVisitor(
                         Opcodes.ASM9) {
@@ -114,6 +118,7 @@ final class JarClassIndexer {
                             final String sup,
                             final String[] ifaces) {
                         className[0] = n;
+                        majorVersion[0] = ver & UNSIGNED_SHORT_MASK;
                         classAccess[0] = JvmAccess.fromClassFlags(acc);
                     }
 
@@ -181,7 +186,7 @@ final class JarClassIndexer {
                             hash));
         }
         return new ClassInfo(
-                cn, classAccess[0], methods, fields);
+                cn, majorVersion[0], classAccess[0], methods, fields);
     }
 
     /**

@@ -1,5 +1,5 @@
-# dependency_analysis_scope	result_refinement_algorithms	candidate_call_chains	final_call_chains
-changed-paths	ssa-equivalence	PENDING	PENDING
-changed-paths	cha-local-receiver-inference	PENDING	PENDING
-full	ssa-equivalence	PENDING	PENDING
-full	cha-local-receiver-inference	PENDING	PENDING
+# dependency_analysis_scope	result_refinement_algorithms	impact_call_chains
+changed-paths	ssa-equivalence	PENDING
+changed-paths	cha-local-receiver-inference	PENDING
+full	ssa-equivalence	PENDING
+full	cha-local-receiver-inference	PENDING

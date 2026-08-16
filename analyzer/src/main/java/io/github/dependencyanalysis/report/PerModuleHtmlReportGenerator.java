@@ -7,6 +7,8 @@ import com.fasterxml.jackson.core.io.CharacterEscapes;
 import com.fasterxml.jackson.core.io.SerializedString;
 
 import io.github.dependencyanalysis.bytecode.ChangePoint;
+import io.github.dependencyanalysis.bytecode.SsaComparisonEvidence;
+import io.github.dependencyanalysis.bytecode.SsaComparisonStatus;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.engine.CallGraphStats;
 import io.github.dependencyanalysis.callgraph.scope.ClassOwnership;
@@ -20,7 +22,6 @@ import io.github.dependencyanalysis.impact.ChangePointDisposition;
 import io.github.dependencyanalysis.impact.DependencyBoundarySnapshot;
 import io.github.dependencyanalysis.impact.DependencyUpgradeKey;
 import io.github.dependencyanalysis.impact.ImpactPath;
-import io.github.dependencyanalysis.impact.refinement.ssa.MethodEquivalenceStatus;
 import io.github.dependencyanalysis.impact.ModuleAnalysisResult;
 import io.github.dependencyanalysis.impact.ModuleAnalysisStatus;
 import io.github.dependencyanalysis.impact.QueryNode;
@@ -127,7 +128,7 @@ public final class PerModuleHtmlReportGenerator {
             + "border-radius:8px}.badge{display:inline-flex;align-items:center;"
             + "padding:2px 8px;border-radius:999px;background:var(--info-bg);"
             + "color:var(--info);font-size:11px;font-weight:750;"
-            + "white-space:nowrap}.badge.final{background:var(--info-bg);"
+            + "white-space:nowrap}.badge.impact{background:var(--info-bg);"
             + "color:var(--info)}.badge.structural{background:"
             + "var(--success-bg);"
             + "color:var(--success)}.badge.kind{background:#ede9fe;"
@@ -276,6 +277,7 @@ public final class PerModuleHtmlReportGenerator {
                 .append("built. Baseline artifacts supply dependency, ")
                 .append("bytecode ")
                 .append("and method-comparison evidence.</li></ul></section>");
+        body.append(SsaEvidenceHtmlRenderer.warning(semanticComparison));
         body.append("<p>Code comparisons are generated locally from dependency "
                 + "bytecode and may differ from the original source code.</p>");
         appendTerminology(body, run.getCallGraphAlgorithm());
@@ -310,8 +312,8 @@ public final class PerModuleHtmlReportGenerator {
                         duplicateConflictCount(run)))
                 .append(row("Shadowed dependency changes",
                         shadowedChangeCount(run)))
-                .append(row("Final / structural impact records",
-                        pathCount(run, false) + " / "
+                .append(row("Impact / structural records",
+                        pathCount(run) + " / "
                                 + structuralPathCount(run)))
                 .append("</table>");
         appendStageMetrics(body, run.getStageElapsedMillis());
@@ -340,25 +342,26 @@ public final class PerModuleHtmlReportGenerator {
                 .append(row("SSA equivalence",
                         experimentalStatus(semanticComparison)))
                 .append(row("WALA", walaVersion()))
-                .append(row("SSA equivalence workers",
-                        ssaWorkers(semanticComparison)))
-                .append(row("Raw changed members", rawChangeCount(run)))
+                .append(row("Effective changed members",
+                        effectiveChangeCount(run)))
                 .append(row("Entrypoint includes",
                         run.getEntrypointSelection().includes()))
                 .append(row("Entrypoint excludes",
                         run.getEntrypointSelection().excludes()))
                 .append(row("Maven executable",
                         context.maven().getExecutable()))
-                .append(row("SSA equivalent / different / unknown",
+                .append(row("SSA matched / different / unknown",
                         ssaCounts(run.getModuleResults(),
                                 semanticComparison)))
-                .append("</table></details></section>")
-                .append("<section id=\"modules\"><h2>Modules</h2>")
+                .append("</table></details>");
+        body.append(SsaEvidenceHtmlRenderer.render(
+                uniqueSsaComparisons(run.getModuleResults())));
+        body.append("</section><section id=\"modules\"><h2>Modules</h2>")
                 .append("<table><tr><th>Module</th><th>Status</th>")
                 .append("<th>Explanation</th><th>Dependencies changed</th>")
                 .append("<th>Duplicate classes</th>")
                 .append("<th>Shadowed changes</th>")
-                .append("<th>Final call chains</th><th>Affected methods</th>")
+                .append("<th>Impact paths</th><th>Affected methods</th>")
                 .append("</tr>");
         for (ModuleAnalysisResult module : run.getModuleResults()) {
             final ModulePages modulePages = context.pages().get(module);
@@ -384,7 +387,7 @@ public final class PerModuleHtmlReportGenerator {
                     .append("</td><td>")
                     .append(shadowedChangeCount(module))
                     .append("</td><td>")
-                    .append(module.getFinalPaths().size())
+                    .append(module.getImpactPaths().size())
                     .append("</td><td>")
                     .append(affectedMethodCount(module))
                     .append("</td></tr>");
@@ -430,11 +433,8 @@ public final class PerModuleHtmlReportGenerator {
                         affectedMethodCount(module)))
                 .append(row("Affected application classes",
                         affectedClassCount(module)))
-                .append(row("Candidate / filtered / final / structural",
-                        module.getCandidatePaths().size() + " / "
-                                + (module.getCandidatePaths().size()
-                                - module.getFinalPaths().size()) + " / "
-                                + module.getFinalPaths().size() + " / "
+                .append(row("Impact / structural",
+                        module.getImpactPaths().size() + " / "
                                 + module.getStructuralPaths().size()))
                 .append(row("Dependency / member changes",
                         module.getUnit().getDependencyChanges().size()
@@ -502,15 +502,17 @@ public final class PerModuleHtmlReportGenerator {
                         experimentalStatus(runtime.refinements().isEnabled(
                                 ResultRefinementAlgorithm
                                         .SSA_EQUIVALENCE))))
-                .append(row("SSA equivalent / different / unknown",
+                .append(row("SSA matched / different / unknown",
                         ssaCounts(List.of(module), runtime.refinements()
                                 .isEnabled(ResultRefinementAlgorithm
                                         .SSA_EQUIVALENCE))))
-                .append(row("Raw dependency / member changes",
+                .append(row("Dependency / effective member changes",
                         module.getUnit().getDependencyChanges().size() + " / "
                                 + module.getUnit().getChangePoints().size()))
-                .append("</table></details></section>")
-                .append("<section id=\"limits\"><h2>Coverage limitations")
+                .append("</table></details>");
+        body.append(SsaEvidenceHtmlRenderer.render(
+                uniqueSsaComparisons(List.of(module))));
+        body.append("</section><section id=\"limits\"><h2>Coverage limitations")
                 .append("</h2>");
         final List<String> limitations = new ArrayList<>(
                 module.getLimitations());
@@ -740,9 +742,9 @@ public final class PerModuleHtmlReportGenerator {
             final HtmlSink body,
             final ModuleAnalysisResult module) {
         body.append("<section id=\"changed-members\"><h2>Changed members")
-                .append("</h2><p>Candidate and Filtered are aggregate counts;")
-                .append(" path details contain Final and Structural records ")
-                .append("only.</p><div class=\"report-controls\">")
+                .append("</h2><p>Counts include impact call paths and ")
+                .append("structural reference paths.</p>")
+                .append("<div class=\"report-controls\">")
                 .append("<label class=\"report-control\">Dependency or ")
                 .append("member search<input id=\"member-search\" type=")
                 .append("\"search\" aria-controls=\"changed-member-table\">")
@@ -770,11 +772,9 @@ public final class PerModuleHtmlReportGenerator {
                 .append("class=\"muted\">All changed members</caption>")
                 .append("<thead><tr><th>Changed dependency</th>")
                 .append("<th>ChangePointKind</th><th>Changed member/class")
-                .append("</th><th class=\"numeric\">Candidate</th>")
-                .append("<th class=\"numeric\">Filtered</th>")
-                .append("<th class=\"numeric\">Final</th>")
+                .append("</th><th class=\"numeric\">Impact</th>")
                 .append("<th class=\"numeric\">Structural</th>")
-                .append("<th class=\"numeric\">Final impact total</th>")
+                .append("<th class=\"numeric\">Impact total</th>")
                 .append("</tr></thead><tbody id=\"member-rows\"></tbody>")
                 .append("</table></div><p id=\"member-empty\" class=")
                 .append("\"muted hidden\" aria-live=\"polite\"></p>")
@@ -833,19 +833,14 @@ public final class PerModuleHtmlReportGenerator {
             json.writeArrayFieldStart("memberMetrics");
             for (int index = 0; index < members.size(); index++) {
                 final BoundChangePoint member = members.get(index);
-                final long candidate = pathCount(module.getCandidatePaths(),
-                        member);
-                final long finalCount = pathCount(module.getFinalPaths(),
+                final long impact = pathCount(module.getImpactPaths(),
                         member);
                 final long structural = module.getStructuralPaths().stream()
                         .filter(path -> path.getChangePoint().equals(member))
                         .count();
                 json.writeStartObject();
                 json.writeNumberField("memberId", index);
-                json.writeNumberField("candidate", candidate);
-                json.writeNumberField("filtered",
-                        Math.max(0L, candidate - finalCount));
-                json.writeNumberField("final", finalCount);
+                json.writeNumberField("impact", impact);
                 json.writeNumberField("structural", structural);
                 json.writeEndObject();
             }
@@ -881,7 +876,7 @@ public final class PerModuleHtmlReportGenerator {
                 .append("</p><div class=\"report-controls\">")
                 .append("<label class=\"report-control\">View type<select ")
                 .append("id=\"path-type\" aria-controls=\"path-table\">")
-                .append("<option value=\"final\" selected>Final</option>")
+                .append("<option value=\"impact\" selected>Impact</option>")
                 .append("<option value=\"structural\">Structural")
                 .append("</option><option value=\"all\">All</option>")
                 .append("</select></label><label class=\"report-control\">")
@@ -950,7 +945,7 @@ public final class PerModuleHtmlReportGenerator {
         final Map<String, ImpactPath> callPaths = new java.util.TreeMap<>();
         final Map<String, StructuralReferencePath> structuralPaths =
                 new java.util.TreeMap<>();
-        module.getFinalPaths().forEach(path -> callPaths.putIfAbsent(
+        module.getImpactPaths().forEach(path -> callPaths.putIfAbsent(
                 callPathKey(path), path));
         module.getStructuralPaths().forEach(path -> structuralPaths
                 .putIfAbsent(structuralPathKey(path), path));
@@ -1068,7 +1063,7 @@ public final class PerModuleHtmlReportGenerator {
     private List<BoundChangePoint> pathMembers(
             final ModuleAnalysisResult module) {
         final Set<BoundChangePoint> points = new LinkedHashSet<>();
-        module.getFinalPaths().forEach(path -> points.add(
+        module.getImpactPaths().forEach(path -> points.add(
                 path.getTerminal().getChangePoint()));
         module.getStructuralPaths().forEach(path -> points.add(
                 path.getChangePoint()));
@@ -1160,7 +1155,7 @@ public final class PerModuleHtmlReportGenerator {
             final Map<BoundChangePoint, Integer> memberIds,
             final Map<String, Integer> pathIds) throws IOException {
         final Set<String> rows = new java.util.TreeSet<>();
-        for (ImpactPath path : module.getFinalPaths()) {
+        for (ImpactPath path : module.getImpactPaths()) {
             rows.add(pathIds.get("call|" + callPathKey(path)) + "|"
                     + memberIds.get(path.getTerminal().getChangePoint()));
         }
@@ -1300,8 +1295,10 @@ public final class PerModuleHtmlReportGenerator {
                 .append(term("Context", "A WALA distinction between different "
                         + "analysis instances of the same Java method."))
                 .append(term("SSA equivalence", "A comparison of normalized "
-                        + "method control flow and data dependencies. Only a "
-                        + "proven match removes candidate chains."))
+                        + "method control flow and data dependencies during "
+                        + "ChangePoint collection. A model match suppresses "
+                        + "the method-body ChangePoint but is not proof of "
+                        + "complete runtime behavior equivalence."))
                 .append(term("Reflection", "Calls whose target is selected at "
                         + "runtime through class, method or constructor data."))
                 .append(term("ServiceLoader", "The JDK provider discovery "
@@ -1429,11 +1426,9 @@ public final class PerModuleHtmlReportGenerator {
         return method.owner().replace('/', '.') + "#" + method.name();
     }
 
-    private long pathCount(
-            final AnalysisRunResult run, final boolean candidate) {
+    private long pathCount(final AnalysisRunResult run) {
         return run.getModuleResults().stream().mapToLong(module ->
-                candidate ? module.getCandidatePaths().size()
-                        : module.getFinalPaths().size()).sum();
+                module.getImpactPaths().size()).sum();
     }
 
     private long structuralPathCount(final AnalysisRunResult run) {
@@ -1441,7 +1436,7 @@ public final class PerModuleHtmlReportGenerator {
                 module.getStructuralPaths().size()).sum();
     }
 
-    private long rawChangeCount(final AnalysisRunResult run) {
+    private long effectiveChangeCount(final AnalysisRunResult run) {
         return run.getModuleResults().stream().mapToLong(module ->
                 module.getUnit().getChangePoints().size()).sum();
     }
@@ -1484,7 +1479,7 @@ public final class PerModuleHtmlReportGenerator {
 
     private long affectedMethodCount(final ModuleAnalysisResult module) {
         final java.util.Set<MethodId> methods = new java.util.LinkedHashSet<>();
-        module.getFinalPaths().stream()
+        module.getImpactPaths().stream()
                 .flatMap(path -> path.getAffectedMethods().stream())
                 .forEach(methods::add);
         module.getStructuralPaths().stream()
@@ -1501,7 +1496,7 @@ public final class PerModuleHtmlReportGenerator {
 
     private long affectedClassCount(final ModuleAnalysisResult module) {
         final java.util.Set<String> classes = new java.util.LinkedHashSet<>();
-        module.getFinalPaths().stream()
+        module.getImpactPaths().stream()
                 .flatMap(path -> path.getAffectedMethods().stream())
                 .map(MethodId::owner)
                 .forEach(classes::add);
@@ -1516,12 +1511,14 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private String ssaCounts(final List<ModuleAnalysisResult> modules) {
-        return equivalenceCount(modules,
-                MethodEquivalenceStatus.PROVEN_EQUIVALENT) + " / "
-                + equivalenceCount(modules,
-                MethodEquivalenceStatus.DIFFERENT) + " / "
-                + equivalenceCount(modules,
-                MethodEquivalenceStatus.UNKNOWN);
+        final List<SsaComparisonEvidence> comparisons =
+                uniqueSsaComparisons(modules);
+        return comparisonCount(comparisons,
+                SsaComparisonStatus.MATCHED) + " / "
+                + comparisonCount(comparisons,
+                SsaComparisonStatus.DIFFERENT) + " / "
+                + comparisonCount(comparisons,
+                SsaComparisonStatus.UNKNOWN);
     }
 
     private String ssaCounts(
@@ -1571,16 +1568,22 @@ public final class PerModuleHtmlReportGenerator {
                         + metrics.unknownResolutions());
     }
 
-    private String ssaWorkers(final boolean enabled) {
-        return enabled ? "1 (experimental)" : "0 (disabled)";
+    private List<SsaComparisonEvidence> uniqueSsaComparisons(
+            final List<ModuleAnalysisResult> modules) {
+        final Map<String, SsaComparisonEvidence> unique =
+                new java.util.TreeMap<>();
+        modules.stream().flatMap(module -> module.getUnit()
+                        .getSsaComparisons().stream())
+                .forEach(value -> unique.putIfAbsent(
+                        value.stableKey(), value));
+        return List.copyOf(unique.values());
     }
 
-    private long equivalenceCount(
-            final List<ModuleAnalysisResult> modules,
-            final MethodEquivalenceStatus status) {
-        return modules.stream().flatMap(module -> module
-                        .getEquivalenceResults().values().stream())
-                .filter(result -> result.getStatus() == status).count();
+    private long comparisonCount(
+            final List<SsaComparisonEvidence> comparisons,
+            final SsaComparisonStatus status) {
+        return comparisons.stream()
+                .filter(value -> value.getStatus() == status).count();
     }
 
     private long contextCount(final ModuleAnalysisResult module) {

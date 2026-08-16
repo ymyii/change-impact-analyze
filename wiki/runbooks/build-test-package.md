@@ -134,7 +134,7 @@ java -jar target/dependency-analyzer.jar tree --help
 - `StagePhaseTerminologyTest`在unit test中扫描主代码、测试、Wiki和用户文档；除WALA/Java强制外部API名称外，不允许项目自有控制流程重新引入旧术语。
 - Diagnostic与Impact Query tests验证五段prefix、可选Phase、Phase不进入Stage计时key、统一`started/completed/failed`正文，以及QueryNode消息正文不再重复`phase=`。
 - 真实JDK 8 test完成JDK probe、WALA scope、默认CHA与显式`k-obj`，不因缺少环境变量跳过。CHA验证JDK leaf不展开；`k-obj`验证JDK model callback dispatch。
-- CLI/config/report tests确认默认组合为`cha + none`；`k-obj`默认`jdk8`且可显式`none`；`cha + jdk8`统一拒绝。Reflection配置只应用于`k-obj`。
+- CLI/config/report tests确认默认组合为`cha + jdk-model none + ssa-equivalence`；`k-obj`默认`jdk8`且可显式`none`；`cha + jdk8`统一拒绝。Reflection配置只应用于`k-obj`。
 - CHA与`k-obj`通过统一Evidence Schema、timeout和metadata regression；MethodHandle、ServiceLoader、Class.forName与`invokedynamic`由聚焦`k-obj` capability tests覆盖。CHA额外覆盖local constant、JDK leaf、路径外external target pruning和完整external祖先链。
 - Entrypoint tests覆盖private nested class、constructor、static/instance method过滤；公开root调用的private method仍作为普通CGNode存在。
 - `target/dependency-analyzer.jar` 存在，manifest `Main-Class` 为 `io.github.dependencyanalysis.cli.DependencyAnalyzerCli`。

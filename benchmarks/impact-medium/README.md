@@ -14,13 +14,13 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 
 每个 scope 固定执行：
 
-- 1 次 `cha + none + ssa-equivalence` warm-up，采集 Schema v9 topology。
+- 1 次 `cha + none + ssa-equivalence` warm-up，采集Schema 10 topology。
 - 5 次 `cha + none + ssa-equivalence` formal，每次使用全新 Java Virtual Machine（JVM）进程。
 - 1 次 `cha + none + cha-local-receiver-inference` semantic control，不进入性能样本。
 
 双 scope 合计 14 个 JVM 进程。`run-suite.sh` 是单 scope 内部入口，canonical 验收使用 `run-scope-matrix.sh`。Runner 固定传入 `--analysis-parallelism 2`；CHA 固定 `jdk-model=none`，WALA Reflection 配置不应用。
 
-本次收敛后的四个 candidate/final call-chain baseline 位于 `expected-results.tsv`，在明确授权 calibration 前均保持 `PENDING`。不得把 `k-obj` historical 数据写入 CHA canonical baseline。
+本次收敛后的四个Impact call-chain baseline位于`expected-results.tsv`，在明确授权calibration前均保持`PENDING`。不得把`k-obj`historical数据写入CHA canonical baseline。
 
 ## Prerequisites
 

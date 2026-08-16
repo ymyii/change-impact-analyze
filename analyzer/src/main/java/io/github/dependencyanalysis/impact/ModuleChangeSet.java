@@ -3,6 +3,7 @@ package io.github.dependencyanalysis.impact;
 import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.bytecode.ServiceLoaderResourceIssue;
 import io.github.dependencyanalysis.bytecode.ServiceProviderRegistration;
+import io.github.dependencyanalysis.bytecode.SsaComparisonEvidence;
 
 import java.util.List;
 
@@ -15,6 +16,7 @@ import java.util.List;
  * @param baselineServiceRegistrations valid baseline provider facts
  * @param removedServiceRegistrations removed provider facts
  * @param serviceLoaderResourceIssues non-fatal resource Diff issues
+ * @param ssaComparisons ChangePoint-collection normalized SSA evidence
  */
 public record ModuleChangeSet(
         List<DependencyChange> dependencyChanges,
@@ -22,7 +24,8 @@ public record ModuleChangeSet(
         List<JarDiffFailure> jarDiffFailures,
         List<ServiceProviderRegistration> baselineServiceRegistrations,
         List<ServiceProviderRegistration> removedServiceRegistrations,
-        List<ServiceLoaderResourceIssue> serviceLoaderResourceIssues) {
+        List<ServiceLoaderResourceIssue> serviceLoaderResourceIssues,
+        List<SsaComparisonEvidence> ssaComparisons) {
 
     /**
      * Creates an immutable deterministic module change set.
@@ -41,6 +44,7 @@ public record ModuleChangeSet(
                 removedServiceRegistrations);
         serviceLoaderResourceIssues = List.copyOf(
                 serviceLoaderResourceIssues);
+        ssaComparisons = List.copyOf(ssaComparisons);
     }
 
     /**
@@ -52,7 +56,8 @@ public record ModuleChangeSet(
     public ModuleChangeSet(
             final List<BoundChangePoint> points,
             final List<JarDiffFailure> failures) {
-        this(List.of(), points, failures, List.of(), List.of(), List.of());
+        this(List.of(), points, failures, List.of(), List.of(), List.of(),
+                List.of());
     }
 
     /** Compatibility constructor without ServiceLoader resource facts. */
@@ -61,6 +66,6 @@ public record ModuleChangeSet(
             final List<BoundChangePoint> points,
             final List<JarDiffFailure> failures) {
         this(dependencies, points, failures,
-                List.of(), List.of(), List.of());
+                List.of(), List.of(), List.of(), List.of());
     }
 }

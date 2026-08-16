@@ -4,6 +4,7 @@ import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.jar.IJarRepository;
 import io.github.dependencyanalysis.jar.JarLease;
+import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -32,14 +33,17 @@ public final class BytecodeDiffEngine {
     private final Set<ChangePointKind>
             includedKinds;
 
+    /** Optional ChangePoint-collection SSA filter. */
+    private final BytecodeSsaFilter ssaFilter;
+
     /**
      * Creates a new bytecode diff
      * engine with default included
      * kinds.
      */
     public BytecodeDiffEngine() {
-        this(ChangePointKind
-                .DEFAULT_INCLUDED_KINDS);
+        this(ChangePointKind.DEFAULT_INCLUDED_KINDS,
+                (BytecodeSsaFilter) null);
     }
 
     /**
@@ -56,6 +60,24 @@ public final class BytecodeDiffEngine {
     public BytecodeDiffEngine(
             final Set<ChangePointKind>
                     kinds) {
+        this(kinds, (BytecodeSsaFilter) null);
+    }
+
+    /**
+     * Creates a bytecode diff engine with normalized SSA filtering enabled.
+     *
+     * @param kinds included ChangePoint kinds
+     * @param runtime target JDK 8 runtime
+     */
+    public BytecodeDiffEngine(
+            final Set<ChangePointKind> kinds,
+            final JavaRuntimeDescriptor runtime) {
+        this(kinds, new BytecodeSsaFilter(runtime));
+    }
+
+    private BytecodeDiffEngine(
+            final Set<ChangePointKind> kinds,
+            final BytecodeSsaFilter filter) {
         Objects.requireNonNull(
                 kinds, "kinds");
         if (kinds.isEmpty()) {
@@ -67,6 +89,7 @@ public final class BytecodeDiffEngine {
                             EnumSet.copyOf(
                                     kinds));
         }
+        ssaFilter = filter;
     }
 
     /**
@@ -74,11 +97,11 @@ public final class BytecodeDiffEngine {
      *
      * @param change version change
      * @param repository command-scoped JAR repository
-     * @return stable change points
+     * @return effective change points and semantic-filter evidence
      * @throws BytecodeDiffException on invalid class content
      * @throws IOException on repository access failure
      */
-    public List<ChangePoint> diff(
+    public BytecodeDiffResult diff(
             final DependencyChange change,
             final IJarRepository repository)
             throws BytecodeDiffException, IOException {
@@ -90,10 +113,38 @@ public final class BytecodeDiffEngine {
                     JarClassIndexer.index(oldLease.jarFile());
             final Map<String, ClassInfo> newIndex =
                     JarClassIndexer.index(newLease.jarFile());
-            final List<ChangePoint> result = new ArrayList<>();
-            diffClasses(oldIndex, newIndex, change.getNewArtifact(), result);
-            return Collections.unmodifiableList(result);
+            final List<ChangePoint> raw = new ArrayList<>();
+            final List<SsaMethodCandidate> candidates = new ArrayList<>();
+            diffClasses(oldIndex, newIndex, change.getNewArtifact(), raw,
+                    candidates);
+            if (ssaFilter == null || candidates.isEmpty()) {
+                return new BytecodeDiffResult(raw, raw.size(), List.of());
+            }
+            final List<SsaComparisonEvidence> evidence = ssaFilter.compare(
+                    change, oldLease.jarFile(), newLease.jarFile(),
+                    candidates);
+            final Set<String> suppressed = evidence.stream()
+                    .filter(value -> value.getStatus()
+                            == SsaComparisonStatus.MATCHED)
+                    .map(SsaComparisonEvidence::stableKey)
+                    .collect(java.util.stream.Collectors.toSet());
+            final List<ChangePoint> effective = raw.stream()
+                    .filter(point -> point.getKind()
+                            != ChangePointKind.METHOD_BODY_CHANGED
+                            || !suppressed.contains(comparisonKey(
+                            change, point)))
+                    .toList();
+            return new BytecodeDiffResult(
+                    effective, raw.size(), evidence);
         }
+    }
+
+    private String comparisonKey(
+            final DependencyChange change,
+            final ChangePoint point) {
+        return change.getOldArtifact() + "->" + change.getNewArtifact()
+                + "|" + point.getOwner() + "|" + point.getName()
+                + point.getOldDescriptor();
     }
 
     /**
@@ -103,6 +154,7 @@ public final class BytecodeDiffEngine {
      * @param newIdx new class index
      * @param art    artifact coordinate
      * @param result change point list
+     * @param candidates version-gated SSA candidates
      */
     private void diffClasses(
             final Map<String, ClassInfo>
@@ -110,7 +162,8 @@ public final class BytecodeDiffEngine {
             final Map<String, ClassInfo>
                     newIdx,
             final ArtifactCoord art,
-            final List<ChangePoint> result) {
+            final List<ChangePoint> result,
+            final List<SsaMethodCandidate> candidates) {
         final Set<String> allNames =
                 new TreeSet<>();
         allNames.addAll(oldIdx.keySet());
@@ -164,7 +217,7 @@ public final class BytecodeDiffEngine {
             }
             diffMethods(
                     oldC, newC, art,
-                    name, result);
+                    name, result, candidates);
             diffFields(
                     oldC, newC, art,
                     name, result);
@@ -180,13 +233,15 @@ public final class BytecodeDiffEngine {
      * @param art    artifact coordinate
      * @param owner  internal class name
      * @param result change point list
+     * @param candidates version-gated SSA candidates
      */
     private void diffMethods(
             final ClassInfo oldC,
             final ClassInfo newC,
             final ArtifactCoord art,
             final String owner,
-            final List<ChangePoint> result) {
+            final List<ChangePoint> result,
+            final List<SsaMethodCandidate> candidates) {
         final Map<String, MethodInfo> oldMap =
                 toMethodMap(
                         oldC.getMethods());
@@ -256,7 +311,7 @@ public final class BytecodeDiffEngine {
                     && !oldM.getBodyHash()
                             .equals(newM
                                     .getBodyHash())) {
-                result.add(ChangePoint.withDescriptors(
+                final ChangePoint bodyChange = ChangePoint.withDescriptors(
                         art,
                         ChangePointKind
                                 .METHOD_BODY_CHANGED,
@@ -266,7 +321,15 @@ public final class BytecodeDiffEngine {
                                 oldM.getDescriptor(),
                                 newM.getDescriptor()),
                         oldM.getBodyHash(),
-                        newM.getBodyHash()));
+                        newM.getBodyHash());
+                result.add(bodyChange);
+                if (ssaFilter != null
+                        && oldC.getMajorVersion()
+                        != newC.getMajorVersion()) {
+                    candidates.add(new SsaMethodCandidate(
+                            bodyChange, oldC.getMajorVersion(),
+                            newC.getMajorVersion()));
+                }
             }
             if (includedKinds.contains(
                     ChangePointKind.METHOD_ACCESS_NARROWED)

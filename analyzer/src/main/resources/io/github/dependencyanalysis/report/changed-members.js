@@ -57,11 +57,10 @@
     const metrics = data.memberMetrics.map(metric => {
         const member = members.get(metric.memberId);
         return {metric, member, dependency: dependencyLabel(member),
-            label: memberLabel(member), total: metric.final + metric.structural};
+            label: memberLabel(member), total: metric.impact + metric.structural};
     }).sort((left, right) => right.total - left.total
-        || right.metric.final - left.metric.final
+        || right.metric.impact - left.metric.impact
         || right.metric.structural - left.metric.structural
-        || right.metric.candidate - left.metric.candidate
         || left.metric.memberId - right.metric.memberId);
 
     function appendTextCell(row, text, code) {
@@ -92,9 +91,7 @@
             value.member.changePointKind));
         row.append(kindCell);
         appendTextCell(row, value.label, true);
-        appendNumberCell(row, value.metric.candidate);
-        appendNumberCell(row, value.metric.filtered);
-        appendNumberCell(row, value.metric.final);
+        appendNumberCell(row, value.metric.impact);
         appendNumberCell(row, value.metric.structural);
         appendNumberCell(row, value.total);
         return row;

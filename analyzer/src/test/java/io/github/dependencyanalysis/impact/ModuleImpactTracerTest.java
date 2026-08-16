@@ -219,8 +219,7 @@ class ModuleImpactTracerTest {
                                                 "test")
                                         .session(session)
                                         .changePointEvidence(evidence)
-                                        .candidatePaths(result.getPaths())
-                                        .finalPaths(result.getPaths())
+                                        .impactPaths(result.getPaths())
                                         .structuralPaths(
                                                 result.getStructuralPaths())
                                         .build());

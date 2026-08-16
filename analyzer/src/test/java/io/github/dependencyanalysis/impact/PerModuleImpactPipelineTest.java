@@ -50,13 +50,14 @@ class PerModuleImpactPipelineTest {
     }
 
     @Test
-    void resultRefinementIsDisabledByCompatibilityConfiguration() {
+    void resultRefinementDefaultsToSsaEquivalence() {
         final AnalysisRunConfiguration configuration =
                 new AnalysisRunConfiguration(
                         EntrypointSelection.allProjectClasses(),
                         CallGraphAlgorithm.CHA);
 
-        assertThat(configuration.resultRefinements().isEmpty()).isTrue();
+        assertThat(configuration.resultRefinements().algorithms())
+                .containsExactly(ResultRefinementAlgorithm.SSA_EQUIVALENCE);
     }
 
     @Test
@@ -104,7 +105,7 @@ class PerModuleImpactPipelineTest {
     }
 
     @Test
-    void codeComparisonSelectionUsesFinalAndStructuralPathsOnly() {
+    void codeComparisonSelectionUsesImpactAndStructuralPaths() {
         final ModuleId moduleId = new ModuleId(new ArtifactCoord(
                 "example", "app", "jar", "1"), Path.of("app"));
         final ArtifactCoord oldArtifact = new ArtifactCoord(
@@ -138,19 +139,18 @@ class PerModuleImpactPipelineTest {
                                 StructuralReferenceKind.ANNOTATION, "",
                                 "example/library/Api", "fixture"),
                         List.of(root), ImpactClassification.DIRECT);
-        final ModuleAnalysisResult filteredOnly =
+        final ModuleAnalysisResult impactOnly =
                 new ModuleAnalysisResult.Builder(
                         unit(moduleId, List.of(point)))
-                        .candidatePaths(List.of(candidate)).build();
+                        .impactPaths(List.of(candidate)).build();
         final ModuleAnalysisResult module = new ModuleAnalysisResult.Builder(
                 unit(moduleId, List.of(point)))
-                .candidatePaths(List.of(candidate, candidate))
-                .finalPaths(List.of(candidate, candidate))
+                .impactPaths(List.of(candidate, candidate))
                 .structuralPaths(List.of(structural))
                 .build();
 
-        assertThat(PerModuleImpactPipeline.codeComparisonPoints(filteredOnly))
-                .isEmpty();
+        assertThat(PerModuleImpactPipeline.codeComparisonPoints(impactOnly))
+                .containsExactly(point);
         assertThat(PerModuleImpactPipeline.codeComparisonPoints(module))
                 .containsExactly(point);
     }

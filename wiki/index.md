@@ -15,12 +15,12 @@ code_refs: []
 ## Architecture
 
 ### [Dependency Analysis Pipelines](architecture/dependency-analysis-pipelines.md)
-- Summary: `ImpactExecutionEngine`严格串行Module、按QueryNode并发Root Impact Query、Final/Structural code comparison与无条件snapshot；Impact ReportCache仅服务显式topology JSON。
+- Summary: `ImpactExecutionEngine`以唯一command-wide `common` pool统一限制front preparation、JAR diff、Impact Query与code comparison，Module仍严格串行。
 
 ## Features
 
 ### [CLI Preflight and Diagnostics](features/cli-preflight-diagnostics.md)
-- Summary: Console-only五段DiagnosticLog、半核analysis parallelism默认值、QueryNode进度、JAR diff汇总、`-vv` Runtime Metrics与显式topology JSON边界；HTML不保留Diagnostics。
+- Summary: Console-only五段DiagnosticLog、全局common pool并发上限、QueryNode进度、JAR diff汇总、`-vv` Runtime Metrics与显式topology JSON边界。
 
 ### [Maven Runtime](features/maven-runtime.md)
 - Summary: 用户 executable、跨平台内嵌 Maven 3.6.3、两个独立 repository ZIP，以及 Stable/Snapshot 分离 cache 与 command-scoped settings。
@@ -44,7 +44,7 @@ code_refs: []
 - Summary: `ArtifactCoord` 是 dependency JAR logical identity；repository deterministic 选择 Resolver binding，并以 tracked `JarLease` 隔离 physical handle。
 
 ### [Bytecode Diff Engine](features/bytecode-diff-engine.md)
-- Summary: logical coordinate pair经repository lease并行去重Diff；检测bytecode、JVM access narrowing与ServiceLoader registration removal，并按唯一pair汇总changes/failure。
+- Summary: logical coordinate pair经repository lease并行去重Diff；跨class major的method body在ChangePoint收集期执行normalized SSA filtering，结果与证据共享给关联Module。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
 - Summary: 正式CHA与experimental `k-obj`按strategy隔离；canonical SCC topology utility由cycle识别和Impact root selection复用。
@@ -53,10 +53,10 @@ code_refs: []
 - Summary: CHA固定`none`；experimental `k-obj`默认接入独立`models/jdk8`精确catalog，并允许显式`none`。
 
 ### [Impact Tracing](features/impact-tracing.md)
-- Summary: refined reverse slice按无外部incoming edge的root SCC生成确定性最短代表路径；路径内全部PROJECT methods通过`getAffectedMethods()`报告，不生成中间method后缀路径。
+- Summary: ChangePoint收集期SSA与query期CHA local receiver分阶段执行；reverse slice按root SCC生成确定性最短Impact Path，不保留candidate/final双模型。
 
 ### [Report Generator](features/report-generator.md)
-- Summary: Final/Structural-only Affected Paths采用unique entities加ID relations；Module changed member指标覆盖零路径member，现代数据表按当前页动态渲染。
+- Summary: Impact/Structural Affected Paths采用unique entities加ID relations；报告展示ChangePoint收集期SSA证据，code comparison通过`common` pool并发生成。
 
 ## Rules
 

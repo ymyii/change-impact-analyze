@@ -2,7 +2,6 @@ package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.impact.refinement.ResultRefinementAlgorithm;
 import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
-import io.github.dependencyanalysis.impact.refinement.ssa.SsaEquivalenceEngine;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 
@@ -10,12 +9,14 @@ import io.github.dependencyanalysis.build.BuildResult;
 import io.github.dependencyanalysis.build.BuildRunner;
 import io.github.dependencyanalysis.build.ModuleBuildOutput;
 import io.github.dependencyanalysis.bytecode.BytecodeDiffEngine;
+import io.github.dependencyanalysis.bytecode.BytecodeDiffResult;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.bytecode.ServiceLoaderResourceDiffEngine;
 import io.github.dependencyanalysis.bytecode.ServiceLoaderResourceDiffResult;
 import io.github.dependencyanalysis.bytecode.ServiceLoaderResourceIssue;
 import io.github.dependencyanalysis.bytecode.ServiceProviderRegistration;
+import io.github.dependencyanalysis.bytecode.SsaComparisonEvidence;
 import io.github.dependencyanalysis.callgraph.engine.CallGraphException;
 import io.github.dependencyanalysis.callgraph.engine.CallGraphFailureKind;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
@@ -75,11 +76,12 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+// Wiki: wiki/architecture/dependency-analysis-pipelines.md - Concurrency
 /** Executes the Spring backend per-module Call Graph pipeline. */
 final class PerModuleImpactPipeline implements ImpactExecutionEngine {
 
-    /** Maximum wait for canceled preparation branches to release processes. */
-    private static final long PREPARATION_SHUTDOWN_SECONDS = 30L;
+    /** Maximum wait for common-pool cancellation. */
+    private static final long COMMON_SHUTDOWN_SECONDS = 30L;
 
     /** Diagnostics. */
     private final DiagnosticLog diagnostics;
@@ -190,7 +192,7 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
     }
 
     /**
-     * Runs preparation, parallel module analysis, and serial SSA filtering.
+     * Runs all concurrent stages through one command-wide common pool.
      *
      * @param workspace prepared Git workspaces
      * @return complete analysis run
@@ -213,9 +215,27 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                     "Baseline and target analysis modes differ; "
                             + "target mode controls reporting");
         }
+        try (ManagedExecutor common = executors.fixed(
+                "common", analysisParallelism)) {
+            try {
+                return runWithCommonPool(baselineScope, targetScope,
+                        elapsed, common.executor());
+            } catch (Exception | Error failure) {
+                common.shutdownNow();
+                awaitCommonShutdown(common.executor());
+                throw failure;
+            }
+        }
+    }
+
+    private AnalysisRunResult runWithCommonPool(
+            final ReactorAnalysisScope baselineScope,
+            final ReactorAnalysisScope targetScope,
+            final Map<String, Long> elapsed,
+            final ExecutorService commonExecutor) throws Exception {
         final long frontStart = System.currentTimeMillis();
         final FrontPreparation front = prepareFront(
-                baselineScope, targetScope);
+                baselineScope, targetScope, commonExecutor);
         elapsed.put("front-parallel",
                 System.currentTimeMillis() - frontStart);
         elapsed.put("baseline-dependency",
@@ -244,7 +264,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                         baselineEvidence, targetEvidence);
         final long diffStart = System.currentTimeMillis();
         final BindingResult bindings = bindAndDiff(changes,
-                targetScope, baselineEvidence, targetEvidence);
+                targetScope, baselineEvidence, targetEvidence,
+                commonExecutor);
         elapsed.put("jar-diff", System.currentTimeMillis() - diffStart);
         final List<ModuleAnalysisUnit> units = units(
                 new PreparedAnalysis(baselineScope, targetScope,
@@ -257,19 +278,14 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                 entrypoints.unmatchedModules();
         final long modulesStart = System.currentTimeMillis();
         final ModuleAnalysisBatch analyzed = analyzeModules(
-                units, bindings.failedModules(), unmatchedEntrypointModules,
-                entrypoints);
-        final List<ModuleAnalysisResult> filtered = analyzed.modules();
+                units, bindings.failedModules(),
+                unmatchedEntrypointModules, entrypoints,
+                commonExecutor);
         elapsed.put("module-analysis",
                 System.currentTimeMillis() - modulesStart);
-        if (resultRefinements.isEnabled(
-                ResultRefinementAlgorithm.SSA_EQUIVALENCE)) {
-            elapsed.put("ssa-equivalence", filtered.stream()
-                    .mapToLong(value -> value.getStageElapsedMillis()
-                            .getOrDefault("ssa-equivalence", 0L)).sum());
-        }
         final long codeStart = System.currentTimeMillis();
-        final CodeEvidenceResult codeEvidence = buildCodeComparisons(filtered);
+        final CodeEvidenceResult codeEvidence = buildCodeComparisons(
+                analyzed.modules(), commonExecutor);
         elapsed.put("code-comparison",
                 System.currentTimeMillis() - codeStart);
         final AnalysisRunConfiguration configuration =
@@ -303,7 +319,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
     }
 
     private CodeEvidenceResult buildCodeComparisons(
-            final List<ModuleAnalysisResult> modules)
+            final List<ModuleAnalysisResult> modules,
+            final ExecutorService commonExecutor)
             throws InterruptedException {
         final Map<String, List<BoundChangePoint>> requests =
                 new LinkedHashMap<>();
@@ -316,18 +333,17 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
             return new CodeEvidenceResult(modules, 0);
         }
         final int workers = Math.min(analysisParallelism, requests.size());
-        final ManagedExecutor managed = executors.fixed(
-                "code-comparison", workers);
-        final ExecutorService executor = managed.executor();
         final CompletionService<MemberCodeEvidence> completion =
-                new ExecutorCompletionService<>(executor);
+                new ExecutorCompletionService<>(commonExecutor);
         final List<Map.Entry<String, List<BoundChangePoint>>> ordered =
                 requests.entrySet().stream()
                         .sorted(Map.Entry.comparingByKey()).toList();
         int next = 0;
         int completed = 0;
+        final List<Future<MemberCodeEvidence>> submitted = new ArrayList<>();
         while (next < ordered.size() && next < workers) {
-            submitCodeComparison(completion, ordered.get(next++));
+            submitted.add(submitCodeComparison(
+                    completion, ordered.get(next++)));
         }
         final Map<String, CodeComparisonEvidence> evidence =
                 new LinkedHashMap<>();
@@ -343,11 +359,17 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                 }
                 completed++;
                 if (next < ordered.size()) {
-                    submitCodeComparison(completion, ordered.get(next++));
+                    submitted.add(submitCodeComparison(
+                            completion, ordered.get(next++)));
                 }
             }
-        } finally {
-            managed.close();
+        } catch (InterruptedException exception) {
+            submitted.forEach(value -> value.cancel(true));
+            Thread.currentThread().interrupt();
+            throw exception;
+        } catch (RuntimeException exception) {
+            submitted.forEach(value -> value.cancel(true));
+            throw exception;
         }
         final List<ModuleAnalysisResult> enriched = new ArrayList<>();
         for (ModuleAnalysisResult module : modules) {
@@ -363,7 +385,7 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
     static List<BoundChangePoint> codeComparisonPoints(
             final ModuleAnalysisResult module) {
         final Set<BoundChangePoint> relevant = new LinkedHashSet<>();
-        module.getFinalPaths().forEach(path -> relevant.add(
+        module.getImpactPaths().forEach(path -> relevant.add(
                 path.getTerminal().getChangePoint()));
         module.getStructuralPaths().forEach(path -> relevant.add(
                 path.getChangePoint()));
@@ -371,10 +393,10 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                 BoundChangePoint::stableKey)).toList();
     }
 
-    private void submitCodeComparison(
+    private Future<MemberCodeEvidence> submitCodeComparison(
             final CompletionService<MemberCodeEvidence> completion,
             final Map.Entry<String, List<BoundChangePoint>> request) {
-        completion.submit(() -> codeComparison(
+        return completion.submit(() -> codeComparison(
                 request.getKey(), request.getValue().get(0)));
     }
 
@@ -478,12 +500,10 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
 
     private FrontPreparation prepareFront(
             final ReactorAnalysisScope baselineScope,
-            final ReactorAnalysisScope targetScope) throws Exception {
-        final ManagedExecutor managed = executors.fixed(
-                "front-preparation", 2);
-        final ExecutorService executor = managed.executor();
+            final ReactorAnalysisScope targetScope,
+            final ExecutorService commonExecutor) throws Exception {
         final CompletionService<PreparationBranch> completion =
-                new ExecutorCompletionService<>(executor);
+                new ExecutorCompletionService<>(commonExecutor);
         final List<Future<PreparationBranch>> futures = new ArrayList<>();
         futures.add(completion.submit(() -> prepareBaseline(
                 baselineScope)));
@@ -516,10 +536,9 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                 throw (Exception) cause;
             }
             throw new IllegalStateException("Preparation failed", cause);
-        } finally {
-            managed.shutdownNow();
-            awaitPreparationShutdown(executor);
-            managed.close();
+        } catch (RuntimeException exception) {
+            futures.forEach(value -> value.cancel(true));
+            throw exception;
         }
         if (baseline == null || targetBuild == null) {
             throw new IllegalStateException(
@@ -544,13 +563,13 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                 System.currentTimeMillis() - start);
     }
 
-    private void awaitPreparationShutdown(
+    private void awaitCommonShutdown(
             final ExecutorService executor) {
         boolean interrupted = false;
         try {
             final long deadline = System.nanoTime()
                     + TimeUnit.SECONDS.toNanos(
-                    PREPARATION_SHUTDOWN_SECONDS);
+                    COMMON_SHUTDOWN_SECONDS);
             while (!executor.isTerminated()
                     && System.nanoTime() < deadline) {
                 try {
@@ -560,9 +579,9 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                 }
             }
             if (!executor.isTerminated()) {
-                diagnostics.warn("front-parallel",
-                        "Preparation branch did not terminate within "
-                                + PREPARATION_SHUTDOWN_SECONDS + "s");
+                diagnostics.warn("pipeline",
+                        "Common executor did not terminate within "
+                                + COMMON_SHUTDOWN_SECONDS + "s");
             }
         } finally {
             if (interrupted) {
@@ -622,7 +641,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
             final List<DependencyChange> changes,
             final ReactorAnalysisScope targetScope,
             final List<ModuleDependencyEvidence> baselineEvidence,
-            final List<ModuleDependencyEvidence> targetEvidence)
+            final List<ModuleDependencyEvidence> targetEvidence,
+            final ExecutorService commonExecutor)
             throws Exception {
         final Map<String, ModuleId> targetModules = moduleMap(
                 targetScope.getModules());
@@ -668,7 +688,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
         diagnostics.startStage(context, "pairs="
                 + groups.size() + "; workers=" + workers);
         try {
-            final BindingResult result = parallelJarDiff(groups);
+            final BindingResult result = parallelJarDiff(
+                    groups, commonExecutor);
             diagnostics.endStage(context, "changes="
                     + result.changeCount() + "; pairs="
                     + result.pairCount() + "; failedPairs="
@@ -685,21 +706,21 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
     }
 
     private BindingResult parallelJarDiff(
-            final Map<String, List<DependencyUpgradeKey>> groups)
+            final Map<String, List<DependencyUpgradeKey>> groups,
+            final ExecutorService commonExecutor)
             throws InterruptedException {
         if (groups.isEmpty()) {
             return new BindingResult(Map.of(), Set.of(), Map.of(),
-                    Map.of(), Map.of(), Map.of(), 0, 0, 0, 0);
+                    Map.of(), Map.of(), Map.of(), Map.of(),
+                    0, 0, 0, 0);
         }
         final int configuredWorkers = jarDiffWorkerLimit();
         final int workers = Math.min(groups.size(), configuredWorkers);
-        final ManagedExecutor managed = executors.fixed("jar-diff", workers);
-        final ExecutorService executor = managed.executor();
         final List<Future<PairDiff>> futures = new ArrayList<>();
         for (Map.Entry<String, List<DependencyUpgradeKey>> entry
                 : groups.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey()).toList()) {
-            futures.add(executor.submit(() -> diffPair(
+            futures.add(commonExecutor.submit(() -> diffPair(
                     entry.getKey(), entry.getValue().get(0))));
         }
         final Map<String, List<ChangePoint>> pairPoints =
@@ -712,6 +733,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
         final Map<String, List<ServiceProviderRegistration>> removedByPair =
                 new LinkedHashMap<>();
         final Map<String, List<ServiceLoaderResourceIssue>> issuesByPair =
+                new LinkedHashMap<>();
+        final Map<String, List<SsaComparisonEvidence>> ssaByPair =
                 new LinkedHashMap<>();
         try {
             for (Future<PairDiff> future : futures) {
@@ -731,6 +754,7 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                             pair.removedServiceRegistrations());
                     issuesByPair.put(pair.key(),
                             pair.serviceLoaderResourceIssues());
+                    ssaByPair.put(pair.key(), pair.ssaComparisons());
                 } else {
                     for (DependencyUpgradeKey key : groups.get(pair.key())) {
                         final String moduleKey = key.getModuleId()
@@ -742,8 +766,11 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                     }
                 }
             }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw exception;
         } finally {
-            managed.close();
+            futures.forEach(value -> value.cancel(true));
         }
         final Map<String, List<BoundChangePoint>> byModule =
                 new LinkedHashMap<>();
@@ -752,6 +779,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
         final Map<String, List<ServiceProviderRegistration>>
                 removedByModule = new LinkedHashMap<>();
         final Map<String, List<ServiceLoaderResourceIssue>> issuesByModule =
+                new LinkedHashMap<>();
+        final Map<String, List<SsaComparisonEvidence>> ssaByModule =
                 new LinkedHashMap<>();
         for (Map.Entry<String, List<DependencyUpgradeKey>> entry
                 : groups.entrySet()) {
@@ -778,6 +807,9 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                 issuesByModule.computeIfAbsent(moduleKey,
                         ignored -> new ArrayList<>()).addAll(
                         issuesByPair.getOrDefault(entry.getKey(), List.of()));
+                ssaByModule.computeIfAbsent(moduleKey,
+                        ignored -> new ArrayList<>()).addAll(
+                        ssaByPair.getOrDefault(entry.getKey(), List.of()));
             }
         }
         byModule.values().forEach(values -> values.sort(
@@ -789,6 +821,7 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
         final int failedPairCount = groups.size() - pairPoints.size();
         return new BindingResult(byModule, failedModules, failuresByModule,
                 baselineByModule, removedByModule, issuesByModule,
+                ssaByModule,
                 workers, changeCount, groups.size(), failedPairCount);
     }
 
@@ -811,22 +844,38 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                     ChangeType.VERSION_CHANGED,
                     upgrade.getOldArtifact(), upgrade.getNewArtifact(),
                     upgrade.getScope(), upgrade.getModuleId().stableKey());
-            final List<ChangePoint> points = new BytecodeDiffEngine(kinds)
-                    .diff(change, repository());
+            final BytecodeDiffEngine engine = resultRefinements.isEnabled(
+                    ResultRefinementAlgorithm.SSA_EQUIVALENCE)
+                    ? new BytecodeDiffEngine(kinds, javaRuntime)
+                    : new BytecodeDiffEngine(kinds);
+            final BytecodeDiffResult bytecode = engine.diff(
+                    change, repository());
+            final List<ChangePoint> points = bytecode.changePoints();
             final ServiceLoaderResourceDiffResult services =
                     new ServiceLoaderResourceDiffEngine(kinds).diff(
                             upgrade, repository(), points);
             final Set<ChangePoint> unique = new LinkedHashSet<>(points);
             unique.addAll(services.changePoints());
             final List<ChangePoint> combined = List.copyOf(unique);
-            diagnostics.debug(context, "JAR comparison completed; changes="
-                    + combined.size());
+            diagnostics.debug(context, "JAR comparison completed; rawChanges="
+                    + bytecode.rawChangePointCount() + "; changes="
+                    + combined.size() + "; ssaEligible="
+                    + bytecode.ssaComparisons().size()
+                    + "; ssaMatchedSuppressed="
+                    + bytecode.matchedSuppressedCount()
+                    + "; ssaDifferentRetained="
+                    + bytecode.differentRetainedCount()
+                    + "; ssaUnknownRetained="
+                    + bytecode.unknownRetainedCount()
+                    + "; ssaElapsedMillis="
+                    + bytecode.ssaElapsedMillis());
             return new PairDiff(key, combined,
                     services.baselineRegistrations(),
-                    services.removedRegistrations(), services.issues(), null);
+                    services.removedRegistrations(), services.issues(),
+                    bytecode.ssaComparisons(), null);
         } catch (Exception exception) {
             return new PairDiff(key, List.of(), List.of(), List.of(),
-                    List.of(),
+                    List.of(), List.of(),
                     JarDiffFailureDiagnostic.emit(
                             diagnostics, context, exception));
         }
@@ -889,6 +938,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                     bindings.removedServiceRegistrationsByModule()
                             .getOrDefault(key, List.of()),
                     bindings.serviceLoaderResourceIssuesByModule()
+                            .getOrDefault(key, List.of()),
+                    bindings.ssaComparisonsByModule()
                             .getOrDefault(key, List.of()));
             result.add(new ModuleAnalysisUnit(identity, presence, classes,
                     reactorClasses, ModuleDependencyInputs.fromEvidence(
@@ -915,7 +966,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
             final List<ModuleAnalysisUnit> units,
             final Set<String> failedDiffModules,
             final Set<String> unmatchedEntrypointModules,
-            final EntrypointPreparation entrypoints)
+            final EntrypointPreparation entrypoints,
+            final ExecutorService commonExecutor)
             throws InterruptedException {
         final List<ModuleAnalysisResult> result = new ArrayList<>();
         final List<ModuleAnalysisUnit> active = new ArrayList<>();
@@ -945,53 +997,32 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
         }
         active.sort(Comparator.comparing(unit ->
                 unit.getModuleId().stableKey()));
-        final ManagedExecutor managed = executors.fixed(
-                "impact-query", analysisParallelism);
-        final ExecutorService queryExecutor = managed.executor();
         final AtomicInteger actualImpactQueryWorkers = new AtomicInteger();
-        final SsaEquivalenceEngine ssa = resultRefinements.isEnabled(
-                ResultRefinementAlgorithm.SSA_EQUIVALENCE)
-                ? new SsaEquivalenceEngine(
-                        diagnostics, javaRuntime, repository()) : null;
         final ModuleAnalysisSnapshotter snapshotter =
                 new ModuleAnalysisSnapshotter();
         final CallGraphDiagnosticsExporter diagnosticsExporter =
                 callGraphDiagnosticsOutput == null || reportCache == null
                 ? null : new CallGraphDiagnosticsExporter(
                 diagnostics, javaRuntime, repository());
-        try {
-            for (ModuleAnalysisUnit unit : active) {
-                final String key = unit.getModuleId().coordinateKey();
-                ModuleAnalysisResult module = analyzeModuleStage(
-                        unit, failedDiffModules.contains(key),
-                        entrypoints.indexes().get(key),
-                        entrypoints.failures().get(key), queryExecutor,
-                        actualImpactQueryWorkers);
-                if (ssa != null) {
-                    final long ssaStart = System.currentTimeMillis();
-                    module = ssa.filter(List.of(module)).get(0);
-                    final Map<String, Long> stages = new LinkedHashMap<>(
-                            module.getStageElapsedMillis());
-                    stages.put("ssa-equivalence",
-                            System.currentTimeMillis() - ssaStart);
-                    module = module.toBuilder()
-                            .stageElapsedMillis(stages).build();
-                }
-                if (diagnosticsExporter != null
-                        && module.getSession() != null
-                        && module.getSession().getTopology().isPresent()) {
-                    final ModuleAnalysisResult live = module;
-                    reportCache.writeJsonLines("diagnostic-module",
-                            module.getModuleId().stableKey(),
-                            List.of(jsonRecord(json -> diagnosticsExporter
-                                    .writeModuleRecord(json, live,
-                                            resultRefinements))));
-                }
-                module = snapshotter.detach(module);
-                result.add(module);
+        for (ModuleAnalysisUnit unit : active) {
+            final String key = unit.getModuleId().coordinateKey();
+            ModuleAnalysisResult module = analyzeModuleStage(
+                    unit, failedDiffModules.contains(key),
+                    entrypoints.indexes().get(key),
+                    entrypoints.failures().get(key), commonExecutor,
+                    actualImpactQueryWorkers);
+            if (diagnosticsExporter != null
+                    && module.getSession() != null
+                    && module.getSession().getTopology().isPresent()) {
+                final ModuleAnalysisResult live = module;
+                reportCache.writeJsonLines("diagnostic-module",
+                        module.getModuleId().stableKey(),
+                        List.of(jsonRecord(json -> diagnosticsExporter
+                                .writeModuleRecord(json, live,
+                                        resultRefinements))));
             }
-        } finally {
-            managed.close();
+            module = snapshotter.detach(module);
+            result.add(module);
         }
         result.sort(moduleResultComparator());
         return new ModuleAnalysisBatch(List.copyOf(result),
@@ -1208,8 +1239,7 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                             .changePointEvidence(input.evidence())
                             .duplicateClassResolutions(
                                     session.getDuplicateClassResolutions())
-                            .candidatePaths(query.getPaths())
-                            .finalPaths(query.getPaths())
+                            .impactPaths(query.getPaths())
                             .structuralPaths(query.getStructuralPaths())
                             .dispositions(query.getDispositions())
                             .observations(query.getObservations())
@@ -1221,8 +1251,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                             .build();
             diagnostics.endStage(context,
                     "status=" + result.getStatus()
-                            + "; candidatePaths="
-                            + result.getCandidatePaths().size()
+                            + "; impactPaths="
+                            + result.getImpactPaths().size()
                             + "; structuralPaths="
                             + result.getStructuralPaths().size());
             return result;
@@ -1476,6 +1506,7 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
      * @param baselineServiceRegistrations valid baseline provider facts
      * @param removedServiceRegistrations removed provider facts
      * @param serviceLoaderResourceIssues non-fatal resource Diff issues
+     * @param ssaComparisons ChangePoint-collection SSA evidence
      * @param failure failure detail, nullable
      */
     private record PairDiff(
@@ -1484,6 +1515,7 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
             List<ServiceProviderRegistration> baselineServiceRegistrations,
             List<ServiceProviderRegistration> removedServiceRegistrations,
             List<ServiceLoaderResourceIssue> serviceLoaderResourceIssues,
+            List<SsaComparisonEvidence> ssaComparisons,
             String failure) {
     }
 
@@ -1496,6 +1528,7 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
      * @param baselineServiceRegistrationsByModule baseline provider facts
      * @param removedServiceRegistrationsByModule removed provider facts
      * @param serviceLoaderResourceIssuesByModule resource Diff issues
+     * @param ssaComparisonsByModule ChangePoint-collection SSA evidence
      * @param actualWorkers actual JAR diff workers
      * @param changeCount unique successful ChangePoints
      * @param pairCount unique logical JAR pairs
@@ -1511,6 +1544,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                     removedServiceRegistrationsByModule,
             Map<String, List<ServiceLoaderResourceIssue>>
                     serviceLoaderResourceIssuesByModule,
+            Map<String, List<SsaComparisonEvidence>>
+                    ssaComparisonsByModule,
             int actualWorkers,
             int changeCount,
             int pairCount,

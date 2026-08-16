@@ -17,7 +17,7 @@ final class ModuleAnalysisSnapshotter {
     /**
      * Replaces all WALA-backed path nodes and clears the live session.
      *
-     * @param module SSA-filtered module result
+     * @param module completed module result
      * @return report-safe module result
      */
     ModuleAnalysisResult detach(final ModuleAnalysisResult module) {
@@ -29,9 +29,7 @@ final class ModuleAnalysisSnapshotter {
                 new IdentityHashMap<>();
         final Map<ReferenceEvidence, ReferenceEvidence> evidence =
                 new LinkedHashMap<>();
-        final List<ImpactPath> candidate = module.getCandidatePaths().stream()
-                .map(path -> impact(path, session, nodes, evidence)).toList();
-        final List<ImpactPath> paths = module.getFinalPaths().stream()
+        final List<ImpactPath> paths = module.getImpactPaths().stream()
                 .map(path -> impact(path, session, nodes, evidence)).toList();
         final List<StructuralReferencePath> structural = module
                 .getStructuralPaths().stream()
@@ -47,7 +45,7 @@ final class ModuleAnalysisSnapshotter {
         final ChangePointEvidenceIndex frozenEvidence = freezeEvidence(
                 module.getChangePointEvidence(), evidence);
         return module.toBuilder().session(null).callGraphSnapshot(snapshot)
-                .candidatePaths(candidate).finalPaths(paths)
+                .impactPaths(paths)
                 .structuralPaths(structural)
                 .changePointEvidence(frozenEvidence).build();
     }

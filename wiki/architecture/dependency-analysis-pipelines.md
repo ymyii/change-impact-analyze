@@ -18,7 +18,9 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactExecutionEngine.java"
     desc: "command-level Impact 执行边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
-    desc: "构图、evidence、query、refinement 和 snapshot 编排"
+    desc: "pair diff、构图、evidence、query、code comparison和snapshot编排"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/BytecodeDiffResult.java"
+    desc: "ChangePoint收集期SSA filtering结果与审计证据"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleCallGraphInputAdapter.java"
     desc: "业务 domain 到 Call Graph input 的投影"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/engine/ModuleCallGraphEngine.java"
@@ -37,9 +39,9 @@ code_refs:
 
 ## Summary
 
-Root CLI 分发 `impact` 与 `tree`。`impact` 只编译 target，并为每个 relevant Module 构建一张 selected Call Graph；baseline 提供 dependency evidence 与 old artifact。默认组合为 `cha + changed-paths + jdk-model none + result refinement none`。`k-obj` 是显式选择的实验性 algorithm。
+Root CLI 分发 `impact` 与 `tree`。`impact` 只编译 target，并为每个 relevant Module 构建一张 selected Call Graph；baseline 提供dependency evidence与old artifact。默认组合为`cha + changed-paths + jdk-model none + ssa-equivalence`。`k-obj`是显式选择的实验性algorithm。
 
-`ImpactCommand`通过`ImpactExecutionEngine`启动默认per-Module实现；Relevant Module按stable key串行。当前Module依次完成Call Graph、单线程Evidence analysis、Impact Query、optional refinement、Final/Structural code comparison与report-safe snapshot后，才进入下一个Module。`TreeCommand`只承载CLI，`TreeExecutionEngine`负责preflight、Reactor processing与发布。两条pipeline不共享业务Stage，只共享runtime、workspace、Console diagnostics与command runtime基础设施。
+`ImpactCommand`通过`ImpactExecutionEngine`启动默认per-Module实现。scope planning后创建唯一command-wide`common`pool，front preparation、logical JAR pair diff、Impact Query与code comparison顺序复用，并统一受`--analysis-parallelism`限制。Relevant Module仍按stable key串行完成Call Graph、单线程Evidence analysis、Impact Query与report-safe snapshot。`TreeCommand`只承载CLI，`TreeExecutionEngine`负责preflight、Reactor processing与发布。
 
 ## Key Terms
 
@@ -87,7 +89,11 @@ flowchart TD
   Scope["repository / Module scope planning"] --> Prepare["baseline dependency + target compile"]
   Prepare --> Evidence["Schema v3 dependency evidence"]
   Evidence --> Diff["dependency + bytecode + resource diff"]
-  Diff --> Bind["BoundChangePoint per Module"]
+  Diff --> SSAChoice{"SSA equivalence selected and class major differs?"}
+  SSAChoice -->|yes| SSA["pair-local normalized SSA filtering"]
+  SSAChoice -->|no| Effective["effective ChangePoints"]
+  SSA --> Effective
+  Effective --> Bind["BoundChangePoint + SSA evidence per Module"]
   Bind --> PathPlan["changed-path union or full scope"]
   PathPlan --> Input["ModuleCallGraphInputAdapter"]
   Input --> Validate["Call Graph scope validation"]
@@ -100,13 +106,10 @@ flowchart TD
   Coverage --> Query["bounded reverse Impact Query"]
   Query --> Local{"CHA local receiver selected?"}
   Local -->|yes| ChaRefine["caller-local receiver edge filter"]
-  Local -->|no| SSAChoice{"SSA equivalence selected?"}
-  ChaRefine --> SSAChoice
-  SSAChoice -->|yes| SSA["serial SSA equivalence"]
-  SSAChoice -->|no| Compare["Final/Structural code comparison"]
-  SSA --> Compare
-  Compare --> Snapshot["unconditional report-safe snapshot"]
-  Snapshot --> Report["stream HTML + atomic publication"]
+  Local -->|no| Snapshot
+  ChaRefine --> Snapshot
+  Snapshot --> Compare["concurrent Impact/Structural code comparison"]
+  Compare --> Report["stream HTML + atomic publication"]
 ```
 
 ## Call Graph Boundary
@@ -133,17 +136,18 @@ flowchart TD
 - `--call-graph-algorithm` 只接受 `cha`、`k-obj`；默认 `cha`，不自动 fallback。
 - CHA 固定 `jdk-model=none`，不应用 Reflection。`k-obj` 默认 `jdk-model=jdk8`，允许显式 `none`，并应用 Reflection。
 - `--k-obj-depth` 只对 `k-obj` 合法，默认 `1`。
-- `--result-refinement-algorithms` 接受 `cha-local-receiver-inference`、`ssa-equivalence` 或组合，默认 `none`。
+- `--result-refinement-algorithms`接受`none`、`cha-local-receiver-inference`、`ssa-equivalence`或组合，默认`ssa-equivalence`；显式值完整覆盖默认值。
 - local receiver refinement 只验证已有 CHA predecessor edge；不发现 terminal evidence、不补边、不构建第二张 graph。
-- SSA equivalence 在 candidate path 形成后运行；结果类型与 normalization 位于 `impact.refinement.ssa`。
+- SSA equivalence在ChangePoint收集期运行；只处理class major version不同的method body候选，结果与normalization位于`bytecode` package。`MATCHED`抑制，`DIFFERENT/UNKNOWN`保留。
 
-## Concurrency and Lifecycle
+## Concurrency
 
 - Module 严格串行，避免同时持有多张 WALA graph。
-- Impact Query 与 code comparison 受 `--analysis-parallelism` 的 bounded pool 控制。
+- scope planning后创建唯一command-wide managed `common`固定线程池，大小严格等于`--analysis-parallelism`。front preparation、JAR diff、Impact Query与code comparison顺序复用；显式值为`1`时baseline dependency与target build串行。
+- 各阶段保留独立worker计数与Diagnostic Stage，但不拥有线程池。工作线程统一使用`dependency-analyzer-common-*`；全局异常取消已提交任务并关闭common pool。
 - 当前Module snapshot无条件把path node转换为`SnapshotQueryNode`，把method Evidence anchor转换为stable-only anchor，清空只供Reverse BFS使用的binding并释放live WALA state；该生命周期不依赖`ReportCache`是否存在。
-- Impact正常HTML发布不启用`ReportCache`，也不写`candidate-path`、`final-path`、`structural-path`、`observation`或`code-comparison`fragment。只有显式`--call-graph-diagnostics-output`启用cache并在live session期流式写`diagnostic-module`fragment。
-- HTML只读取已冻结Module result；显式Schema v9 topology JSON从diagnostic fragment输出。
+- Impact正常HTML发布不启用`ReportCache`，也不写path、observation或code-comparison fragment。只有显式`--call-graph-diagnostics-output`启用cache并在live session期流式写`diagnostic-module`fragment。
+- HTML只读取已冻结Module result；显式Schema 10 topology JSON从diagnostic fragment输出，并在`changePointCollection.ssaEquivalence`保存pair-level审计证据。
 - Report完整写入同filesystem staging后原子替换；失败清理command-owned cache。
 
 ## Failure Boundaries

@@ -16,7 +16,6 @@ import io.github.dependencyanalysis.callgraph.topology.CallGraphTopologySnapshot
 import com.ibm.wala.classLoader.IClass;
 import com.ibm.wala.classLoader.SyntheticClass;
 import com.ibm.wala.ipa.callgraph.AnalysisScope;
-import com.ibm.wala.ipa.callgraph.IAnalysisCacheView;
 import com.ibm.wala.ipa.cha.IClassHierarchy;
 import com.ibm.wala.types.ClassLoaderReference;
 
@@ -43,9 +42,6 @@ public final class ModuleCallGraphSession {
 
     /** Binary-name origin resolver. */
     private final ClassOwnershipIndex ownership;
-
-    /** Target-side SSA cache used by deferred equivalence. */
-    private final IAnalysisCacheView analysisCache;
 
     /** Build metrics. */
     private final CallGraphStats stats;
@@ -78,7 +74,6 @@ public final class ModuleCallGraphSession {
      * @param cha class hierarchy
      * @param analysisScope WALA scope
      * @param ownershipIndex binary-name ownership
-     * @param cache target-side SSA cache
      * @param metadata graph metrics and fixed-point model output
      */
     ModuleCallGraphSession(
@@ -86,13 +81,11 @@ public final class ModuleCallGraphSession {
             final IClassHierarchy cha,
             final AnalysisScope analysisScope,
             final ClassOwnershipIndex ownershipIndex,
-            final IAnalysisCacheView cache,
             final ModuleCallGraphMetadata metadata) {
         graph = Objects.requireNonNull(callGraph, "callGraph");
         hierarchy = Objects.requireNonNull(cha, "hierarchy");
         scope = Objects.requireNonNull(analysisScope, "scope");
         ownership = Objects.requireNonNull(ownershipIndex, "ownership");
-        analysisCache = Objects.requireNonNull(cache, "analysisCache");
         final ModuleCallGraphMetadata values = Objects.requireNonNull(
                 metadata, "metadata");
         algorithm = values.algorithm();
@@ -135,11 +128,6 @@ public final class ModuleCallGraphSession {
     /** @return deterministic conflicting duplicate class resolutions */
     public List<DuplicateClassResolution> getDuplicateClassResolutions() {
         return ownership.duplicateClassResolutions();
-    }
-
-    /** @return target-side SSA cache */
-    public IAnalysisCacheView getAnalysisCache() {
-        return analysisCache;
     }
 
     /** @return Call Graph metrics */

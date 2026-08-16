@@ -5,14 +5,20 @@ relations:
   - path: "wiki/features/dependency-evidence-collection.md"
     desc: "resolved artifact ingestion 与 coordinate repository"
   - path: "wiki/features/impact-tracing.md"
-    desc: "BoundChangePoint与默认关闭的试验性SSA filtering"
+    desc: "effective BoundChangePoint 与默认启用的SSA filtering"
   - path: "wiki/features/cli-preflight-diagnostics.md"
     desc: "JAR pair failure message、stack trace 与 retained/transient 边界"
   - path: "wiki/runbooks/impact-benchmark.md"
     desc: "固定10类raw ChangePoint与dynamic loading场景的benchmark fixture"
 code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/BytecodeDiffEngine.java"
-    desc: "class/method/field diff"
+    desc: "class/method/field diff 与SSA候选门禁"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/BytecodeSsaFilter.java"
+    desc: "JAR pair-local old/new WALA SSA session 与fail-open filtering"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/BytecodeDiffResult.java"
+    desc: "effective ChangePoint、raw计数与SSA审计证据"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/SsaComparisonEvidence.java"
+    desc: "方法、class major version、hash、状态、原因与耗时"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/jar/IJarRepository.java"
     desc: "coordinate 到短生命周期 JarLease 的访问边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/StableHashMethodVisitor.java"
@@ -43,7 +49,7 @@ code_refs:
 
 ## Summary
 
-对唯一logical `(oldCoordinate,newCoordinate)` pair执行ASM bytecode Diff和ServiceLoader resource Diff，生成的immutable ChangePoint由各Module的`BoundChangePoint`共享。除class/member结构、descriptor、method body与JVM access narrowing外，比较baseline/target的`META-INF/services/<service>`有效provider registration。Resource ChangePoint使用typed subject，physical path不进入domain key。
+对唯一logical `(oldCoordinate,newCoordinate)` pair执行ASM bytecode Diff、ChangePoint收集期normalized Static Single Assignment（SSA，静态单赋值）filtering和ServiceLoader resource Diff，生成的immutable effective ChangePoint与SSA证据由各Module共享。除class/member结构、descriptor、method body与JVM access narrowing外，比较baseline/target的`META-INF/services/<service>`有效provider registration。Resource ChangePoint使用typed subject，physical path不进入domain key。
 
 ## Design Decisions
 
@@ -54,6 +60,8 @@ code_refs:
 - Module binding只增加`DependencyUpgradeKey` provenance；`BoundChangePoint`要求ChangePoint artifact等于upgrade target artifact，不通过对象重建改变diff identity。
 - ServiceLoader resource只比较发生dependency upgrade的外部artifact，不扩展PROJECT source resource。
 - baseline provider必须存在、可解析并assignable给service，才参与registration removal判断。
+- SSA只处理`METHOD_BODY_CHANGED`且old/new所在class的class file major version不同的候选；相同major version不运行SSA。
+- normalized SSA `MATCHED`在Module binding前抑制该ChangePoint；`DIFFERENT`与`UNKNOWN`均fail-open保留。匹配不是source或完整runtime behavior等价证明，存在false-negative风险。
 
 ## Actors / Entrypoints
 
@@ -65,15 +73,25 @@ code_refs:
 - 相同输入JAR与include集合产生稳定排序、相同identity的ChangePoint。
 - Access narrowing只比较相同binary identity，且只描述target access相对baseline的strict narrowing。
 - 同一coordinate pair被多个Module引用时共享同一ChangePoint实例，descriptor、hash与`AccessTransition`保持不变。
+- 同一coordinate pair只构建一次old/new SSA session并比较一次候选集合；其`SsaComparisonEvidence`随pair结果共享给全部关联Module。
 - service配置删除但provider class仍存在时生成`SERVICE_PROVIDER_REGISTRATION_REMOVED`；provider class和配置同时删除时只保留`CLASS_REMOVED`。
 - 聚合INFO completion中的`changes`是所有成功logical pair各自去重后的ChangePoint数量之和；同一pair绑定多个Module不重复计数。失败pair计入`failedPairs`但不计入`changes`。
 
 ## Core Flow
 
 1. 通过command-scoped repository lease读取old/new JAR并建立class/member index。
-2. 比较class存在性、actual class access、method/field identity、descriptor、member access与method body hash。
-3. 读取双方`META-INF/services/*`，删除comment/空行，规范binary name、去重、稳定排序，并校验baseline provider存在性与assignability。
-4. 创建validated immutable bytecode/resource ChangePoint，完成class-removal deduplication，按stable key排序并附加Module upgrade provenance。
+2. 比较class存在性、actual class access、method/field identity、descriptor、member access与method body hash，同时记录class file major version。
+3. 对“body hash不同且class major version不同”的方法，在pair-local old/new WALA hierarchy与独立cache中比较normalized SSA/Control Flow Graph；`MATCHED`从raw集合移除，其他状态保留。
+4. 读取双方`META-INF/services/*`，删除comment/空行，规范binary name、去重、稳定排序，并校验baseline provider存在性与assignability。
+5. 创建validated immutable bytecode/resource ChangePoint，完成class-removal deduplication，按stable key排序并附加Module upgrade provenance与SSA证据。
+
+## ChangePoint 收集期 SSA
+
+- CLI默认选择`ssa-equivalence`；显式`--result-refinement-algorithms none`完全关闭该过滤。
+- 每侧session只加载目标JDK 8 Primordial/Extension classpath及该侧单个dependency JAR，不构建Call Graph，不依赖Module target session。
+- 比较保留typed constant、Def-Use、normal/exception Control Flow Graph、catch type、declared reference、phi/pi/catch与side-effect order；value number进行alpha normalization。
+- 状态固定为`MATCHED`、`DIFFERENT`、`UNKNOWN`。`UNKNOWN`覆盖session、method lookup、Intermediate Representation（IR，中间表示）生成、unsupported instruction与normalization failure；不改变Module status。
+- 证据包含logical artifacts、owner/name/descriptor、old/new body hash、old/new class major version、status、stable reason与elapsed milliseconds。Report与Schema 10 diagnostics可审计；证据不附着到Impact Path。
 
 ## ServiceLoader Resource Diff
 
@@ -115,8 +133,9 @@ code_refs:
 - Pair failure的WARN固定包含异常类型与完整message；`-v`/`-vv`再输出带同一pair context的完整stack trace和cause chain。WARN进入Report diagnostics，stack trace只进入Console。
 - Pair failure 且无其他可分析 ChangePoint 时不构建 Call Graph，但仍生成 Module detail page。
 - 聚合日志固定输出`changes=<成功pair唯一ChangePoint总数>; pairs=<logical pair总数>; failedPairs=<失败pair数>; workers=<实际worker数>`；空diff四项均为`0`。
-- Raw bytecode diff不对全部changed method构建SSA；试验性semantic filtering默认关闭，显式启用后延迟到candidate path之后按需构建。
-- 反编译同样延迟到candidate/Structural path完成后，只处理Report相关member；pool使用`--analysis-parallelism`，每个Vineflower comparison内固定单线程。
+- Raw bytecode diff不对全部changed method构建SSA；只在ChangePoint收集期处理class major version变化的body候选。
+- SSA `UNKNOWN`保留ChangePoint，不再将Module降级为`INCONCLUSIVE`；pair自身无法完成普通bytecode/resource diff时仍沿用JAR diff failure隔离。
+- 反编译延迟到Impact/Structural path完成后，只处理Report相关member；使用command-wide `common` pool与`--analysis-parallelism`，每个Vineflower comparison内固定单线程。
 
 ## Acceptance Criteria
 
@@ -132,6 +151,8 @@ code_refs:
 - Given provider class与registration同时删除；When执行Diff；Then只生成`CLASS_REMOVED`。Given仅删除registration；Then生成typed resource ChangePoint。
 - Given配置包含comment、空行与duplicate；When执行Diff；Then规范化结果和stable key保持deterministic。
 - Given空diff、全部成功、部分失败或同一pair绑定多个Module；When聚合结束；Then`changes/pairs/failedPairs/workers`遵守唯一logical pair口径。
+- Given相同源码语义分别形成old class major 49与new class major 50且body hash不同；When normalized SSA为`MATCHED`；Then不输出该`METHOD_BODY_CHANGED`，但保留可审计SSA证据。
+- Givenclass major不同但SSA为`DIFFERENT`或`UNKNOWN`；When收集ChangePoint；Then保留body ChangePoint。Givenclass major相同；Then不运行SSA并保留hash变化。
 
 ### Non-Functional
 
@@ -145,5 +166,5 @@ code_refs:
 
 ## Implementation Boundaries
 
-- Diff不构建baseline CHA或Call Graph；access legality在target Call Graph完成后的Impact query中判断。
+- Diff可为单个JAR pair构建old/new Class Hierarchy与SSA cache，但不构建baseline或target Call Graph；access legality仍在target Call Graph完成后的Impact query中判断。
 - Reflection、JNI、custom ClassLoader与Java 9 module exports不属于access diff结论。

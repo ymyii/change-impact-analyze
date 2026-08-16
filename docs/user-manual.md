@@ -49,7 +49,7 @@ Global options 可放在 subcommand 前或后：
 
 `--verbose --verbose` 与 `-vv` 等价。Analyzer控制流程只使用Stage与Phase：Stage是具有开始、完成、失败与耗时的执行边界；Phase是Stage内可选的算法活动，只在存在明确内部算法步骤时出现。运行日志统一写入stderr，每个物理行固定为`[时间][日志级别][stage][substage][phase + identity] message`；缺失段使用`[-]`。第五段canonical顺序固定为`phase, check, reactor, module, artifact, pool`；只有Phase时例如`[phase=REVERSE_BFS]`，Phase与identity并存时例如`[phase=REVERSE_BFS;module=g:a:1]`。status、progress、elapsed、path、计数和metrics value等实际日志信息使用message中的`key=value`。Stage生命周期正文统一为`started`、`completed; elapsedMs=...`和`failed; reason=...; elapsedMs=...`。`INFO`输出稳定的Stage、progress、warning和error，Maven subprocess只透传warning/error；JAR pair diff failure的WARN固定包含异常类型和完整message。`DEBUG`额外输出analysis option/decision、完整Maven subprocess output，并在command或隔离的JAR pair异常时逐行输出带完整prefix的stack trace与cause chain；`TRACE`再输出normalized path、ref、scope，以及启动后立即采样、随后每10秒采样的Runtime Metrics。Picocli help/usage、参数解析错误和第三方库直接写入stderr的内容不保证五段prefix。
 
-`-vv` Runtime Metrics包含heap `used/committed/max` MiB，以及当前Analyzer-owned `front-preparation`、`jar-diff`、`impact-query`、`code-comparison` thread pool的core/max/size/active/queued/completed/submitted和lifecycle状态。Heap第五段为空；thread-pool第五段只包含`pool` identity；sample、elapsed和全部指标值位于message。`-v`不创建metrics scheduler，也不输出metrics。全部Diagnostic line、Runtime Metrics、Maven output、Preflight fallback和stack trace只进入Console；HTML不包含Diagnostics栏目。显式`--call-graph-diagnostics-output`仍可单独输出topology JSON。
+`-vv` Runtime Metrics包含heap `used/committed/max` MiB，以及唯一Analyzer-owned `common` thread pool的core/max/size/active/queued/completed/submitted和lifecycle状态。`common`顺序承载front preparation、JAR diff、Impact Query与并发code comparison。Heap第五段为空；thread-pool第五段只包含`pool` identity；sample、elapsed和全部指标值位于message。`-v`不创建metrics scheduler，也不输出metrics。全部Diagnostic line、Runtime Metrics、Maven output、Preflight fallback和stack trace只进入Console；HTML不包含Diagnostics栏目。显式`--call-graph-diagnostics-output`仍可单独输出Schema 10 topology JSON。
 
 ```text
 [2026-08-05T14:30:01.123+08:00][INFO][analysis][reactor][reactor=root] Maven collection completed; progress=1/2; status=SUCCESS; modules=8
@@ -139,7 +139,7 @@ dependency-analyzer impact \
   [--jdk-model <jdk8|none>] \
   [--wala-reflection-options <WALA-enum-name>] \
   [--dependency-analysis-scope <changed-paths|full>] \
-  [--experimental-bytecode-semantic-comparison] \
+  [--result-refinement-algorithms <selection>] \
   [--entrypoint-include '<class-path-pattern>']... \
   [--entrypoint-exclude '<class-path-pattern>']... \
   [-k, --include-change-kinds <csv>] \
@@ -152,12 +152,12 @@ dependency-analyzer impact \
 - `--output` parent 必须存在且可写。
 - `--format` 仅接受 `html`；`md` compatibility token 会 fail fast。
 - `--analysis-target` 默认且首版只接受 `spring-backend`。
-- `--analysis-parallelism` 未传值时默认使用`max(1, 可用CPU核数 / 2)`，向下取整；显式值必须`>=1`。该参数只控制JAR diff、Impact Query和代码反编译各自的bounded pool。显式值超过可用CPU数时输出warning，不静默截断。
+- `--analysis-parallelism`未传值时默认使用`max(1, 可用CPU核数 / 2)`，向下取整；显式值必须`>=1`。该参数决定唯一`common`pool大小，全局限制front preparation、JAR diff、Impact Query与并发code comparison；值为`1`时baseline依赖分析与target构建串行。显式值超过可用CPU数时输出warning，不静默截断。
 - `--call-graph-algorithm` command-wide选择全部Module使用的WALA算法；默认`cha`，可显式选择experimental `k-obj`。值大小写不敏感，不接受alias，不执行timeout fallback；其他标识在参数解析阶段失败。CHA使用WALA Class Hierarchy Analysis（CHA，类层次分析）进行context-insensitive dispatch，不构建points-to。
 - `--k-obj-depth`只可与`--call-graph-algorithm k-obj`同时使用；必须为正整数，默认`1`，不设置人为上限。普通static调用复用object Context，递归在固定`k`的有限Context空间内收敛；较大的`k`仍可能显著增加CGNode、CGEdge、内存与耗时。
 - `--jdk-model` command-wide选择全部Module使用的JDK Method Model。默认值依algorithm解析：CHA固定`none`；`k-obj`未指定时为`jdk8`。显式`cha + jdk8`在分析前失败；`k-obj`仍可显式`none`。
 - `--wala-reflection-options`（alias `--reflection-options`）command-wide选择WALA `AnalysisOptions.ReflectionOptions`。CHA不应用该设置，Report显示`not applied by cha`；`k-obj`使用配置值，默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。
-- `--experimental-bytecode-semantic-comparison`显式启用试验性的normalized SSA/Control Flow Graph语义比较，默认关闭。关闭时保留全部candidate Impact Path，不构建baseline SSA，不产生`FILTERED_EQUIVALENT`或SSA `UNKNOWN`状态降级；基础JAR/bytecode Diff、ChangePoint、Impact query与反编译/ASM code evidence不受影响。
+- `--result-refinement-algorithms`接受`none`、`cha-local-receiver-inference`、`ssa-equivalence`或两者逗号组合，默认`ssa-equivalence`。显式值完整覆盖默认值；传`none`关闭全部refinement。Static Single Assignment（SSA，静态单赋值）在JAR Diff的ChangePoint收集阶段运行，只比较body hash不同且class file major version不同的方法；`MATCHED`抑制ChangePoint，`DIFFERENT`与`UNKNOWN`保留。旧`--experimental-bytecode-semantic-comparison`已移除。
 - `--entrypoint-include`/`--entrypoint-exclude` 接受 slash-separated JVM internal class path，例如 `com/icbc/payment/OrderService`；可选 WALA `L` 前缀会在匹配前移除。选项可重复，多个 include 取并集，exclude 优先。
 - 普通 segment 中 `*` 匹配零到多个字符，`?` 匹配一个字符，均不跨越 `/`。最后一个普通 segment 始终是 class segment，允许 `$` 匹配 nested class；前面的 package segment 不允许 `$`。例如 `com/*/A?`、`com/ic?c/*Controller`、`com/icbc/*$Handler`。
 - `**` 只能作为最后一个完整 segment。`com/icbc/**` 匹配该路径下直属及任意深度 package 中的全部 class，`**` 匹配全部 class；`com/**/A`、`com/icbc/A**`、leading/trailing slash、空 segment、`.`、`\\` 与 `:` 均非法。`com/icbc/**` 后不能追加 class pattern；需要限定 class 名时使用确定深度的普通 pattern，例如 `com/*/*Controller`。旧 colon/dot selector 不兼容，参数校验直接 exit `1`。
@@ -178,12 +178,12 @@ dependency-analyzer impact \
 | `-o` | `--output` | HTML Index 文件。 |
 | `-f` | `--format` | 仅 `html`；`md` 已移除。 |
 |  | `--analysis-target` | 仅 `spring-backend`。 |
-|  | `--analysis-parallelism` | JAR diff、Impact Query、代码反编译并发上限；默认可用CPU核数的一半，最少`1`。 |
+|  | `--analysis-parallelism` | 全部Analyzer并行任务的全局上限；默认可用CPU核数的一半，最少`1`。 |
 |  | `--call-graph-algorithm` | `cha`（默认）或experimental `k-obj`；全部Module使用同一算法。 |
 |  | `--k-obj-depth` | `k-obj`的receiver allocation string深度，正整数，默认`1`；其他算法禁止使用。 |
 |  | `--jdk-model` | CHA固定`none`；`k-obj`默认`jdk8`并可显式`none`。 |
 |  | `--wala-reflection-options` | WALA `ReflectionOptions` enum name；CHA不应用，`k-obj`默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。 |
-|  | `--experimental-bytecode-semantic-comparison` | 显式启用试验性的normalized SSA语义比较；默认关闭。 |
+|  | `--result-refinement-algorithms` | `none`、`cha-local-receiver-inference`、`ssa-equivalence`或组合；默认`ssa-equivalence`。 |
 |  | `--entrypoint-include` | 只选择匹配 slash class path 的 target class declared methods；可重复。 |
 |  | `--entrypoint-exclude` | 从 include/default selection 中排除匹配 slash class path 的 target class；可重复且优先。 |
 | `-k` | `--include-change-kinds` | 纳入分析的 `ChangePointKind` CSV。 |
@@ -363,11 +363,11 @@ Module analysis 检查分类如下。这里的“阻塞”只终止当前 Module
 | ServiceLoader unresolved evidence | Coverage warning | 保留分析结果，Module 为 `INCONCLUSIVE_SERVICE_LOADER`。 |
 | CHA `Class.forName` local constant unresolved/invalid | Coverage warning | 保留分析结果，Module为`INCONCLUSIVE_REFLECTION`。 |
 | CHA实际到达`changed-paths` no-op dependency leaf | Coverage warning | 保留caller→leaf edge，Module为`INCONCLUSIVE_DEPENDENCY_BODY_BOUNDARY`。 |
-| 启用试验性比较后的SSA equivalence `UNKNOWN` | Coverage warning | 不删除 Impact Path，原 `SUCCESS` Module 转为 `INCONCLUSIVE`。 |
+| ChangePoint收集期SSA equivalence `UNKNOWN` | Evidence warning | Fail-open保留`METHOD_BODY_CHANGED`，不改变Module status/reason；审计原因写入Report。 |
 | 内容不同的 duplicate class | Non-blocking warning | 按 classpath precedence 选择 winner；不改 status/reason、Coverage limitations 或 exit code。 |
 | Code comparison unavailable | Evidence warning | 保留Impact结果；Affected Paths仅显示`Unavailable`，详细原因写Console，不改Module status。 |
 
-默认关闭bytecode semantic comparison：Module query产生的candidate path直接作为final path，不创建old-side SSA/Class Hierarchy。显式传入`--experimental-bytecode-semantic-comparison`后，协调线程才串行比较candidate path中唯一`METHOD_BODY_CHANGED`的old/new normalized WALA SSA/Control Flow Graph；只有`PROVEN_EQUIVALENT`删除路径，`DIFFERENT`与`UNKNOWN`保留，`UNKNOWN`使Module为`INCONCLUSIVE`。
+默认启用`ssa-equivalence`：每个唯一logical old/new JAR pair在Module binding前完成ChangePoint收集。只有method body hash不同且old/new class major version不同时才建立pair-local old/new WALA Class Hierarchy和独立SSA cache。`MATCHED`不进入effective ChangePoint；`DIFFERENT`或`UNKNOWN`保留。显式传入`--result-refinement-algorithms none`可完全关闭。该比较不消费Impact Path，不构建baseline Call Graph，也不产生path-level SSA状态。
 
 `--output` 指向 Overall Index；同级 `<output-stem>-modules/` 为每个非 `SKIPPED` Module 生成两页：
 
@@ -376,13 +376,13 @@ Module analysis 检查分类如下。这里的“阻塞”只终止当前 Module
 <module-base>-impact.html   Affected Paths
 ```
 
-Overall Index提供`How to read this report`、`Analysis scope and limitations`、`Terminology`、Final/Structural汇总与Module表，不展示Candidate/Filtered或Diagnostics。Technical details继续展示effective Algorithm、JDK Method Model、WALA Reflection applied状态和SSA状态。
+Overall Index提供`How to read this report`、`Analysis scope and limitations`、`Terminology`、Impact/Structural汇总与Module表，不展示path-level SSA filtering状态或Diagnostics。Technical details展示effective Algorithm、JDK Method Model、WALA Reflection applied状态、SSA matched/different/unknown总数，以及逐方法class version、body hash、status、reason和timing。即使SSA抑制全部ChangePoint并使Module跳过后续分析，Overall仍保留该证据。
 
-Module Index展示status、scope、runtime metrics、typed coverage limitations，以及本Module全部changed members指标表。指标列为Changed dependency、精确`ChangePointKind`、Changed member/class、Candidate、Filtered、Final、Structural、Final impact total；`Filtered = Candidate - Final`，`Final impact total = Final + Structural`。默认按Final impact total降序，并支持dependency/member搜索、`ChangePointKind`筛选和20/50/100分页。Final/Structural均为0的member仍会显示。
+Module Index展示status、scope、runtime metrics、typed coverage limitations，以及本Module全部effective changed members指标表。指标列为Changed dependency、精确`ChangePointKind`、Changed member/class、Impact、Structural、Impact total；`Impact total = Impact + Structural`。默认按Impact total降序，并支持dependency/member搜索、`ChangePointKind`筛选和20/50/100分页。Impact/Structural均为0的member仍会显示。
 
-Affected Paths只提供Final、Structural、All视图。每行对应唯一`(impactPath, changedMember)`，列出完整Root Impact Path中的全部PROJECT methods、changed dependency、精确`ChangePointKind`、changed member、path与Java code diff。A→B→changed member只显示A root path，B作为Affected application methods的一部分；不会为B生成后缀路径。
+Affected Paths只提供Impact、Structural、All视图。每行对应唯一`(impactPath, changedMember)`，列出完整Root Impact Path中的全部PROJECT methods、changed dependency、精确`ChangePointKind`、changed member、path与Java code diff。A→B→changed member只显示A root path，B作为Affected application methods的一部分；不会为B生成后缀路径。
 
-Affected Paths不展示path evidence、member Technical details、Context、descriptor/hash、SSA reason、observations或raw comparison reason。Code diff展开区只包含Vineflower decompiled Java unified diff；Java文本相同显示`Java text identical`，无法生成显示`Unavailable`，不提供ASM fallback。只有Final或Structural path关联member生成comparison；filtered-only与无路径member不反编译。
+Affected Paths不展示path evidence、member Technical details、Context、descriptor/hash、SSA reason、observations或raw comparison reason。Code diff展开区只包含Vineflower decompiled Java unified diff；Java文本相同显示`Java text identical`，无法生成显示`Unavailable`，不提供ASM fallback。只有Impact或Structural path关联member生成comparison；无路径member不反编译。Comparison使用`common`pool滚动并发执行，并按logical member去重。
 
 页面数据按dependency、member、method、path、path step、diff和path-member relation分表并通过整数ID连接。同一path关联多个member时path只存一次，每个member的diff最多存一次。JavaScript只为当前页创建DOM，搜索、筛选与翻页使用`DocumentFragment`替换`tbody`。全部表格使用紧凑sticky header、横向滚动、badge、数字对齐与键盘focus样式；页面不访问网络、不使用CDN、外部asset或浏览器持久化存储。
 
@@ -598,9 +598,9 @@ Exit code：
 
 `Resolved conflicting duplicate classes by classpath precedence` 表示同一 binary name 有内容不同的多个定义。Analyzer 不再因此阻塞 Module；请在 Module Index 的 `Duplicate class resolution` 查看 winner、shadowed sources 与 precedence reason。`SHADOWED_BY_DUPLICATE` changed definition是loser，因此不生成Affected Path或code comparison；Module changed member指标仍包含该member。该warning本身不代表Coverage limitation；若Module同时为`INCONCLUSIVE`或`FAILED`，应查看独立reason与Coverage limitations，并结合Console日志排查。
 
-### 试验性 SSA equivalence 为 `UNKNOWN`
+### SSA equivalence 为 `UNKNOWN`
 
-该问题只会在显式传入`--experimental-bytecode-semantic-comparison`后出现。Old/new IR缺失、unsupported instruction、bootstrap evidence不足、Control Flow Graph mapping ambiguity或exception会返回`UNKNOWN`。该结果不会缩小影响范围；相关Impact Path保留，并在Module page的SSA与Coverage Limitations中展示原因。
+默认`ssa-equivalence`下，old/new session或Intermediate Representation（IR，中间表示）不可用、method lookup失败、unsupported instruction、bootstrap evidence不足、Control Flow Graph mapping ambiguity或exception会返回`UNKNOWN`。该结果fail-open：`METHOD_BODY_CHANGED`仍进入后续Impact analysis，不改变Module status。Overall或Module page的`SSA ChangePoint collection evidence`展示class versions、hash、reason与耗时。若需要完全跳过该比较，显式传`--result-refinement-algorithms none`。
 
 ### Maven dependency resolution failure
 
