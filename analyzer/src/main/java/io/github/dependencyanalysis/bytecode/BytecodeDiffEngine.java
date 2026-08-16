@@ -2,6 +2,7 @@ package io.github.dependencyanalysis.bytecode;
 
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.DependencyChange;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.jar.IJarRepository;
 import io.github.dependencyanalysis.jar.JarLease;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
@@ -68,11 +69,13 @@ public final class BytecodeDiffEngine {
      *
      * @param kinds included ChangePoint kinds
      * @param runtime target JDK 8 runtime
+     * @param diagnostics command diagnostic log
      */
     public BytecodeDiffEngine(
             final Set<ChangePointKind> kinds,
-            final JavaRuntimeDescriptor runtime) {
-        this(kinds, new BytecodeSsaFilter(runtime));
+            final JavaRuntimeDescriptor runtime,
+            final DiagnosticLog diagnostics) {
+        this(kinds, new BytecodeSsaFilter(runtime, diagnostics));
     }
 
     private BytecodeDiffEngine(

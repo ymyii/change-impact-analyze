@@ -10,9 +10,11 @@ relations:
     desc: "Console-only Diagnostic 与显式 topology JSON 边界"
 code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/report/PerModuleHtmlReportGenerator.java"
-    desc: "Overall、Module、Affected Paths 与规范化内嵌数据"
+    desc: "Overall、Module、Affected Paths 与Schema 3 manifest"
   - path: "analyzer/src/main/resources/io/github/dependencyanalysis/report/affected-paths.js"
-    desc: "Impact/Structural path筛选、分页与Java diff展开"
+    desc: "Impact/Structural path分片加载、全局搜索、分页与Java diff展开"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/report/AffectedPathReportDataWriter.java"
+    desc: "Schema 3 relation projection、4 MiB分片与manifest生成"
   - path: "analyzer/src/main/resources/io/github/dependencyanalysis/report/changed-members.js"
     desc: "全部changed member指标排序、筛选与分页"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
@@ -31,7 +33,7 @@ code_refs:
 
 `impact`生成英文offline HTML：一个Overall Index，以及每个非`SKIPPED` Module的Module Index和Affected Paths。Report只消费detached immutable result，不读取live WALA对象、exact Context、graph node ID或terminal evidence。
 
-Affected Paths只展示Impact与Structural记录。一行是唯一`(impactPath, changedMember)`关系；path、member、method、dependency upgrade与code diff按确定性整数ID规范化，避免`rows × payload`重复。浏览器只连接并渲染当前页数据。
+Affected Paths只展示Impact与Structural记录。一行是唯一`(impactPath, changedMember)`关系；path、member、method、dependency upgrade与code diff按确定性整数ID规范化，避免`rows × payload`重复。主HTML只保存Schema 3 manifest，浏览器按需加载本地JavaScript分片并只连接、保留和渲染当前页数据。
 
 ## 页面契约
 
@@ -62,22 +64,23 @@ Affected Paths只展示Impact与Structural记录。一行是唯一`(impactPath, 
 - Structural记录只展示可读structural path、changed member和精确`ChangePointKind`，不展示raw evidence。
 - Code diff只展开decompiled Java unified diff。Java text identical或unavailable只显示简短状态，不暴露failure reason。
 
-## 规范化内嵌数据
+## 规范化分片数据
 
 Affected Paths使用以下关系型Schema，所有entity按stable key排序后分配整数ID：
 
-- `dependencyUpgrades(id, oldArtifact, newArtifact, scope)`：每个升级一次。
-- `changedMembers(id, dependencyUpgradeId, changePointKind, owner, name, codeDiffId)`：每个changed member一次。
+- `index(pathId, type, searchText, rowStart, rowCount)`：轻量全局搜索与row range定位。
+- `rows(rowId, pathId, changedMemberId)`：唯一path-member关系，只含ID和外键。
+- `dependencies(id, oldArtifact, newArtifact, scope)`：每个dependency upgrade一次。
+- `members(id, dependencyUpgradeId, changePointKind, owner, name, codeDiffStatus, codeDiffId)`：每个path关联changed member一次。
 - `methods(id, label, project)`：每个可展示`MethodId`一次。
-- `paths(id, classification, rootKind, cycle)`：Impact call path entity。
-- `structuralPaths(id, classification, applicationMember, relation, changedClass)`：独立Structural path entity。
-- `pathSteps(pathId, ordinal, methodId)`：method sequence关系。
-- `codeDiffs(id, status, unifiedDiff)`：每个changed member最多一次。
-- `pathMemberRows(rowId, pathId, changedMemberId)`：唯一path-member关系，只含ID和外键。
+- `paths(id, type, classification, rootKind, cycle, applicationMember, relation, changedClass, methodIds)`：统一Impact与Structural path entity；`methodIds`保持path顺序。
+- `diffs(id, unifiedDiff)`：只保存可展开的Java unified diff，每个可用changed member最多一次。
 
-Module Index独立内嵌`dependencyUpgrades`、`changedMembers`与`memberMetrics(memberId, impact, structural)`。SSA evidence位于HTML technical table及显式diagnostics JSON，不进入浏览器path relation数据。
+Schema 3 manifest内嵌于`*-impact.html`，只保存Impact/Structural/All row range和分片descriptor。相邻`<module-base>-impact-data/`按index、rows、paths、methods、members、dependencies、diffs分类；每个普通分片的UTF-8目标上限为4 MiB，单记录超过上限时独占分片。分片通过预注册callback与本地`script src`加载，兼容直接`file://`打开，不依赖`fetch`、backend或network。Module Index独立内嵌`dependencyUpgrades`、`changedMembers`与`memberMetrics(memberId, impact, structural)`。SSA evidence位于HTML technical table及显式diagnostics JSON，不进入浏览器path relation数据。
 
-Affected Paths内嵌JSON禁止保存exact WALA Context、graph node ID、terminal mechanism/location/detail、descriptor/hash/access、SSA reason、observation、ASM text或raw comparison reason。ChangePoint collection SSA的descriptor/hash/reason只在专用审计表和显式Schema 10 diagnostics中展示。JSON通过Jackson script-safe escaping写入，解析后删除data script节点。
+`PerModuleHtmlReportGenerator`显式接收`DiagnosticLog`。每个Module在DEBUG输出row/path、各kind shard数量、总shard数量、总字节、最大shard和oversized数量；TRACE为每个shard输出kind、`current/total` progress、record数量和UTF-8字节数。Report `publish` Stage继续负责整体started/completed/failed。
+
+Affected Paths分片禁止保存exact WALA Context、graph node ID、terminal mechanism/location/detail、descriptor/hash/access、SSA reason、observation、ASM text或raw comparison reason。ChangePoint collection SSA的descriptor/hash/reason只在专用审计表和显式Schema 10 diagnostics中展示。Manifest与shard payload通过Jackson script-safe escaping写入，manifest解析后删除data script节点。
 
 ## Code Comparison
 
@@ -90,7 +93,9 @@ Affected Paths内嵌JSON禁止保存exact WALA Context、graph node ID、termina
 
 ## 前端与样式
 
-- Path搜索先计算匹配`pathId`集合，再过滤`pathMemberRows`；不预构造全部joined row object。
+- 空搜索根据manifest row range直接定位当前页，不加载index。非空Path搜索逐片扫描只含path type、原始affected-method search text与row range的轻量index，保持大小写不敏感任意子串语义，使用generation token取消过期查询。
+- 当前页先加载rows，再按ID加载所需path、method、member与dependency分片；切页或筛选后释放旧payload。Java diff只在展开一行时加载对应diff分片，同一时间最多保留一个展开diff。
+- 分片缺失、损坏或Schema不匹配时显示包含文件名的retry error，保留最近一次成功DOM，不把load failure展示成零结果。
 - 翻页、搜索、筛选均通过`DocumentFragment`和`replaceChildren`替换`tbody`，旧DOM不保留。
 - Java diff展开时只增加当前行的diff DOM；切换分页或筛选即清理。
 - 全报告使用CSS variables、轻量card、圆角横向滚动容器、sticky header、列分隔、紧凑行高、zebra stripe、hover highlight和统一focus ring。
@@ -110,3 +115,5 @@ Affected Paths内嵌JSON禁止保存exact WALA Context、graph node ID、termina
 - GivenSSA `MATCHED`抑制了全部body ChangePoint；WhenModule因无effective change而跳过；ThenOverall仍展示该pair的方法、class version、hash、status、reason与timing。
 - GivenDiagnostics包含敏感或大量event；When生成Report；ThenOverall和Module HTML均不包含Diagnostics标题、目录或event内容。
 - GivenJava diff unavailable；When打开Affected Paths；Then只显示`Unavailable`，HTML不包含raw reason或ASM instruction。
+- Given超大Affected Paths；When发布Report；Then主HTML只含Schema 3 manifest，各普通分片不超过4 MiB，单记录oversize可审计，分页与diff展开只加载当前所需分片。
+- Given非空affected method查询；When扫描多个index shard；Then页面显示进度、取消旧查询并返回与原大小写不敏感子串语义一致的全局结果。Given本地shard失败；Then展示可重试错误且不伪造空结果。

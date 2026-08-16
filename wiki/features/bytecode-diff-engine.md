@@ -19,6 +19,8 @@ code_refs:
     desc: "effective ChangePoint、raw计数与SSA审计证据"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/SsaComparisonEvidence.java"
     desc: "方法、class major version、hash、状态、原因与耗时"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/MethodBytecodeTextRenderer.java"
+    desc: "SSA审计与Call Graph source fallback共享的method ASM文本入口"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/jar/IJarRepository.java"
     desc: "coordinate 到短生命周期 JarLease 的访问边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/StableHashMethodVisitor.java"
@@ -92,6 +94,8 @@ code_refs:
 - 比较保留typed constant、Def-Use、normal/exception Control Flow Graph、catch type、declared reference、phi/pi/catch与side-effect order；value number进行alpha normalization。
 - 状态固定为`MATCHED`、`DIFFERENT`、`UNKNOWN`。`UNKNOWN`覆盖session、method lookup、Intermediate Representation（IR，中间表示）生成、unsupported instruction与normalization failure；不改变Module status。
 - 证据包含logical artifacts、owner/name/descriptor、old/new body hash、old/new class major version、status、stable reason与elapsed milliseconds。Report与Schema 10 diagnostics可审计；证据不附着到Impact Path。
+- `-vv`仅对`DIFFERENT`与`UNKNOWN`生成Console-only审计块。`jar-diff/ssa-equivalence-audit`上下文携带artifact与`method=<owner>#<name><descriptor>`，正文以`ssaDifferentRetained`或`ssaUnknownRetained`标识保留结果，并固定输出old/new ASM bytecode、old/new原始IR及old/new normalized IR。缺失内容使用`<unavailable reason=...>`；审计failure不改变fail-open结果。
+- 高成本ASM、IR与normalized文本只在TRACE verbosity门禁通过后生成，不写入`SsaComparisonEvidence`、Report或Schema 10 diagnostics。Method ASM文本由`MethodBytecodeTextRenderer`统一生成，SSA审计与Call Graph source fallback不得各自维护格式。
 
 ## ServiceLoader Resource Diff
 
@@ -153,6 +157,7 @@ code_refs:
 - Given空diff、全部成功、部分失败或同一pair绑定多个Module；When聚合结束；Then`changes/pairs/failedPairs/workers`遵守唯一logical pair口径。
 - Given相同源码语义分别形成old class major 49与new class major 50且body hash不同；When normalized SSA为`MATCHED`；Then不输出该`METHOD_BODY_CHANGED`，但保留可审计SSA证据。
 - Givenclass major不同但SSA为`DIFFERENT`或`UNKNOWN`；When收集ChangePoint；Then保留body ChangePoint。Givenclass major相同；Then不运行SSA并保留hash变化。
+- Given SSA返回`DIFFERENT`或`UNKNOWN`；When使用`-vv`；Then每个物理审计行可按method identity搜索，六个old/new representation section完整或带明确unavailable reason。Given INFO、DEBUG或`MATCHED`；Then不生成高成本审计文本。
 
 ### Non-Functional
 

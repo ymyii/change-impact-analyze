@@ -47,7 +47,7 @@ Global options 可放在 subcommand 前或后：
 | `-a` | `--maven-arg=<token>` | 重复传入一个 Maven option/property token，例如 `--maven-arg=-Pprod`。 |
 | `-v` | `--verbose` | 提升日志级别；默认 `INFO`，`-v` 为 `DEBUG`，`-vv` 为 `TRACE`。可放在 subcommand 前或后。 |
 
-`--verbose --verbose` 与 `-vv` 等价。Analyzer控制流程只使用Stage与Phase：Stage是具有开始、完成、失败与耗时的执行边界；Phase是Stage内可选的算法活动，只在存在明确内部算法步骤时出现。运行日志统一写入stderr，每个物理行固定为`[时间][日志级别][stage][substage][phase + identity] message`；缺失段使用`[-]`。第五段canonical顺序固定为`phase, check, reactor, module, artifact, pool`；只有Phase时例如`[phase=REVERSE_BFS]`，Phase与identity并存时例如`[phase=REVERSE_BFS;module=g:a:1]`。status、progress、elapsed、path、计数和metrics value等实际日志信息使用message中的`key=value`。Stage生命周期正文统一为`started`、`completed; elapsedMs=...`和`failed; reason=...; elapsedMs=...`。`INFO`输出稳定的Stage、progress、warning和error，Maven subprocess只透传warning/error；JAR pair diff failure的WARN固定包含异常类型和完整message。`DEBUG`额外输出analysis option/decision、完整Maven subprocess output，并在command或隔离的JAR pair异常时逐行输出带完整prefix的stack trace与cause chain；`TRACE`再输出normalized path、ref、scope，以及启动后立即采样、随后每10秒采样的Runtime Metrics。Picocli help/usage、参数解析错误和第三方库直接写入stderr的内容不保证五段prefix。
+`--verbose --verbose` 与 `-vv` 等价。Analyzer控制流程只使用Stage与Phase：Stage是具有开始、完成、失败与耗时的执行边界；Phase是Stage内可选的算法活动，只在存在明确内部算法步骤时出现。运行日志统一写入stderr，每个物理行固定为`[时间][日志级别][stage][substage][phase + identity] message`；缺失段使用`[-]`。第五段canonical顺序固定为`phase, check, reactor, module, artifact, pool`，其他stable identity按名称排序；只有Phase时例如`[phase=REVERSE_BFS]`，Phase与identity并存时例如`[phase=REVERSE_BFS;module=g:a:1]`。status、progress、elapsed、path、计数和metrics value等实际日志信息使用message中的`key=value`。Stage生命周期正文统一为`started`、`completed; elapsedMs=...`和`failed; reason=...; elapsedMs=...`。`INFO`输出稳定的Stage、progress、warning和error，Maven subprocess只透传warning/error；JAR pair diff failure的WARN固定包含异常类型和完整message。`DEBUG`额外输出analysis option/decision、完整Maven subprocess output，并在command或隔离的JAR pair异常时逐行输出带完整prefix的stack trace与cause chain；`TRACE`再输出normalized path、ref、scope，以及启动后立即采样、随后每10秒采样的Runtime Metrics。SSA比较为`DIFFERENT`或`UNKNOWN`时，`TRACE`还以`substage=ssa-equivalence-audit`输出同一方法的old/new ASM字节码、old/new原始Intermediate Representation（IR，中间表示）和old/new归一化IR；每行包含可搜索的`method=<owner>#<name><descriptor>`，并以`retention=ssaDifferentRetained|ssaUnknownRetained`标识保留原因。Picocli help/usage、参数解析错误和第三方库直接写入stderr的内容不保证五段prefix。
 
 `-vv` Runtime Metrics包含heap `used/committed/max` MiB，以及唯一Analyzer-owned `common` thread pool的core/max/size/active/queued/completed/submitted和lifecycle状态。`common`顺序承载front preparation、JAR diff、Impact Query与并发code comparison。Heap第五段为空；thread-pool第五段只包含`pool` identity；sample、elapsed和全部指标值位于message。`-v`不创建metrics scheduler，也不输出metrics。全部Diagnostic line、Runtime Metrics、Maven output、Preflight fallback和stack trace只进入Console；HTML不包含Diagnostics栏目。显式`--call-graph-diagnostics-output`仍可单独输出Schema 10 topology JSON。
 
@@ -372,15 +372,16 @@ Module analysis 检查分类如下。这里的“阻塞”只终止当前 Module
 `--output` 指向 Overall Index；同级 `<output-stem>-modules/` 为每个非 `SKIPPED` Module 生成两页：
 
 ```text
-<module-base>.html          Module Index
-<module-base>-impact.html   Affected Paths
+<module-base>.html               Module Index
+<module-base>-impact.html        Affected Paths
+<module-base>-impact-data/       Affected Paths本地数据分片
 ```
 
 Overall Index提供`How to read this report`、`Analysis scope and limitations`、`Terminology`、Impact/Structural汇总与Module表，不展示path-level SSA filtering状态或Diagnostics。Technical details展示effective Algorithm、JDK Method Model、WALA Reflection applied状态、SSA matched/different/unknown总数，以及逐方法class version、body hash、status、reason和timing。即使SSA抑制全部ChangePoint并使Module跳过后续分析，Overall仍保留该证据。
 
 Module Index展示status、scope、runtime metrics、typed coverage limitations，以及本Module全部effective changed members指标表。指标列为Changed dependency、精确`ChangePointKind`、Changed member/class、Impact、Structural、Impact total；`Impact total = Impact + Structural`。默认按Impact total降序，并支持dependency/member搜索、`ChangePointKind`筛选和20/50/100分页。Impact/Structural均为0的member仍会显示。
 
-Affected Paths只提供Impact、Structural、All视图。每行对应唯一`(impactPath, changedMember)`，列出完整Root Impact Path中的全部PROJECT methods、changed dependency、精确`ChangePointKind`、changed member、path与Java code diff。A→B→changed member只显示A root path，B作为Affected application methods的一部分；不会为B生成后缀路径。
+Affected Paths只提供Impact、Structural、All视图。每行对应唯一`(impactPath, changedMember)`，列出完整Root Impact Path中的全部PROJECT methods、changed dependency、精确`ChangePointKind`、changed member、path与Java code diff。A→B→changed member只显示A root path，B作为Affected application methods的一部分；不会为B生成后缀路径。主HTML只保存Schema 3 manifest；index、row、path、method、member、dependency与diff按4 MiB目标上限写入本地JavaScript分片。直接通过`file://`打开时，默认分页只加载当前页，全局affected method子串搜索逐片扫描轻量index并显示进度，Java diff在展开时才加载；不使用backend、network request或`fetch`。`-v`按Module输出分片数量与字节汇总；`-vv`追加每个分片的kind、进度、record数与字节数。
 
 Affected Paths不展示path evidence、member Technical details、Context、descriptor/hash、SSA reason、observations或raw comparison reason。Code diff展开区只包含Vineflower decompiled Java unified diff；Java文本相同显示`Java text identical`，无法生成显示`Unavailable`，不提供ASM fallback。只有Impact或Structural path关联member生成comparison；无路径member不反编译。Comparison使用`common`pool滚动并发执行，并按logical member去重。
 
@@ -600,7 +601,7 @@ Exit code：
 
 ### SSA equivalence 为 `UNKNOWN`
 
-默认`ssa-equivalence`下，old/new session或Intermediate Representation（IR，中间表示）不可用、method lookup失败、unsupported instruction、bootstrap evidence不足、Control Flow Graph mapping ambiguity或exception会返回`UNKNOWN`。该结果fail-open：`METHOD_BODY_CHANGED`仍进入后续Impact analysis，不改变Module status。Overall或Module page的`SSA ChangePoint collection evidence`展示class versions、hash、reason与耗时。若需要完全跳过该比较，显式传`--result-refinement-algorithms none`。
+默认`ssa-equivalence`下，old/new session或IR不可用、method lookup失败、unsupported instruction、bootstrap evidence不足、Control Flow Graph mapping ambiguity或exception会返回`UNKNOWN`。该结果fail-open：`METHOD_BODY_CHANGED`仍进入后续Impact analysis，不改变Module status。Overall或Module page的`SSA ChangePoint collection evidence`展示class versions、hash、reason与耗时。使用`-vv`时，可按`ssaUnknownRetained`或`method=<方法关键词>`搜索Console，查看old/new字节码、原始IR及归一化IR；不可用段显示稳定reason。若需要完全跳过该比较，显式传`--result-refinement-algorithms none`。
 
 ### Maven dependency resolution failure
 

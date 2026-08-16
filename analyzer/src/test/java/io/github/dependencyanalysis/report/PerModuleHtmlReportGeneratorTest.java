@@ -1,9 +1,14 @@
 package io.github.dependencyanalysis.report;
 
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
+
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.ChangeType;
 import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.dependency.DependencyScope;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
+import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.bytecode.AccessTransition;
@@ -67,6 +72,9 @@ import io.github.dependencyanalysis.runtime.MavenVersion;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -100,6 +108,12 @@ class PerModuleHtmlReportGeneratorTest {
 
     /** Unicode line separator protected in embedded JSON. */
     private static final int LINE_SEPARATOR = 0x2028;
+
+    /** Unicode paragraph separator protected in embedded JSON. */
+    private static final int PARAGRAPH_SEPARATOR = 0x2029;
+
+    /** Small shard limit used to force multiple deterministic shards. */
+    private static final int TEST_SHARD_BYTES = 220;
 
     /** Temporary output directory. */
     @TempDir
@@ -174,7 +188,7 @@ class PerModuleHtmlReportGeneratorTest {
         final MavenDependencyPluginRuntime plugin =
                 new MavenDependencyPluginRuntimeManager().prepare(
                         temporary.resolve("config"), List.of(), null);
-        new PerModuleHtmlReportGenerator().generate(run,
+        generator().generate(run,
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
@@ -205,7 +219,8 @@ class PerModuleHtmlReportGeneratorTest {
                 .doesNotContain("vanilla-0-1-cfa");
         assertThat(owned.resolve("stale.html")).doesNotExist();
         try (Stream<Path> pages = Files.list(owned)) {
-            final List<Path> values = pages.toList();
+            final List<Path> values = pages.filter(Files::isRegularFile)
+                    .toList();
             assertThat(values).hasSize(MODULE_PAGE_COUNT);
             final Path moduleIndex = values.stream()
                     .filter(path -> !path.getFileName().toString()
@@ -275,14 +290,15 @@ class PerModuleHtmlReportGeneratorTest {
                 new MavenDependencyPluginRuntimeManager().prepare(
                         temporary.resolve("config-dense"), List.of(), null);
 
-        new PerModuleHtmlReportGenerator().generate(run,
+        generator().generate(run,
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
         final Path owned = temporary.resolve("dense-modules");
         final String moduleIndex;
         try (Stream<Path> pages = Files.list(owned)) {
-            moduleIndex = Files.readString(pages.filter(path ->
+            moduleIndex = Files.readString(pages
+                    .filter(Files::isRegularFile).filter(path ->
                     !path.getFileName().toString().contains("-impact"))
                     .findFirst().orElseThrow());
         }
@@ -328,6 +344,9 @@ class PerModuleHtmlReportGeneratorTest {
                 "/secret/work/classes"), CodeOrigin.PROJECT);
         final String unsafeDetail = "fixture </script><script>alert(1)"
                 + "</script>&" + Character.toString(LINE_SEPARATOR);
+        final String unsafeDiff = "+String marker = \"</script>&"
+                + Character.toString(LINE_SEPARATOR)
+                + Character.toString(PARAGRAPH_SEPARATOR) + "\";";
         final ImpactPath impactPath = new ImpactPath(List.of(root),
                 new ChangePointTerminal(affected, referenceEvidence(
                         EvidenceMechanism.METHOD_DECLARATION, unsafeDetail)),
@@ -348,7 +367,8 @@ class PerModuleHtmlReportGeneratorTest {
         final CodeComparisonEvidence code = new CodeComparisonEvidence(
                 CodeComparisonStatus.AVAILABLE,
                 List.of(new UnifiedDiffHunk(1, 1, 1, 1,
-                        List.of("-return 1;", "+return 2;"))), "");
+                        List.of("-return 1;", "+return 2;",
+                                unsafeDiff))), "");
         final SsaComparisonEvidence ssa = new SsaComparisonEvidence(
                 new DependencyChange(ChangeType.VERSION_CHANGED,
                         oldArtifact, newArtifact, DependencyScope.COMPILE,
@@ -388,37 +408,22 @@ class PerModuleHtmlReportGeneratorTest {
                         temporary.resolve("config-filtered"),
                         List.of(), null);
 
-        new PerModuleHtmlReportGenerator().generate(run,
-                new PreflightReport(List.of()), maven(), plugin,
-                java(), output);
-
-        final Path owned = temporary.resolve("filtered-modules");
-        final String impact;
-        final String moduleIndex;
-        try (Stream<Path> pages = Files.list(owned)) {
-            final List<Path> values = pages.toList();
-            assertThat(values).hasSize(MODULE_PAGE_COUNT);
-            impact = Files.readString(values.stream().filter(path ->
-                    path.getFileName().toString().contains("-impact"))
-                    .findFirst().orElseThrow());
-            moduleIndex = Files.readString(values.stream().filter(path ->
-                    !path.getFileName().toString().contains("-impact"))
-                    .findFirst().orElseThrow());
-        }
-        assertThat(impact)
+        final ShardedReport report = generateShardedReport(
+                run, plugin, output);
+        assertThat(report.impact())
                 .contains("<option value=\"impact\" selected>Impact</option>")
                 .contains("<option value=\"structural\">Structural")
                 .contains("<option value=\"all\">All</option>")
-                .contains("example.app.Controller#handle")
-                .contains("\"dependencyUpgrades\"")
-                .contains("\"changedMembers\"")
-                .contains("\"pathSteps\"")
-                .contains("\"codeDiffs\"")
-                .contains("\"pathMemberRows\"")
-                .contains("\"changePointKind\":\"METHOD_BODY_CHANGED\"")
+                .contains("id=\"affected-path-manifest\"")
+                .contains("\"schemaVersion\":3")
+                .contains("\"shards\"")
+                .contains("index-00001.js")
+                .contains("paths-00001.js")
+                .contains("Searching affected methods:")
+                .contains("searchGeneration")
+                .contains("Retry")
                 .contains("diff-line diff-add")
                 .contains("<tbody id=\"path-rows\"></tbody>")
-                .contains("example.app.Controller#search")
                 .doesNotContain("Equivalent filtered")
                 .doesNotContain("\"evidence\":", "oldDescriptor",
                         "newDescriptor", "oldHash", "newHash",
@@ -426,9 +431,13 @@ class PerModuleHtmlReportGeneratorTest {
                 .doesNotContain("/secret/work/classes")
                 .doesNotContain("fixture </script><script>alert(1)")
                 .doesNotContain(Character.toString(LINE_SEPARATOR))
+                .doesNotContain("fetch(")
                 .doesNotContain("#hidden", "-changes.html");
-        assertNormalizedRelationCounts(impact);
-        assertChangedMemberMetrics(moduleIndex);
+        assertAffectedPathShards(report.shards());
+        assertShardLimits(report.directory());
+        assertShardDiagnostics(report.diagnostics());
+        assertNormalizedRelationCounts(report.shards());
+        assertChangedMemberMetrics(report.moduleIndex());
         assertThat(output).content()
                 .contains("<th>Result refinement algorithms</th><td>"
                         + "ssa-equivalence (experimental)</td>")
@@ -441,10 +450,130 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("49 → 50")
                 .contains("NORMALIZED_SSA_CFG_ISOMORPHIC")
                 .contains("3 ms");
-        assertThat(impact)
+        assertThat(report.shards())
                 .contains("example:library:jar:1", "example:library:jar:2")
                 .contains("-return 1;")
-                .contains("+return 2;");
+                .contains("+return 2;")
+                .contains("\\u003c/script\\u003e", "\\u0026",
+                        "\\u2028", "\\u2029");
+        assertRepeatablePublication(report, run, plugin, output);
+    }
+
+    private ShardedReport generateShardedReport(
+            final AnalysisRunResult run,
+            final MavenDependencyPluginRuntime plugin,
+            final Path output) throws Exception {
+        final ByteArrayOutputStream logOutput = new ByteArrayOutputStream();
+        final DiagnosticLog log = new DiagnosticLog(new PrintStream(
+                logOutput, true, StandardCharsets.UTF_8),
+                LogVerbosity.TRACE);
+        final PerModuleHtmlReportGenerator reportGenerator =
+                new PerModuleHtmlReportGenerator(log, TEST_SHARD_BYTES);
+        reportGenerator.generate(run, new PreflightReport(List.of()),
+                maven(), plugin, java(), output);
+        final Path directory = temporary.resolve("filtered-modules");
+        final List<Path> pages;
+        try (Stream<Path> files = Files.list(directory)) {
+            pages = files.filter(Files::isRegularFile).toList();
+        }
+        assertThat(pages).hasSize(MODULE_PAGE_COUNT);
+        final String impact = Files.readString(pages.stream().filter(path ->
+                path.getFileName().toString().contains("-impact"))
+                .findFirst().orElseThrow());
+        final String moduleIndex = Files.readString(pages.stream()
+                .filter(path -> !path.getFileName().toString()
+                        .contains("-impact"))
+                .findFirst().orElseThrow());
+        return new ShardedReport(directory, impact, moduleIndex,
+                shardContent(directory), logOutput.toString(
+                StandardCharsets.UTF_8), reportGenerator);
+    }
+
+    private void assertRepeatablePublication(
+            final ShardedReport report,
+            final AnalysisRunResult run,
+            final MavenDependencyPluginRuntime plugin,
+            final Path output) throws Exception {
+        final Map<String, String> original = shardFiles(report.directory());
+        final Path orphan = report.directory().resolve(
+                "orphan-impact-data/orphan.js");
+        Files.createDirectories(orphan.getParent());
+        Files.writeString(orphan, "orphan");
+        report.generator().generate(run, new PreflightReport(List.of()),
+                maven(), plugin, java(), output);
+        assertThat(shardFiles(report.directory())).isEqualTo(original);
+        assertThat(orphan).doesNotExist();
+    }
+
+    private void assertAffectedPathShards(final String shards) {
+        assertThat(shards)
+                .contains("example.app.Controller#handle")
+                .contains("example.app.Controller#search")
+                .contains("\"pathId\":0", "\"rowId\":0")
+                .contains("\"type\":\"impact\"")
+                .contains("\"type\":\"structural\"")
+                .contains("\"project\":true")
+                .contains("\"scope\":\"compile\"")
+                .contains("\"codeDiffStatus\":\"AVAILABLE\"")
+                .contains("\"changePointKind\":"
+                        + "\"METHOD_BODY_CHANGED\"")
+                .doesNotContain("fixture </script><script>alert(1)")
+                .doesNotContain(Character.toString(LINE_SEPARATOR))
+                .doesNotContain(Character.toString(PARAGRAPH_SEPARATOR));
+    }
+
+    private void assertShardLimits(final Path reportDirectory)
+            throws Exception {
+        boolean oversized = false;
+        try (Stream<Path> files = Files.walk(reportDirectory)) {
+            for (Path file : files.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString()
+                            .endsWith(".js"))
+                    .toList()) {
+                final long bytes = Files.size(file);
+                if (bytes > TEST_SHARD_BYTES) {
+                    oversized = true;
+                    assertThat(shardRecordCount(file)).as(file.toString())
+                            .isEqualTo(1);
+                }
+            }
+        }
+        assertThat(oversized).isTrue();
+    }
+
+    private int shardRecordCount(final Path file) throws Exception {
+        final String script = Files.readString(file);
+        final int start = script.indexOf('(') + 1;
+        final int end = script.lastIndexOf(");");
+        try (JsonParser parser = ScriptSafeJson.factory().createParser(
+                script.substring(start, end))) {
+            while (parser.nextToken() != null) {
+                if (parser.currentToken() == JsonToken.FIELD_NAME
+                        && "records".equals(parser.currentName())) {
+                    assertThat(parser.nextToken()).isEqualTo(
+                            JsonToken.START_ARRAY);
+                    int count = 0;
+                    while (parser.nextToken() != JsonToken.END_ARRAY) {
+                        count++;
+                        parser.skipChildren();
+                    }
+                    return count;
+                }
+            }
+        }
+        throw new IllegalArgumentException("Missing records: " + file);
+    }
+
+    private void assertShardDiagnostics(final String diagnostics) {
+        assertThat(diagnostics)
+                .contains("[report][affected-path-shard]")
+                .contains("shardCounts=index=")
+                .contains(",rows=", ",paths=", ",methods=",
+                        ",members=", ",dependencies=", ",diffs=")
+                .contains("oversizedShards=")
+                .contains("written; kind=index; progress=1/")
+                .contains("; records=")
+                .contains("; bytes=");
     }
 
     @Test
@@ -482,7 +611,7 @@ class PerModuleHtmlReportGeneratorTest {
                         temporary.resolve("config-scope-warning"),
                         List.of(), null);
 
-        new PerModuleHtmlReportGenerator().generate(run,
+        generator().generate(run,
                 new PreflightReport(List.of()),
                 maven(), plugin, java(), output);
 
@@ -493,6 +622,7 @@ class PerModuleHtmlReportGeneratorTest {
         final String index;
         try (Stream<Path> pages = Files.list(owned)) {
             index = Files.readString(pages
+                    .filter(Files::isRegularFile)
                     .filter(path -> !path.getFileName().toString()
                             .contains("-impact"))
                     .filter(path -> !path.getFileName().toString()
@@ -562,7 +692,7 @@ class PerModuleHtmlReportGeneratorTest {
                         temporary.resolve("config-duplicate"),
                         List.of(), null);
 
-        new PerModuleHtmlReportGenerator().generate(run,
+        generator().generate(run,
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
@@ -573,7 +703,8 @@ class PerModuleHtmlReportGeneratorTest {
         final Path owned = temporary.resolve("duplicate-modules");
         final String index;
         try (Stream<Path> pages = Files.list(owned)) {
-            final List<Path> values = pages.toList();
+            final List<Path> values = pages.filter(Files::isRegularFile)
+                    .toList();
             assertThat(values).hasSize(MODULE_PAGE_COUNT);
             assertThat(values.stream().noneMatch(path -> path.getFileName()
                     .toString().contains("-changes"))).isTrue();
@@ -605,7 +736,7 @@ class PerModuleHtmlReportGeneratorTest {
                         temporary.resolve("config-cha"),
                         List.of(), null);
 
-        new PerModuleHtmlReportGenerator().generate(run,
+        generator().generate(run,
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
@@ -638,7 +769,7 @@ class PerModuleHtmlReportGeneratorTest {
                         temporary.resolve("config-one-object"),
                         List.of(), null);
 
-        new PerModuleHtmlReportGenerator().generate(run,
+        generator().generate(run,
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
@@ -707,14 +838,15 @@ class PerModuleHtmlReportGeneratorTest {
                 new MavenDependencyPluginRuntimeManager().prepare(
                         temporary.resolve("config-access"), List.of(), null);
 
-        new PerModuleHtmlReportGenerator().generate(run,
+        generator().generate(run,
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
         final Path owned = temporary.resolve("access-valid-modules");
         final String impact;
         try (Stream<Path> pages = Files.list(owned)) {
-            final List<Path> values = pages.toList();
+            final List<Path> values = pages.filter(Files::isRegularFile)
+                    .toList();
             assertThat(values).hasSize(MODULE_PAGE_COUNT);
             impact = Files.readString(values.stream().filter(path ->
                     path.getFileName().toString().contains("-impact"))
@@ -722,9 +854,8 @@ class PerModuleHtmlReportGeneratorTest {
         }
         assertThat(impact)
                 .contains("No affected path matched the current filters.")
-                .contains("\"changedMembers\":[]")
-                .contains("\"paths\":[]")
-                .contains("\"pathMemberRows\":[]")
+                .contains("\"schemaVersion\":3")
+                .contains("\"count\":0")
                 .doesNotContain("example.library.Api#call")
                 .doesNotContain("decision=ACCESSIBLE")
                 .doesNotContain("-public void call()")
@@ -792,19 +923,26 @@ class PerModuleHtmlReportGeneratorTest {
                         temporary.resolve("config-potential"),
                         List.of(), null);
 
-        new PerModuleHtmlReportGenerator().generate(run,
+        generator().generate(run,
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
         final Path owned = temporary.resolve("access-potential-modules");
         final String impact;
         try (Stream<Path> pages = Files.list(owned)) {
-            impact = Files.readString(pages.filter(pathValue ->
+            impact = Files.readString(pages
+                    .filter(Files::isRegularFile).filter(pathValue ->
                     pathValue.getFileName().toString()
                             .contains("-impact"))
                     .findFirst().orElseThrow());
         }
         assertThat(impact)
+                .contains("id=\"affected-path-manifest\"")
+                .doesNotContain("decision=POTENTIALLY_INACCESSIBLE",
+                        "PROTECTED_RECEIVER_UNKNOWN", "report-fixture",
+                        "bytecodePc", "\"evidence\"")
+                .doesNotContain("IllegalAccessError");
+        assertThat(shardContent(owned))
                 .contains("\"changePointKind\":"
                         + "\"METHOD_ACCESS_NARROWED\"")
                 .contains("example.app.Controller#handle")
@@ -824,6 +962,25 @@ class PerModuleHtmlReportGeneratorTest {
             implements QueryNode {
     }
 
+    /**
+     * Generated Schema 3 fixture and its captured diagnostics.
+     *
+     * @param directory command-owned Module directory
+     * @param impact Affected Paths HTML
+     * @param moduleIndex Module Index HTML
+     * @param shards concatenated shard payloads
+     * @param diagnostics captured report diagnostics
+     * @param generator configured generator used for repeat publication
+     */
+    private record ShardedReport(
+            Path directory,
+            String impact,
+            String moduleIndex,
+            String shards,
+            String diagnostics,
+            PerModuleHtmlReportGenerator generator) {
+    }
+
     private int occurrences(final String text, final String value) {
         int count = 0;
         int offset = 0;
@@ -832,6 +989,35 @@ class PerModuleHtmlReportGeneratorTest {
             offset += value.length();
         }
         return count;
+    }
+
+    private String shardContent(final Path reportDirectory)
+            throws Exception {
+        final StringBuilder result = new StringBuilder();
+        try (Stream<Path> files = Files.walk(reportDirectory)) {
+            for (Path file : files.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString()
+                            .endsWith(".js"))
+                    .sorted().toList()) {
+                result.append(Files.readString(file));
+            }
+        }
+        return result.toString();
+    }
+
+    private Map<String, String> shardFiles(final Path reportDirectory)
+            throws Exception {
+        final Map<String, String> result = new java.util.TreeMap<>();
+        try (Stream<Path> files = Files.walk(reportDirectory)) {
+            for (Path file : files.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString()
+                            .endsWith(".js"))
+                    .toList()) {
+                result.put(reportDirectory.relativize(file).toString(),
+                        Files.readString(file));
+            }
+        }
+        return result;
     }
 
     private void assertNormalizedRelationCounts(final String impact) {
@@ -868,6 +1054,10 @@ class PerModuleHtmlReportGeneratorTest {
             output.write(content);
             output.closeEntry();
         }
+    }
+
+    private PerModuleHtmlReportGenerator generator() {
+        return new PerModuleHtmlReportGenerator(new DiagnosticLog());
     }
 
     private MavenRuntimeDescriptor maven() {

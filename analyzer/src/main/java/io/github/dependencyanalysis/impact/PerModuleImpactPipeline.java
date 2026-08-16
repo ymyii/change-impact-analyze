@@ -846,7 +846,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                     upgrade.getScope(), upgrade.getModuleId().stableKey());
             final BytecodeDiffEngine engine = resultRefinements.isEnabled(
                     ResultRefinementAlgorithm.SSA_EQUIVALENCE)
-                    ? new BytecodeDiffEngine(kinds, javaRuntime)
+                    ? new BytecodeDiffEngine(
+                            kinds, javaRuntime, diagnostics)
                     : new BytecodeDiffEngine(kinds);
             final BytecodeDiffResult bytecode = engine.diff(
                     change, repository());

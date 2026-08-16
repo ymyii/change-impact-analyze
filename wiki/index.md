@@ -20,7 +20,7 @@ code_refs: []
 ## Features
 
 ### [CLI Preflight and Diagnostics](features/cli-preflight-diagnostics.md)
-- Summary: Console-only五段DiagnosticLog、全局common pool并发上限、QueryNode进度、JAR diff汇总、`-vv` Runtime Metrics与显式topology JSON边界。
+- Summary: Console-only五段DiagnosticLog、全局common pool并发上限、QueryNode进度、JAR diff汇总、`-vv` SSA method审计与Runtime Metrics、显式topology JSON边界。
 
 ### [Maven Runtime](features/maven-runtime.md)
 - Summary: 用户 executable、跨平台内嵌 Maven 3.6.3、两个独立 repository ZIP，以及 Stable/Snapshot 分离 cache 与 command-scoped settings。
@@ -44,7 +44,7 @@ code_refs: []
 - Summary: `ArtifactCoord` 是 dependency JAR logical identity；repository deterministic 选择 Resolver binding，并以 tracked `JarLease` 隔离 physical handle。
 
 ### [Bytecode Diff Engine](features/bytecode-diff-engine.md)
-- Summary: logical coordinate pair经repository lease并行去重Diff；跨class major的method body在ChangePoint收集期执行normalized SSA filtering，结果与证据共享给关联Module。
+- Summary: logical coordinate pair经repository lease并行去重Diff；跨class major的method body执行normalized SSA filtering，`-vv`为retained结果输出old/new bytecode与IR审计。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
 - Summary: 正式CHA与experimental `k-obj`按strategy隔离；canonical SCC topology utility由cycle识别和Impact root selection复用。
@@ -56,7 +56,7 @@ code_refs: []
 - Summary: ChangePoint收集期SSA与query期CHA local receiver分阶段执行；reverse slice按root SCC生成确定性最短Impact Path，不保留candidate/final双模型。
 
 ### [Report Generator](features/report-generator.md)
-- Summary: Impact/Structural Affected Paths采用unique entities加ID relations；报告展示ChangePoint收集期SSA证据，code comparison通过`common` pool并发生成。
+- Summary: Impact/Structural Affected Paths采用Schema 3 unique entities、4 MiB离线分片与按需查询；报告展示SSA证据，code comparison通过`common` pool并发生成。
 
 ## Rules
 

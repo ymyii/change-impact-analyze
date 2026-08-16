@@ -1,6 +1,7 @@
 package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.bytecode.DecompiledMethod;
+import io.github.dependencyanalysis.bytecode.MethodBytecodeTextRenderer;
 import io.github.dependencyanalysis.bytecode.MethodBodyDecompiler;
 import io.github.dependencyanalysis.callgraph.topology.CallGraphMethodIdentity;
 import io.github.dependencyanalysis.callgraph.scope.ClassOwnership;
@@ -13,17 +14,8 @@ import io.github.dependencyanalysis.jar.IJarRepository;
 import io.github.dependencyanalysis.jar.JarLease;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 
-import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.tree.ClassNode;
-import org.objectweb.asm.tree.MethodNode;
-import org.objectweb.asm.util.Textifier;
-import org.objectweb.asm.util.TraceMethodVisitor;
-
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -175,18 +167,8 @@ final class CallGraphMethodSourceBuilder {
             final String owner,
             final String name,
             final String descriptor) throws IOException {
-        final ClassNode node = new ClassNode(Opcodes.ASM9);
-        new ClassReader(readClass(classpathEntry, owner)).accept(node, 0);
-        for (MethodNode method : node.methods) {
-            if (name.equals(method.name) && descriptor.equals(method.desc)) {
-                final Textifier printer = new Textifier();
-                method.accept(new TraceMethodVisitor(printer));
-                final StringWriter output = new StringWriter();
-                printer.print(new PrintWriter(output));
-                return output.toString();
-            }
-        }
-        throw new IOException("Method not found: " + name + descriptor);
+        return MethodBytecodeTextRenderer.render(
+                readClass(classpathEntry, owner), name, descriptor);
     }
 
     private byte[] readClass(

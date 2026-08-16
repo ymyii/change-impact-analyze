@@ -134,6 +134,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - 每个Module的`impact-query` INFO start在planning前输出并包含`changes/evidenceBindings`；planning完成后的DEBUG包含`seeds/queryNodes/workers`。该Stage的开始、完成与失败不携带Phase。`-vv` QueryNode事件使用`query-node-started|progress|completed`，第五段按当前算法活动携带`REVERSE_BFS`、`PATH_MATERIALIZATION`或`REPRESENTATIVE_SELECTION` Phase；message只携带stable ordinal、Evidence seed数、elapsed、recent node和QueryNode-local visited，不重复`phase=`。
 - JAR diff aggregate INFO completion包含成功logical pair的唯一`changes`总数、logical `pairs`、`failedPairs`与实际`workers`；空diff固定输出`changes=0; pairs=0; failedPairs=0; workers=0`。
 - 每个logical JAR pair的DEBUG completion输出`rawChanges/changes/ssaEligible/ssaMatchedSuppressed/ssaDifferentRetained/ssaUnknownRetained/ssaElapsedMillis`；同一pair绑定多个Module不重复比较或重复计入pair日志。
+- `-vv`对SSA `DIFFERENT`与`UNKNOWN`输出原子多行审计块：Stage为`jar-diff`、substage为`ssa-equivalence-audit`，第五段携带artifact与可搜索method identity；正文固定包含retention、status、reason、hash、class version、耗时及old/new bytecode、原始IR、normalized IR六段。`MATCHED`、INFO与DEBUG不构建该文本。
 
 示例：
 
@@ -158,6 +159,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - Given单个JAR pair抛出`BytecodeDiffException`；When使用INFO；Then同pair WARN包含异常类型与完整message，其他pair继续执行。
 - Given同一failure使用DEBUG或TRACE；When输出诊断；Then完整stack与cause chain逐行携带同一pair prefix，且HTML不包含该内容。
 - Given默认未传result refinement option；When解析Impact CLI；Thenselection为`ssa-equivalence`。Given显式`none`；Thenselection为空且不执行SSA filtering。
+- Given SSA结果为`DIFFERENT`或`UNKNOWN`且verbosity为TRACE；When输出审计；Then一个method的全部物理行具有相同artifact/method identity且不与其他并发method块交错。Given任一审计section不可用；Then输出稳定unavailable reason且不改变ChangePoint。
 
 ### Non-Functional
 

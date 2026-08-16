@@ -69,6 +69,19 @@ final class NormalizedSsaComparator {
         }
     }
 
+    /**
+     * Renders the canonical normalized method used by this comparator.
+     *
+     * @param ir WALA IR
+     * @return deterministic normalized text
+     */
+    String renderNormalized(final IR ir) {
+        if (ir == null) {
+            throw new UnsupportedSsaException("IR_MISSING");
+        }
+        return normalize(ir).render();
+    }
+
     private SsaComparisonOutcome unknown(final String reason) {
         return new SsaComparisonOutcome(SsaComparisonStatus.UNKNOWN, reason);
     }
@@ -369,6 +382,21 @@ final class NormalizedSsaComparator {
     private record NormalizedMethod(
             List<String> instructions,
             List<String> blocks) {
+
+        String render() {
+            final StringBuilder result = new StringBuilder();
+            result.append("instructions:\n");
+            for (int index = 0; index < instructions.size(); index++) {
+                result.append('I').append(index).append('=')
+                        .append(instructions.get(index)).append('\n');
+            }
+            result.append("blocks:\n");
+            for (int index = 0; index < blocks.size(); index++) {
+                result.append('B').append(index).append('=')
+                        .append(blocks.get(index)).append('\n');
+            }
+            return result.toString();
+        }
     }
 
     /**

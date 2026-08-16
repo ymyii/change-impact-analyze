@@ -4,6 +4,8 @@ import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.ChangeType;
 import io.github.dependencyanalysis.dependency.DependencyChange;
 import io.github.dependencyanalysis.dependency.DependencyScope;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
+import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis.jar.IJarRepository;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 import io.github.dependencyanalysis.runtime.JavaRuntimeProbe;
@@ -17,6 +19,9 @@ import org.objectweb.asm.Opcodes;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -911,10 +916,109 @@ class BytecodeDiffEngineTest {
                 .containsExactly(SsaComparisonStatus.UNKNOWN);
     }
 
+    @Test
+    void traceAuditsDifferentRetainedMethodWithAllRepresentations()
+            throws Exception {
+        final Path oldJar = createSsaJar("ssa-audit-old.jar",
+                classWithStaticIntMethod(Opcodes.V1_5, 1, false));
+        final Path newJar = createSsaJar("ssa-audit-new.jar",
+                classWithStaticIntMethod(Opcodes.V1_6, 2, false));
+        final ByteArrayOutputStream output = new ByteArrayOutputStream();
+        final DiagnosticLog log = new DiagnosticLog(new PrintStream(
+                output, true, StandardCharsets.UTF_8), LogVerbosity.TRACE);
+
+        diffResult(ssaEngine(javaRuntime(), log), oldJar, newJar);
+
+        final String audit = output.toString(StandardCharsets.UTF_8);
+        final String method = "method=example.CompilerLayout#value()I";
+        assertThat(audit)
+                .contains("[jar-diff][ssa-equivalence-audit]")
+                .contains("artifact=g:a:jar:1.0->g:a:jar:2.0")
+                .contains(method)
+                .contains("retention=ssaDifferentRetained")
+                .contains("status=DIFFERENT")
+                .contains("section=old-bytecode; begin")
+                .contains("section=new-bytecode; begin")
+                .contains("section=old-ir; begin")
+                .contains("section=new-ir; begin")
+                .contains("section=old-normalized-ir; begin")
+                .contains("section=new-normalized-ir; begin")
+                .contains("ICONST_1", "ICONST_2", "instructions:",
+                        "blocks:");
+        assertThat(audit.lines().filter(line -> line.contains(
+                "[ssa-equivalence-audit]")).toList())
+                .allMatch(line -> line.contains(method));
+    }
+
+    @Test
+    void traceAuditsUnknownWithUnavailableIrAndAvailableBytecode()
+            throws Exception {
+        final Path oldJar = createSsaJar("ssa-audit-unknown-old.jar",
+                classWithStaticIntMethod(Opcodes.V1_5, 1, false));
+        final Path newJar = createSsaJar("ssa-audit-unknown-new.jar",
+                classWithStaticIntMethod(Opcodes.V1_6, 1, true));
+        final JavaRuntimeDescriptor unavailable = new JavaRuntimeDescriptor(
+                tempDir, tempDir, "1.8-test", 8, List.of(), List.of());
+        final ByteArrayOutputStream output = new ByteArrayOutputStream();
+        final DiagnosticLog log = new DiagnosticLog(new PrintStream(
+                output, true, StandardCharsets.UTF_8), LogVerbosity.TRACE);
+
+        diffResult(ssaEngine(unavailable, log), oldJar, newJar);
+
+        assertThat(output.toString(StandardCharsets.UTF_8))
+                .contains("retention=ssaUnknownRetained")
+                .contains("status=UNKNOWN")
+                .contains("section=old-bytecode; begin", "ICONST_1")
+                .contains("section=old-ir; begin")
+                .contains("<unavailable reason=SSA_SESSION_FAILED:")
+                .contains("section=new-normalized-ir; end");
+    }
+
+    @Test
+    void nonTraceAndMatchedComparisonsDoNotEmitAuditBlocks()
+            throws Exception {
+        final Path oldJar = createSsaJar("ssa-no-audit-old.jar",
+                classWithStaticIntMethod(Opcodes.V1_5, 1, false));
+        final Path differentJar = createSsaJar("ssa-no-audit-new.jar",
+                classWithStaticIntMethod(Opcodes.V1_6, 2, false));
+        final ByteArrayOutputStream debugOutput = new ByteArrayOutputStream();
+        final DiagnosticLog debug = new DiagnosticLog(new PrintStream(
+                debugOutput, true, StandardCharsets.UTF_8),
+                LogVerbosity.DEBUG);
+        diffResult(ssaEngine(javaRuntime(), debug), oldJar, differentJar);
+        assertThat(debugOutput.toString(StandardCharsets.UTF_8))
+                .doesNotContain("ssa-equivalence-audit");
+
+        final ByteArrayOutputStream infoOutput = new ByteArrayOutputStream();
+        final DiagnosticLog info = new DiagnosticLog(new PrintStream(
+                infoOutput, true, StandardCharsets.UTF_8),
+                LogVerbosity.INFO);
+        diffResult(ssaEngine(javaRuntime(), info), oldJar, differentJar);
+        assertThat(infoOutput.toString(StandardCharsets.UTF_8))
+                .doesNotContain("ssa-equivalence-audit");
+
+        final Path matchedJar = createSsaJar("ssa-matched-audit-new.jar",
+                classWithStaticIntMethod(Opcodes.V1_6, 1, true));
+        final ByteArrayOutputStream traceOutput = new ByteArrayOutputStream();
+        final DiagnosticLog trace = new DiagnosticLog(new PrintStream(
+                traceOutput, true, StandardCharsets.UTF_8),
+                LogVerbosity.TRACE);
+        diffResult(ssaEngine(javaRuntime(), trace), oldJar, matchedJar);
+        assertThat(traceOutput.toString(StandardCharsets.UTF_8))
+                .doesNotContain("ssa-equivalence-audit");
+    }
+
     private BytecodeDiffEngine ssaEngine(
             final JavaRuntimeDescriptor runtime) {
+        return ssaEngine(runtime, new DiagnosticLog());
+    }
+
+    private BytecodeDiffEngine ssaEngine(
+            final JavaRuntimeDescriptor runtime,
+            final DiagnosticLog diagnostics) {
         return new BytecodeDiffEngine(
-                Set.of(ChangePointKind.METHOD_BODY_CHANGED), runtime);
+                Set.of(ChangePointKind.METHOD_BODY_CHANGED), runtime,
+                diagnostics);
     }
 
     private JavaRuntimeDescriptor javaRuntime() {

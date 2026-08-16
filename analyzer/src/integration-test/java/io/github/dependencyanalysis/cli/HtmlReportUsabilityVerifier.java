@@ -22,6 +22,16 @@ final class HtmlReportUsabilityVerifier {
     private static final Pattern RESOURCE = Pattern.compile(
             "(?is)\\b(?:href|src)\\s*=\\s*([\"'])(.*?)\\1");
 
+    /** Affected Paths manifest local shard matcher. */
+    private static final Pattern SHARD_RESOURCE = Pattern.compile(
+            "\\\"file\\\":\\\"([^\\\"]+\\.js)\\\"");
+
+    /** Canonical Schema 3 shard header matcher. */
+    private static final Pattern SHARD_HEADER = Pattern.compile(
+            "^window\\.__CIA_AFFECTED_PATH_SHARD__\\(\\{"
+            + "\\\"schemaVersion\\\":3,\\\"kind\\\":\\\"([a-z]+)\\\","
+            + "\\\"shardId\\\":([0-9]+),\\\"records\\\":\\[");
+
     /** Non-empty title matcher. */
     private static final Pattern TITLE = Pattern.compile(
             "(?is)<title(?:\\s[^>]*)?>(.*?)</title>");
@@ -90,6 +100,17 @@ final class HtmlReportUsabilityVerifier {
                     pending.add(target);
                 }
             }
+            final Matcher shards = SHARD_RESOURCE.matcher(html);
+            while (shards.find()) {
+                final String reference = shards.group(1);
+                final Path target = resolve(page, reference);
+                assertThat(target).as("Affected Paths shard from %s: %s",
+                        page, reference).startsWith(root);
+                assertThat(target).as("Affected Paths shard from %s: %s",
+                        page, reference).isRegularFile().isReadable();
+                verifyShard(target, Files.readString(
+                        target, StandardCharsets.UTF_8));
+            }
         }
         if (requireLinkedPage) {
             assertThat(visited).as("reachable Tree HTML pages").hasSizeGreaterThan(1);
@@ -119,13 +140,13 @@ final class HtmlReportUsabilityVerifier {
             assertThat(html).as("HTML Diagnostics removed from %s", page)
                     .doesNotContain("id=\"diagnostics\"");
         }
-        if (html.contains("id=\"affected-path-data\"")) {
+        if (html.contains("id=\"affected-path-manifest\"")) {
             assertThat(html).as("Affected Paths contract in %s", page)
                     .contains("id=\"path-table\"")
-                    .contains("\"dependencyUpgrades\"")
-                    .contains("\"changedMembers\"")
-                    .contains("\"pathSteps\"")
-                    .contains("\"pathMemberRows\"")
+                    .contains("\"schemaVersion\":3")
+                    .contains("\"rowRanges\"")
+                    .contains("\"shards\"")
+                    .contains("__CIA_AFFECTED_PATH_SHARD__")
                     .contains("position:sticky")
                     .contains(".table-scroll")
                     .contains(".badge")
@@ -139,6 +160,23 @@ final class HtmlReportUsabilityVerifier {
                     .contains("id=\"member-page-size\"")
                     .contains("aria-live=\"polite\"");
         }
+    }
+
+    private static void verifyShard(
+            final Path file,
+            final String content) {
+        final Matcher header = SHARD_HEADER.matcher(content);
+        assertThat(header.find()).as("Schema 3 header in %s", file)
+                .isTrue();
+        final String expectedName = header.group(1) + "-" + String.format(
+                Locale.ROOT, "%05d", Integer.parseInt(header.group(2)))
+                + ".js";
+        assertThat(file.getFileName().toString()).as(file.toString())
+                .isEqualTo(expectedName);
+        assertThat(content).as(file.toString())
+                .startsWith("window.__CIA_AFFECTED_PATH_SHARD__(")
+                .contains("\"records\":[")
+                .endsWith("]});\n");
     }
 
     private static boolean ignored(final String reference) {

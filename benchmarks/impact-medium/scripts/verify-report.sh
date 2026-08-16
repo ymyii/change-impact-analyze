@@ -86,7 +86,8 @@ case "$dependency_scope" in
         ExternalGrandParent grandMethod \
         ExternalContract interfaceMethod \
         AncestorRetentionUseCase abstractMethod; do
-      grep -q "$retained_method" "$module_dir"/*-impact.html \
+      grep -R -q --include='*-impact.html' --include='*.js' \
+        "$retained_method" "$module_dir" \
         || fail "CHA ancestor-retained path element is missing: $retained_method"
     done
     grep -q 'path-a.*path-c.*scenario-api:jar:2.0.0' \
@@ -128,22 +129,30 @@ grep -F -q "<th>Requested dependency scope</th><td>$dependency_scope</td>" "$rep
   || fail "dependency scope does not match requested $dependency_scope"
 grep -F -q "<th>JDK method model</th><td>$jdk_model</td>" "$report" \
   || fail "JDK method model does not match requested $jdk_model"
-grep -q 'RecursiveCallUseCase' "$module_dir"/*-impact.html \
+grep -R -q --include='*-impact.html' --include='*.js' \
+  'RecursiveCallUseCase' "$module_dir" \
   || fail "recursive call impact chain is missing"
-grep -q 'Structural reference chains' "$module_dir"/*-impact.html \
+grep -R -q --include='*-impact.html' --include='*.js' \
+  'Structural reference chains' "$module_dir" \
   || fail "structural reference chain is missing"
-grep -q 'CLASS_FOR_NAME_LOCAL_CONSTANT' "$module_dir"/*-impact.html \
+grep -R -q --include='*-impact.html' --include='*.js' \
+  'CLASS_FOR_NAME_LOCAL_CONSTANT' "$module_dir" \
   || fail "Class.forName local-constant evidence is missing"
-grep -q 'SERVICE_LOADER_PROVIDER' "$module_dir"/*-impact.html \
+grep -R -q --include='*-impact.html' --include='*.js' \
+  'SERVICE_LOADER_PROVIDER' "$module_dir" \
   || fail "ServiceLoader provider evidence is missing"
 if [ "$algorithm" = cha ]; then
-  grep -q 'ObjectDispatchUseCase' "$module_dir"/*-impact.html \
+  grep -R -q --include='*-impact.html' --include='*.js' \
+    'ObjectDispatchUseCase' "$module_dir" \
     || fail "CHA Object dispatch Diff-related path is missing"
-  grep -q 'hashCode' "$module_dir"/*-impact.html \
+  grep -R -q --include='*-impact.html' --include='*.js' \
+    'hashCode' "$module_dir" \
     || fail "CHA Object.hashCode Diff-related path is missing"
-  grep -q 'toString' "$module_dir"/*-impact.html \
+  grep -R -q --include='*-impact.html' --include='*.js' \
+    'toString' "$module_dir" \
     || fail "CHA Object.toString Diff-related path is missing"
-  ! grep -q 'UnrelatedObjectOverride' "$module_dir"/*-impact.html \
+  ! grep -R -q --include='*-impact.html' --include='*.js' \
+    'UnrelatedObjectOverride' "$module_dir" \
     || fail "CHA unrelated Object override entered impact paths"
   grep -q 'CLASS_FOR_NAME_LOCAL_CONSTANT_UNRESOLVED' "$module_dir"/*.html \
     || fail "unsupported Class.forName limitation is missing"
@@ -166,9 +175,11 @@ case ",$result_refinements," in
   *,cha-local-receiver-inference,*)
     grep -q '<th>CHA local receiver inference</th><td>applied (experimental)</td>' "$report" \
       || fail "CHA local receiver inference applied state is missing"
-    grep -q 'ChaLocalReceiverUseCase\$ChangedReceiver' "$module_dir"/*-impact.html \
+    grep -R -q --include='*-impact.html' --include='*.js' \
+      'ChaLocalReceiverUseCase\$ChangedReceiver' "$module_dir" \
       || fail "ChangedReceiver impact path is missing"
-    ! grep -q 'unrelatedReceiverPath' "$module_dir"/*-impact.html \
+    ! grep -R -q --include='*-impact.html' --include='*.js' \
+      'unrelatedReceiverPath' "$module_dir" \
       || fail "infeasible unrelated receiver caller remains in impact paths"
     grep -E -q '<th>CHA receiver edges checked / pruned / unknown</th><td>[0-9]+ / [1-9][0-9]* / [0-9]+</td>' "$module_dir"/*.html \
       || fail "CHA local receiver pruned-edge count is missing"

@@ -377,7 +377,7 @@ public final class ImpactCommand
         diagnostics.startStage(reportContext,
                 "path=" + reportPath);
         try {
-            new PerModuleHtmlReportGenerator().generate(
+            new PerModuleHtmlReportGenerator(diagnostics).generate(
                     result, report, mavenRuntime, pluginRuntime,
                     targetJava, output.toPath());
             diagnostics.endStage(reportContext,

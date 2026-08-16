@@ -2,9 +2,6 @@ package io.github.dependencyanalysis.report;
 
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.core.SerializableString;
-import com.fasterxml.jackson.core.io.CharacterEscapes;
-import com.fasterxml.jackson.core.io.SerializedString;
 
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.SsaComparisonEvidence;
@@ -15,9 +12,9 @@ import io.github.dependencyanalysis.callgraph.scope.ClassOwnership;
 import io.github.dependencyanalysis.callgraph.scope.DuplicateClassResolution;
 import io.github.dependencyanalysis.callgraph.model.MethodId;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.impact.AnalysisRunResult;
 import io.github.dependencyanalysis.impact.BoundChangePoint;
-import io.github.dependencyanalysis.impact.CodeComparisonEvidence;
 import io.github.dependencyanalysis.impact.ChangePointDisposition;
 import io.github.dependencyanalysis.impact.DependencyBoundarySnapshot;
 import io.github.dependencyanalysis.impact.DependencyUpgradeKey;
@@ -49,10 +46,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /** Atomically publishes the English multi-page Impact HTML report. */
@@ -64,14 +59,18 @@ public final class PerModuleHtmlReportGenerator {
     /** Stable hash prefix length. */
     private static final int HASH_LENGTH = 12;
 
-    /** Unicode line separator escaped inside embedded JSON. */
-    private static final int LINE_SEPARATOR = 0x2028;
 
-    /** Unicode paragraph separator escaped inside embedded JSON. */
-    private static final int PARAGRAPH_SEPARATOR = 0x2029;
+    /** Four MiB target limit for one browser data shard. */
+    private static final int MAX_SHARD_BYTES = 4 * 1024 * 1024;
 
     /** Script-safe JSON writer for browser-resident report data. */
-    private static final JsonFactory JSON = jsonFactory();
+    private static final JsonFactory JSON = ScriptSafeJson.factory();
+
+    /** Command diagnostic destination. */
+    private final DiagnosticLog diagnostics;
+
+    /** Browser data shard target limit. */
+    private final int maxShardBytes;
 
     /** Inlined offline Affected Paths interaction script. */
     private static final String AFFECTED_PATHS_SCRIPT = resource(
@@ -168,6 +167,27 @@ public final class PerModuleHtmlReportGenerator {
             + "header{padding:12px 14px}section{padding:13px}"
             + ".table-scroll{max-width:100%}}";
 
+    /** @param log command diagnostic destination */
+    public PerModuleHtmlReportGenerator(final DiagnosticLog log) {
+        this(log, MAX_SHARD_BYTES);
+    }
+
+    /**
+     * Package-private constructor with a test shard limit.
+     *
+     * @param log command diagnostic destination
+     * @param shardBytes maximum target bytes for one normal shard
+     */
+    PerModuleHtmlReportGenerator(
+            final DiagnosticLog log,
+            final int shardBytes) {
+        diagnostics = java.util.Objects.requireNonNull(log, "log");
+        if (shardBytes <= 0) {
+            throw new IllegalArgumentException("shardBytes must be positive");
+        }
+        maxShardBytes = shardBytes;
+    }
+
     /**
      * Writes pages to staging and atomically replaces command-owned output.
      *
@@ -233,10 +253,16 @@ public final class PerModuleHtmlReportGenerator {
             final String base = moduleBase(module);
             final ModulePages pages = new ModulePages(
                     base + ".html", base + "-impact.html");
+            final String dataDirectoryName = base + "-impact-data";
+            final AffectedPathReportManifest manifest =
+                    new AffectedPathReportDataWriter(
+                            diagnostics, maxShardBytes).write(
+                            module, directory.resolve(dataDirectoryName),
+                            dataDirectoryName);
             writeModuleIndexPage(directory.resolve(pages.index()), module,
                     pages, overallFile, runtime);
             writeImpactPage(directory.resolve(pages.impact()), module,
-                    pages, overallFile);
+                    pages, overallFile, manifest);
             result.put(module, pages);
         }
         return result;
@@ -863,7 +889,8 @@ public final class PerModuleHtmlReportGenerator {
             final Path target,
             final ModuleAnalysisResult module,
             final ModulePages pages,
-            final String overallFile) throws IOException {
+            final String overallFile,
+            final AffectedPathReportManifest manifest) throws IOException {
         writeDocument(target, "Affected Paths", "Affected Paths",
                 breadcrumbs(overallFile, module, pages.impact(),
                         "Affected Paths"),
@@ -916,159 +943,12 @@ public final class PerModuleHtmlReportGenerator {
                 .append("Affected path browsing requires JavaScript. ")
                 .append("Summary counts remain available on Module Index.")
                 .append("</p></noscript></section>")
-                .append("<script id=\"affected-path-data\" ")
+                .append("<script id=\"affected-path-manifest\" ")
                 .append("type=\"application/json\">");
-        writeImpactData(body, module);
+        body.append(manifest.toJson());
         body.append("</script><script>")
                 .append(AFFECTED_PATHS_SCRIPT).append("</script>");
         });
-    }
-
-    private void writeImpactData(
-            final HtmlSink body,
-            final ModuleAnalysisResult module) {
-        final List<BoundChangePoint> members = pathMembers(module);
-        final Map<BoundChangePoint, Integer> memberIds =
-                new LinkedHashMap<>();
-        for (int index = 0; index < members.size(); index++) {
-            memberIds.put(members.get(index), index);
-        }
-        final List<DependencyUpgradeKey> dependencies = members.stream()
-                .map(BoundChangePoint::getDependencyUpgradeKey).distinct()
-                .sorted(Comparator.comparing(DependencyUpgradeKey::stableKey))
-                .toList();
-        final Map<DependencyUpgradeKey, Integer> dependencyIds =
-                new LinkedHashMap<>();
-        for (int index = 0; index < dependencies.size(); index++) {
-            dependencyIds.put(dependencies.get(index), index);
-        }
-        final Map<String, ImpactPath> callPaths = new java.util.TreeMap<>();
-        final Map<String, StructuralReferencePath> structuralPaths =
-                new java.util.TreeMap<>();
-        module.getImpactPaths().forEach(path -> callPaths.putIfAbsent(
-                callPathKey(path), path));
-        module.getStructuralPaths().forEach(path -> structuralPaths
-                .putIfAbsent(structuralPathKey(path), path));
-        final Map<String, Integer> pathIds = new LinkedHashMap<>();
-        callPaths.keySet().forEach(key -> pathIds.put(
-                "call|" + key, pathIds.size()));
-        structuralPaths.keySet().forEach(key -> pathIds.put(
-                "structural|" + key, pathIds.size()));
-        final Map<String, MethodId> methods = new java.util.TreeMap<>();
-        final Map<String, Boolean> projectMethods = new LinkedHashMap<>();
-        callPaths.values().forEach(path -> collectMethods(
-                path.getNodes(), methods, projectMethods));
-        structuralPaths.values().forEach(path -> collectMethods(
-                path.getNodes(), methods, projectMethods));
-        final Map<String, Integer> methodIds = new LinkedHashMap<>();
-        methods.keySet().forEach(key -> methodIds.put(key, methodIds.size()));
-        final Map<BoundChangePoint, Integer> codeDiffIds =
-                new LinkedHashMap<>();
-        for (BoundChangePoint member : members) {
-            if (module.getCodeComparisons().get(member) != null) {
-                codeDiffIds.put(member, codeDiffIds.size());
-            }
-        }
-        try (JsonGenerator json = JSON.createGenerator(body.writer())) {
-            json.disable(JsonGenerator.Feature.AUTO_CLOSE_TARGET);
-            json.writeStartObject();
-            json.writeNumberField("schemaVersion", 2);
-            json.writeArrayFieldStart("dependencyUpgrades");
-            for (int index = 0; index < dependencies.size(); index++) {
-                writeDependencyData(json, dependencies.get(index), index);
-            }
-            json.writeEndArray();
-            json.writeArrayFieldStart("changedMembers");
-            for (int index = 0; index < members.size(); index++) {
-                writeChangedMemberData(json, members.get(index), index,
-                        dependencyIds.get(members.get(index)
-                                .getDependencyUpgradeKey()),
-                        codeDiffIds.get(members.get(index)));
-            }
-            json.writeEndArray();
-            json.writeArrayFieldStart("methods");
-            for (Map.Entry<String, MethodId> entry : methods.entrySet()) {
-                json.writeStartObject();
-                json.writeNumberField("id", methodIds.get(entry.getKey()));
-                json.writeStringField("label", humanMethod(entry.getValue()));
-                json.writeBooleanField("project",
-                        projectMethods.getOrDefault(entry.getKey(), false));
-                json.writeEndObject();
-            }
-            json.writeEndArray();
-            json.writeArrayFieldStart("paths");
-            for (Map.Entry<String, ImpactPath> entry
-                    : callPaths.entrySet()) {
-                final ImpactPath path = entry.getValue();
-                json.writeStartObject();
-                json.writeNumberField("id", pathIds.get(
-                        "call|" + entry.getKey()));
-                json.writeStringField("classification",
-                        path.getClassification().name());
-                json.writeStringField("rootKind",
-                        path.getRootKind().name());
-                json.writeBooleanField("cycle", path.getRootKind()
-                        == io.github.dependencyanalysis.impact
-                        .ImpactPathRootKind.STRONGLY_CONNECTED_COMPONENT);
-                json.writeEndObject();
-            }
-            json.writeEndArray();
-            json.writeArrayFieldStart("structuralPaths");
-            for (Map.Entry<String, StructuralReferencePath> entry
-                    : structuralPaths.entrySet()) {
-                final StructuralReferencePath path = entry.getValue();
-                json.writeStartObject();
-                json.writeNumberField("id", pathIds.get(
-                        "structural|" + entry.getKey()));
-                json.writeStringField("classification",
-                        path.getClassification().name());
-                json.writeStringField("applicationMember",
-                        structuralOwner(path));
-                json.writeStringField("relation",
-                        path.getReference().getKind().getLabel());
-                json.writeStringField("changedClass", path.getReference()
-                        .getChangedClass().replace('/', '.'));
-                json.writeEndObject();
-            }
-            json.writeEndArray();
-            json.writeArrayFieldStart("pathSteps");
-            for (Map.Entry<String, ImpactPath> entry
-                    : callPaths.entrySet()) {
-                writePathSteps(json, pathIds.get("call|" + entry.getKey()),
-                        entry.getValue().getNodes(), methodIds);
-            }
-            for (Map.Entry<String, StructuralReferencePath> entry
-                    : structuralPaths.entrySet()) {
-                writePathSteps(json, pathIds.get(
-                        "structural|" + entry.getKey()),
-                        entry.getValue().getNodes(), methodIds);
-            }
-            json.writeEndArray();
-            json.writeArrayFieldStart("codeDiffs");
-            for (Map.Entry<BoundChangePoint, Integer> entry
-                    : codeDiffIds.entrySet()) {
-                writeCodeDiffData(json, entry.getValue(), module
-                        .getCodeComparisons().get(entry.getKey()));
-            }
-            json.writeEndArray();
-            json.writeArrayFieldStart("pathMemberRows");
-            writePathMemberRows(json, module, memberIds, pathIds);
-            json.writeEndArray();
-            json.writeEndObject();
-        } catch (IOException exception) {
-            throw new UncheckedIOException(exception);
-        }
-    }
-
-    private List<BoundChangePoint> pathMembers(
-            final ModuleAnalysisResult module) {
-        final Set<BoundChangePoint> points = new LinkedHashSet<>();
-        module.getImpactPaths().forEach(path -> points.add(
-                path.getTerminal().getChangePoint()));
-        module.getStructuralPaths().forEach(path -> points.add(
-                path.getChangePoint()));
-        return points.stream().sorted(Comparator.comparing(
-                BoundChangePoint::stableKey)).toList();
     }
 
     private void writeDependencyData(
@@ -1104,98 +984,6 @@ public final class PerModuleHtmlReportGenerator {
             json.writeNumberField("codeDiffId", codeDiffId);
         }
         json.writeEndObject();
-    }
-
-    private void collectMethods(
-            final List<QueryNode> nodes,
-            final Map<String, MethodId> methods,
-            final Map<String, Boolean> projectMethods) {
-        for (QueryNode node : nodes) {
-            final String key = methodKey(node.methodId());
-            methods.putIfAbsent(key, node.methodId());
-            projectMethods.merge(key, node.origin()
-                    == io.github.dependencyanalysis.callgraph.model
-                    .CodeOrigin.PROJECT, Boolean::logicalOr);
-        }
-    }
-
-    private void writePathSteps(
-            final JsonGenerator json,
-            final int pathId,
-            final List<QueryNode> nodes,
-            final Map<String, Integer> methodIds) throws IOException {
-        for (int ordinal = 0; ordinal < nodes.size(); ordinal++) {
-            json.writeStartObject();
-            json.writeNumberField("pathId", pathId);
-            json.writeNumberField("ordinal", ordinal);
-            json.writeNumberField("methodId", methodIds.get(
-                    methodKey(nodes.get(ordinal).methodId())));
-            json.writeEndObject();
-        }
-    }
-
-    private void writeCodeDiffData(
-            final JsonGenerator json,
-            final int codeDiffId,
-            final CodeComparisonEvidence comparison) throws IOException {
-        json.writeStartObject();
-        json.writeNumberField("id", codeDiffId);
-        json.writeStringField("status", comparison.getStatus().name());
-        json.writeStringField("unifiedDiff",
-                comparison.getStatus()
-                        == io.github.dependencyanalysis.impact
-                        .CodeComparisonStatus.AVAILABLE
-                        ? comparison.getUnifiedDiff() : "");
-        json.writeEndObject();
-    }
-
-    private void writePathMemberRows(
-            final JsonGenerator json,
-            final ModuleAnalysisResult module,
-            final Map<BoundChangePoint, Integer> memberIds,
-            final Map<String, Integer> pathIds) throws IOException {
-        final Set<String> rows = new java.util.TreeSet<>();
-        for (ImpactPath path : module.getImpactPaths()) {
-            rows.add(pathIds.get("call|" + callPathKey(path)) + "|"
-                    + memberIds.get(path.getTerminal().getChangePoint()));
-        }
-        for (StructuralReferencePath path : module.getStructuralPaths()) {
-            rows.add(pathIds.get("structural|" + structuralPathKey(path))
-                    + "|" + memberIds.get(path.getChangePoint()));
-        }
-        int rowId = 0;
-        for (String row : rows) {
-            final String[] foreignKeys = row.split("\\|", -1);
-            json.writeStartObject();
-            json.writeNumberField("rowId", rowId++);
-            json.writeNumberField("pathId",
-                    Integer.parseInt(foreignKeys[0]));
-            json.writeNumberField("changedMemberId",
-                    Integer.parseInt(foreignKeys[1]));
-            json.writeEndObject();
-        }
-    }
-
-    private String callPathKey(final ImpactPath path) {
-        return path.getClassification() + "|" + path.getRootKind() + "|"
-                + path.getNodes().stream().map(node -> methodKey(
-                        node.methodId())).collect(
-                                java.util.stream.Collectors.joining("->"));
-    }
-
-    private String structuralPathKey(final StructuralReferencePath path) {
-        return path.getClassification() + "|" + structuralOwner(path) + "|"
-                + path.getReference().getKind() + "|"
-                + path.getReference().getChangedClass() + "|"
-                + path.getNodes().stream().map(node -> methodKey(
-                        node.methodId())).collect(
-                                java.util.stream.Collectors.joining("->"));
-    }
-
-    private String methodKey(final MethodId method) {
-        return method.module() + "|" + method.sourceId() + "|"
-                + method.owner() + "|" + method.name() + "|"
-                + method.descriptor();
     }
 
     private void writeNullableString(
@@ -1798,12 +1586,6 @@ public final class PerModuleHtmlReportGenerator {
         }
     }
 
-    private static JsonFactory jsonFactory() {
-        final JsonFactory result = new JsonFactory();
-        result.setCharacterEscapes(new ScriptSafeCharacterEscapes());
-        return result;
-    }
-
     private void publish(
             final Path staging,
             final Path output,
@@ -1873,38 +1655,6 @@ public final class PerModuleHtmlReportGenerator {
     @FunctionalInterface
     private interface PageBody {
         void write(HtmlSink output);
-    }
-
-    /** Prevents embedded JSON values from terminating the script element. */
-    private static final class ScriptSafeCharacterEscapes
-            extends CharacterEscapes {
-
-        /** Standard JSON escapes plus HTML-sensitive ASCII characters. */
-        private final int[] asciiEscapes;
-
-        ScriptSafeCharacterEscapes() {
-            asciiEscapes = CharacterEscapes.standardAsciiEscapesForJSON();
-            asciiEscapes['<'] = CharacterEscapes.ESCAPE_CUSTOM;
-            asciiEscapes['>'] = CharacterEscapes.ESCAPE_CUSTOM;
-            asciiEscapes['&'] = CharacterEscapes.ESCAPE_CUSTOM;
-        }
-
-        @Override
-        public int[] getEscapeCodesForAscii() {
-            return asciiEscapes;
-        }
-
-        @Override
-        public SerializableString getEscapeSequence(final int character) {
-            return switch (character) {
-                case '<' -> new SerializedString("\\u003c");
-                case '>' -> new SerializedString("\\u003e");
-                case '&' -> new SerializedString("\\u0026");
-                case LINE_SEPARATOR -> new SerializedString("\\u2028");
-                case PARAGRAPH_SEPARATOR -> new SerializedString("\\u2029");
-                default -> null;
-            };
-        }
     }
 
     /** Append facade shared by streaming and small in-memory fragments. */
