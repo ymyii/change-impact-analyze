@@ -160,7 +160,7 @@ public final class ChaDispatchFilteringClassHierarchy
 
     @Override
     public IMethod resolveMethod(final MethodReference reference) {
-        return filter(reference, delegate.resolveMethod(reference));
+        return filter(delegate.resolveMethod(reference));
     }
 
     @Override
@@ -177,16 +177,12 @@ public final class ChaDispatchFilteringClassHierarchy
     @Override
     public IMethod resolveMethod(
             final IClass type, final Selector selector) {
-        final IMethod resolved = delegate.resolveMethod(type, selector);
-        return filter(MethodReference.findOrCreate(
-                type.getReference(), selector), resolved);
+        return filter(delegate.resolveMethod(type, selector));
     }
 
-    private IMethod filter(
-            final MethodReference reference,
-            final IMethod target) {
-        return target == null || !policy.filters(reference)
-                || policy.retains(reference, target) ? target : null;
+    private IMethod filter(final IMethod target) {
+        return target == null || !policy.filters()
+                || policy.retains(target) ? target : null;
     }
 
     @Override

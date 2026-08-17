@@ -1,9 +1,11 @@
 package io.github.dependencyanalysis.callgraph.strategy.cha;
 
-import io.github.dependencyanalysis.impact.ModuleCallGraphInputAdapter;
-
+import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphInput;
 import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.callgraph.scope.CallGraphDependencyScope;
 import io.github.dependencyanalysis.callgraph.scope.ClassOwnershipIndex;
+import io.github.dependencyanalysis.callgraph.scope.DependencyBodyPolicy;
+import io.github.dependencyanalysis.callgraph.scope.DependencyScopeMode;
 
 import com.ibm.wala.classLoader.IClass;
 import com.ibm.wala.classLoader.IClassLoader;
@@ -13,19 +15,7 @@ import com.ibm.wala.types.ClassLoaderReference;
 import com.ibm.wala.types.MethodReference;
 import com.ibm.wala.types.TypeReference;
 
-import io.github.dependencyanalysis.bytecode.AccessTransition;
-import io.github.dependencyanalysis.bytecode.ChangePoint;
-import io.github.dependencyanalysis.bytecode.ChangePointKind;
-import io.github.dependencyanalysis.bytecode.JvmAccess;
-import io.github.dependencyanalysis.bytecode.MemberDescriptors;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
-import io.github.dependencyanalysis.dependency.DependencyScope;
-import io.github.dependencyanalysis.impact.BoundChangePoint;
-import io.github.dependencyanalysis.impact.DependencyUpgradeKey;
-import io.github.dependencyanalysis.impact.ModuleAnalysisUnit;
-import io.github.dependencyanalysis.impact.ModuleChangeSet;
-import io.github.dependencyanalysis.impact.ModuleId;
-import io.github.dependencyanalysis.impact.ModulePresence;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -36,6 +26,7 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -45,7 +36,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Tests Diff-directed CHA filtering before target node expansion. */
+/** Tests CHA JDK-declared and external target filtering. */
 class ChaDispatchFilteringClassHierarchyTest {
 
     /** Expected JDK-declared targets removed by the dispatch fixture. */
@@ -56,142 +47,106 @@ class ChaDispatchFilteringClassHierarchyTest {
     private Path temporary;
 
     @Test
-    void filtersExactObjectDispatchAndRetainsRequiredTargets()
-            throws Exception {
-        final ArtifactCoord changed = artifact("changed", "2");
-        final ArtifactCoord unrelated = artifact("unrelated", "2");
-        final ClassOwnershipIndex ownership = ownership(Map.of(
-                changed, List.of("external/Changed", "external/Added"),
-                unrelated, List.of("external/Unrelated")));
-        final ModuleAnalysisUnit unit = unit(List.of(
-                bodyChanged(changed, "external/Changed", "toString",
-                        "()Ljava/lang/String;"),
-                accessNarrowed(changed, "external/Changed", "hashCode",
-                        "()I"),
-                added(changed, "external/Added", "toString",
-                        "()Ljava/lang/String;")));
-        final IMethod objectMethod = method(TypeReference.JavaLangObject,
-                "toString", "()Ljava/lang/String;", false);
-        final IMethod projectMethod = method(application("project/Value"),
-                "toString", "()Ljava/lang/String;", false);
-        final IMethod reactorMethod = method(application("reactor/Value"),
-                "toString", "()Ljava/lang/String;", false);
-        final IMethod changedMethod = method(application("external/Changed"),
-                "toString", "()Ljava/lang/String;", false);
-        final IMethod unrelatedMethod = method(
-                application("external/Unrelated"), "toString",
-                "()Ljava/lang/String;", false);
-        final IMethod addedMethod = method(application("external/Added"),
-                "toString", "()Ljava/lang/String;", false);
-        final IMethod stringMethod = method(TypeReference.JavaLangString,
-                "toString", "()Ljava/lang/String;", false);
-        final IMethod syntheticMethod = method(
-                application("synthetic/Lambda"), "toString",
-                "()Ljava/lang/String;", true);
-        final MethodReference reference = MethodReference.findOrCreate(
+    void objectSelectorsUseGenericJdkDeclaredBoundary() {
+        final MethodReference objectToString = MethodReference.findOrCreate(
                 TypeReference.JavaLangObject, "toString",
                 "()Ljava/lang/String;");
-        final AtomicInteger clears = new AtomicInteger();
-        final IClass receiver = objectMethod.getDeclaringClass();
-        final Set<IMethod> candidates = linkedSet(stringMethod,
-                unrelatedMethod, changedMethod, addedMethod, reactorMethod,
-                projectMethod, objectMethod, syntheticMethod);
-        final HierarchyFixture fixture = hierarchy(reference, receiver,
-                candidates, clears);
-        final IClassHierarchy filtered = new
-                ChaDispatchFilteringClassHierarchy(fixture.hierarchy(),
-                ChaDispatchTargetPolicy.create(
-                        new ModuleCallGraphInputAdapter().adapt(unit),
-                        ownership));
-
-        assertThat(filtered.getPossibleTargets(reference))
-                .containsExactly(objectMethod);
-        assertThat(filtered.getPossibleTargets(receiver, reference))
-                .containsExactly(objectMethod);
-        assertThat(filtered.getPossibleTargets(reference))
-                .containsExactly(objectMethod);
-
-        filtered.clearCaches();
-
-        assertThat(clears).hasValue(1);
-        assertThat(filtered.getPossibleTargets(reference))
-                .containsExactly(objectMethod);
-    }
-
-    @Test
-    void filtersHashCodeButIgnoresRemovedAndDescriptorChangedTargets()
-            throws Exception {
-        final ArtifactCoord changed = artifact("changed", "2");
-        final ClassOwnershipIndex ownership = ownership(Map.of(changed,
-                List.of("external/Removed",
-                        "external/DescriptorChanged",
-                        "external/ClassRemoved")));
-        final ModuleAnalysisUnit unit = unit(List.of(
-                removed(changed, "external/Removed", "hashCode", "()I"),
-                descriptorChanged(changed, "external/DescriptorChanged",
-                        "hashCode", "()I", "()J"),
-                classRemoved(changed, "external/ClassRemoved")));
-        final IMethod objectMethod = method(TypeReference.JavaLangObject,
-                "hashCode", "()I", false);
-        final IMethod removedMethod = method(
-                application("external/Removed"), "hashCode", "()I", false);
-        final IMethod descriptorMethod = method(
-                application("external/DescriptorChanged"), "hashCode",
-                "()I", false);
-        final IMethod classRemovedMethod = method(
-                application("external/ClassRemoved"), "hashCode", "()I",
-                false);
-        final MethodReference reference = MethodReference.findOrCreate(
+        final MethodReference objectHashCode = MethodReference.findOrCreate(
                 TypeReference.JavaLangObject, "hashCode", "()I");
-        final Set<IMethod> candidates = linkedSet(removedMethod,
-                descriptorMethod, classRemovedMethod, objectMethod);
-        final HierarchyFixture fixture = hierarchy(reference,
-                objectMethod.getDeclaringClass(), candidates,
-                new AtomicInteger());
-        final IClassHierarchy filtered = new
-                ChaDispatchFilteringClassHierarchy(fixture.hierarchy(),
-                ChaDispatchTargetPolicy.create(
-                        new ModuleCallGraphInputAdapter().adapt(unit),
-                        ownership));
-
-        assertThat(filtered.getPossibleTargets(reference))
-                .containsExactly(objectMethod);
-    }
-
-    @Test
-    void doesNotFilterOtherOwnersOrSelectors() throws Exception {
-        final ArtifactCoord changed = artifact("changed", "2");
-        final ClassOwnershipIndex ownership = ownership(Map.of(changed,
-                List.of("external/Changed")));
-        final ModuleAnalysisUnit unit = unit(List.of());
-        final MethodReference stringToString = MethodReference.findOrCreate(
-                TypeReference.JavaLangString, "toString",
-                "()Ljava/lang/String;");
         final MethodReference objectEquals = MethodReference.findOrCreate(
                 TypeReference.JavaLangObject, "equals",
                 "(Ljava/lang/Object;)Z");
-        final IMethod stringMethod = method(TypeReference.JavaLangString,
+        final IMethod baseToString = method(TypeReference.JavaLangObject,
                 "toString", "()Ljava/lang/String;", false);
-        final IMethod equalsMethod = method(TypeReference.JavaLangObject,
+        final IMethod stringToString = method(TypeReference.JavaLangString,
+                "toString", "()Ljava/lang/String;", false);
+        final IMethod projectToString = method(application("project/Value"),
+                "toString", "()Ljava/lang/String;", false);
+        final IMethod abstractToString = method(
+                TypeReference.findOrCreate(ClassLoaderReference.Primordial,
+                        "Ljava/lang/Number"), "toString",
+                "()Ljava/lang/String;", false, true);
+        final IMethod baseHashCode = method(TypeReference.JavaLangObject,
+                "hashCode", "()I", false);
+        final IMethod stringHashCode = method(TypeReference.JavaLangString,
+                "hashCode", "()I", false);
+        final IMethod projectHashCode = method(application("project/Value"),
+                "hashCode", "()I", false);
+        final IMethod baseEquals = method(TypeReference.JavaLangObject,
                 "equals", "(Ljava/lang/Object;)Z", false);
-        final Set<IMethod> stringTargets = linkedSet(stringMethod);
-        final Set<IMethod> equalsTargets = linkedSet(equalsMethod);
+        final IMethod stringEquals = method(TypeReference.JavaLangString,
+                "equals", "(Ljava/lang/Object;)Z", false);
+        final IMethod projectEquals = method(application("project/Value"),
+                "equals", "(Ljava/lang/Object;)Z", false);
         final Map<MethodReference, Set<IMethod>> targets =
                 new LinkedHashMap<>();
-        targets.put(stringToString, stringTargets);
-        targets.put(objectEquals, equalsTargets);
-        final IClassHierarchy delegate = hierarchy(targets,
-                stringMethod.getDeclaringClass(), new AtomicInteger());
-        final IClassHierarchy filtered = new
-                ChaDispatchFilteringClassHierarchy(delegate,
-                ChaDispatchTargetPolicy.create(
-                        new ModuleCallGraphInputAdapter().adapt(unit),
-                        ownership));
+        targets.put(objectToString, linkedSet(projectToString,
+                abstractToString, stringToString, baseToString));
+        targets.put(objectHashCode, linkedSet(projectHashCode,
+                stringHashCode, baseHashCode));
+        targets.put(objectEquals, linkedSet(projectEquals,
+                stringEquals, baseEquals));
+        final ChaDispatchTargetPolicy policy = ChaDispatchTargetPolicy.create(
+                input(DependencyScopeMode.FULL, Map.of()),
+                new ClassOwnershipIndex(),
+                ChaAncestorRetentionPolicy.disabled(), false, true);
+        final IClassHierarchy filtered =
+                new ChaDispatchFilteringClassHierarchy(
+                        hierarchy(targets, baseToString.getDeclaringClass(),
+                                new AtomicInteger()), policy);
 
-        assertThat(filtered.getPossibleTargets(stringToString))
-                .containsExactly(stringMethod);
+        assertThat(filtered.getPossibleTargets(objectToString))
+                .containsExactly(baseToString, stringToString);
+        assertThat(filtered.getPossibleTargets(objectHashCode))
+                .containsExactly(baseHashCode, stringHashCode);
         assertThat(filtered.getPossibleTargets(objectEquals))
-                .containsExactly(equalsMethod);
+                .containsExactly(baseEquals, stringEquals);
+        assertThat(policy.jdkDeclaredDispatchSummary().prunedTargetCount())
+                .isEqualTo(EXPECTED_JDK_PRUNED_TARGETS);
+        assertThat(policy.jdkDeclaredDispatchSummary().examples())
+                .hasSize(EXPECTED_JDK_PRUNED_TARGETS)
+                .extracting(JdkDeclaredDispatchPruningSummary.TargetExample
+                        ::removedOrigin)
+                .containsExactlyInAnyOrder(
+                        "JDK", "SYNTHETIC", "SYNTHETIC", "SYNTHETIC");
+    }
+
+    @Test
+    void nonJdkOwnersDoNotTriggerObjectSelectorFiltering() {
+        final TypeReference customOwner = application("project/Value");
+        final MethodReference customToString = MethodReference.findOrCreate(
+                customOwner, "toString", "()Ljava/lang/String;");
+        final MethodReference customHashCode = MethodReference.findOrCreate(
+                customOwner, "hashCode", "()I");
+        final IMethod customToStringMethod = method(customOwner, "toString",
+                "()Ljava/lang/String;", false);
+        final IMethod jdkToStringMethod = method(TypeReference.JavaLangString,
+                "toString", "()Ljava/lang/String;", false);
+        final IMethod customHashCodeMethod = method(customOwner, "hashCode",
+                "()I", false);
+        final IMethod jdkHashCodeMethod = method(TypeReference.JavaLangString,
+                "hashCode", "()I", false);
+        final Set<IMethod> toStringTargets = linkedSet(
+                customToStringMethod, jdkToStringMethod);
+        final Set<IMethod> hashCodeTargets = linkedSet(
+                customHashCodeMethod, jdkHashCodeMethod);
+        final Map<MethodReference, Set<IMethod>> targets =
+                new LinkedHashMap<>();
+        targets.put(customToString, toStringTargets);
+        targets.put(customHashCode, hashCodeTargets);
+        final IClassHierarchy filtered =
+                new ChaDispatchFilteringClassHierarchy(
+                        hierarchy(targets,
+                                customToStringMethod.getDeclaringClass(),
+                                new AtomicInteger()),
+                        ChaDispatchTargetPolicy.create(
+                                input(DependencyScopeMode.FULL, Map.of()),
+                                new ClassOwnershipIndex()));
+
+        assertThat(filtered.getPossibleTargets(customToString))
+                .isSameAs(toStringTargets);
+        assertThat(filtered.getPossibleTargets(customHashCode))
+                .isSameAs(hashCodeTargets);
     }
 
     @Test
@@ -199,7 +154,6 @@ class ChaDispatchFilteringClassHierarchyTest {
             throws Exception {
         final ClassOwnershipIndex ownership = new ClassOwnershipIndex();
         ownership.addDirectory(classes("project/Runner"), CodeOrigin.PROJECT);
-        final ModuleAnalysisUnit unit = unit(List.of());
         final TypeReference runnable = TypeReference.findOrCreate(
                 ClassLoaderReference.Primordial, "Ljava/lang/Runnable");
         final MethodReference jdkReference = MethodReference.findOrCreate(
@@ -246,9 +200,8 @@ class ChaDispatchFilteringClassHierarchyTest {
         targets.put(customReference, linkedSet(projectMethod));
         final ChaDispatchTargetPolicy policy =
                 ChaDispatchTargetPolicy.create(
-                        new ModuleCallGraphInputAdapter().adapt(unit),
-                        ownership, ChaAncestorRetentionPolicy.disabled(),
-                        false, true);
+                        input(DependencyScopeMode.FULL, Map.of()), ownership,
+                        ChaAncestorRetentionPolicy.disabled(), false, true);
         final IClassHierarchy filtered =
                 new ChaDispatchFilteringClassHierarchy(
                         hierarchy(targets,
@@ -280,6 +233,44 @@ class ChaDispatchFilteringClassHierarchyTest {
     }
 
     @Test
+    void externalPruningUsesBodyPolicyWithoutSelectorExceptions()
+            throws Exception {
+        final ArtifactCoord real = artifact("real", "2");
+        final ArtifactCoord noOp = artifact("no-op", "2");
+        final ClassOwnershipIndex ownership = ownership(Map.of(
+                real, List.of("external/Real"),
+                noOp, List.of("external/NoOp")));
+        final MethodReference reference = MethodReference.findOrCreate(
+                application("external/Contract"), "run", "()V");
+        final IMethod realMethod = method(application("external/Real"),
+                "run", "()V", false);
+        final IMethod noOpMethod = method(application("external/NoOp"),
+                "run", "()V", false);
+        final IMethod projectMethod = method(application("project/Value"),
+                "run", "()V", false);
+        final IMethod syntheticMethod = method(
+                application("synthetic/Lambda"), "run", "()V", true);
+        final Map<ArtifactCoord, DependencyBodyPolicy> policies = Map.of(
+                real, DependencyBodyPolicy.REAL_IR,
+                noOp, DependencyBodyPolicy.NO_OP);
+        final ChaDispatchTargetPolicy policy =
+                ChaDispatchTargetPolicy.create(
+                        input(DependencyScopeMode.CHANGED_PATHS, policies),
+                        ownership, ChaAncestorRetentionPolicy.disabled(), true);
+        final HierarchyFixture fixture = hierarchy(reference,
+                projectMethod.getDeclaringClass(), linkedSet(noOpMethod,
+                        projectMethod, syntheticMethod, realMethod),
+                new AtomicInteger());
+        final IClassHierarchy filtered =
+                new ChaDispatchFilteringClassHierarchy(
+                        fixture.hierarchy(), policy);
+
+        assertThat(filtered.getPossibleTargets(reference))
+                .containsExactly(realMethod, projectMethod, syntheticMethod);
+        assertThat(policy.prunedExternalMethodTargetCount()).isOne();
+    }
+
+    @Test
     void disabledPolicyDoesNotApplyJdkDeclaredBoundary() {
         final TypeReference runnable = TypeReference.findOrCreate(
                 ClassLoaderReference.Primordial, "Ljava/lang/Runnable");
@@ -299,55 +290,22 @@ class ChaDispatchFilteringClassHierarchyTest {
                 .containsExactly(projectMethod);
     }
 
-    @Test
-    void duplicateOwnerRequiresWinningArtifactToMatchDiff() throws Exception {
-        final ArtifactCoord winner = artifact("winner", "2");
-        final ArtifactCoord loser = artifact("loser", "2");
-        final ClassOwnershipIndex ownership = new ClassOwnershipIndex();
-        final Path winnerJar = jar(winner, "external/Duplicate", 0);
-        final Path loserJar = jar(loser, "external/Duplicate",
-                Opcodes.ACC_FINAL);
-        try (java.util.jar.JarFile opened =
-                     new java.util.jar.JarFile(winnerJar.toFile())) {
-            ownership.addJar(winner, opened, CodeOrigin.DEPENDENCY);
-        }
-        try (java.util.jar.JarFile opened =
-                     new java.util.jar.JarFile(loserJar.toFile())) {
-            ownership.addJar(loser, opened, CodeOrigin.DEPENDENCY);
-        }
-        final ModuleAnalysisUnit unit = unit(List.of(bodyChanged(
-                loser, "external/Duplicate", "toString",
-                "()Ljava/lang/String;")));
-        final IMethod objectMethod = method(TypeReference.JavaLangObject,
-                "toString", "()Ljava/lang/String;", false);
-        final IMethod duplicateMethod = method(
-                application("external/Duplicate"), "toString",
-                "()Ljava/lang/String;", false);
-        final MethodReference reference = MethodReference.findOrCreate(
-                TypeReference.JavaLangObject, "toString",
-                "()Ljava/lang/String;");
-        final HierarchyFixture fixture = hierarchy(reference,
-                objectMethod.getDeclaringClass(),
-                linkedSet(duplicateMethod, objectMethod),
-                new AtomicInteger());
-        final IClassHierarchy filtered = new
-                ChaDispatchFilteringClassHierarchy(fixture.hierarchy(),
-                ChaDispatchTargetPolicy.create(
-                        new ModuleCallGraphInputAdapter().adapt(unit),
-                        ownership));
-
-        assertThat(filtered.getPossibleTargets(reference))
-                .containsExactly(objectMethod);
+    private ModuleCallGraphInput input(
+            final DependencyScopeMode mode,
+            final Map<ArtifactCoord, DependencyBodyPolicy> policies) {
+        final List<ArtifactCoord> artifacts = policies.keySet().stream()
+                .sorted(Comparator.comparing(ArtifactCoord::toString))
+                .toList();
+        return new ModuleCallGraphInput("module", temporary, List.of(),
+                artifacts, new CallGraphDependencyScope(
+                        mode, policies, List.of()), List.of());
     }
 
     private ClassOwnershipIndex ownership(
             final Map<ArtifactCoord, List<String>> artifacts)
             throws Exception {
         final ClassOwnershipIndex ownership = new ClassOwnershipIndex();
-        ownership.addDirectory(classes("project/Value"),
-                CodeOrigin.PROJECT);
-        ownership.addDirectory(classes("reactor/Value"),
-                CodeOrigin.REACTOR_DEPENDENCY);
+        ownership.addDirectory(classes("project/Value"), CodeOrigin.PROJECT);
         for (Map.Entry<ArtifactCoord, List<String>> entry
                 : artifacts.entrySet()) {
             for (String owner : entry.getValue()) {
@@ -397,82 +355,6 @@ class ChaDispatchFilteringClassHierarchyTest {
         return writer.toByteArray();
     }
 
-    private ModuleAnalysisUnit unit(final List<ChangePoint> points) {
-        final ModuleId module = new ModuleId(
-                artifact("module", "1"), Path.of("module"));
-        final List<BoundChangePoint> bound = points.stream()
-                .map(point -> new BoundChangePoint(
-                        new DependencyUpgradeKey(module,
-                                DependencyScope.COMPILE,
-                                artifact(point.getArtifact().getArtifactId(),
-                                        "1"), point.getArtifact()), point))
-                .toList();
-        final List<ArtifactCoord> targets = points.stream()
-                .map(ChangePoint::getArtifact).distinct().toList();
-        return new ModuleAnalysisUnit(module, ModulePresence.BOTH,
-                temporary, List.of(), targets, List.of(),
-                new ModuleChangeSet(bound, List.of()));
-    }
-
-    private ChangePoint bodyChanged(
-            final ArtifactCoord artifact,
-            final String owner,
-            final String name,
-            final String descriptor) {
-        return ChangePoint.withDescriptors(artifact,
-                ChangePointKind.METHOD_BODY_CHANGED, owner, name,
-                new MemberDescriptors(descriptor, descriptor), "old", "new");
-    }
-
-    private ChangePoint accessNarrowed(
-            final ArtifactCoord artifact,
-            final String owner,
-            final String name,
-            final String descriptor) {
-        return ChangePoint.accessNarrowed(artifact,
-                ChangePointKind.METHOD_ACCESS_NARROWED, owner, name,
-                descriptor, new AccessTransition(JvmAccess.PUBLIC,
-                JvmAccess.PROTECTED));
-    }
-
-    private ChangePoint added(
-            final ArtifactCoord artifact,
-            final String owner,
-            final String name,
-            final String descriptor) {
-        return ChangePoint.withDescriptors(artifact,
-                ChangePointKind.METHOD_ADDED, owner, name,
-                new MemberDescriptors(null, descriptor), null, null);
-    }
-
-    private ChangePoint removed(
-            final ArtifactCoord artifact,
-            final String owner,
-            final String name,
-            final String descriptor) {
-        return ChangePoint.withDescriptors(artifact,
-                ChangePointKind.METHOD_REMOVED, owner, name,
-                new MemberDescriptors(descriptor, null), null, null);
-    }
-
-    private ChangePoint descriptorChanged(
-            final ArtifactCoord artifact,
-            final String owner,
-            final String name,
-            final String oldDescriptor,
-            final String newDescriptor) {
-        return ChangePoint.withDescriptors(artifact,
-                ChangePointKind.METHOD_DESCRIPTOR_CHANGED, owner, name,
-                new MemberDescriptors(oldDescriptor, newDescriptor),
-                null, null);
-    }
-
-    private ChangePoint classRemoved(
-            final ArtifactCoord artifact, final String owner) {
-        return new ChangePoint(artifact, ChangePointKind.CLASS_REMOVED,
-                owner, null, null, null, null);
-    }
-
     private static ArtifactCoord artifact(
             final String artifact, final String version) {
         return new ArtifactCoord("test", artifact, "jar", version);
@@ -488,6 +370,15 @@ class ChaDispatchFilteringClassHierarchyTest {
             final String name,
             final String descriptor,
             final boolean synthetic) {
+        return method(owner, name, descriptor, synthetic, false);
+    }
+
+    private static IMethod method(
+            final TypeReference owner,
+            final String name,
+            final String descriptor,
+            final boolean synthetic,
+            final boolean abstractMethod) {
         final IClass type = type(owner, synthetic);
         final MethodReference reference = MethodReference.findOrCreate(
                 owner, name, descriptor);
@@ -499,6 +390,7 @@ class ChaDispatchFilteringClassHierarchyTest {
             case "getDescriptor" -> reference.getDescriptor();
             case "getSelector" -> reference.getSelector();
             case "isWalaSynthetic", "isSynthetic" -> synthetic;
+            case "isAbstract" -> abstractMethod;
             case "toString", "getSignature" -> reference.toString();
             case "hashCode" -> System.identityHashCode(ignored);
             case "equals" -> ignored == args[0];

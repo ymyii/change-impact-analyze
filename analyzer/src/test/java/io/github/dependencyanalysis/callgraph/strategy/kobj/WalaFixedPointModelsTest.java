@@ -938,7 +938,7 @@ class WalaFixedPointModelsTest {
     }
 
     @Test
-    void chaResolvesObjectDeclarationBeforeDispatchFiltering()
+    void chaUsesResolvedObjectDeclarationForGenericJdkFiltering()
             throws Exception {
         final Path externalClasses = compile("ExternalOverrides", """
                 public class ExternalOverrides {
@@ -1050,9 +1050,9 @@ class WalaFixedPointModelsTest {
                 assertThat(hasEdge(session, "ObjectDispatchApp", "execute",
                         "ExternalOverrides$Unrelated", "hashCode")).isFalse();
                 assertThat(hasEdge(session, "ObjectDispatchApp", "execute",
-                        "java/lang/String", "toString")).isFalse();
+                        "java/lang/String", "toString")).isTrue();
                 assertThat(hasEdge(session, "ObjectDispatchApp", "execute",
-                        "java/lang/String", "hashCode")).isFalse();
+                        "java/lang/String", "hashCode")).isTrue();
                 assertThat(hasMethod(session,
                         "ExternalOverrides$Unrelated", "toString")).isFalse();
                 assertThat(hasMethod(session,

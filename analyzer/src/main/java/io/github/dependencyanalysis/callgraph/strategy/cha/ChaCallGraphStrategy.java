@@ -236,8 +236,7 @@ public final class ChaCallGraphStrategy implements CallGraphAlgorithmStrategy {
                                 .getOrDefault(service, List.of());
                 for (ServiceLoaderProviderDefinition provider : providers) {
                     final IMethod constructor = provider.constructor();
-                    if (!request.dispatchTargets().retains(
-                            constructor.getReference(), constructor)) {
+                    if (!request.dispatchTargets().retains(constructor)) {
                         continue;
                     }
                     final int pc = syntheticPc(
