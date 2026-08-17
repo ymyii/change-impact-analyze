@@ -12,6 +12,8 @@ relations:
     desc: "四个独立artifact的SemVer与Git tag约束"
   - path: "wiki/rules/code-concept-reuse.md"
     desc: "Repository-wide代码与概念复用约束"
+  - path: "wiki/rules/user-manual-maintenance.md"
+    desc: "用户手册的独立交付边界、内容职责与同步验证规则"
   - path: "wiki/runbooks/build-test-package.md"
     desc: "构建、测试、打包和本地验证操作"
   - path: "wiki/runbooks/version-and-distribution.md"
@@ -103,4 +105,4 @@ Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer
 - 所有外部 process token 都先经过 `CommandResolver.resolve()`，并使用 `ProcessBuilder`，不经过 shell 拼接。
 - 用户 Maven argument 必须逐 token 传入，禁止覆盖工具控制的 POM、module selection、output、verbose 和 token 参数。
 - `tmp-files/` 仅用于临时产物，不提交 Git。
-- wiki 描述当前稳定工程事实；用户操作写入 `docs/user-manual.md`。
+- wiki 描述当前稳定工程事实；`docs/user-manual.md`是可与Analyzer JAR独立交付的用户任务闭包，按User Manual Maintenance rule同步维护。

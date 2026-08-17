@@ -78,6 +78,9 @@ code_refs: []
 ### [Code and Concept Reuse](rules/code-concept-reuse.md)
 - Summary: 同一含义复用统一概念，同一职责与不变量复用canonical implementation；新增抽象必须具有明确语义边界和所有者。
 
+### [User Manual Maintenance](rules/user-manual-maintenance.md)
+- Summary: 用户手册必须是可与Analyzer JAR独立交付的用户任务闭包，并随CLI、runtime、Report、状态和限制同步维护。
+
 ## Runbooks
 
 ### [Build, Test, Package](runbooks/build-test-package.md)
