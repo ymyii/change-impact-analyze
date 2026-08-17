@@ -59,7 +59,8 @@ Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer
 - Analyzer JAR 将 Maven Dependency Plugin 和 Dependency Evidence Plugin 内嵌为两个独立 Maven repository ZIP；runtime 不安装 loose JAR/POM，也不维护项目自有 checksum/fingerprint。
 - `impact` 通过 Maven API 结构化采集 resolved/raw graph，Schema v3 JSON 在 command cache 内交付 selected tree、occurrence topology、reactor keys 和 physical bindings；`impact` 不读 GraphML。`tree` 使用 verbose text 采集面向人的 dependency occurrence。
 - `impact`只构建target per-Module selected Call Graph；`cha`为正式默认algorithm，`k-obj`为显式opt-in的experimental algorithm。Call Graph层冻结自身metadata后，由Impact层统一采集Evidence并执行Impact query。
-- CHA固定`jdk-model none`、不应用WALA ReflectionOptions且不遍历JDK body；`k-obj`默认`jdk8`并可显式`none`。Analyzer仍将JDK model class/catalog打入uber JAR。
+- CHA固定`jdk-model none`、不应用WALA ReflectionOptions且不遍历JDK body；JDK声明的virtual/interface dispatch不扩展到非JDK实现。`k-obj`默认`jdk8`并可显式`none`。Analyzer仍将JDK model class/catalog打入uber JAR。
+- SSA equivalence固定在JAR Diff阶段启用；CHA固定执行caller-local `cha-local-receiver-inference` Impact Path pruning extension。不存在result refinement CLI selection或关闭分支。
 - 两个 subcommand 共享 Maven runtime 和 preflight Schema，但分别组装检查 DAG；pipeline 只消费 preflight decision。
 
 ## Module Map
@@ -69,7 +70,7 @@ Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer
 - `analyzer/src/main/java/io/github/dependencyanalysis/runtime/` - 内嵌或用户指定 Maven runtime、两个 Plugin repository cache 与 settings overlay。
 - `analyzer/src/main/java/io/github/dependencyanalysis/preflight/` - DAG preflight framework 和结果 Schema。
 - `analyzer/src/main/java/io/github/dependencyanalysis/impact/` - `impact` command、Call Graph input/reason adapter、evidence绑定、pipeline和影响追踪domain。
-- `analyzer/src/main/java/io/github/dependencyanalysis/impact/refinement/` - result refinement selection、CHA local receiver与Static Single Assignment（SSA，静态单赋值）equivalence。
+- `analyzer/src/main/java/io/github/dependencyanalysis/impact/pruning/` - 固定CHA caller-local Impact Path edge extension contract、receiver resolver与统一summary；Static Single Assignment（SSA，静态单赋值）equivalence位于`bytecode/`。
 - `analyzer/src/main/java/io/github/dependencyanalysis/tree/` - Git snapshot、reactor inventory、dependency collection、version analysis 和 HTML report。
 - `analyzer/src/main/java/io/github/dependencyanalysis/callgraph/` - 仅保留package边界；production class按engine、strategy、protocol、jdk、entrypoint、scope、boundary、topology、model与local职责进入子包。
 - `analyzer/src/main/java/io/github/dependencyanalysis/callgraph/strategy/{cha,kobj}/` - 互相隔离的CHA与`k-obj`实现；动态协议adapter只位于`kobj`子包。
@@ -79,7 +80,7 @@ Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer
 - `plugins/artifact-path-resolver/` - GAV `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:3.0.0`；Java 8 `collect-dependency-evidence` goal 与 attached `repository` ZIP。
 - `models/jdk/` - GAV`io.github.dependencyanalysis:dependency-analyzer-jdk-models:0.1.0-SNAPSHOT`；公共Synthetic IR engine/API。
 - `models/jdk8/` - GAV`io.github.dependencyanalysis:dependency-analyzer-jdk8-models:0.1.0-SNAPSHOT`；384-target catalog与安装façade。
-- `benchmarks/impact-medium/` - 可复现的CHA-only中型impact fixture；每scope 7个进程，双scope共14个进程；baseline确认前不发布tracked TSV snapshot。
+- `benchmarks/impact-medium/` - 可复现的CHA-only中型impact fixture；每scope 6个进程，双scope共12个进程；baseline确认前不发布tracked TSV snapshot。
 
 ## Technical Stack
 

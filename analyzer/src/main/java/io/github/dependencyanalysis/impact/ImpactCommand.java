@@ -5,8 +5,6 @@ import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphPolicy;
 import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelectionConverter;
 
 import io.github.dependencyanalysis.bytecode
         .ChangePointKind;
@@ -160,16 +158,6 @@ public final class ImpactCommand
                     + "or full; default: changed-paths.")
     private DependencyAnalysisScopeMode dependencyAnalysisScope;
 
-    /** Command-wide ChangePoint and result-refinement algorithms. */
-    // Wiki: wiki/features/impact-tracing.md - Analysis algorithm selection
-    @Option(names = "--result-refinement-algorithms",
-            defaultValue = "ssa-equivalence",
-            converter = ResultRefinementSelectionConverter.class,
-            description = "ChangePoint and result refinements: "
-                    + "cha-local-receiver-inference, ssa-equivalence, "
-                    + "or none; comma-separated; default: ssa-equivalence.")
-    private ResultRefinementSelection resultRefinements;
-
     /** Included PROJECT entrypoint classes. */
     @Option(names = "--entrypoint-include",
             description = "Repeatable slash-separated class-path pattern "
@@ -309,7 +297,7 @@ public final class ImpactCommand
                         ? "; experimental=true; kObjDepth="
                         + selectedKObjDepth : "")
                         + "; jdkModel=" + jdkModel.identifier()
-                        + "; resultRefinements=" + resultRefinements
+                        + "; ssaEquivalence=fixed-enabled"
                         + "; dependencySelection=" + dependencySelection);
         try (PreflightContext context =
                      new PreflightContext()) {
@@ -377,7 +365,7 @@ public final class ImpactCommand
                     callGraphAlgorithm, selections.kObjDepth(),
                     reflectionOptions,
                     dependencyAnalysisScope, jdkModel,
-                    resultRefinements, selections.dependencies(),
+                    selections.dependencies(),
                     metrics.executors(), reportCache));
             result = engine.run(context.get(
                     ImpactPreflightService.WORKSPACE, WorkspaceResult.class));

@@ -1,8 +1,6 @@
 package io.github.dependencyanalysis.impact;
 
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementAlgorithm;
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
-import io.github.dependencyanalysis.impact.refinement.cha.ChaLocalReceiverRefinementSummary;
+import io.github.dependencyanalysis.impact.pruning.ImpactPathPruningSummary;
 
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
@@ -21,6 +19,8 @@ import io.github.dependencyanalysis.callgraph.topology.CallGraphRelatedMethod;
 import io.github.dependencyanalysis.callgraph.topology.CallGraphTopologySnapshot;
 import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphSession;
+import io.github.dependencyanalysis.callgraph.strategy.cha
+        .JdkDeclaredDispatchPruningSummary;
 import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
@@ -49,7 +49,7 @@ import java.util.UUID;
 final class CallGraphDiagnosticsExporter {
 
     /** Diagnostics JSON Schema version. */
-    static final int SCHEMA_VERSION = 10;
+    static final int SCHEMA_VERSION = 12;
 
     /** SHA-256 algorithm name. */
     private static final String SHA_256 = "SHA-256";
@@ -119,7 +119,7 @@ final class CallGraphDiagnosticsExporter {
         writeConfiguration(json, configuration.callGraphAlgorithm(),
                 configuration.kObjDepth(), configuration.reflectionOptions(),
                 configuration.dependencyAnalysisScope(),
-                configuration.jdkModel(), configuration.resultRefinements());
+                configuration.jdkModel());
         json.writeStringField("jdk", javaRuntime.getVersion());
         json.writeArrayFieldStart("modules");
         for (ModuleAnalysisResult module : modules) {
@@ -128,8 +128,7 @@ final class CallGraphDiagnosticsExporter {
                 continue;
             }
             writeModule(json, module, session,
-                    session.getTopology().orElseThrow(),
-                    configuration.resultRefinements());
+                    session.getTopology().orElseThrow());
         }
         json.writeEndArray();
         json.writeEndObject();
@@ -141,8 +140,7 @@ final class CallGraphDiagnosticsExporter {
             final int kObjDepth,
             final WalaReflectionOptions reflectionOptions,
             final DependencyAnalysisScopeMode dependencyScope,
-            final JdkModelSelection jdkModel,
-            final ResultRefinementSelection refinements) throws IOException {
+            final JdkModelSelection jdkModel) throws IOException {
         json.writeNumberField("schemaVersion", SCHEMA_VERSION);
         json.writeStringField("algorithm", algorithm.identifier());
         if (algorithm == CallGraphAlgorithm.K_OBJ) {
@@ -159,8 +157,13 @@ final class CallGraphDiagnosticsExporter {
         json.writeStringField("jdkModel", jdkModel.identifier());
         json.writeStringField("requestedDependencyAnalysisScope",
                 dependencyScope.identifier());
-        json.writeArrayFieldStart("resultRefinementAlgorithms");
-        for (String identifier : refinements.identifiers()) {
+        json.writeObjectFieldStart("ssaEquivalence");
+        json.writeBooleanField("enabled", true);
+        json.writeBooleanField("fixed", true);
+        json.writeEndObject();
+        json.writeArrayFieldStart("impactPathPruningExtensions");
+        for (String identifier
+                : ImpactPathPruningSummary.FIXED_EXTENSION_IDS) {
             json.writeString(identifier);
         }
         json.writeEndArray();
@@ -170,8 +173,7 @@ final class CallGraphDiagnosticsExporter {
             final JsonGenerator json,
             final ModuleAnalysisResult module,
             final ModuleCallGraphSession session,
-            final CallGraphTopologySnapshot topology,
-            final ResultRefinementSelection refinements) throws IOException {
+            final CallGraphTopologySnapshot topology) throws IOException {
         final Map<SourceKey, CallGraphMethodSource> cache =
                 new LinkedHashMap<>();
         json.writeStartObject();
@@ -199,13 +201,29 @@ final class CallGraphDiagnosticsExporter {
                 boundary.ancestorRetainedExternalMethodNodeCount());
         json.writeNumberField("prunedExternalMethodTargetCount",
                 boundary.prunedExternalMethodTargetCount());
+        final JdkDeclaredDispatchPruningSummary jdkDispatch =
+                session.getJdkDispatchPruning();
+        json.writeNumberField("jdkDeclaredDispatchPrunedTargetCount",
+                jdkDispatch.prunedTargetCount());
+        json.writeArrayFieldStart("jdkDeclaredDispatchPrunedExamples");
+        for (JdkDeclaredDispatchPruningSummary.TargetExample example
+                : jdkDispatch.examples()) {
+            json.writeStartObject();
+            json.writeStringField("declaredTarget",
+                    example.declaredTarget());
+            json.writeStringField("removedTarget", example.removedTarget());
+            json.writeStringField("removedOrigin", example.removedOrigin());
+            json.writeStringField("reason", example.reason());
+            json.writeEndObject();
+        }
+        json.writeEndArray();
         json.writeNumberField("dangerousTransferCount",
                 boundary.dangerousTransfers().size());
         json.writeNumberField("bodyBoundaryHitCount",
                 boundary.bodyBoundaryHits().size());
         writeCapabilities(json, session.getStrategyCapabilities());
         writeEvidenceSummary(json, module.getChangePointEvidence());
-        writeResultRefinements(json, module, refinements);
+        writeImpactPathPruning(json, module);
         final List<ArtifactCoord> externalArtifacts = module.getUnit()
                 .getTargetArtifacts().stream().distinct()
                 .sorted(java.util.Comparator.comparing(ArtifactCoord::toString))
@@ -240,20 +258,18 @@ final class CallGraphDiagnosticsExporter {
      *
      * @param json fragment writer
      * @param module live module result
-     * @param refinements command-wide result-refinement selection
      * @throws IOException on JSON failure
      */
     void writeModuleRecord(
             final JsonGenerator json,
-            final ModuleAnalysisResult module,
-            final ResultRefinementSelection refinements) throws IOException {
+            final ModuleAnalysisResult module) throws IOException {
         final ModuleCallGraphSession session = module.getSession();
         if (session == null || session.getTopology().isEmpty()) {
             throw new IllegalArgumentException(
                     "Module diagnostics requires live topology");
         }
         writeModule(json, module, session,
-                session.getTopology().orElseThrow(), refinements);
+                session.getTopology().orElseThrow());
     }
 
     /**
@@ -283,8 +299,7 @@ final class CallGraphDiagnosticsExporter {
                         configuration.kObjDepth(),
                         configuration.reflectionOptions(),
                         configuration.dependencyAnalysisScope(),
-                        configuration.jdkModel(),
-                        configuration.resultRefinements());
+                        configuration.jdkModel());
                 json.writeStringField("jdk", javaRuntime.getVersion());
                 json.writeArrayFieldStart("modules");
                 for (ReportCache.Fragment fragment : fragments.stream()
@@ -319,66 +334,43 @@ final class CallGraphDiagnosticsExporter {
         }
     }
 
-    private void writeResultRefinements(
+    private void writeImpactPathPruning(
             final JsonGenerator json,
-            final ModuleAnalysisResult module,
-            final ResultRefinementSelection refinements) throws IOException {
-        json.writeObjectFieldStart("resultRefinements");
-        json.writeObjectFieldStart("cha-local-receiver-inference");
-        final ChaLocalReceiverRefinementSummary receiver =
-                module.getReceiverRefinement();
-        json.writeStringField("status", receiver.status().label());
-        final ChaLocalReceiverRefinementSummary.Metrics metrics =
-                receiver.metrics();
-        json.writeNumberField("predecessorEdgeRequests",
-                metrics.predecessorEdgeRequests());
-        json.writeNumberField("uniqueEvaluatedEdges",
-                metrics.uniqueEvaluatedEdges());
-        json.writeNumberField("cacheHits", metrics.cacheHits());
-        json.writeNumberField("callsitesChecked", metrics.callsitesChecked());
-        json.writeNumberField("invokeInstancesChecked",
-                metrics.invokeInstancesChecked());
-        json.writeNumberField("prunedEdges", metrics.prunedEdges());
-        json.writeNumberField("retainedFeasibleEdges",
-                metrics.retainedFeasibleEdges());
-        json.writeNumberField("retainedUnknownEdges",
-                metrics.retainedUnknownEdges());
-        json.writeNumberField("notApplicableEdges",
-                metrics.notApplicableEdges());
-        json.writeNumberField("exactResolutions",
-                metrics.exactResolutions());
-        json.writeNumberField("upperBoundResolutions",
-                metrics.upperBoundResolutions());
-        json.writeNumberField("noNormalTargetResolutions",
-                metrics.noNormalTargetResolutions());
-        json.writeNumberField("unknownResolutions",
-                metrics.unknownResolutions());
-        json.writeArrayFieldStart("examples");
-        for (ChaLocalReceiverRefinementSummary.EdgeExample example
-                : receiver.examples()) {
+            final ModuleAnalysisResult module) throws IOException {
+        json.writeObjectFieldStart("impactPathPruning");
+        json.writeArrayFieldStart("extensions");
+        for (ImpactPathPruningSummary.ExtensionSummary extension
+                : module.getImpactPathPruning().extensions()) {
             json.writeStartObject();
-            json.writeStringField("caller", example.caller());
-            json.writeStringField("callee", example.callee());
-            json.writeNumberField("programCounter",
-                    example.programCounter());
-            json.writeStringField("invocationKind",
-                    example.invocationKind());
-            json.writeStringField("decision", example.decision());
-            json.writeStringField("reason", example.reason());
-            json.writeStringField("receiverSummary",
-                    example.receiverSummary());
+            json.writeStringField("identifier", extension.identifier());
+            json.writeBooleanField("experimental", extension.experimental());
+            json.writeStringField("status", extension.status().label());
+            writePruningMetrics(json, extension.metrics());
+            json.writeArrayFieldStart("examples");
+            for (ImpactPathPruningSummary.EdgeExample example
+                    : extension.examples()) {
+                json.writeStartObject();
+                json.writeStringField("caller", example.caller());
+                json.writeStringField("callee", example.callee());
+                json.writeNumberField("programCounter",
+                        example.programCounter());
+                json.writeStringField("decision", example.decision());
+                json.writeStringField("reason", example.reason());
+                json.writeStringField("inferredReceiverSummary",
+                        example.inferredReceiverSummary());
+                json.writeEndObject();
+            }
+            json.writeEndArray();
             json.writeEndObject();
         }
         json.writeEndArray();
         json.writeEndObject();
-        json.writeEndObject();
         json.writeObjectFieldStart("changePointCollection");
         json.writeObjectFieldStart("ssaEquivalence");
-        final boolean ssaSelected = refinements.isEnabled(
-                ResultRefinementAlgorithm.SSA_EQUIVALENCE);
         final List<SsaComparisonEvidence> comparisons = module.getUnit()
                 .getSsaComparisons();
-        json.writeBooleanField("enabled", ssaSelected);
+        json.writeBooleanField("enabled", true);
+        json.writeBooleanField("fixed", true);
         json.writeNumberField("eligible", comparisons.size());
         json.writeNumberField("matchedSuppressed",
                 comparisonCount(comparisons, SsaComparisonStatus.MATCHED));
@@ -420,6 +412,35 @@ final class CallGraphDiagnosticsExporter {
         }
         json.writeEndArray();
         json.writeEndObject();
+        json.writeEndObject();
+    }
+
+    private void writePruningMetrics(
+            final JsonGenerator json,
+            final ImpactPathPruningSummary.Metrics metrics)
+            throws IOException {
+        json.writeObjectFieldStart("metrics");
+        json.writeNumberField("requests", metrics.requests());
+        json.writeNumberField("uniqueEvaluations",
+                metrics.uniqueEvaluations());
+        json.writeNumberField("cacheHits", metrics.cacheHits());
+        json.writeNumberField("pruned", metrics.pruned());
+        json.writeNumberField("feasible", metrics.feasible());
+        json.writeNumberField("unknown", metrics.unknown());
+        json.writeNumberField("notApplicable", metrics.notApplicable());
+        json.writeNumberField("failOpenErrors", metrics.failOpenErrors());
+        json.writeNumberField("callsitesChecked",
+                metrics.callsitesChecked());
+        json.writeNumberField("invokeInstancesChecked",
+                metrics.invokeInstancesChecked());
+        json.writeNumberField("exactResolutions",
+                metrics.exactResolutions());
+        json.writeNumberField("upperBoundResolutions",
+                metrics.upperBoundResolutions());
+        json.writeNumberField("noNormalTargetResolutions",
+                metrics.noNormalTargetResolutions());
+        json.writeNumberField("unknownResolutions",
+                metrics.unknownResolutions());
         json.writeEndObject();
     }
 

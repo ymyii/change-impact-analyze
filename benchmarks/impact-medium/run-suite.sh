@@ -54,18 +54,15 @@ run_one() {
   sample=$4
   capture=$5
   jdk_model=$6
-  result_refinements=$7
-  refinement_label=$(printf '%s' "$result_refinements" | tr ',' '+')
-  label="$suite_label-$run_kind-$jdk_model-$algorithm-$refinement_label-$sample"
+  label="$suite_label-$run_kind-$jdk_model-$algorithm-$sample"
   run_directory="$BENCHMARK_RUNTIME_ROOT/$label"
   printf '%s\n' "$run_directory" >>"$run_list"
-  echo "[$run_kind] algorithm=$algorithm refinement=$result_refinements round=$round sample=$sample"
+  echo "[$run_kind] algorithm=$algorithm round=$round sample=$sample"
   BENCHMARK_RUNTIME_ROOT="$BENCHMARK_RUNTIME_ROOT" \
   BENCHMARK_CALL_GRAPH_ALGORITHM="$algorithm" \
   BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE="$scope" \
   BENCHMARK_WALA_REFLECTION_OPTIONS="$BENCHMARK_WALA_REFLECTION_OPTIONS" \
   BENCHMARK_JDK_MODEL="$jdk_model" \
-  BENCHMARK_RESULT_REFINEMENT_ALGORITHMS="$result_refinements" \
   BENCHMARK_RUN_KIND="$run_kind" \
   BENCHMARK_ROUND="$round" \
   BENCHMARK_SAMPLE="$sample" \
@@ -73,13 +70,12 @@ run_one() {
     "$script_dir/run-benchmark.sh" "$label" || suite_failed=1
 }
 
-# One scope: one SSA warm-up, five SSA formal samples, and one
-# CHA local-receiver control. Each invocation starts a fresh JVM.
-run_one cha warmup 0 0 1 none ssa-equivalence
+# One scope: one warm-up and five formal samples. Each invocation starts a
+# fresh JVM with fixed SSA equivalence and fixed CHA pruning extensions.
+run_one cha warmup 0 0 1 none
 for round in 1 2 3 4 5; do
-  run_one cha formal "$round" "$round" 0 none ssa-equivalence
+  run_one cha formal "$round" "$round" 0 none
 done
-run_one cha control 0 0 0 none cha-local-receiver-inference
 
 set --
 while IFS= read -r run_directory; do

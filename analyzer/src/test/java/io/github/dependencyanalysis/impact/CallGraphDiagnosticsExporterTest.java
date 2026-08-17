@@ -1,8 +1,5 @@
 package io.github.dependencyanalysis.impact;
 
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementAlgorithm;
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
-
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
 
@@ -28,10 +25,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class CallGraphDiagnosticsExporterTest {
 
     /** Expected diagnostics JSON Schema version. */
-    private static final int EXPECTED_SCHEMA_VERSION = 10;
+    private static final int EXPECTED_SCHEMA_VERSION = 12;
 
     @Test
-    void writesSchemaV10ConfigurationAndTypedSentinelPath() throws Exception {
+    void writesSchemaV11ConfigurationAndTypedSentinelPath() throws Exception {
         final CallGraphNodeIdentity fakeRoot = node(
                 0, "com.ibm.wala.FakeRoot", "fakeRootMethod",
                 CallGraphNodeSentinelRole.FAKE_ROOT);
@@ -56,9 +53,7 @@ class CallGraphDiagnosticsExporterTest {
                     CallGraphAlgorithm.defaultKObjDepth(),
                     WalaReflectionOptions.defaultOptions(),
                     DependencyAnalysisScopeMode.CHANGED_PATHS,
-                    JdkModelSelection.JDK8,
-                    ResultRefinementSelection.of(
-                            ResultRefinementAlgorithm.SSA_EQUIVALENCE));
+                    JdkModelSelection.JDK8);
             CallGraphDiagnosticsExporter.writePaths(json, List.of(path));
             json.writeEndObject();
         }
@@ -66,12 +61,20 @@ class CallGraphDiagnosticsExporterTest {
         assertThat(CallGraphDiagnosticsExporter.SCHEMA_VERSION)
                 .isEqualTo(EXPECTED_SCHEMA_VERSION);
         assertThat(output.toString())
-                .contains("\"schemaVersion\":10")
+                .contains("\"schemaVersion\":12")
                 .contains("\"reflectionApplied\":\"applied\"")
                 .contains("\"kObjDepth\":1")
                 .contains("\"jdkModel\":\"jdk8\"")
-                .contains("\"resultRefinementAlgorithms\""
-                        + ":[\"ssa-equivalence\"]")
+                .contains("\"ssaEquivalence\":{\"enabled\":true,"
+                        + "\"fixed\":true}")
+                .contains("\"impactPathPruningExtensions\""
+                        + ":[\"cha-local-receiver-inference\"]")
+                .doesNotContain("cha-adjacent-receiver-inference")
+                .doesNotContain("parameterChecks")
+                .doesNotContain("producerChecks")
+                .doesNotContain("adjacentExactResolutions")
+                .doesNotContain("adjacentUnknownResolutions")
+                .doesNotContain("resultRefinementAlgorithms")
                 .contains("\"reachabilityPaths\"")
                 .contains("\"rootKind\":\"FAKE_ROOT\"")
                 .contains("\"sentinelRole\":\"FAKE_ROOT\"")
@@ -93,8 +96,7 @@ class CallGraphDiagnosticsExporterTest {
                     json, CallGraphAlgorithm.K_OBJ, 2,
                     WalaReflectionOptions.defaultOptions(),
                     DependencyAnalysisScopeMode.CHANGED_PATHS,
-                    JdkModelSelection.JDK8,
-                    ResultRefinementSelection.defaultSelection());
+                    JdkModelSelection.JDK8);
             json.writeEndObject();
         }
 
@@ -114,8 +116,7 @@ class CallGraphDiagnosticsExporterTest {
                     CallGraphAlgorithm.defaultKObjDepth(),
                     WalaReflectionOptions.defaultOptions(),
                     DependencyAnalysisScopeMode.CHANGED_PATHS,
-                    JdkModelSelection.NONE,
-                    ResultRefinementSelection.defaultSelection());
+                    JdkModelSelection.NONE);
             json.writeEndObject();
         }
 

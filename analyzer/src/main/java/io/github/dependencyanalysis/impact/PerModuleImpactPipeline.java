@@ -1,8 +1,5 @@
 package io.github.dependencyanalysis.impact;
 
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementAlgorithm;
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
-
 import com.fasterxml.jackson.core.JsonGenerator;
 
 import io.github.dependencyanalysis.build.BuildResult;
@@ -130,9 +127,6 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
     /** Command-wide JDK Method Model selection. */
     private final JdkModelSelection jdkModel;
 
-    /** Command-wide result-refinement selection. */
-    private final ResultRefinementSelection resultRefinements;
-
     /** Changed-dependency source selection. */
     private final DependencyArtifactSelection dependencySelection;
 
@@ -192,8 +186,6 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                 options.dependencyAnalysisScope(),
                 "dependencyAnalysisScope");
         jdkModel = Objects.requireNonNull(options.jdkModel(), "jdkModel");
-        resultRefinements = Objects.requireNonNull(
-                options.resultRefinements(), "resultRefinements");
         dependencySelection = Objects.requireNonNull(
                 options.dependencySelection(), "dependencySelection");
     }
@@ -305,7 +297,7 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                         entrypointSelection, callGraphAlgorithm,
                         kObjDepth, reflectionOptions,
                         dependencyAnalysisScope, jdkModel,
-                        resultRefinements, dependencySelection);
+                        dependencySelection);
         if (callGraphDiagnosticsOutput != null && reportCache != null) {
             new CallGraphDiagnosticsExporter(
                     diagnostics, javaRuntime, repository()).writeFragments(
@@ -941,11 +933,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                     ChangeType.VERSION_CHANGED,
                     upgrade.getOldArtifact(), upgrade.getNewArtifact(),
                     upgrade.getScope(), upgrade.getModuleId().stableKey());
-            final BytecodeDiffEngine engine = resultRefinements.isEnabled(
-                    ResultRefinementAlgorithm.SSA_EQUIVALENCE)
-                    ? new BytecodeDiffEngine(
-                            kinds, javaRuntime, diagnostics)
-                    : new BytecodeDiffEngine(kinds);
+            final BytecodeDiffEngine engine = new BytecodeDiffEngine(
+                    kinds, javaRuntime, diagnostics);
             final BytecodeDiffResult bytecode = engine.diff(
                     change, repository());
             final List<ChangePoint> points = bytecode.changePoints();
@@ -1116,8 +1105,7 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                 reportCache.writeJsonLines("diagnostic-module",
                         module.getModuleId().stableKey(),
                         List.of(jsonRecord(json -> diagnosticsExporter
-                                .writeModuleRecord(json, live,
-                                        resultRefinements))));
+                                .writeModuleRecord(json, live))));
             }
             module = snapshotter.detach(module);
             result.add(module);
@@ -1259,7 +1247,7 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                             analysisParallelism, workers ->
                             actualImpactQueryWorkers.accumulateAndGet(
                                     workers, Math::max),
-                            resultRefinements).trace(
+                            callGraphDiagnosticsOutput != null).trace(
                                     unit, session, changePointEvidence);
             stageElapsed.put("impact-query",
                     System.currentTimeMillis() - stageStart);
@@ -1341,7 +1329,7 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                             .structuralPaths(query.getStructuralPaths())
                             .dispositions(query.getDispositions())
                             .observations(query.getObservations())
-                            .receiverRefinement(query.getReceiverRefinement())
+                            .impactPathPruning(query.getImpactPathPruning())
                             .limitations(limitations)
                             .elapsedMillis(System.currentTimeMillis()
                                     - input.moduleStart())

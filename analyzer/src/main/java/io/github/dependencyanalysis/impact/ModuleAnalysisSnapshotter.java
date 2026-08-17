@@ -40,6 +40,7 @@ final class ModuleAnalysisSnapshotter {
                 session.getStats(), session.getEntrypointCount(),
                 session.getParameterCandidateCount(),
                 session.getSelectedEntrypointClassCount(), contexts,
+                session.getJdkDispatchPruning().prunedTargetCount(),
                 new CallGraphCoverageMapper().snapshot(
                         session.getDependencyBoundary()));
         final ChangePointEvidenceIndex frozenEvidence = freezeEvidence(

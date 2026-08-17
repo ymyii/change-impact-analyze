@@ -6,15 +6,8 @@ import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.bytecode.JvmAccess;
 import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.model.MethodId;
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementAlgorithm;
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
-
 import io.github.dependencyanalysis.callgraph.protocol.ModelKind;
 import io.github.dependencyanalysis.callgraph.protocol.ModelLimitation;
-import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
-import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSelection;
-import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
-import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.DependencyArtifactSelection;
 import io.github.dependencyanalysis.dependency.DependencyScope;
@@ -49,34 +42,6 @@ class PerModuleImpactPipelineTest {
                 THREE_PROCESSORS)).isEqualTo(1);
         assertThat(ImpactCommand.defaultAnalysisParallelism(
                 EIGHT_PROCESSORS)).isEqualTo(FOUR_WORKERS);
-    }
-
-    @Test
-    void resultRefinementDefaultsToSsaEquivalence() {
-        final AnalysisRunConfiguration configuration =
-                new AnalysisRunConfiguration(
-                        EntrypointSelection.allProjectClasses(),
-                        CallGraphAlgorithm.CHA);
-
-        assertThat(configuration.resultRefinements().algorithms())
-                .containsExactly(ResultRefinementAlgorithm.SSA_EQUIVALENCE);
-    }
-
-    @Test
-    void resultRefinementsCanBeEnabledExplicitly() {
-        final AnalysisRunConfiguration configuration =
-                new AnalysisRunConfiguration(
-                        EntrypointSelection.allProjectClasses(),
-                        CallGraphAlgorithm.CHA,
-                        CallGraphAlgorithm.defaultKObjDepth(),
-                        WalaReflectionOptions.defaultOptions(),
-                        DependencyAnalysisScopeMode.defaultMode(),
-                        JdkModelSelection.NONE,
-                        ResultRefinementSelection.of(
-                                ResultRefinementAlgorithm.SSA_EQUIVALENCE));
-
-        assertThat(configuration.resultRefinements().algorithms())
-                .containsExactly(ResultRefinementAlgorithm.SSA_EQUIVALENCE);
     }
 
     @Test

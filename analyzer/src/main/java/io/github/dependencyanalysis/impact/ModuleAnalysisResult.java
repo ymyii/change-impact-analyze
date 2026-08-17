@@ -1,6 +1,6 @@
 package io.github.dependencyanalysis.impact;
 
-import io.github.dependencyanalysis.impact.refinement.cha.ChaLocalReceiverRefinementSummary;
+import io.github.dependencyanalysis.impact.pruning.ImpactPathPruningSummary;
 
 import io.github.dependencyanalysis.callgraph.engine.CallGraphStats;
 import io.github.dependencyanalysis.callgraph.scope.DuplicateClassResolution;
@@ -49,8 +49,8 @@ public final class ModuleAnalysisResult {
     /** Typed access/reference observations. */
     private final Map<BoundChangePoint, List<ImpactEvidence>> observations;
 
-    /** Query-time CHA local-receiver refinement summary. */
-    private final ChaLocalReceiverRefinementSummary receiverRefinement;
+    /** Query-time fixed Impact Path pruning summary. */
+    private final ImpactPathPruningSummary impactPathPruning;
 
     /** User-reviewable code comparisons by relevant changed member. */
     private final Map<BoundChangePoint,
@@ -84,8 +84,8 @@ public final class ModuleAnalysisResult {
         builder.observations.forEach((point, values) ->
                 evidence.put(point, immutable(values)));
         observations = immutableMap(evidence);
-        receiverRefinement = Objects.requireNonNull(
-                builder.receiverRefinement, "receiverRefinement");
+        impactPathPruning = Objects.requireNonNull(
+                builder.impactPathPruning, "impactPathPruning");
         codeComparisons = immutableMap(builder.codeComparisons);
         duplicateClassResolutions = immutable(
                 builder.duplicateClassResolutions);
@@ -164,9 +164,9 @@ public final class ModuleAnalysisResult {
         return observations;
     }
 
-    /** @return query-time CHA local-receiver refinement summary */
-    public ChaLocalReceiverRefinementSummary getReceiverRefinement() {
-        return receiverRefinement;
+    /** @return query-time fixed Impact Path pruning summary */
+    public ImpactPathPruningSummary getImpactPathPruning() {
+        return impactPathPruning;
     }
 
     /** @return path-associated code comparison evidence */
@@ -211,7 +211,7 @@ public final class ModuleAnalysisResult {
                 .structuralPaths(structuralPaths)
                 .dispositions(dispositions)
                 .observations(observations)
-                .receiverRefinement(receiverRefinement)
+                .impactPathPruning(impactPathPruning)
                 .codeComparisons(codeComparisons)
                 .duplicateClassResolutions(duplicateClassResolutions)
                 .limitations(limitations)
@@ -257,9 +257,9 @@ public final class ModuleAnalysisResult {
         private Map<BoundChangePoint, List<ImpactEvidence>> observations =
                 Map.of();
 
-        /** Query-time CHA local-receiver refinement summary. */
-        private ChaLocalReceiverRefinementSummary receiverRefinement =
-                ChaLocalReceiverRefinementSummary.notSelected();
+        /** Query-time fixed Impact Path pruning summary. */
+        private ImpactPathPruningSummary impactPathPruning =
+                ImpactPathPruningSummary.notExecuted();
 
         /** Code comparisons. */
         private Map<BoundChangePoint, CodeComparisonEvidence>
@@ -375,12 +375,12 @@ public final class ModuleAnalysisResult {
         }
 
         /**
-         * @param value query-time receiver refinement summary
+         * @param value query-time fixed Impact Path pruning summary
          * @return this builder
          */
-        public Builder receiverRefinement(
-                final ChaLocalReceiverRefinementSummary value) {
-            receiverRefinement = Objects.requireNonNull(value, "value");
+        public Builder impactPathPruning(
+                final ImpactPathPruningSummary value) {
+            impactPathPruning = Objects.requireNonNull(value, "value");
             return this;
         }
 

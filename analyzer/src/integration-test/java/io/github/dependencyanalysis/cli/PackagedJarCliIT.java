@@ -192,7 +192,7 @@ class PackagedJarCliIT {
                 .contains("-f, --format")
                 .contains("-k, --include-change-kinds")
                 .contains("--jdk-model")
-                .contains("--result-refinement-algorithms")
+                .doesNotContain("--result-refinement-algorithms")
                 .doesNotContain(
                         "--experimental-bytecode-semantic-comparison")
                 .contains("--call-graph-timeout-seconds");
@@ -309,10 +309,9 @@ class PackagedJarCliIT {
                 .contains("Impact Analysis Report")
                 .contains("<th>Algorithm</th><td>cha</td>")
                 .contains("<th>JDK method model</th><td>none</td>")
-                .contains("<th>Result refinement algorithms</th><td>"
-                        + "ssa-equivalence (experimental)</td>")
                 .contains("<th>SSA equivalence</th><td>"
-                        + "enabled (experimental)</td>")
+                        + "fixed enabled (experimental)</td>")
+                .doesNotContain("Result refinement algorithms")
                 .contains("Preflight")
                 .contains("impact.java-runtime");
         HtmlReportUsabilityVerifier.verifyImpact(impactReport);
@@ -345,57 +344,14 @@ class PackagedJarCliIT {
     }
 
     @Test
-    void jarRunsEveryResultRefinementSelection()
-            throws Exception {
-        final String jdk8Home = System.getenv("TEST_JDK8_HOME");
-        assertThat(jdk8Home).as("TEST_JDK8_HOME").isNotBlank();
-        final Path repository = createRepository(
-                temporary.resolve("refinement-repository"), true);
-        final List<RefinementScenario> scenarios = List.of(
-                new RefinementScenario(
-                        "cha-local-receiver-inference", "cha",
-                        "applied (experimental)",
-                        "disabled (experimental)"),
-                new RefinementScenario(
-                        "ssa-equivalence", "cha",
-                        "disabled (experimental)",
-                        "enabled (experimental)"),
-                new RefinementScenario(
-                        "cha-local-receiver-inference,ssa-equivalence",
-                        "cha", "applied (experimental)",
-                        "enabled (experimental)"));
+    void jarRejectsRemovedResultRefinementOption() throws Exception {
+        final ProcessResult result = runJar(
+                "impact", "-b", "HEAD", "-o",
+                temporary.resolve("removed-option.html").toString(),
+                "--result-refinement-algorithms", "none");
 
-        for (RefinementScenario scenario : scenarios) {
-            final String label = scenario.selection().replace(',', '-');
-            final Path report = temporary.resolve(
-                    scenario.algorithm() + "-" + label + ".html");
-            final List<String> arguments = new ArrayList<>(List.of(
-                    "-m", maven.toString(), "-j", jdk8Home,
-                    "-c", temporary.resolve("config-" + scenario.algorithm()
-                            + "-" + label).toString(),
-                    "impact", "-p", repository.toString(),
-                    "-b", "HEAD", "-t", "HEAD",
-                    "-o", report.toString(), "-f", "html",
-                    "--result-refinement-algorithms",
-                    scenario.selection()));
-            if (!"cha".equals(scenario.algorithm())) {
-                arguments.add("--call-graph-algorithm");
-                arguments.add(scenario.algorithm());
-            }
-
-            final ProcessResult result = runJar(
-                    arguments.toArray(String[]::new));
-
-            assertThat(result.exitCode).as(result.output).isZero();
-            assertThat(report).content()
-                    .contains("<th>Result refinement algorithms</th><td>"
-                            + scenario.selection()
-                            + " (experimental)</td>")
-                    .contains("<th>CHA local receiver inference</th><td>"
-                            + scenario.localStatus() + "</td>")
-                    .contains("<th>SSA equivalence</th><td>"
-                            + scenario.ssaStatus() + "</td>");
-        }
+        assertThat(result.exitCode).as(result.output).isEqualTo(1);
+        assertThat(result.output).contains("Unknown option");
     }
 
     @Test
@@ -747,14 +703,6 @@ class PackagedJarCliIT {
                   <version>%s</version>
                 </project>
                 """.formatted(version), StandardCharsets.UTF_8);
-    }
-
-    /** Packaged-JAR refinement scenario. */
-    private record RefinementScenario(
-            String selection,
-            String algorithm,
-            String localStatus,
-            String ssaStatus) {
     }
 
     private Path createManagedConflictRepository()

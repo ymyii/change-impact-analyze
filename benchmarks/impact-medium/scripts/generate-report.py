@@ -18,8 +18,8 @@ ALGORITHMS = ("cha",)
 REFLECTION_DEFAULT = "ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD"
 SAMPLE_COLUMNS = (
     "label", "run_kind", "round", "sample", "dependency_analysis_scope",
-    "algorithm", "jdk_model", "result_refinement_algorithms",
-    "wala_reflection_options", "total_wall_seconds",
+    "algorithm", "jdk_model", "wala_reflection_options",
+    "total_wall_seconds",
     "call_graph_seconds", "peak_heap_used_mib",
     "peak_heap_committed_mib", "heap_max_mib", "heap_sample_count",
     "process_tree_peak_rss_kib", "entrypoint_count", "cg_node_count",
@@ -32,7 +32,6 @@ SAMPLE_COLUMNS = (
 )
 SUMMARY_COLUMNS = (
     "dependency_analysis_scope", "algorithm", "jdk_model",
-    "result_refinement_algorithms",
     "wala_reflection_options", "samples",
     "min_total_wall_seconds", "median_total_wall_seconds",
     "max_total_wall_seconds", "min_call_graph_seconds",
@@ -50,8 +49,8 @@ SUMMARY_COLUMNS = (
     "dangerous_transfer_count", "successful_samples",
 )
 TOPOLOGY_COLUMNS = (
-    "algorithm", "jdk_model", "result_refinement_algorithms",
-    "wala_reflection_options",
+    "algorithm", "jdk_model", "ssa_equivalence",
+    "impact_path_pruning_extensions", "wala_reflection_options",
     "module", "direction",
     "record_type", "rank", "cg_node_id", "cg_node_identity", "context",
     "wala_synthetic", "sentinel_role", "method_identity", "owner", "name",
@@ -69,7 +68,8 @@ TOPOLOGY_COLUMNS = (
     "no_op_method_node_count", "factory_method_node_count",
     "dangerous_transfer_count", "ancestor_retained_external_type_count",
     "ancestor_retained_external_method_node_count",
-    "pruned_external_method_target_count", "changed_dependency_seed",
+    "pruned_external_method_target_count",
+    "jdk_declared_dispatch_pruned_target_count", "changed_dependency_seed",
     "dependency_path",
 )
 NUMERIC_SAMPLE_FIELDS = (
@@ -110,7 +110,7 @@ def load_topology(run_directory: Path) -> dict[str, Any]:
     path = run_directory / "topology.json"
     with path.open(encoding="utf-8") as stream:
         value = json.load(stream)
-    if value.get("schemaVersion") != 10:
+    if value.get("schemaVersion") != 12:
         raise ValueError(f"unsupported topology schema: {path}")
     return value
 
@@ -151,14 +151,12 @@ def validate(
     by_kind: dict[str, list[dict[str, str]]] = defaultdict(list)
     for row in rows:
         by_kind[row.get("run_kind", "")].append(row)
-    if len(rows) != 7:
-        errors.append(f"应有 7 个独立 CLI 进程，实际 {len(rows)} 个")
+    if len(rows) != 6:
+        errors.append(f"应有 6 个独立 CLI 进程，实际 {len(rows)} 个")
     if len(by_kind["warmup"]) != 1:
         errors.append(f"应有 1 个 warm-up，实际 {len(by_kind['warmup'])} 个")
     if len(by_kind["formal"]) != 5:
         errors.append(f"应有 5 个正式样本，实际 {len(by_kind['formal'])} 个")
-    if len(by_kind["control"]) != 1:
-        errors.append(f"应有 1 个 semantic control，实际 {len(by_kind['control'])} 个")
     environment_fields = (
         "dependency_analysis_scope", "wala_reflection_options",
         "analyzer_sha256", "git_commit",
@@ -193,39 +191,16 @@ def validate(
                    if row.get("algorithm") == algorithm]
         formal = [row for row in by_kind["formal"]
                   if row.get("algorithm") == algorithm]
-        controls = [row for row in by_kind["control"]
-                    if row.get("algorithm") == algorithm]
         if len(warmups) != 1:
             errors.append(f"{algorithm} 应有 1 个 warm-up，实际 {len(warmups)} 个")
             continue
         if len(formal) != 5:
             errors.append(f"{algorithm} 应有 5 个正式样本，实际 {len(formal)} 个")
-        expected_controls = 1
-        if len(controls) != expected_controls:
-            errors.append(
-                f"{algorithm} 应有 {expected_controls} 个 semantic control，"
-                f"实际 {len(controls)} 个"
-            )
         default_rows = warmups + formal
         expected_model = "none"
         if any(row.get("jdk_model") != expected_model for row in default_rows):
             errors.append(
                 f"{algorithm} warm-up/formal 未使用默认 {expected_model} model"
-            )
-        if any(row.get("jdk_model") != "none" for row in controls):
-            errors.append(f"{algorithm} control 未使用 none model")
-        if any(row.get("result_refinement_algorithms") != "ssa-equivalence"
-               for row in default_rows):
-            errors.append(f"{algorithm} warm-up/formal 未选择 ssa-equivalence")
-        expected_control_refinement = (
-            "cha-local-receiver-inference" if algorithm == "cha"
-            else "ssa-equivalence"
-        )
-        if any(row.get("result_refinement_algorithms")
-               != expected_control_refinement for row in controls):
-            errors.append(
-                f"{algorithm} control refinement 应为 "
-                f"{expected_control_refinement}"
             )
         topology = topologies.get(algorithm)
         if topology is None:
@@ -242,8 +217,14 @@ def validate(
             errors.append(f"{algorithm} topology reflectionApplied 不匹配")
         if topology.get("jdkModel") != expected_model:
             errors.append(f"{algorithm} topology JDK model 不匹配")
-        if topology.get("resultRefinementAlgorithms") != ["ssa-equivalence"]:
-            errors.append(f"{algorithm} topology result refinement 不匹配")
+        if topology.get("ssaEquivalence") != {"enabled": True, "fixed": True}:
+            errors.append(f"{algorithm} topology fixed SSA state 不匹配")
+        if topology.get("impactPathPruningExtensions") != [
+            "cha-local-receiver-inference",
+        ]:
+            errors.append(f"{algorithm} topology pruning registry 不匹配")
+        if "resultRefinementAlgorithms" in topology:
+            errors.append(f"{algorithm} topology 保留了已删除 refinement 字段")
         if topology.get("requestedDependencyAnalysisScope") != scope:
             errors.append(f"{algorithm} topology requested scope 不匹配")
         for module in topology.get("modules", []):
@@ -311,8 +292,6 @@ def summaries(formal: list[dict[str, str]], scope: str) -> list[dict[str, str]]:
             "dependency_analysis_scope": scope,
             "algorithm": algorithm,
             "jdk_model": rows[0]["jdk_model"],
-            "result_refinement_algorithms": rows[0][
-                "result_refinement_algorithms"],
             "wala_reflection_options": rows[0]["wala_reflection_options"],
             "samples": len(rows),
             "entrypoint_count": int(number(rows[0], "entrypoint_count")),
@@ -364,8 +343,9 @@ def topology_rows(topologies: dict[str, dict[str, Any]]) -> list[dict[str, str]]
             scope_values = {
                 "algorithm": algorithm,
                 "jdk_model": topology["jdkModel"],
-                "result_refinement_algorithms": ",".join(
-                    topology["resultRefinementAlgorithms"]),
+                "ssa_equivalence": "fixed-enabled",
+                "impact_path_pruning_extensions": ",".join(
+                    topology["impactPathPruningExtensions"]),
                 "wala_reflection_options": topology["reflectionOptions"],
                 "module": module["module"],
                 "direction": "DEPENDENCY",
@@ -393,6 +373,8 @@ def topology_rows(topologies: dict[str, dict[str, Any]]) -> list[dict[str, str]]
                     "ancestorRetainedExternalMethodNodeCount", 0)),
                 "pruned_external_method_target_count": str(module.get(
                     "prunedExternalMethodTargetCount", 0)),
+                "jdk_declared_dispatch_pruned_target_count": str(module.get(
+                    "jdkDeclaredDispatchPrunedTargetCount", 0)),
             }
             module_row = dict(scope_values)
             module_row["record_type"] = "DEPENDENCY_SCOPE"
@@ -417,8 +399,9 @@ def topology_rows(topologies: dict[str, dict[str, Any]]) -> list[dict[str, str]]
                     common = {
                         "algorithm": algorithm,
                         "jdk_model": topology["jdkModel"],
-                        "result_refinement_algorithms": ",".join(
-                            topology["resultRefinementAlgorithms"]),
+                        "ssa_equivalence": "fixed-enabled",
+                        "impact_path_pruning_extensions": ",".join(
+                            topology["impactPathPruningExtensions"]),
                         "wala_reflection_options": topology["reflectionOptions"],
                         "module": module["module"],
                         "direction": direction,
@@ -666,8 +649,8 @@ table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{bo
         f"<h1>CallGraph Benchmark 可观测性报告 — <code>{e(scope)}</code></h1>",
         f'<p>Suite status: <strong class="{"ok" if not errors else "bad"}">{status}</strong>。'
         "正式样本使用全新 Java Virtual Machine（JVM），warm-up 仅用于 topology 与缓存预热；"
-        "canonical algorithm 固定为 CHA；另有一个 "
-        "<code>cha-local-receiver-inference</code> control。</p>",
+        "canonical algorithm 固定为 CHA；SSA equivalence 与两个 CHA "
+        "Impact Path pruning extension 固定启用。</p>",
     ]
     if errors:
         parts.append("<section><h2>Failure diagnostics</h2><ul>")

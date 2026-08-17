@@ -82,10 +82,11 @@ public final class ChaCallGraphStrategy implements CallGraphAlgorithmStrategy {
         CallGraphPolicy.validate(algorithm(), JdkModelSelection.NONE);
         final ChaContextInterpreter interpreter = new ChaContextInterpreter(
                 context, request);
-        final CHACallGraph graph = new CHACallGraph(
+        final ChaDispatchFilteringClassHierarchy filteredHierarchy =
                 new ChaDispatchFilteringClassHierarchy(
-                        context.hierarchy(),
-                        request.dispatchTargets()), false);
+                        context.hierarchy(), request.dispatchTargets());
+        final CHACallGraph graph = new CHACallGraph(
+                filteredHierarchy, false);
         graph.setInterpreter(interpreter);
         checkCanceled(context.monitor());
         graph.init(context.entrypoints());
@@ -96,6 +97,8 @@ public final class ChaCallGraphStrategy implements CallGraphAlgorithmStrategy {
                                 interpreter.dynamicEvidence()),
                         interpreter.limitations(),
                         java.util.Optional.empty(), capabilities(),
+                        request.dispatchTargets()
+                                .jdkDeclaredDispatchSummary(),
                         java.util.Optional.of(
                                 interpreter.boundaryMetadata(graph))));
     }

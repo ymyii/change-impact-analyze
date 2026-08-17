@@ -53,6 +53,7 @@ import com.ibm.wala.types.TypeReference;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
+import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis.jar.IJarRepository;
 import io.github.dependencyanalysis.jar.JarLease;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
@@ -440,7 +441,9 @@ public final class ModuleCallGraphEngine {
                             ancestorRetention.retainedTypeCount());
             final ChaDispatchTargetPolicy chaTargets =
                     ChaDispatchTargetPolicy.create(input, ownership,
-                            ancestorRetention, chaChangedPaths);
+                            ancestorRetention, chaChangedPaths,
+                            captureTopology || diagnostics.getVerbosity()
+                                    .includes(LogVerbosity.TRACE));
             final List<Entrypoint> entrypoints = entrypoints(
                     hierarchy, entrypointIndex);
             if (entrypoints.isEmpty()) {
@@ -513,7 +516,11 @@ public final class ModuleCallGraphEngine {
                     + jdkModel.identifier() + "; nodes="
                     + stats.methodCount() + "; edges="
                     + stats.edgeCount() + "; entrypoints="
-                    + entrypoints.size());
+                    + entrypoints.size()
+                    + "; jdkDeclaredDispatchPrunedTargets="
+                    + strategyResult.metadata()
+                            .jdkDeclaredDispatchPruning()
+                            .prunedTargetCount());
             diagnostics.endStage(context);
             return new ModuleCallGraphSession(graph, hierarchy, scope,
                     ownership, new ModuleCallGraphMetadata(

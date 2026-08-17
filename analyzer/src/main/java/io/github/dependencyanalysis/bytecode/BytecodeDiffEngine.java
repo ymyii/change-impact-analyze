@@ -34,35 +34,8 @@ public final class BytecodeDiffEngine {
     private final Set<ChangePointKind>
             includedKinds;
 
-    /** Optional ChangePoint-collection SSA filter. */
+    /** Fixed ChangePoint-collection SSA filter. */
     private final BytecodeSsaFilter ssaFilter;
-
-    /**
-     * Creates a new bytecode diff
-     * engine with default included
-     * kinds.
-     */
-    public BytecodeDiffEngine() {
-        this(ChangePointKind.DEFAULT_INCLUDED_KINDS,
-                (BytecodeSsaFilter) null);
-    }
-
-    /**
-     * Creates a new bytecode diff
-     * engine with the specified
-     * included change point kinds.
-     * Only change points whose kind
-     * is in the given set will be
-     * produced.
-     *
-     * @param kinds set of included
-     *  change point kinds
-     */
-    public BytecodeDiffEngine(
-            final Set<ChangePointKind>
-                    kinds) {
-        this(kinds, (BytecodeSsaFilter) null);
-    }
 
     /**
      * Creates a bytecode diff engine with normalized SSA filtering enabled.
@@ -75,12 +48,6 @@ public final class BytecodeDiffEngine {
             final Set<ChangePointKind> kinds,
             final JavaRuntimeDescriptor runtime,
             final DiagnosticLog diagnostics) {
-        this(kinds, new BytecodeSsaFilter(runtime, diagnostics));
-    }
-
-    private BytecodeDiffEngine(
-            final Set<ChangePointKind> kinds,
-            final BytecodeSsaFilter filter) {
         Objects.requireNonNull(
                 kinds, "kinds");
         if (kinds.isEmpty()) {
@@ -92,7 +59,7 @@ public final class BytecodeDiffEngine {
                             EnumSet.copyOf(
                                     kinds));
         }
-        ssaFilter = filter;
+        ssaFilter = new BytecodeSsaFilter(runtime, diagnostics);
     }
 
     /**
@@ -120,7 +87,7 @@ public final class BytecodeDiffEngine {
             final List<SsaMethodCandidate> candidates = new ArrayList<>();
             diffClasses(oldIndex, newIndex, change.getNewArtifact(), raw,
                     candidates);
-            if (ssaFilter == null || candidates.isEmpty()) {
+            if (candidates.isEmpty()) {
                 return new BytecodeDiffResult(raw, raw.size(), List.of());
             }
             final List<SsaComparisonEvidence> evidence = ssaFilter.compare(

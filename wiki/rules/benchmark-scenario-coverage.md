@@ -16,7 +16,7 @@ code_refs:
   - path: "benchmarks/impact-medium/scripts/verify-report.sh"
     desc: "scope-aware CHA semantic gate"
   - path: "benchmarks/impact-medium/expected-results.tsv"
-    desc: "scope + refinement semantic baseline"
+    desc: "scope semantic baseline"
 ---
 
 # Rule: Benchmark Scenario Coverage
@@ -31,8 +31,8 @@ Analyzer 可观察能力变化必须同步维护 fixture、semantic verification
 - 内部 refactor 无可观察行为变化时可不新增 fixture，但必须维护现有脚本合同。
 - 未获授权时只运行 Python/shell contract tests，不运行 `run-benchmark.sh`、`run-suite.sh` 或 `run-scope-matrix.sh`。
 - `impact-medium` canonical algorithm 固定为 CHA；`k-obj` 使用聚焦 unit/integration capability tests，不进入 canonical baseline。
-- Matrix 必须显式覆盖 `changed-paths` 与 `full`，每个 scope 为 1 warm-up、5 formal、1 local receiver control；双 scope 共 14 个 JVM。
-- `expected-results.tsv` 只维护两种 scope × 两种 refinement 的四个 baseline。
+- Matrix 必须显式覆盖`changed-paths`与`full`，每个scope为1 warm-up、5 formal；双scope共12个JVM。SSA equivalence与`cha-local-receiver-inference`固定启用，不建立selection control。
+- `expected-results.tsv`只维护两种scope的两个baseline。
 - `PENDING` 只允许在显式 calibration 中通过；人工确认前不得发布 tracked snapshot。
 - 任一 scope 的语义、topology、HTML 或 publication gate 失败时，不发布任何新 snapshot。
 
@@ -45,4 +45,4 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
   benchmarks/impact-medium/run-scope-matrix.sh
 ```
 
-完整完成条件：14 个进程成功、scope 内 topology 稳定、四个 baseline 非 `PENDING`、两份 HTML 成功、双 scope snapshot 原子发布。
+完整完成条件：12个进程成功、scope内topology稳定、两个baseline非`PENDING`、两份HTML成功、双scope snapshot原子发布。

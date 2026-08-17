@@ -19,11 +19,16 @@ import com.ibm.wala.types.TypeReference;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 
 /** Immutable Diff-directed target-retention policy for CHA Object dispatch. */
 public final class ChaDispatchTargetPolicy {
+
+    /** Maximum stable JDK-dispatch examples. */
+    private static final int EXAMPLE_LIMIT = 10;
 
     /** Exact Object.toString selector. */
     private static final Selector TO_STRING =
@@ -53,13 +58,25 @@ public final class ChaDispatchTargetPolicy {
     /** Stable identities of external method targets removed from CHA. */
     private final Set<String> prunedExternalTargets = new LinkedHashSet<>();
 
+    /** Whether to format bounded JDK-dispatch examples. */
+    private final boolean captureJdkExamples;
+
+    /** Distinct targets removed by the fixed JDK-declared dispatch rule. */
+    private final Set<String> prunedJdkDeclaredTargets = new LinkedHashSet<>();
+
+    /** Deterministic smallest JDK-declared dispatch examples. */
+    private final TreeMap<String,
+            JdkDeclaredDispatchPruningSummary.TargetExample> jdkExamples =
+            new TreeMap<>();
+
     private ChaDispatchTargetPolicy(
             final boolean filterEnabled,
             final boolean pruneExternal,
             final Set<ExternalMethodKey> externalMethods,
             final ClassOwnershipIndex winnerOwnership,
             final CallGraphDependencyScope bodySelection,
-            final ChaAncestorRetentionPolicy ancestors) {
+            final ChaAncestorRetentionPolicy ancestors,
+            final boolean captureExamples) {
         enabled = filterEnabled;
         externalPruning = pruneExternal;
         diffRelatedExternalMethods = Set.copyOf(Objects.requireNonNull(
@@ -68,6 +85,7 @@ public final class ChaDispatchTargetPolicy {
                 winnerOwnership, "winnerOwnership");
         selection = bodySelection;
         ancestorRetention = Objects.requireNonNull(ancestors, "ancestors");
+        captureJdkExamples = captureExamples;
     }
 
     /**
@@ -81,7 +99,7 @@ public final class ChaDispatchTargetPolicy {
             final ModuleCallGraphInput input,
             final ClassOwnershipIndex ownership) {
         return create(input, ownership,
-                ChaAncestorRetentionPolicy.disabled(), false);
+                ChaAncestorRetentionPolicy.disabled(), false, false);
     }
 
     /**
@@ -98,6 +116,25 @@ public final class ChaDispatchTargetPolicy {
             final ClassOwnershipIndex ownership,
             final ChaAncestorRetentionPolicy ancestors,
             final boolean pruneExternal) {
+        return create(input, ownership, ancestors, pruneExternal, false);
+    }
+
+    /**
+     * Builds the full dispatch policy with optional bounded examples.
+     *
+     * @param input module Call Graph input
+     * @param ownership target classpath winner ownership
+     * @param ancestors retained ancestor policy
+     * @param pruneExternal whether to prune unrelated external targets
+     * @param captureExamples whether to format bounded examples
+     * @return immutable dispatch policy
+     */
+    public static ChaDispatchTargetPolicy create(
+            final ModuleCallGraphInput input,
+            final ClassOwnershipIndex ownership,
+            final ChaAncestorRetentionPolicy ancestors,
+            final boolean pruneExternal,
+            final boolean captureExamples) {
         Objects.requireNonNull(input, "input");
         Objects.requireNonNull(ownership, "ownership");
         final Set<ExternalMethodKey> methods = new LinkedHashSet<>();
@@ -120,14 +157,15 @@ public final class ChaDispatchTargetPolicy {
                     point.descriptor()));
         }
         return new ChaDispatchTargetPolicy(true, pruneExternal, methods,
-                ownership, input.dependencyScope(), ancestors);
+                ownership, input.dependencyScope(), ancestors,
+                captureExamples);
     }
 
     /** @return compatibility policy that leaves all dispatch unchanged */
     public static ChaDispatchTargetPolicy disabled() {
         return new ChaDispatchTargetPolicy(false, false, Set.of(),
                 new ClassOwnershipIndex(), null,
-                ChaAncestorRetentionPolicy.disabled());
+                ChaAncestorRetentionPolicy.disabled(), false);
     }
 
     /**
@@ -140,6 +178,37 @@ public final class ChaDispatchTargetPolicy {
                 || TypeReference.JavaLangObject.getName().equals(
                 declaredTarget.getDeclaringClass().getName())
                 && protectedSelector(declaredTarget.getSelector()));
+    }
+
+    /**
+     * @param declaredTarget declared virtual target
+     * @return whether a CHA dispatch target set requires filtering
+     */
+    public boolean filtersDispatch(final MethodReference declaredTarget) {
+        return enabled && (filters(declaredTarget)
+                || jdkDeclared(declaredTarget));
+    }
+
+    /**
+     * Applies the fixed JDK-declared boundary only to CHA dispatch target sets.
+     *
+     * @param declaredTarget declared virtual target
+     * @param target resolved CHA candidate
+     * @return whether the candidate remains in filtered dispatch
+     */
+    public boolean retainsDispatchTarget(
+            final MethodReference declaredTarget,
+            final IMethod target) {
+        if (enabled && jdkDeclared(declaredTarget)) {
+            final CodeOrigin origin = origin(target.getDeclaringClass());
+            if (origin != CodeOrigin.JDK || target.isAbstract()) {
+                recordJdkPruned(declaredTarget, target, origin,
+                        target.isAbstract() ? "non-concrete-target"
+                                : "non-jdk-target");
+                return false;
+            }
+        }
+        return !filters(declaredTarget) || retains(declaredTarget, target);
     }
 
     /**
@@ -167,6 +236,61 @@ public final class ChaDispatchTargetPolicy {
     /** @return stable number of distinct pruned external method targets */
     public int prunedExternalMethodTargetCount() {
         return prunedExternalTargets.size();
+    }
+
+    /** @return fixed JDK-declared dispatch pruning evidence */
+    public JdkDeclaredDispatchPruningSummary jdkDeclaredDispatchSummary() {
+        synchronized (prunedJdkDeclaredTargets) {
+            return new JdkDeclaredDispatchPruningSummary(
+                    prunedJdkDeclaredTargets.size(),
+                    List.copyOf(jdkExamples.values()));
+        }
+    }
+
+    private boolean jdkDeclared(final MethodReference declaredTarget) {
+        final ClassLoaderReference loader = declaredTarget
+                .getDeclaringClass().getClassLoader();
+        return ClassLoaderReference.Primordial.equals(loader)
+                || ClassLoaderReference.Extension.equals(loader);
+    }
+
+    private CodeOrigin origin(final IClass type) {
+        final ClassOwnership winner = ownership.ownershipOf(
+                type.getName().toString());
+        if (winner != null) {
+            return winner.getOrigin();
+        }
+        if (type instanceof SyntheticClass || type.isSynthetic()) {
+            return CodeOrigin.SYNTHETIC;
+        }
+        final ClassLoaderReference loader = type.getClassLoader()
+                .getReference();
+        return ClassLoaderReference.Primordial.equals(loader)
+                || ClassLoaderReference.Extension.equals(loader)
+                ? CodeOrigin.JDK : CodeOrigin.SYNTHETIC;
+    }
+
+    private void recordJdkPruned(
+            final MethodReference declaredTarget,
+            final IMethod target,
+            final CodeOrigin origin,
+            final String reason) {
+        final String targetIdentity = target.getReference().toString();
+        synchronized (prunedJdkDeclaredTargets) {
+            prunedJdkDeclaredTargets.add(
+                    declaredTarget + "|" + targetIdentity);
+            if (!captureJdkExamples) {
+                return;
+            }
+            final JdkDeclaredDispatchPruningSummary.TargetExample example =
+                    new JdkDeclaredDispatchPruningSummary.TargetExample(
+                            declaredTarget.toString(), targetIdentity,
+                            origin.name(), reason);
+            jdkExamples.put(example.stableKey(), example);
+            while (jdkExamples.size() > EXAMPLE_LIMIT) {
+                jdkExamples.pollLastEntry();
+            }
+        }
     }
 
     private boolean objectDispatch(final MethodReference declaredTarget) {

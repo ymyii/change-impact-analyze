@@ -47,13 +47,13 @@ code_refs: []
 - Summary: logical coordinate pair经repository lease并行去重Diff；跨class major的method body执行normalized SSA filtering，`-vv`为retained结果输出old/new bytecode与IR审计。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
-- Summary: 正式CHA与experimental `k-obj`按strategy隔离；canonical SCC topology utility由cycle识别和Impact root selection复用。
+- Summary: 正式CHA与experimental `k-obj`按strategy隔离；CHA固定限制JDK声明分派，canonical SCC utility由topology与Impact QueryNode slice复用。
 
 ### [JDK Method Models](features/jdk-method-models.md)
 - Summary: CHA固定`none`；experimental `k-obj`默认接入独立`models/jdk8`精确catalog，并允许显式`none`。
 
 ### [Impact Tracing](features/impact-tracing.md)
-- Summary: ChangePoint收集期SSA与query期CHA local receiver分阶段执行；reverse slice按root SCC生成确定性最短Impact Path，不保留candidate/final双模型。
+- Summary: SSA固定在ChangePoint收集期执行；CHA query固定以caller-local receiver事实裁剪调用边，QueryNode级reverse BFS按root SCC生成确定性代表路径。
 
 ### [Report Generator](features/report-generator.md)
 - Summary: Impact/Structural Affected Paths采用Schema 4 source-range index、4 MiB离线分片与显式Search；Module与Path按changed-member Maven Glob缩小展示范围，页面自适应占满viewport。
@@ -70,7 +70,7 @@ code_refs: []
 - Summary: 所有功能设计必须覆盖指标监控、进度跟踪与审计日志；运行证据可复用，但高成本生成只能在对应详细级别启用后执行。
 
 ### [Benchmark Scenario Coverage](rules/benchmark-scenario-coverage.md)
-- Summary: CHA-only canonical matrix为双scope共14个JVM与4个baseline；仅在用户明确授权后执行。
+- Summary: CHA-only canonical matrix为双scope共12个JVM与2个baseline；仅在用户明确授权后执行。
 
 ### [Package Boundaries](rules/package-boundaries.md)
 - Summary: 按职责分包、单向依赖、algorithm隔离、无兼容壳与测试镜像production package，由ArchUnit持续强制。
@@ -90,6 +90,6 @@ code_refs: []
 - Summary: Maven Versions/Enforcer驱动四个独立artifact的Snapshot iteration、Stable release、commit与component Git tag。
 
 ### [Impact Benchmark](runbooks/impact-benchmark.md)
-- Summary: changed-paths/full各执行1次SSA warm-up、5次SSA formal与1次CHA local receiver control；14个JVM和4组baseline通过后原子发布。
+- Summary: changed-paths/full各执行1次warm-up与5次formal；固定SSA和CHA pruning合同、12个JVM与2组baseline通过后原子发布。
 
 ## Glossary

@@ -134,7 +134,7 @@ java -jar target/dependency-analyzer.jar tree --help
 - `StagePhaseTerminologyTest`在unit test中扫描主代码、测试、Wiki和用户文档；除WALA/Java强制外部API名称外，不允许项目自有控制流程重新引入旧术语。
 - Diagnostic与Impact Query tests验证五段prefix、可选Phase、Phase不进入Stage计时key、统一`started/completed/failed`正文，以及QueryNode消息正文不再重复`phase=`。
 - 真实JDK 8 test完成JDK probe、WALA scope、默认CHA与显式`k-obj`，不因缺少环境变量跳过。CHA验证JDK leaf不展开；`k-obj`验证JDK model callback dispatch。
-- CLI/config/report tests确认默认组合为`cha + jdk-model none + ssa-equivalence`；`k-obj`默认`jdk8`且可显式`none`；`cha + jdk8`统一拒绝。Reflection配置只应用于`k-obj`。
+- CLI/config/report tests确认默认组合为`cha + jdk-model none`，SSA equivalence固定启用且旧result refinement option被拒绝；`k-obj`默认`jdk8`且可显式`none`；`cha + jdk8`统一拒绝。Reflection配置只应用于`k-obj`。
 - CHA与`k-obj`通过统一Evidence Schema、timeout和metadata regression；MethodHandle、ServiceLoader、Class.forName与`invokedynamic`由聚焦`k-obj` capability tests覆盖。CHA额外覆盖local constant、JDK leaf、路径外external target pruning和完整external祖先链。
 - Entrypoint tests覆盖private nested class、constructor、static/instance method过滤；公开root调用的private method仍作为普通CGNode存在。
 - `target/dependency-analyzer.jar` 存在，manifest `Main-Class` 为 `io.github.dependencyanalysis.cli.DependencyAnalyzerCli`。
@@ -148,7 +148,7 @@ java -jar target/dependency-analyzer.jar tree --help
 - Packaged JAR保留公共JDK model engine、JDK 8 façade与catalog；不包含已删除algorithm class、旧Call Graph根包class或兼容wrapper。
 - `PackagedJarCliIT`使用真实changed-dependency fixture执行默认JDK 8的`k-obj`，要求fixed point完成、报告生成并显示`experimental`。
 - `PackagedJarCliIT`使用最终shaded JAR生成真实Impact与Tree Report。`HtmlReportUsabilityVerifier`要求entry file可读、HTML/head/title/body结构完整、无未展开模板标记；所有本地`href/src`必须留在Report root内且目标可读，Tree Index必须能到达至少一个Reactor page。
-- Analyzer能力新增或行为扩展时，必须同步新增/更新benchmark fixture、verification与expected baseline。只有用户明确要求执行benchmark时才运行matrix；获得授权后，14个JVM、4组semantic baseline和两份HTML Report必须全部成功。当前4个`PENDING`baseline必须先经授权calibration和人工review锁定；calibration不得发布tracked snapshot。
+- Analyzer能力新增或行为扩展时，必须同步新增/更新benchmark fixture、verification与expected baseline。只有用户明确要求执行benchmark时才运行matrix；获得授权后，12个JVM、2组semantic baseline和两份HTML Report必须全部成功。当前2个`PENDING`baseline必须先经授权calibration和人工review锁定；calibration不得发布tracked snapshot。
 
 ## Failure Entrypoints
 

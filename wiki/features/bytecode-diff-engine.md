@@ -89,13 +89,13 @@ code_refs:
 
 ## ChangePoint 收集期 SSA
 
-- CLI默认选择`ssa-equivalence`；显式`--result-refinement-algorithms none`完全关闭该过滤。
+- SSA equivalence固定启用，不存在CLI关闭分支；旧`--result-refinement-algorithms`作为未知option返回exit code `1`。
 - 每侧session只加载目标JDK 8 Primordial/Extension classpath及该侧单个dependency JAR，不构建Call Graph，不依赖Module target session。
 - 比较保留typed constant、Def-Use、normal/exception Control Flow Graph、catch type、declared reference、phi/pi/catch与side-effect order；value number进行alpha normalization。
 - 状态固定为`MATCHED`、`DIFFERENT`、`UNKNOWN`。`UNKNOWN`覆盖session、method lookup、Intermediate Representation（IR，中间表示）生成、unsupported instruction与normalization failure；不改变Module status。
-- 证据包含logical artifacts、owner/name/descriptor、old/new body hash、old/new class major version、status、stable reason与elapsed milliseconds。Report与Schema 10 diagnostics可审计；证据不附着到Impact Path。
+- 证据包含logical artifacts、owner/name/descriptor、old/new body hash、old/new class major version、status、stable reason与elapsed milliseconds。Report与Schema 12 diagnostics可审计；证据不附着到Impact Path。
 - `-vv`仅对`DIFFERENT`与`UNKNOWN`生成Console-only审计块。`jar-diff/ssa-equivalence-audit`上下文携带artifact与`method=<owner>#<name><descriptor>`，正文以`ssaDifferentRetained`或`ssaUnknownRetained`标识保留结果，并固定输出old/new ASM bytecode、old/new原始IR及old/new normalized IR。缺失内容使用`<unavailable reason=...>`；审计failure不改变fail-open结果。
-- 高成本ASM、IR与normalized文本只在TRACE verbosity门禁通过后生成，不写入`SsaComparisonEvidence`、Report或Schema 10 diagnostics。Method ASM文本由`MethodBytecodeTextRenderer`统一生成，SSA审计与Call Graph source fallback不得各自维护格式。
+- 高成本ASM、IR与normalized文本只在TRACE verbosity门禁通过后生成，不写入`SsaComparisonEvidence`、Report或Schema 12 diagnostics。Method ASM文本由`MethodBytecodeTextRenderer`统一生成，SSA审计与Call Graph source fallback不得各自维护格式。
 
 ## ServiceLoader Resource Diff
 

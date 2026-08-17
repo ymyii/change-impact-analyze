@@ -1,6 +1,5 @@
 package io.github.dependencyanalysis.impact;
 
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
 import io.github.dependencyanalysis.dependency.DependencyArtifactSelection;
 
 import io.github.dependencyanalysis.dependency.DependencyChange;
@@ -53,9 +52,6 @@ public final class AnalysisRunResult {
 
     /** Command-wide JDK Method Model selection. */
     private final JdkModelSelection jdkModel;
-
-    /** Command-wide result-refinement selection. */
-    private final ResultRefinementSelection resultRefinements;
 
     /** Command-wide changed-dependency selection. */
     private final DependencyArtifactSelection dependencySelection;
@@ -128,8 +124,6 @@ public final class AnalysisRunResult {
                 "dependencyAnalysisScope");
         jdkModel = java.util.Objects.requireNonNull(
                 settings.jdkModel(), "jdkModel");
-        resultRefinements = java.util.Objects.requireNonNull(
-                settings.resultRefinements(), "resultRefinements");
         dependencySelection = java.util.Objects.requireNonNull(
                 settings.dependencySelection(), "dependencySelection");
     }
@@ -207,11 +201,6 @@ public final class AnalysisRunResult {
     /** @return command-wide JDK Method Model selection */
     public JdkModelSelection getJdkModel() {
         return jdkModel;
-    }
-
-    /** @return command-wide result-refinement selection */
-    public ResultRefinementSelection getResultRefinementSelection() {
-        return resultRefinements;
     }
 
     /** @return command-wide changed-dependency selection */

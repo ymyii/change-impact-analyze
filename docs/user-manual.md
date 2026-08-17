@@ -49,7 +49,7 @@ Global options 可放在 subcommand 前或后：
 
 `--verbose --verbose` 与 `-vv` 等价。Analyzer控制流程只使用Stage与Phase：Stage是具有开始、完成、失败与耗时的执行边界；Phase是Stage内可选的算法活动，只在存在明确内部算法步骤时出现。运行日志统一写入stderr，每个物理行固定为`[时间][日志级别][stage][substage][phase + identity] message`；缺失段使用`[-]`。第五段canonical顺序固定为`phase, check, reactor, module, artifact, pool`，其他stable identity按名称排序；只有Phase时例如`[phase=REVERSE_BFS]`，Phase与identity并存时例如`[phase=REVERSE_BFS;module=g:a:1]`。status、progress、elapsed、path、计数和metrics value等实际日志信息使用message中的`key=value`。Stage生命周期正文统一为`started`、`completed; elapsedMs=...`和`failed; reason=...; elapsedMs=...`。`INFO`输出稳定的Stage、progress、warning和error，Maven subprocess只透传warning/error；JAR pair diff failure的WARN固定包含异常类型和完整message。`DEBUG`额外输出analysis option/decision、完整Maven subprocess output，并在command或隔离的JAR pair异常时逐行输出带完整prefix的stack trace与cause chain；`TRACE`再输出normalized path、ref、scope，以及启动后立即采样、随后每10秒采样的Runtime Metrics。SSA比较为`DIFFERENT`或`UNKNOWN`时，`TRACE`还以`substage=ssa-equivalence-audit`输出同一方法的old/new ASM字节码、old/new原始Intermediate Representation（IR，中间表示）和old/new归一化IR；每行包含可搜索的`method=<owner>#<name><descriptor>`，并以`retention=ssaDifferentRetained|ssaUnknownRetained`标识保留原因。Picocli help/usage、参数解析错误和第三方库直接写入stderr的内容不保证五段prefix。
 
-`-vv` Runtime Metrics包含heap `used/committed/max` MiB，以及唯一Analyzer-owned `common` thread pool的core/max/size/active/queued/completed/submitted和lifecycle状态。`common`顺序承载front preparation、JAR diff、Impact Query与并发code comparison。Heap第五段为空；thread-pool第五段只包含`pool` identity；sample、elapsed和全部指标值位于message。`-v`不创建metrics scheduler，也不输出metrics。全部Diagnostic line、Runtime Metrics、Maven output、Preflight fallback和stack trace只进入Console；HTML不包含Diagnostics栏目。显式`--call-graph-diagnostics-output`仍可单独输出Schema 10 topology JSON。
+`-vv` Runtime Metrics包含heap `used/committed/max` MiB，以及唯一Analyzer-owned `common` thread pool的core/max/size/active/queued/completed/submitted和lifecycle状态。`common`顺序承载front preparation、JAR diff、Impact Query与并发code comparison。Heap第五段为空；thread-pool第五段只包含`pool` identity；sample、elapsed和全部指标值位于message。`-v`不创建metrics scheduler，也不输出metrics。全部Diagnostic line、Runtime Metrics、Maven output、Preflight fallback和stack trace只进入Console；HTML不包含Diagnostics栏目。显式`--call-graph-diagnostics-output`仍可单独输出Schema 12 topology JSON。
 
 ```text
 [2026-08-05T14:30:01.123+08:00][INFO][analysis][reactor][reactor=root] Maven collection completed; progress=1/2; status=SUCCESS; modules=8
@@ -139,7 +139,6 @@ dependency-analyzer impact \
   [--jdk-model <jdk8|none>] \
   [--wala-reflection-options <WALA-enum-name>] \
   [--dependency-analysis-scope <changed-paths|full>] \
-  [--result-refinement-algorithms <selection>] \
   [--entrypoint-include '<class-path-pattern>']... \
   [--entrypoint-exclude '<class-path-pattern>']... \
   [-k, --include-change-kinds <csv>] \
@@ -157,7 +156,9 @@ dependency-analyzer impact \
 - `--k-obj-depth`只可与`--call-graph-algorithm k-obj`同时使用；必须为正整数，默认`1`，不设置人为上限。普通static调用复用object Context，递归在固定`k`的有限Context空间内收敛；较大的`k`仍可能显著增加CGNode、CGEdge、内存与耗时。
 - `--jdk-model` command-wide选择全部Module使用的JDK Method Model。默认值依algorithm解析：CHA固定`none`；`k-obj`未指定时为`jdk8`。显式`cha + jdk8`在分析前失败；`k-obj`仍可显式`none`。
 - `--wala-reflection-options`（alias `--reflection-options`）command-wide选择WALA `AnalysisOptions.ReflectionOptions`。CHA不应用该设置，Report显示`not applied by cha`；`k-obj`使用配置值，默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。
-- `--result-refinement-algorithms`接受`none`、`cha-local-receiver-inference`、`ssa-equivalence`或两者逗号组合，默认`ssa-equivalence`。显式值完整覆盖默认值；传`none`关闭全部refinement。Static Single Assignment（SSA，静态单赋值）在JAR Diff的ChangePoint收集阶段运行，只比较body hash不同且class file major version不同的方法；`MATCHED`抑制ChangePoint，`DIFFERENT`与`UNKNOWN`保留。旧`--experimental-bytecode-semantic-comparison`已移除。
+- Static Single Assignment（SSA，静态单赋值）equivalence固定在JAR Diff的ChangePoint收集阶段启用，只比较body hash不同且class file major version不同的方法；`MATCHED`抑制ChangePoint，`DIFFERENT`与`UNKNOWN`保留。该能力不可通过CLI关闭；已删除的`--result-refinement-algorithms`会作为未知参数返回exit code `1`。
+- CHA固定启用experimental `cha-local-receiver-inference` Impact Path pruning extension；它只使用caller-local IR与receiver事实，只有全部关联callsite及invoke均证明调用边不可能时才裁剪，缺失IR、callsite、类型或分派证据时fail-open保留。它不跨方法推导bridge参数或factory返回值，因此这类receiver flow可能保留保守的false-positive path，且不改变Module status。`k-obj`不执行该路径裁剪。
+- CHA只在virtual/interface dispatch target set解析时限制JDK声明的方法：保留JDK-origin concrete target，删除PROJECT、REACTOR_DEPENDENCY、DEPENDENCY与SYNTHETIC实现。该规则不影响`invokestatic`、`invokespecial`、constructor、普通method resolution或`k-obj`；可能漏报callback、Service Provider Interface（SPI，服务提供者接口）、lambda、collection implementation，以及应用`Thread`/`Runnable`链，且不改变Module status。
 - `--entrypoint-include`/`--entrypoint-exclude` 接受 slash-separated JVM internal class path，例如 `com/icbc/payment/OrderService`；可选 WALA `L` 前缀会在匹配前移除。选项可重复，多个 include 取并集，exclude 优先。
 - 普通 segment 中 `*` 匹配零到多个字符，`?` 匹配一个字符，均不跨越 `/`。最后一个普通 segment 始终是 class segment，允许 `$` 匹配 nested class；前面的 package segment 不允许 `$`。例如 `com/*/A?`、`com/ic?c/*Controller`、`com/icbc/*$Handler`。
 - `**` 只能作为最后一个完整 segment。`com/icbc/**` 匹配该路径下直属及任意深度 package 中的全部 class，`**` 匹配全部 class；`com/**/A`、`com/icbc/A**`、leading/trailing slash、空 segment、`.`、`\\` 与 `:` 均非法。`com/icbc/**` 后不能追加 class pattern；需要限定 class 名时使用确定深度的普通 pattern，例如 `com/*/*Controller`。旧 colon/dot selector 不兼容，参数校验直接 exit `1`。
@@ -183,7 +184,6 @@ dependency-analyzer impact \
 |  | `--k-obj-depth` | `k-obj`的receiver allocation string深度，正整数，默认`1`；其他算法禁止使用。 |
 |  | `--jdk-model` | CHA固定`none`；`k-obj`默认`jdk8`并可显式`none`。 |
 |  | `--wala-reflection-options` | WALA `ReflectionOptions` enum name；CHA不应用，`k-obj`默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`。 |
-|  | `--result-refinement-algorithms` | `none`、`cha-local-receiver-inference`、`ssa-equivalence`或组合；默认`ssa-equivalence`。 |
 |  | `--entrypoint-include` | 只选择匹配 slash class path 的 target class declared methods；可重复。 |
 |  | `--entrypoint-exclude` | 从 include/default selection 中排除匹配 slash class path 的 target class；可重复且优先。 |
 |  | `--dependency-include` | 只分析匹配`groupPattern:artifactPattern`的changed JAR；可重复，多个include取并集。 |
@@ -362,9 +362,9 @@ JAR diff聚合结束的INFO日志包含`changes`、`pairs`、`failedPairs`和`wo
 
 Call Graph完成后，统一`ChangePointEvidenceCollector`扫描reachable method一次，将method、field、type、structural、Class.forName、ServiceLoader、`invokedynamic`和MethodHandle reference绑定为公共`ReferenceEvidence`，再冻结Module session。Impact query先串行完成Structural Reference准备、ordinary seed resolution和access observation，再按exact `QueryNode`分组并发执行反向BFS；一个QueryNode query复用一个局部`ReverseTrace`处理关联的全部evidence。PROJECT direct structural reference不进入QueryNode query。Removed class/method/field/resource永远只作为terminal，不进入WALA Call Graph node/edge。
 
-Relevant Module按稳定顺序严格串行：当前Module完成Call Graph、Impact Query、可选SSA filtering、diagnostics、snapshot detach和cache spill后，才开始下一个Module。一个QueryNode失败只取消并等待当前Module剩余query，随后当前Module记为`FAILED_ANALYSIS`；共享Impact Query pool继续服务后续Module。
+Relevant Module按稳定顺序严格串行：当前Module完成Call Graph、Impact Query、固定SSA filtering、diagnostics、snapshot detach和cache spill后，才开始下一个Module。一个QueryNode失败只取消并等待当前Module剩余query，随后当前Module记为`FAILED_ANALYSIS`；共享Impact Query pool继续服务后续Module。
 
-每个Module开始Impact Query时，INFO日志打印evidence binding总数`seeds`、去重后`queryNodes`和实际worker上限。`-vv`使用`query-node-started`、`query-node-progress`、`query-node-completed`跟踪稳定ordinal、`evidenceSeeds`、elapsed、recent node与当前QueryNode独立的`visited`；当前Phase位于第五段最前面，值为`REVERSE_BFS`、`PATH_MATERIALIZATION`或`REPRESENTATIVE_SELECTION`，message中不重复`phase=`。不同QueryNode不共享visited或心跳状态。
+每个Module开始Impact Query时，INFO日志打印evidence binding总数`seeds`、去重后`queryNodes`和实际worker上限。`-vv`使用`query-node-started`、`query-node-progress`、`query-node-completed`跟踪稳定ordinal、`evidenceSeeds`、elapsed、recent node，以及当前QueryNode独立的`visited`、`edgeChecks`与`prunedEdges`；当前Phase位于第五段最前面，值为`REVERSE_BFS`、`PATH_MATERIALIZATION`或`REPRESENTATIVE_SELECTION`，message中不重复`phase=`。Reverse breadth-first search（BFS，广度优先搜索）以exact `QueryNode`为状态，local裁剪只依赖单条caller-to-callee edge。不同QueryNode不共享visited或心跳状态；心跳使用fixed-delay调度，不补发运行暂停期间的过期事件。
 
 Bytecode diff额外产生`CLASS_ACCESS_NARROWED`、`METHOD_ACCESS_NARROWED`（含constructor）和`FIELD_ACCESS_NARROWED`。Query使用target CHA解析actual declaration，并按Java 8 runtime package、subclass、symbolic owner与caller-local verifier receiver type判断new access。`ACCESSIBLE`不建path；`INACCESSIBLE`与`POTENTIALLY_INACCESSIBLE`保守保留path；全部reference仍合法时disposition为`ACCESS_REMAINS_VALID`，不生成Affected Path或code comparison，但Module changed member指标仍显示该member。该能力分析pre-existing bytecode的JVM binary compatibility，不分析source compatibility、Reflection/JNI/custom ClassLoader或Java 9 module exports。
 
@@ -385,7 +385,7 @@ Module analysis 检查分类如下。这里的“阻塞”只终止当前 Module
 | 内容不同的 duplicate class | Non-blocking warning | 按 classpath precedence 选择 winner；不改 status/reason、Coverage limitations 或 exit code。 |
 | Code comparison unavailable | Evidence warning | 保留Impact结果；Affected Paths仅显示`Unavailable`，详细原因写Console，不改Module status。 |
 
-默认启用`ssa-equivalence`：每个唯一logical old/new JAR pair在Module binding前完成ChangePoint收集。只有method body hash不同且old/new class major version不同时才建立pair-local old/new WALA Class Hierarchy和独立SSA cache。`MATCHED`不进入effective ChangePoint；`DIFFERENT`或`UNKNOWN`保留。显式传入`--result-refinement-algorithms none`可完全关闭。该比较不消费Impact Path，不构建baseline Call Graph，也不产生path-level SSA状态。
+固定启用SSA equivalence：每个唯一logical old/new JAR pair在Module binding前完成ChangePoint收集。只有method body hash不同且old/new class major version不同时才建立pair-local old/new WALA Class Hierarchy和独立SSA cache。`MATCHED`不进入effective ChangePoint；`DIFFERENT`或`UNKNOWN`保留。该比较不消费Impact Path，不构建baseline Call Graph，也不产生path-level SSA状态。
 
 `--output` 指向 Overall Index；同级 `<output-stem>-modules/` 为每个非 `SKIPPED` Module 生成两页：
 
@@ -395,7 +395,7 @@ Module analysis 检查分类如下。这里的“阻塞”只终止当前 Module
 <module-base>-impact-data/       Affected Paths本地数据分片
 ```
 
-Overall Index提供`How to read this report`、`Analysis scope and limitations`、`Terminology`、Impact/Structural汇总与Module表，不展示path-level SSA filtering状态或Diagnostics。Technical details展示effective Algorithm、JDK Method Model、WALA Reflection applied状态、SSA matched/different/unknown总数，以及逐方法class version、body hash、status、reason和timing。即使SSA抑制全部ChangePoint并使Module跳过后续分析，Overall仍保留该证据。
+Overall Index提供`How to read this report`、`Analysis scope and limitations`、`Terminology`、Impact/Structural汇总与Module表，不展示Diagnostics。Technical details展示effective Algorithm、JDK Method Model、WALA Reflection applied状态、固定SSA状态、`cha-local-receiver-inference`的checked/pruned/unknown edge指标、SSA matched/different/unknown总数，以及逐方法class version、body hash、status、reason和timing。即使SSA抑制全部ChangePoint并使Module跳过后续分析，Overall仍保留该证据。
 
 Module Index展示status、scope、runtime metrics、typed coverage limitations，以及本Module全部selected effective changed members指标表。指标列为Changed dependency、精确`ChangePointKind`、Changed member/class、Impact、Structural、Impact total；`Impact total = Impact + Structural`。默认按Impact total降序，并支持dependency/member搜索、changed-member target `groupId:artifactId`的Include/Exclude Glob、`ChangePointKind`筛选和20/50/100分页。各条件使用AND组合；Impact/Structural均为0的member仍会显示。浏览器selector只能缩小CLI已分析数据，不能恢复CLI排除的changed member。
 
@@ -621,7 +621,7 @@ Exit code：
 
 ### SSA equivalence 为 `UNKNOWN`
 
-默认`ssa-equivalence`下，old/new session或IR不可用、method lookup失败、unsupported instruction、bootstrap evidence不足、Control Flow Graph mapping ambiguity或exception会返回`UNKNOWN`。该结果fail-open：`METHOD_BODY_CHANGED`仍进入后续Impact analysis，不改变Module status。Overall或Module page的`SSA ChangePoint collection evidence`展示class versions、hash、reason与耗时。使用`-vv`时，可按`ssaUnknownRetained`或`method=<方法关键词>`搜索Console，查看old/new字节码、原始IR及归一化IR；不可用段显示稳定reason。若需要完全跳过该比较，显式传`--result-refinement-algorithms none`。
+固定SSA equivalence下，old/new session或IR不可用、method lookup失败、unsupported instruction、bootstrap evidence不足、Control Flow Graph mapping ambiguity或exception会返回`UNKNOWN`。该结果fail-open：`METHOD_BODY_CHANGED`仍进入后续Impact analysis，不改变Module status。Overall或Module page的`SSA ChangePoint collection evidence`展示class versions、hash、reason与耗时。使用`-vv`时，可按`ssaUnknownRetained`或`method=<方法关键词>`搜索Console，查看old/new字节码、原始IR及归一化IR；不可用段显示稳定reason。该比较不可通过CLI关闭。
 
 ### Maven dependency resolution failure
 
@@ -680,7 +680,7 @@ Version policy、failure entrypoints 与完整发布步骤见
 
 ## 11. 持续 Impact Benchmark
 
-Repository内置CHA-only中型`impact` benchmark，覆盖`changed-paths`与`full`两种scope。每个scope执行1次Static Single Assignment（SSA，静态单赋值）warm-up、5次SSA formal与1次CHA local receiver control，共7个Java Virtual Machine（JVM）进程；双scope共14个。4组semantic baseline当前为`PENDING`，人工确认前不能发布tracked snapshot。Benchmark命令只在用户明确要求时执行。
+Repository内置CHA-only中型`impact` benchmark，覆盖`changed-paths`与`full`两种scope。每个scope执行1次warm-up与5次formal，共6个Java Virtual Machine（JVM）进程；固定启用Static Single Assignment（SSA，静态单赋值）equivalence与`cha-local-receiver-inference`。双scope共12个进程，2组semantic baseline当前为`PENDING`，人工确认前不能发布tracked snapshot。Benchmark命令只在用户明确要求时执行。
 
 ```sh
 mvn -f models/jdk/pom.xml clean install

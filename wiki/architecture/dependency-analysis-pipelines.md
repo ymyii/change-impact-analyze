@@ -5,7 +5,7 @@ relations:
   - path: "wiki/features/call-graph-engine.md"
     desc: "per-Module Call Graph input、strategy 与 metadata"
   - path: "wiki/features/impact-tracing.md"
-    desc: "构图后 evidence、reverse query 与 result refinement"
+    desc: "构图后 evidence、QueryNode reverse query 与固定CHA调用边裁剪"
   - path: "wiki/features/dependency-evidence-collection.md"
     desc: "Schema v3 dependency evidence 与 logical artifact binding"
   - path: "wiki/features/report-generator.md"
@@ -31,17 +31,17 @@ code_refs:
     desc: "Call Graph typed finding 到业务 reason 的转换"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeExecutionEngine.java"
     desc: "Tree preflight、Reactor processing 与发布执行边界"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/refinement/ResultRefinementSelection.java"
-    desc: "command-wide result refinement selection"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/refinement/cha/ChaLocalReceiverEdgeRefiner.java"
-    desc: "query-time CHA local receiver refinement"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/pruning/cha/ChaImpactPathPruningEngine.java"
+    desc: "固定顺序、fail-open的CHA Impact Path裁剪引擎"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/pruning/ImpactPathPruningSummary.java"
+    desc: "Module级统一extension指标与bounded evidence"
 ---
 
 # Architecture: Dependency Analysis Pipelines
 
 ## Summary
 
-Root CLI 分发 `impact` 与 `tree`。`impact` 只编译 target，并为每个 relevant Module 构建一张 selected Call Graph；baseline 提供dependency evidence与old artifact。默认组合为`cha + changed-paths + jdk-model none + ssa-equivalence`。`k-obj`是显式选择的实验性algorithm。
+Root CLI 分发 `impact` 与 `tree`。`impact` 只编译 target，并为每个 relevant Module 构建一张 selected Call Graph；baseline 提供dependency evidence与old artifact。默认组合为`cha + changed-paths + jdk-model none`，Static Single Assignment（SSA，静态单赋值）equivalence固定启用；CHA固定执行caller-local `cha-local-receiver-inference` Impact Path裁剪extension。`k-obj`是显式选择的实验性algorithm。
 
 `ImpactCommand`通过`ImpactExecutionEngine`启动默认per-Module实现。scope planning后创建唯一command-wide`common`pool，front preparation、logical JAR pair diff、Impact Query与code comparison顺序复用，并统一受`--analysis-parallelism`限制。Relevant Module仍按stable key串行完成Call Graph、单线程Evidence analysis、Impact Query与report-safe snapshot。`TreeCommand`只承载CLI，`TreeExecutionEngine`负责preflight、Reactor processing与发布。
 
@@ -77,7 +77,7 @@ flowchart LR
   Strategy --> KObj["strategy.kobj"]
   CHA --> Common["scope / entrypoint / protocol / model"]
   KObj --> Common
-  Impact --> Refinement["impact.refinement"]
+  Impact --> Pruning["impact.pruning"]
   Impact --> Snapshot["frozen report result"]
   Snapshot --> Report["report"]
 ```
@@ -93,8 +93,8 @@ flowchart TD
   Evidence --> Diff["complete Maven Dependency Diff"]
   Diff --> Selection["dependency-selection: changed JAR Glob boundary"]
   Selection --> JarDiff["selected bytecode + resource diff"]
-  JarDiff --> SSAChoice{"SSA equivalence selected and class major differs?"}
-  SSAChoice -->|yes| SSA["pair-local normalized SSA filtering"]
+  JarDiff --> SSAChoice{"class major differs?"}
+  SSAChoice -->|yes| SSA["fixed pair-local normalized SSA filtering"]
   SSAChoice -->|no| Effective["effective ChangePoints"]
   SSA --> Effective
   Effective --> Bind["BoundChangePoint + SSA evidence per Module"]
@@ -107,10 +107,8 @@ flowchart TD
   Structural --> Collector["single-pass ChangePointEvidenceCollector"]
   Collector --> Binding["resolution + unified reverseBfsBindings"]
   Binding --> Coverage["CallGraphCoverageMapper"]
-  Coverage --> Query["bounded reverse Impact Query"]
-  Query --> Local{"CHA local receiver selected?"}
-  Local -->|yes| ChaRefine["caller-local receiver edge filter"]
-  Local -->|no| Snapshot
+  Coverage --> Query["QueryNode reverse Impact Query"]
+  Query --> ChaRefine["fixed CHA caller-local pruning registry"]
   ChaRefine --> Snapshot
   Snapshot --> Compare["concurrent Impact/Structural code comparison"]
   Compare --> Report["stream HTML + atomic publication"]
@@ -136,14 +134,14 @@ flowchart TD
 - Requested dependency scope 与 actual scope 分开保存。无法稳定恢复完整 changed path 时，只对当前 Module fallback 到 `full`，并生成 typed warning。
 - `DependencyArtifactSelection`只裁剪`VERSION_CHANGED` JAR logical pair产生的Bytecode Diff、ServiceLoader Diff、SSA、ChangePoint、Evidence、Impact Query与code comparison。完整Dependency Diff和target/baseline classpath不裁剪；`changed-paths`仍从选中seed反向保留全部中间依赖，路径外sibling继续使用既有no-op policy。
 
-## Algorithm and Refinement Contract
+## Algorithm and Pruning Contract
 
 - `--call-graph-algorithm` 只接受 `cha`、`k-obj`；默认 `cha`，不自动 fallback。
 - CHA 固定 `jdk-model=none`，不应用 Reflection。`k-obj` 默认 `jdk-model=jdk8`，允许显式 `none`，并应用 Reflection。
 - `--k-obj-depth` 只对 `k-obj` 合法，默认 `1`。
-- `--result-refinement-algorithms`接受`none`、`cha-local-receiver-inference`、`ssa-equivalence`或组合，默认`ssa-equivalence`；显式值完整覆盖默认值。
-- local receiver refinement 只验证已有 CHA predecessor edge；不发现 terminal evidence、不补边、不构建第二张 graph。
-- SSA equivalence在ChangePoint收集期运行；只处理class major version不同的method body候选，结果与normalization位于`bytecode` package。`MATCHED`抑制，`DIFFERENT/UNKNOWN`保留。
+- `--result-refinement-algorithms`已删除，旧参数作为未知option返回exit code `1`。SSA equivalence在ChangePoint收集期固定运行；只处理class major version不同的method body候选，结果与normalization位于`bytecode` package。`MATCHED`抑制，`DIFFERENT/UNKNOWN`保留。
+- CHA固定执行代码内`cha-local-receiver-inference` extension registry；无CLI、`ServiceLoader`或外部Plugin注册。extension只验证已有caller-to-callee predecessor edge，不发现terminal evidence、不补边、不构建第二张graph。`k-obj`不执行Impact Path裁剪。
+- Reverse BFS以exact `QueryNode`为状态，在加入前驱前执行caller-local receiver裁剪；只有`PROVEN_INFEASIBLE`才跳过调用边，unknown、不适用与非中断异常均fail-open。bridge参数、factory返回值和其他跨方法receiver flow不推导，可能保留保守路径。
 
 ## Concurrency
 
@@ -152,7 +150,7 @@ flowchart TD
 - 各阶段保留独立worker计数与Diagnostic Stage，但不拥有线程池。工作线程统一使用`dependency-analyzer-common-*`；全局异常取消已提交任务并关闭common pool。
 - 当前Module snapshot无条件把path node转换为`SnapshotQueryNode`，把method Evidence anchor转换为stable-only anchor，清空只供Reverse BFS使用的binding并释放live WALA state；该生命周期不依赖`ReportCache`是否存在。
 - Impact正常HTML发布不启用`ReportCache`，也不写path、observation或code-comparison fragment。只有显式`--call-graph-diagnostics-output`启用cache并在live session期流式写`diagnostic-module`fragment。
-- HTML只读取已冻结Module result；显式Schema 10 topology JSON从diagnostic fragment输出，并在`changePointCollection.ssaEquivalence`保存pair-level审计证据。
+- HTML只读取已冻结Module result；显式Schema 12 topology JSON从diagnostic fragment输出，并保存固定SSA状态、JDK声明分派裁剪指标、caller-local Impact Path edge裁剪证据及`changePointCollection.ssaEquivalence`审计证据。
 - Report完整写入同filesystem staging后原子替换；失败清理command-owned cache。
 
 ## Failure Boundaries

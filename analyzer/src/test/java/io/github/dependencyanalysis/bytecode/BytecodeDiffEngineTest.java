@@ -58,9 +58,7 @@ class BytecodeDiffEngineTest {
 
     /** Engine under test. */
     private final BytecodeDiffEngine engine =
-            new BytecodeDiffEngine(
-                    EnumSet.allOf(
-                            ChangePointKind.class));
+            engine(EnumSet.allOf(ChangePointKind.class));
 
     @Test
     void detectsClassAdded()
@@ -239,7 +237,7 @@ class BytecodeDiffEngineTest {
     void defaultEngineDetectsClassNarrowingButNotExpansion()
             throws Exception {
         final BytecodeDiffEngine defaultEngine =
-                new BytecodeDiffEngine();
+                defaultEngine();
         final List<ChangePoint> narrowed = diffWith(
                 defaultEngine,
                 createJar("old-narrow.jar", classBytes(
@@ -370,7 +368,7 @@ class BytecodeDiffEngineTest {
     void defaultEngineKeepsClassAndMemberNarrowingSeparate()
             throws Exception {
         final List<ChangePoint> points = diffWith(
-                new BytecodeDiffEngine(),
+                defaultEngine(),
                 createJar("old.jar", classWithAccesses(
                         "com/Foo", Opcodes.ACC_PUBLIC,
                         Opcodes.ACC_PUBLIC, Opcodes.ACC_PUBLIC)),
@@ -684,7 +682,7 @@ class BytecodeDiffEngineTest {
     void defaultConstructorExcludesAddedKinds()
             throws Exception {
         final BytecodeDiffEngine defaultEng =
-                new BytecodeDiffEngine();
+                defaultEngine();
         final Path oldJar = createJar(
                 "old.jar",
                 classBytes("com/Foo"));
@@ -716,10 +714,7 @@ class BytecodeDiffEngineTest {
                 classWithMethodAndField(
                         "com/Bar"));
         final BytecodeDiffEngine allEng =
-                new BytecodeDiffEngine(
-                        EnumSet.allOf(
-                                ChangePointKind
-                                        .class));
+                engine(EnumSet.allOf(ChangePointKind.class));
         final List<ChangePoint> allPts =
                 diffWith(allEng, oldJar, newJar);
         assertThat(allPts)
@@ -738,7 +733,7 @@ class BytecodeDiffEngineTest {
                                 ChangePointKind
                                         .FIELD_ADDED));
         final BytecodeDiffEngine eng =
-                new BytecodeDiffEngine(kinds);
+                engine(kinds);
         final List<ChangePoint> pts =
                 diffWith(eng, oldJar, newJar);
         assertThat(pts)
@@ -763,7 +758,7 @@ class BytecodeDiffEngineTest {
                         ChangePointKind
                                 .METHOD_BODY_CHANGED);
         final BytecodeDiffEngine eng =
-                new BytecodeDiffEngine(kinds);
+                engine(kinds);
         final Path oldJar = createJar(
                 "old.jar",
                 classWithMethodBody(
@@ -792,8 +787,7 @@ class BytecodeDiffEngineTest {
     void emptySetProducesNoChangePoints()
             throws Exception {
         final BytecodeDiffEngine eng =
-                new BytecodeDiffEngine(
-                        Collections.emptySet());
+                engine(Collections.emptySet());
         final Path oldJar = createJar(
                 "old.jar",
                 classWithMethodBody(
@@ -817,7 +811,7 @@ class BytecodeDiffEngineTest {
     void defaultConstructorBackwardCompatible()
             throws Exception {
         final BytecodeDiffEngine defaultEng =
-                new BytecodeDiffEngine();
+                defaultEngine();
         final Path oldJar = createJar(
                 "old.jar",
                 classBytes("com/Foo"),
@@ -1006,6 +1000,15 @@ class BytecodeDiffEngineTest {
         diffResult(ssaEngine(javaRuntime(), trace), oldJar, matchedJar);
         assertThat(traceOutput.toString(StandardCharsets.UTF_8))
                 .doesNotContain("ssa-equivalence-audit");
+    }
+
+    private BytecodeDiffEngine defaultEngine() {
+        return engine(ChangePointKind.DEFAULT_INCLUDED_KINDS);
+    }
+
+    private BytecodeDiffEngine engine(final Set<ChangePointKind> kinds) {
+        return new BytecodeDiffEngine(
+                kinds, javaRuntime(), new DiagnosticLog());
     }
 
     private BytecodeDiffEngine ssaEngine(

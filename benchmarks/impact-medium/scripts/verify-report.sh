@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -ne 8 ]; then
-  echo "usage: $0 <overall-report.html> <exit-code.txt> <fixture-project> <call-graph-algorithm> <wala-reflection-options> <dependency-analysis-scope> <jdk-model> <result-refinement-algorithms>" >&2
+if [ "$#" -ne 7 ]; then
+  echo "usage: $0 <overall-report.html> <exit-code.txt> <fixture-project> <call-graph-algorithm> <wala-reflection-options> <dependency-analysis-scope> <jdk-model>" >&2
   exit 2
 fi
 
@@ -13,7 +13,6 @@ algorithm=$4
 reflection_options=$5
 dependency_scope=$6
 jdk_model=$7
-result_refinements=$8
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 expected_results="$script_dir/../expected-results.tsv"
 
@@ -48,11 +47,6 @@ esac
 case "$dependency_scope" in
   changed-paths|full) ;;
   *) fail "unsupported dependency analysis scope: $dependency_scope" ;;
-esac
-
-case "$result_refinements" in
-  none|ssa-equivalence|cha-local-receiver-inference|cha-local-receiver-inference,ssa-equivalence) ;;
-  *) fail "unsupported result refinement selection: $result_refinements" ;;
 esac
 
 [ -f "$exit_code_file" ] || fail "missing exit code file: $exit_code_file"
@@ -158,53 +152,36 @@ find "$module_dir" -type f -name 'source-index-*.js' -print \
 ! grep -q 'searchInput.addEventListener("input"' "$module_dir"/*-impact.html \
   || fail "Affected Paths search still scans while typing"
 if [ "$algorithm" = cha ]; then
-  grep -R -q --include='*-impact.html' --include='*.js' \
-    'ObjectDispatchUseCase' "$module_dir" \
-    || fail "CHA Object dispatch Diff-related path is missing"
-  grep -R -q --include='*-impact.html' --include='*.js' \
-    'hashCode' "$module_dir" \
-    || fail "CHA Object.hashCode Diff-related path is missing"
-  grep -R -q --include='*-impact.html' --include='*.js' \
-    'toString' "$module_dir" \
-    || fail "CHA Object.toString Diff-related path is missing"
   ! grep -R -q --include='*-impact.html' --include='*.js' \
     'UnrelatedObjectOverride' "$module_dir" \
     || fail "CHA unrelated Object override entered impact paths"
+  grep -q 'CHA does not expand JDK-declared virtual or interface dispatch' \
+    "$module_dir"/*.html \
+    || fail "CHA JDK dispatch limitation is missing"
+  grep -E -q '<th>JDK-declared dispatch targets pruned</th><td>[1-9][0-9]*</td>' \
+    "$module_dir"/*.html \
+    || fail "CHA JDK dispatch pruning metric is missing"
   grep -q 'CLASS_FOR_NAME_LOCAL_CONSTANT_UNRESOLVED' "$module_dir"/*.html \
     || fail "unsupported Class.forName limitation is missing"
   grep -q 'SERVICE_LOADER_LOCAL_CONSTANT_UNRESOLVED' "$module_dir"/*.html \
     || fail "unsupported ServiceLoader limitation is missing"
 fi
-grep -F -q "<th>Result refinement algorithms</th><td>$result_refinements (experimental)</td>" "$report" \
-  || fail "result refinement selection does not match $result_refinements"
-case ",$result_refinements," in
-  *,ssa-equivalence,*)
-    grep -q '<th>SSA equivalence</th><td>enabled (experimental)</td>' "$report" \
-      || fail "SSA equivalence is not enabled"
-    ;;
-  *)
-    grep -q '<th>SSA equivalence</th><td>disabled (experimental)</td>' "$report" \
-      || fail "SSA equivalence disabled state is missing"
-    ;;
-esac
-case ",$result_refinements," in
-  *,cha-local-receiver-inference,*)
-    grep -q '<th>CHA local receiver inference</th><td>applied (experimental)</td>' "$report" \
-      || fail "CHA local receiver inference applied state is missing"
-    grep -R -q --include='*-impact.html' --include='*.js' \
-      'ChaLocalReceiverUseCase\$ChangedReceiver' "$module_dir" \
-      || fail "ChangedReceiver impact path is missing"
-    ! grep -R -q --include='*-impact.html' --include='*.js' \
-      'unrelatedReceiverPath' "$module_dir" \
-      || fail "infeasible unrelated receiver caller remains in impact paths"
-    grep -E -q '<th>CHA receiver edges checked / pruned / unknown</th><td>[0-9]+ / [1-9][0-9]* / [0-9]+</td>' "$module_dir"/*.html \
-      || fail "CHA local receiver pruned-edge count is missing"
-    ;;
-  *)
-    grep -q '<th>CHA local receiver inference</th><td>disabled (experimental)</td>' "$report" \
-      || fail "CHA local receiver disabled state is missing"
-    ;;
-esac
+! grep -q '<th>Result refinement algorithms</th>' "$report" \
+  || fail "removed result refinement selection remains in report"
+grep -q '<th>SSA equivalence</th><td>fixed enabled (experimental)</td>' "$report" \
+  || fail "fixed SSA equivalence state is missing"
+for extension in \
+    cha-local-receiver-inference; do
+  grep -E -q "<th>$extension</th><td>applied \(experimental\); edges checked / pruned / unknown: [0-9]+ / [0-9]+ / [0-9]+</td>" \
+    "$module_dir"/*.html \
+    || fail "fixed CHA pruning extension metrics are missing: $extension"
+done
+grep -R -q --include='*-impact.html' --include='*.js' \
+  'ChaLocalReceiverUseCase\$ChangedReceiver' "$module_dir" \
+  || fail "ChangedReceiver impact path is missing"
+! grep -R -q --include='*-impact.html' --include='*.js' \
+  'unrelatedReceiverPath' "$module_dir" \
+  || fail "infeasible unrelated receiver caller remains in impact paths"
 
 dependency_count=$(awk '
   /<dependencies>/ { in_dependencies = 1; next }
@@ -247,10 +224,10 @@ grep -q 'Structural impact' $changes_pages \
   || fail "structural impact badge is missing"
 
 [ -f "$expected_results" ] || fail "missing expected results: $expected_results"
-expected=$(awk -F '\t' -v requested_scope="$dependency_scope" -v requested_refinements="$result_refinements" '
-  $0 !~ /^#/ && NF == 3 && $1 == requested_scope && $2 == requested_refinements { print $3; found++ }
+expected=$(awk -F '\t' -v requested_scope="$dependency_scope" '
+  $0 !~ /^#/ && NF == 2 && $1 == requested_scope { print $2; found++ }
   END { if (found > 1) exit 2 }
-' "$expected_results") || fail "duplicate expected result for $dependency_scope/$result_refinements"
+' "$expected_results") || fail "duplicate expected result for $dependency_scope"
 
 if [ -n "$expected" ]; then
   expected_impact=$expected
@@ -260,10 +237,10 @@ if [ -n "$expected" ]; then
     echo "expected_count=PENDING_CALIBRATION"
   else
     grep -F -q "<th>Impact / structural records</th><td>$expected_impact /" "$report" \
-      || fail "impact call chains do not match $jdk_model/$algorithm/$result_refinements baseline $expected_impact"
+      || fail "impact call chains do not match $jdk_model/$algorithm baseline $expected_impact"
   fi
 elif [ "${BENCHMARK_CALIBRATION:-0}" != 1 ]; then
-  fail "no locked expected count for $jdk_model/$algorithm/$result_refinements; rerun only for review with BENCHMARK_CALIBRATION=1"
+  fail "no locked expected count for $jdk_model/$algorithm; rerun only for review with BENCHMARK_CALIBRATION=1"
 else
   echo "expected_count=UNLOCKED_CALIBRATION"
 fi
@@ -273,7 +250,8 @@ echo "direct_dependencies=$dependency_count"
 echo "raw_change_kinds=10"
 echo "dependency_analysis_scope=$dependency_scope"
 echo "jdk_model=$jdk_model"
-echo "result_refinement_algorithms=$result_refinements"
+echo "ssa_equivalence=fixed-enabled"
+echo "impact_path_pruning_extensions=cha-local-receiver-inference"
 echo "visible_change_kinds=$visible_change_kind_count"
 if [ -n "$expected" ] && [ "$expected_impact" != PENDING ]; then
   echo "impact_call_chains=$expected_impact"

@@ -21,7 +21,7 @@ import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
 
-// Wiki: wiki/features/call-graph-engine.md - CHA Object dispatch filter
+// Wiki: wiki/features/call-graph-engine.md - CHA
 /**
  * IClassHierarchy decorator filtering selected CHA targets before expansion.
  */
@@ -71,11 +71,12 @@ public final class ChaDispatchFilteringClassHierarchy
     private Set<IMethod> filter(
             final MethodReference reference,
             final Set<IMethod> targets) {
-        if (!policy.filters(reference)) {
+        if (!policy.filtersDispatch(reference)) {
             return targets;
         }
         final LinkedHashSet<IMethod> retained = new LinkedHashSet<>();
-        targets.stream().filter(target -> policy.retains(reference, target))
+        targets.stream().filter(target ->
+                        policy.retainsDispatchTarget(reference, target))
                 .sorted(METHOD_ORDER)
                 .forEach(retained::add);
         return Collections.unmodifiableSet(retained);

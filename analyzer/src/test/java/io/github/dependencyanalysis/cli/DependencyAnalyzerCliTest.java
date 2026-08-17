@@ -6,8 +6,6 @@ import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
 import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis.impact.DependencyAnalysisScopeMode;
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementAlgorithm;
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
 
 import org.junit.jupiter.api.Test;
 import picocli.CommandLine;
@@ -130,7 +128,7 @@ class DependencyAnalyzerCliTest {
                 .contains("--k-obj-depth")
                 .contains("--jdk-model")
                 .contains("--dependency-analysis-scope")
-                .contains("--result-refinement-algorithms")
+                .doesNotContain("--result-refinement-algorithms")
                 .doesNotContain(
                         "--experimental-bytecode-semantic-comparison")
                 .contains("--call-graph-diagnostics-output")
@@ -356,53 +354,13 @@ class DependencyAnalyzerCliTest {
     }
 
     @Test
-    void resultRefinementsDefaultToSsaAndParseCanonicalOrder() {
-        final CommandLine defaultCommand = DependencyAnalyzerCli
+    void removedResultRefinementOptionIsRejected() {
+        final CommandLine command = DependencyAnalyzerCli
                 .newCommandLine(new DependencyAnalyzerCli());
-        final CommandLine enabledCommand = DependencyAnalyzerCli
-                .newCommandLine(new DependencyAnalyzerCli());
-        final CommandLine noneCommand = DependencyAnalyzerCli
-                .newCommandLine(new DependencyAnalyzerCli());
-
-        final CommandLine.ParseResult defaultResult =
-                defaultCommand.parseArgs("impact", "--baseline", "HEAD",
-                        "--output", "report.html");
-        final CommandLine.ParseResult enabledResult =
-                enabledCommand.parseArgs("impact", "--baseline", "HEAD",
-                        "--output", "report.html",
-                        "--result-refinement-algorithms",
-                        " SSA-EQUIVALENCE, "
-                                + "CHA-LOCAL-RECEIVER-INFERENCE,"
-                                + "ssa-equivalence ");
-        final CommandLine.ParseResult noneResult = noneCommand.parseArgs(
-                "impact", "--baseline", "HEAD", "--output", "report.html",
-                "--result-refinement-algorithms", "none");
-
-        assertThat(resultRefinements(defaultResult).algorithms())
-                .containsExactly(ResultRefinementAlgorithm.SSA_EQUIVALENCE);
-        assertThat(resultRefinements(defaultResult).toString())
-                .isEqualTo("ssa-equivalence");
-        assertThat(resultRefinements(enabledResult).algorithms())
-                .containsExactly(
-                        ResultRefinementAlgorithm
-                                .CHA_LOCAL_RECEIVER_INFERENCE,
-                        ResultRefinementAlgorithm.SSA_EQUIVALENCE);
-        assertThat(resultRefinements(enabledResult).toString()).isEqualTo(
-                "cha-local-receiver-inference,ssa-equivalence");
-        assertThat(resultRefinements(noneResult).isEmpty()).isTrue();
-    }
-
-    @Test
-    void invalidResultRefinementsAndRemovedFlagAreRejected() {
-        for (String value : new String[]{"none,ssa-equivalence", "unknown",
-                "ssa-equivalence,", ""}) {
-            final CommandLine command = DependencyAnalyzerCli
-                    .newCommandLine(new DependencyAnalyzerCli());
-            assertThat(command.execute("impact", "--baseline", "HEAD",
-                    "--output", "report.html",
-                    "--result-refinement-algorithms", value))
-                    .as(value).isEqualTo(1);
-        }
+        assertThat(command.execute("impact", "--baseline", "HEAD",
+                "--output", "report.html",
+                "--result-refinement-algorithms", "none"))
+                .isEqualTo(1);
         final int removed = DependencyAnalyzerCli
                 .newCommandLine(new DependencyAnalyzerCli())
                 .execute("impact", "--baseline", "HEAD",
@@ -528,9 +486,4 @@ class DependencyAnalyzerCliTest {
                 "--dependency-analysis-scope").getValue();
     }
 
-    private ResultRefinementSelection resultRefinements(
-            final CommandLine.ParseResult result) {
-        return result.subcommand().commandSpec().findOption(
-                "--result-refinement-algorithms").getValue();
-    }
 }

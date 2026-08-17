@@ -125,7 +125,8 @@ final class SeedProgressReporter implements AutoCloseable {
                 LogVerbosity.TRACE,
                 "event=query-node-started; queryNodeOrdinal=" + ordinal
                         + "; evidenceSeeds=" + evidenceSeeds
-                        + "; elapsedMs=0; visited=0; "
+                        + "; elapsedMs=0; visited=0; edgeChecks=0"
+                        + "; prunedEdges=0; "
                         + progress.render("recent"));
         final SeedProgressTracker tracker = new SeedProgressTracker(
                 new TrackerConfiguration(diagnostics, context, nanoTime,
@@ -146,7 +147,7 @@ final class SeedProgressReporter implements AutoCloseable {
     interface HeartbeatScheduler extends AutoCloseable {
 
         /**
-         * Schedules a fixed-rate heartbeat action.
+         * Schedules a fixed-delay heartbeat action.
          *
          * @param action heartbeat action
          * @param initialDelay initial delay
@@ -154,7 +155,7 @@ final class SeedProgressReporter implements AutoCloseable {
          * @param unit delay unit
          * @return cancellable schedule
          */
-        Cancellable scheduleAtFixedRate(
+        Cancellable scheduleWithFixedDelay(
                 Runnable action, long initialDelay, long period,
                 TimeUnit unit);
 
@@ -181,12 +182,12 @@ final class SeedProgressReporter implements AutoCloseable {
         }
 
         @Override
-        public Cancellable scheduleAtFixedRate(
+        public Cancellable scheduleWithFixedDelay(
                 final Runnable action,
                 final long initialDelay,
                 final long period,
                 final TimeUnit unit) {
-            final ScheduledFuture<?> future = executor.scheduleAtFixedRate(
+            final ScheduledFuture<?> future = executor.scheduleWithFixedDelay(
                     action, initialDelay, period, unit);
             return () -> future.cancel(false);
         }
@@ -249,6 +250,12 @@ final class SeedProgressTracker implements AutoCloseable {
     /** Per-QueryNode visited count. */
     private final AtomicInteger visited = new AtomicInteger();
 
+    /** Per-QueryNode checked predecessor edges. */
+    private final AtomicLong edgeChecks = new AtomicLong();
+
+    /** Per-QueryNode pruned predecessor edges. */
+    private final AtomicLong prunedEdges = new AtomicLong();
+
     /** Per-QueryNode most recently processed node. */
     private final AtomicReference<NodeProgress> recentNode;
 
@@ -305,30 +312,56 @@ final class SeedProgressTracker implements AutoCloseable {
         if (!active.get()) {
             return;
         }
-        heartbeatSchedule = scheduler.scheduleAtFixedRate(this::heartbeat,
+        heartbeatSchedule = scheduler.scheduleWithFixedDelay(this::heartbeat,
                 heartbeatNanos, heartbeatNanos, TimeUnit.NANOSECONDS);
     }
 
     void reverseProgress(final QueryNode node, final int count) {
+        reverseProgress(node, count, 0L, 0L);
+    }
+
+    void reverseProgress(
+            final QueryNode node,
+            final int visitedCount,
+            final long checkedEdges,
+            final long prunedEdgeCount) {
         if (!active.get()) {
             return;
         }
         phase.set(QueryNodePhase.REVERSE_BFS);
         recentNode.set(NodeProgress.from(node));
-        visited.set(count);
+        visited.set(visitedCount);
+        edgeChecks.set(checkedEdges);
+        prunedEdges.set(prunedEdgeCount);
     }
 
     void visited(final int count) {
+        visited(count, 0L, 0L);
+    }
+
+    void visited(
+            final int visitedCount,
+            final long checkedEdges,
+            final long prunedEdgeCount) {
         if (active.get()) {
-            visited.set(count);
+            visited.set(visitedCount);
+            edgeChecks.set(checkedEdges);
+            prunedEdges.set(prunedEdgeCount);
         }
     }
 
     void reverseCompleted(final int count) {
+        reverseCompleted(count, 0L, 0L);
+    }
+
+    void reverseCompleted(
+            final int visitedCount,
+            final long checkedEdges,
+            final long prunedEdgeCount) {
         if (!active.get()) {
             return;
         }
-        visited.set(count);
+        visited(visitedCount, checkedEdges, prunedEdgeCount);
         phase.set(QueryNodePhase.PATH_MATERIALIZATION);
     }
 
@@ -360,7 +393,10 @@ final class SeedProgressTracker implements AutoCloseable {
                     "event=query-node-completed; queryNodeOrdinal=" + ordinal
                             + "; evidenceSeeds=" + evidenceSeeds
                             + "; elapsedMs=" + elapsedMillis()
-                            + "; visited=" + visited.get() + "; "
+                            + "; visited=" + visited.get()
+                            + "; edgeChecks=" + edgeChecks.get()
+                            + "; prunedEdges="
+                            + prunedEdges.get() + "; "
                             + recentNode.get().render("recent"));
         }
     }
@@ -380,6 +416,9 @@ final class SeedProgressTracker implements AutoCloseable {
                             + "; heartbeat=" + heartbeat
                             + "; elapsedMs=" + elapsedMillis()
                             + "; visited=" + visited.get()
+                            + "; edgeChecks=" + edgeChecks.get()
+                            + "; prunedEdges="
+                            + prunedEdges.get()
                             + "; " + node.render("recent"));
         }
     }

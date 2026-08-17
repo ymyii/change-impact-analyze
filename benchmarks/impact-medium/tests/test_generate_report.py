@@ -52,6 +52,7 @@ class GenerateReportTest(unittest.TestCase):
             self.assertEqual({"cha"}, {row["algorithm"] for row in samples})
             self.assertEqual(["cha"], [row["algorithm"] for row in summaries])
             self.assertNotIn("k_obj_depth", samples[0])
+            self.assertNotIn("result_refinement_algorithms", samples[0])
             self.assertNotIn("wall_vs_zero_cfa", summaries[0])
             self.assertEqual({"cha"}, {row["algorithm"] for row in topology})
             document = output_html.read_text(encoding="utf-8")
@@ -88,30 +89,24 @@ class GenerateReportTest(unittest.TestCase):
             self.assertEqual(1, result.returncode)
             self.assertIn("canonical benchmark 只接受 cha", result.stderr)
 
-    def test_suite_shape_is_one_warmup_five_formal_one_control(self) -> None:
+    def test_suite_shape_is_one_warmup_and_five_formal(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             runs = self._write_suite(Path(temporary) / "runs")
             rows = [REPORT.read_metrics(run) for run in runs]
             by_kind = {
                 kind: sum(row["run_kind"] == kind for row in rows)
-                for kind in ("warmup", "formal", "control")
+                for kind in ("warmup", "formal")
             }
-            self.assertEqual(
-                {"warmup": 1, "formal": 5, "control": 1}, by_kind
-            )
+            self.assertEqual({"warmup": 1, "formal": 5}, by_kind)
 
     def _write_suite(self, root: Path) -> list[Path]:
         runs: list[Path] = []
-        shapes = [("warmup", 0), *(("formal", value) for value in range(1, 6)),
-                  ("control", 0)]
+        shapes = [("warmup", 0),
+                  *(("formal", value) for value in range(1, 6))]
         for index, (run_kind, sample) in enumerate(shapes):
             run = root / f"run-{index}"
             run.joinpath("logs").mkdir(parents=True)
-            refinement = (
-                "cha-local-receiver-inference"
-                if run_kind == "control" else "ssa-equivalence"
-            )
-            row = self._sample_row(run_kind, sample, refinement)
+            row = self._sample_row(run_kind, sample)
             self._write_tsv(
                 run / "logs" / "metrics.tsv", REPORT.SAMPLE_COLUMNS, [row]
             )
@@ -123,9 +118,7 @@ class GenerateReportTest(unittest.TestCase):
         return runs
 
     @staticmethod
-    def _sample_row(
-        run_kind: str, sample: int, refinement: str
-    ) -> dict[str, str]:
+    def _sample_row(run_kind: str, sample: int) -> dict[str, str]:
         row = {column: "" for column in REPORT.SAMPLE_COLUMNS}
         row.update({
             "label": f"cha-{run_kind}-{sample}",
@@ -135,7 +128,6 @@ class GenerateReportTest(unittest.TestCase):
             "dependency_analysis_scope": "changed-paths",
             "algorithm": "cha",
             "jdk_model": "none",
-            "result_refinement_algorithms": refinement,
             "wala_reflection_options": REPORT.REFLECTION_DEFAULT,
             "total_wall_seconds": str(2 + sample / 10),
             "call_graph_seconds": str(1 + sample / 10),
@@ -169,13 +161,16 @@ class GenerateReportTest(unittest.TestCase):
     @staticmethod
     def _topology() -> dict[str, object]:
         return {
-            "schemaVersion": 10,
+            "schemaVersion": 12,
             "algorithm": "cha",
             "kObjDepth": None,
             "reflectionOptions": REPORT.REFLECTION_DEFAULT,
             "reflectionApplied": "not applied by cha",
             "jdkModel": "none",
-            "resultRefinementAlgorithms": ["ssa-equivalence"],
+            "ssaEquivalence": {"enabled": True, "fixed": True},
+            "impactPathPruningExtensions": [
+                "cha-local-receiver-inference",
+            ],
             "requestedDependencyAnalysisScope": "changed-paths",
             "modules": [{
                 "module": "fixture",
@@ -192,6 +187,7 @@ class GenerateReportTest(unittest.TestCase):
                 "ancestorRetainedExternalTypeCount": 1,
                 "ancestorRetainedExternalMethodNodeCount": 1,
                 "prunedExternalMethodTargetCount": 1,
+                "jdkDeclaredDispatchPrunedTargetCount": 2,
                 "dependencyPaths": [{"seed": "seed", "path": "a -> b"}],
                 "topCallers": [],
                 "topCallees": [],

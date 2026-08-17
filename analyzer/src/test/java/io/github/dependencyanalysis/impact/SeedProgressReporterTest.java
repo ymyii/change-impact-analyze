@@ -99,6 +99,8 @@ class SeedProgressReporterTest {
                 .contains("evidenceSeeds=2")
                 .contains("heartbeat=1; elapsedMs=10000")
                 .contains("visited=4")
+                .contains("edgeChecks=0")
+                .contains("prunedEdges=0")
                 .contains("recentMethodName=RecentA"));
         assertThat(lines).anySatisfy(line -> assertThat(line)
                 .contains("event=query-node-progress; queryNodeOrdinal=1")
@@ -123,6 +125,11 @@ class SeedProgressReporterTest {
                 "event=query-node-progress; queryNodeOrdinal=1"))
                 .hasSize(2);
         assertThat(lines).allMatch(line -> !line.contains("; phase="));
+        assertThat(lines).allMatch(line -> !line.contains("reverseStates="));
+        assertThat(lines).allMatch(line -> !line.contains(
+                "transitionChecks="));
+        assertThat(lines).allMatch(line -> !line.contains(
+                "prunedTransitions="));
         assertThat(lines).allMatch(line -> !line.contains("methodBody"));
         assertThat(scheduler.closed).isTrue();
     }
@@ -181,7 +188,7 @@ class SeedProgressReporterTest {
         private boolean closed;
 
         @Override
-        public SeedProgressReporter.Cancellable scheduleAtFixedRate(
+        public SeedProgressReporter.Cancellable scheduleWithFixedDelay(
                 final Runnable action,
                 final long initialDelay,
                 final long period,

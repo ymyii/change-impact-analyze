@@ -1,9 +1,7 @@
 package io.github.dependencyanalysis.impact;
 
 
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementAlgorithm;
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
-import io.github.dependencyanalysis.impact.refinement.cha.ChaLocalReceiverRefinementSummary;
+import io.github.dependencyanalysis.impact.pruning.ImpactPathPruningSummary;
 
 import io.github.dependencyanalysis.bytecode.AccessTransition;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
@@ -188,6 +186,7 @@ class ModuleImpactTracerTest {
                 final ModuleImpactQueryResult result =
                         new ModuleImpactTracer(diagnostics).trace(
                                 unit, session, evidence);
+                assertPruningStatus(result, algorithm);
                 assertThat(result.getPaths())
                         .as(algorithm.identifier())
                         .filteredOn(path -> path.getTerminal()
@@ -547,61 +546,7 @@ class ModuleImpactTracerTest {
                             public static void changed() { }
                         }
                         """), List.of());
-        final Path project = compile("receiver-project", Map.of(
-                "app/DispatchTarget.java", """
-                        package app;
-                        public interface DispatchTarget { void call(); }
-                        """,
-                "app/ChangedReceiver.java", """
-                        package app;
-                        public class ChangedReceiver
-                                implements DispatchTarget {
-                            public void call() { dep.ChangedApi.changed(); }
-                        }
-                        """,
-                "app/UnrelatedReceiver.java", """
-                        package app;
-                        public class UnrelatedReceiver
-                                implements DispatchTarget {
-                            public void call() { }
-                        }
-                        """,
-                "app/ReceiverUseCase.java", """
-                        package app;
-                        public class ReceiverUseCase {
-                            public void reachable() {
-                                DispatchTarget value = new ChangedReceiver();
-                                value.call();
-                            }
-                            public void falsePositive() {
-                                DispatchTarget value =
-                                        new UnrelatedReceiver();
-                                value.call();
-                            }
-                            public void incompatibleCast() {
-                                Object value = new UnrelatedReceiver();
-                                ((DispatchTarget) value).call();
-                            }
-                            public void nullOnly() {
-                                DispatchTarget value = null;
-                                value.call();
-                            }
-                            public void nullable(boolean changed) {
-                                DispatchTarget value = changed
-                                        ? new ChangedReceiver() : null;
-                                if (value != null) { value.call(); }
-                            }
-                            public void unknown(DispatchTarget value) {
-                                value.call();
-                            }
-                            public void mixed(boolean useNew,
-                                    DispatchTarget input) {
-                                DispatchTarget value = useNew
-                                        ? new UnrelatedReceiver() : input;
-                                value.call();
-                            }
-                        }
-                        """), List.of(dependencies));
+        final Path project = compileReceiverProject(dependencies);
         final ModuleId moduleId = new ModuleId(new ArtifactCoord(
                 "example", "app", "jar", "1"), Path.of("app"));
         final ArtifactCoord oldArtifact = new ArtifactCoord(
@@ -632,39 +577,176 @@ class ModuleImpactTracerTest {
                             new ModuleCallGraphInputAdapter().adapt(unit),
                             0L);
             final long originalEdges = session.getStats().edgeCount();
-            final ModuleImpactQueryResult original = new ModuleImpactTracer(
-                    diagnostics).trace(
-                            unit, session, evidence(unit, session));
             final ModuleImpactQueryResult refined = new ModuleImpactTracer(
-                    diagnostics, ResultRefinementSelection.of(
-                    ResultRefinementAlgorithm
-                            .CHA_LOCAL_RECEIVER_INFERENCE))
+                    diagnostics)
                     .trace(unit, session, evidence(unit, session));
 
-            assertThat(affectedNames(original)).contains("reachable",
-                    "falsePositive", "incompatibleCast", "nullOnly",
-                    "nullable", "unknown", "mixed", "call");
-            assertThat(affectedNames(refined)).contains("reachable",
-                    "nullable", "unknown", "mixed", "call")
-                    .doesNotContain("falsePositive", "incompatibleCast",
-                            "nullOnly");
-            assertThat(refined.getReceiverRefinement().status()).isEqualTo(
-                    ChaLocalReceiverRefinementSummary.Status.APPLIED);
-            assertThat(refined.getReceiverRefinement().metrics()
-                    .prunedEdges()).isPositive();
-            assertThat(refined.getReceiverRefinement().metrics()
-                    .exactResolutions()).isPositive();
-            assertThat(refined.getReceiverRefinement().metrics()
-                    .noNormalTargetResolutions()).isPositive();
-            assertThat(refined.getReceiverRefinement().metrics()
-                    .unknownResolutions()).isPositive();
-            assertThat(refined.getReceiverRefinement().examples())
-                    .hasSizeLessThanOrEqualTo(RECEIVER_EXAMPLE_LIMIT)
-                    .anyMatch(example -> example.decision().equals(
-                            "proven-infeasible"));
+            assertReceiverPruning(refined);
             assertThat(session.getStats().edgeCount()).isEqualTo(
                     originalEdges);
+            final ImpactPathPruningSummary.Metrics metrics = refined
+                    .getImpactPathPruning().extensions().get(0).metrics();
+            assertThat(metrics.requests()).isLessThanOrEqualTo(
+                    originalEdges);
+            assertThat(metrics.uniqueEvaluations()).isLessThanOrEqualTo(
+                    metrics.requests());
         }
+    }
+
+    private Path compileReceiverProject(final Path dependencies)
+            throws Exception {
+        return compile("receiver-project", Map.of(
+                "app/DispatchTarget.java", """
+                        package app;
+                        public interface DispatchTarget { void call(); }
+                        """,
+                "app/ChangedReceiver.java", """
+                        package app;
+                        public class ChangedReceiver
+                                implements DispatchTarget {
+                            public void call() { dep.ChangedApi.changed(); }
+                        }
+                        """,
+                "app/UnrelatedReceiver.java", """
+                        package app;
+                        public class UnrelatedReceiver
+                                implements DispatchTarget {
+                            public void call() { }
+                        }
+                        """,
+                "app/ChangedSubclass.java", """
+                        package app;
+                        public class ChangedSubclass extends ChangedReceiver {
+                        }
+                        """,
+                "app/ReceiverUseCase.java", """
+                        package app;
+                        public class ReceiverUseCase {
+                            private DispatchTarget field =
+                                    new ChangedReceiver();
+                            public void reachable() {
+                                DispatchTarget value = new ChangedReceiver();
+                                value.call();
+                            }
+                            public void falsePositive() {
+                                DispatchTarget value =
+                                        new UnrelatedReceiver();
+                                value.call();
+                            }
+                            public void inheritedDispatch() {
+                                DispatchTarget value = new ChangedSubclass();
+                                value.call();
+                            }
+                            public void incompatibleCast() {
+                                Object value = new UnrelatedReceiver();
+                                ((DispatchTarget) value).call();
+                            }
+                            public void nullOnly() {
+                                DispatchTarget value = null;
+                                value.call();
+                            }
+                            public void nullable(boolean changed) {
+                                DispatchTarget value = changed
+                                        ? new ChangedReceiver() : null;
+                                if (value != null) { value.call(); }
+                            }
+                            public void unknown(DispatchTarget value) {
+                                value.call();
+                            }
+                            public void mixed(boolean useNew,
+                                    DispatchTarget input) {
+                                DispatchTarget value = useNew
+                                        ? new UnrelatedReceiver() : input;
+                                value.call();
+                            }
+                            private void bridge(DispatchTarget value) {
+                                value.call();
+                            }
+                            public void bridgeChanged() {
+                                bridge(new ChangedReceiver());
+                            }
+                            public void bridgeUnrelated() {
+                                bridge(new UnrelatedReceiver());
+                            }
+                            private DispatchTarget changedFactory() {
+                                return new ChangedReceiver();
+                            }
+                            private DispatchTarget unrelatedFactory() {
+                                return new UnrelatedReceiver();
+                            }
+                            public void producerChanged() {
+                                changedFactory().call();
+                            }
+                            public void producerUnrelated() {
+                                unrelatedFactory().call();
+                            }
+                            private DispatchTarget passThrough(
+                                    DispatchTarget value) {
+                                return value;
+                            }
+                            public void secondInvokeUnknown() {
+                                passThrough(changedFactory()).call();
+                            }
+                            public void fieldUnknown() {
+                                field.call();
+                            }
+                            private void helperChanged() {
+                                new ChangedReceiver().call();
+                            }
+                            public void alternatePathFallback() {
+                                DispatchTarget unrelated =
+                                        new UnrelatedReceiver();
+                                unrelated.call();
+                                helperChanged();
+                            }
+                            public void cycleA() {
+                                new ChangedReceiver().call();
+                                cycleB();
+                            }
+                            public void cycleB() {
+                                cycleA();
+                            }
+                        }
+                        """), List.of(dependencies));
+    }
+
+    private void assertReceiverPruning(
+            final ModuleImpactQueryResult refined) {
+        assertThat(affectedNames(refined)).contains("reachable",
+                "nullable", "unknown", "mixed", "call",
+                "inheritedDispatch", "bridgeChanged", "producerChanged",
+                "bridgeUnrelated", "producerUnrelated",
+                "secondInvokeUnknown", "fieldUnknown",
+                "alternatePathFallback", "helperChanged", "cycleA")
+                .doesNotContain("falsePositive", "incompatibleCast",
+                        "nullOnly");
+        final ImpactPathPruningSummary.ExtensionSummary local = refined
+                .getImpactPathPruning().extensions().get(0);
+        assertThat(local.status()).isEqualTo(
+                ImpactPathPruningSummary.Status.APPLIED);
+        assertThat(local.metrics().pruned()).isPositive();
+        assertThat(local.metrics().exactResolutions()).isPositive();
+        assertThat(local.metrics().noNormalTargetResolutions()).isPositive();
+        assertThat(local.metrics().unknownResolutions()).isPositive();
+        assertThat(local.examples())
+                .hasSizeLessThanOrEqualTo(RECEIVER_EXAMPLE_LIMIT)
+                .anyMatch(example -> example.decision().equals(
+                        "proven-infeasible"));
+        assertThat(refined.getImpactPathPruning().extensions()).hasSize(1);
+        assertThat(refined.getPaths()).anyMatch(path -> path.getRootKind()
+                == ImpactPathRootKind.STRONGLY_CONNECTED_COMPONENT);
+    }
+
+    private void assertPruningStatus(
+            final ModuleImpactQueryResult result,
+            final CallGraphAlgorithm algorithm) {
+        final ImpactPathPruningSummary.Status expected =
+                algorithm == CallGraphAlgorithm.CHA
+                        ? ImpactPathPruningSummary.Status.APPLIED
+                        : ImpactPathPruningSummary.Status.NOT_APPLIED_NON_CHA;
+        assertThat(result.getImpactPathPruning().extensions())
+                .allSatisfy(extension -> assertThat(extension.status())
+                        .isEqualTo(expected));
     }
 
     private List<String> affectedNames(

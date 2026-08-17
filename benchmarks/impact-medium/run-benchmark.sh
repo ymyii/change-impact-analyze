@@ -16,7 +16,6 @@ esac
 : "${BENCHMARK_CALL_GRAPH_ALGORITHM:?BENCHMARK_CALL_GRAPH_ALGORITHM must be explicitly set}"
 : "${BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE:?BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE must be explicitly set}"
 : "${BENCHMARK_JDK_MODEL:?BENCHMARK_JDK_MODEL must be explicitly set}"
-: "${BENCHMARK_RESULT_REFINEMENT_ALGORITHMS:?BENCHMARK_RESULT_REFINEMENT_ALGORITHMS must be explicitly set}"
 
 case "$BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE" in
   changed-paths|full) ;;
@@ -47,14 +46,6 @@ if [ "$BENCHMARK_CALL_GRAPH_ALGORITHM" = cha ] \
   exit 2
 fi
 
-case "$BENCHMARK_RESULT_REFINEMENT_ALGORITHMS" in
-  none|ssa-equivalence|cha-local-receiver-inference|cha-local-receiver-inference,ssa-equivalence) ;;
-  *)
-    echo "unsupported result refinement selection: $BENCHMARK_RESULT_REFINEMENT_ALGORITHMS" >&2
-    exit 2
-    ;;
-esac
-
 BENCHMARK_WALA_REFLECTION_OPTIONS=${BENCHMARK_WALA_REFLECTION_OPTIONS:-ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD}
 case "$BENCHMARK_WALA_REFLECTION_OPTIONS" in
   FULL|APPLICATION_GET_METHOD|NO_FLOW_TO_CASTS|NO_FLOW_TO_CASTS_APPLICATION_GET_METHOD|NO_METHOD_INVOKE|NO_FLOW_TO_CASTS_NO_METHOD_INVOKE|ONE_FLOW_TO_CASTS_NO_METHOD_INVOKE|ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD|MULTI_FLOW_TO_CASTS_APPLICATION_GET_METHOD|NO_STRING_CONSTANTS|STRING_ONLY|NONE) ;;
@@ -84,9 +75,9 @@ esac
 
 BENCHMARK_RUN_KIND=${BENCHMARK_RUN_KIND:-formal}
 case "$BENCHMARK_RUN_KIND" in
-  warmup|formal|control) ;;
+  warmup|formal) ;;
   *)
-    echo "BENCHMARK_RUN_KIND must be warmup, formal, or control" >&2
+    echo "BENCHMARK_RUN_KIND must be warmup or formal" >&2
     exit 2
     ;;
 esac
@@ -132,7 +123,6 @@ export ANALYZER_JAR ANALYZER_JAVA MAVEN_BIN JAVA8_HOME
 export BENCHMARK_MAVEN_REPO BENCHMARK_PROJECT BENCHMARK_CONFIG_DIR BENCHMARK_REPORT
 export BENCHMARK_CALL_GRAPH_ALGORITHM BENCHMARK_WALA_REFLECTION_OPTIONS
 export BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE BENCHMARK_JDK_MODEL
-export BENCHMARK_RESULT_REFINEMENT_ALGORITHMS
 export BENCHMARK_CALIBRATION BENCHMARK_CAPTURE_TOPOLOGY BENCHMARK_DIAGNOSTICS
 
 # Wiki: wiki/runbooks/impact-benchmark.md - Stable benchmark preparation, measurement, and verification entrypoint.
@@ -161,7 +151,8 @@ label=$label
 algorithm=$BENCHMARK_CALL_GRAPH_ALGORITHM
 jdk_model=$BENCHMARK_JDK_MODEL
 dependency_analysis_scope=$BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE
-result_refinement_algorithms=$BENCHMARK_RESULT_REFINEMENT_ALGORITHMS
+ssa_equivalence=fixed-enabled
+impact_path_pruning_extensions=cha-local-receiver-inference
 wala_reflection_options=$BENCHMARK_WALA_REFLECTION_OPTIONS
 calibration=$BENCHMARK_CALIBRATION
 fixture_scenario=impact-medium-v1
@@ -262,7 +253,6 @@ verification_result=0
   "$BENCHMARK_WALA_REFLECTION_OPTIONS" \
   "$BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE" \
   "$BENCHMARK_JDK_MODEL" \
-  "$BENCHMARK_RESULT_REFINEMENT_ALGORITHMS" \
   >"$logs_root/verification.txt" \
   2>&1 || verification_result=$?
 
@@ -331,12 +321,11 @@ if [ "$analysis_result" -eq 0 ] && [ "$verification_result" -eq 0 ]; then
   status=SUCCESS
 fi
 
-printf 'label\trun_kind\tround\tsample\tdependency_analysis_scope\talgorithm\tjdk_model\tresult_refinement_algorithms\twala_reflection_options\ttotal_wall_seconds\tcall_graph_seconds\tpeak_heap_used_mib\tpeak_heap_committed_mib\theap_max_mib\theap_sample_count\tprocess_tree_peak_rss_kib\tentrypoint_count\tcg_node_count\tcg_edge_count\treal_external_artifact_count\tno_op_external_artifact_count\treal_external_method_node_count\tno_op_method_node_count\tfactory_method_node_count\tdangerous_transfer_count\tstatus\texit_code\tanalyzer_sha256\tgit_commit\tgit_dirty\tos\tarchitecture\tanalyzer_java\tjdk\tmaven\n' >"$logs_root/metrics.tsv"
-printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+printf 'label\trun_kind\tround\tsample\tdependency_analysis_scope\talgorithm\tjdk_model\twala_reflection_options\ttotal_wall_seconds\tcall_graph_seconds\tpeak_heap_used_mib\tpeak_heap_committed_mib\theap_max_mib\theap_sample_count\tprocess_tree_peak_rss_kib\tentrypoint_count\tcg_node_count\tcg_edge_count\treal_external_artifact_count\tno_op_external_artifact_count\treal_external_method_node_count\tno_op_method_node_count\tfactory_method_node_count\tdangerous_transfer_count\tstatus\texit_code\tanalyzer_sha256\tgit_commit\tgit_dirty\tos\tarchitecture\tanalyzer_java\tjdk\tmaven\n' >"$logs_root/metrics.tsv"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
   "$label" "$BENCHMARK_RUN_KIND" "$BENCHMARK_ROUND" "$BENCHMARK_SAMPLE" \
   "$BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE" \
   "$BENCHMARK_CALL_GRAPH_ALGORITHM" "$BENCHMARK_JDK_MODEL" \
-  "$BENCHMARK_RESULT_REFINEMENT_ALGORITHMS" \
   "$BENCHMARK_WALA_REFLECTION_OPTIONS" \
   "$wall_seconds" "$call_graph_seconds" "$peak_heap_used_mib" \
   "$peak_heap_committed_mib" "$heap_max_mib" "$heap_samples" \

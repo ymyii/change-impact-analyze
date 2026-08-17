@@ -3,6 +3,8 @@ package io.github.dependencyanalysis.callgraph.strategy;
 import io.github.dependencyanalysis.callgraph.boundary.DependencyBodyBoundaryMetadata;
 import io.github.dependencyanalysis.callgraph.protocol.ModelLimitation;
 import io.github.dependencyanalysis.callgraph.protocol.invokedynamic.DynamicCallEvidenceIndex;
+import io.github.dependencyanalysis.callgraph.strategy.cha
+        .JdkDeclaredDispatchPruningSummary;
 import io.github.dependencyanalysis.models.jdk.JdkModelMetadata;
 
 import java.util.List;
@@ -16,6 +18,7 @@ import java.util.Optional;
  * @param limitations typed fixed-point model limitations
  * @param jdkModel installed JDK Method Model metadata
  * @param capabilities declared strategy behavior
+ * @param jdkDeclaredDispatchPruning fixed CHA JDK dispatch evidence
  * @param boundaryOverride algorithm-owned body boundary metadata
  */
 public record StrategyModelMetadata(
@@ -23,6 +26,7 @@ public record StrategyModelMetadata(
         List<ModelLimitation> limitations,
         Optional<JdkModelMetadata> jdkModel,
         CallGraphStrategyCapabilities capabilities,
+        JdkDeclaredDispatchPruningSummary jdkDeclaredDispatchPruning,
         Optional<DependencyBodyBoundaryMetadata> boundaryOverride) {
 
     /** Validates and freezes all model output. */
@@ -31,6 +35,8 @@ public record StrategyModelMetadata(
         limitations = immutable(limitations, "limitations");
         Objects.requireNonNull(jdkModel, "jdkModel");
         Objects.requireNonNull(capabilities, "capabilities");
+        Objects.requireNonNull(jdkDeclaredDispatchPruning,
+                "jdkDeclaredDispatchPruning");
         Objects.requireNonNull(boundaryOverride, "boundaryOverride");
     }
 
@@ -45,6 +51,7 @@ public record StrategyModelMetadata(
             final List<ModelLimitation> modelLimitations) {
         this(evidence, modelLimitations, Optional.empty(),
                 CallGraphStrategyCapabilities.propagation(),
+                JdkDeclaredDispatchPruningSummary.empty(),
                 Optional.empty());
     }
 
@@ -61,6 +68,7 @@ public record StrategyModelMetadata(
             final Optional<JdkModelMetadata> installedJdkModel) {
         this(evidence, modelLimitations, installedJdkModel,
                 CallGraphStrategyCapabilities.propagation(),
+                JdkDeclaredDispatchPruningSummary.empty(),
                 Optional.empty());
     }
 

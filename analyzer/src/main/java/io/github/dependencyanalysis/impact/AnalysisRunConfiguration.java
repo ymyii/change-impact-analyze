@@ -1,6 +1,5 @@
 package io.github.dependencyanalysis.impact;
 
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
 import io.github.dependencyanalysis.dependency.DependencyArtifactSelection;
 
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
@@ -20,7 +19,6 @@ import java.util.Objects;
  * @param reflectionOptions command-wide WALA ReflectionOptions
  * @param dependencyAnalysisScope requested dependency method-body scope
  * @param jdkModel command-wide JDK Method Model selection
- * @param resultRefinements command-wide result-refinement selection
  * @param dependencySelection command-wide changed-dependency selection
  */
 public record AnalysisRunConfiguration(
@@ -30,7 +28,6 @@ public record AnalysisRunConfiguration(
         WalaReflectionOptions reflectionOptions,
         DependencyAnalysisScopeMode dependencyAnalysisScope,
         JdkModelSelection jdkModel,
-        ResultRefinementSelection resultRefinements,
         DependencyArtifactSelection dependencySelection) {
 
     /** Validates command-wide configuration. */
@@ -42,7 +39,6 @@ public record AnalysisRunConfiguration(
         Objects.requireNonNull(dependencyAnalysisScope,
                 "dependencyAnalysisScope");
         Objects.requireNonNull(jdkModel, "jdkModel");
-        Objects.requireNonNull(resultRefinements, "resultRefinements");
         Objects.requireNonNull(dependencySelection, "dependencySelection");
         CallGraphPolicy.validate(callGraphAlgorithm, jdkModel);
     }
@@ -54,24 +50,9 @@ public record AnalysisRunConfiguration(
             final int depth,
             final WalaReflectionOptions reflection,
             final DependencyAnalysisScopeMode dependencyScope,
-            final JdkModelSelection selectedJdkModel,
-            final ResultRefinementSelection refinements) {
-        this(selection, algorithm, depth, reflection, dependencyScope,
-                selectedJdkModel, refinements,
-                DependencyArtifactSelection.allDependencies());
-    }
-
-    /** Compatibility constructor with result refinement disabled. */
-    public AnalysisRunConfiguration(
-            final EntrypointSelection selection,
-            final CallGraphAlgorithm algorithm,
-            final int depth,
-            final WalaReflectionOptions reflection,
-            final DependencyAnalysisScopeMode dependencyScope,
             final JdkModelSelection selectedJdkModel) {
         this(selection, algorithm, depth, reflection, dependencyScope,
                 selectedJdkModel,
-                ResultRefinementSelection.defaultSelection(),
                 DependencyArtifactSelection.allDependencies());
     }
 
@@ -84,7 +65,6 @@ public record AnalysisRunConfiguration(
             final JdkModelSelection selectedJdkModel) {
         this(selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
                 reflection, dependencyScope, selectedJdkModel,
-                ResultRefinementSelection.defaultSelection(),
                 DependencyArtifactSelection.allDependencies());
     }
 
@@ -97,7 +77,6 @@ public record AnalysisRunConfiguration(
         this(selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
                 reflection, dependencyScope,
                 CallGraphPolicy.defaultJdkModel(algorithm),
-                ResultRefinementSelection.defaultSelection(),
                 DependencyArtifactSelection.allDependencies());
     }
 
@@ -114,7 +93,6 @@ public record AnalysisRunConfiguration(
                 WalaReflectionOptions.defaultOptions(),
                 DependencyAnalysisScopeMode.defaultMode(),
                 CallGraphPolicy.defaultJdkModel(algorithm),
-                ResultRefinementSelection.defaultSelection(),
                 DependencyArtifactSelection.allDependencies());
     }
 
@@ -127,7 +105,6 @@ public record AnalysisRunConfiguration(
                 reflection,
                 DependencyAnalysisScopeMode.defaultMode(),
                 CallGraphPolicy.defaultJdkModel(algorithm),
-                ResultRefinementSelection.defaultSelection(),
                 DependencyArtifactSelection.allDependencies());
     }
 }

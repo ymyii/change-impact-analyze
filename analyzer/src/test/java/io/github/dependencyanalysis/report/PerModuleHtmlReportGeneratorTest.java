@@ -59,8 +59,6 @@ import io.github.dependencyanalysis.impact.ReferenceTarget;
 import io.github.dependencyanalysis.impact.StructuralReference;
 import io.github.dependencyanalysis.impact.StructuralReferenceKind;
 import io.github.dependencyanalysis.impact.StructuralReferencePath;
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementAlgorithm;
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
 import io.github.dependencyanalysis.preflight.PreflightReport;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 import io.github.dependencyanalysis.runtime.MavenDependencyPluginRuntime;
@@ -197,10 +195,9 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("Analysis scope and limitations")
                 .contains("Terminology")
                 .contains("k-Object (experimental)")
-                .contains("<th>Result refinement algorithms</th><td>"
-                        + "ssa-equivalence (experimental)</td>")
                 .contains("<th>SSA equivalence</th><td>"
-                        + "enabled (experimental)</td>")
+                        + "fixed enabled (experimental)</td>")
+                .doesNotContain("Result refinement algorithms")
                 .contains("<th>SSA matched / different / unknown</th>"
                         + "<td>0 / 0 / 0</td>")
                 .doesNotContain("SSA equivalence workers")
@@ -400,9 +397,7 @@ class PerModuleHtmlReportGeneratorTest {
                         CallGraphAlgorithm.defaultKObjDepth(),
                         WalaReflectionOptions.defaultOptions(),
                         DependencyAnalysisScopeMode.defaultMode(),
-                        JdkModelSelection.NONE,
-                        ResultRefinementSelection.of(
-                                ResultRefinementAlgorithm.SSA_EQUIVALENCE)));
+                        JdkModelSelection.NONE));
         final MavenDependencyPluginRuntime plugin =
                 new MavenDependencyPluginRuntimeManager().prepare(
                         temporary.resolve("config-filtered"),
@@ -441,11 +436,11 @@ class PerModuleHtmlReportGeneratorTest {
         assertShardDiagnostics(report.diagnostics());
         assertNormalizedRelationCounts(report.shards());
         assertChangedMemberMetrics(report.moduleIndex());
+        assertChaPruningDisclosure(report.moduleIndex());
         assertThat(output).content()
-                .contains("<th>Result refinement algorithms</th><td>"
-                        + "ssa-equivalence (experimental)</td>")
                 .contains("<th>SSA equivalence</th><td>"
-                        + "enabled (experimental)</td>")
+                        + "fixed enabled (experimental)</td>")
+                .doesNotContain("Result refinement algorithms")
                 .doesNotContain("SSA equivalence workers")
                 .contains("<th>SSA matched / different / unknown</th>"
                         + "<td>1 / 0 / 0</td>")
@@ -460,6 +455,20 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("\\u003c/script\\u003e", "\\u0026",
                         "\\u2028", "\\u2029");
         assertRepeatablePublication(report, run, plugin, output);
+    }
+
+    private void assertChaPruningDisclosure(final String moduleIndex) {
+        assertThat(moduleIndex)
+                .contains("CHA does not expand JDK-declared virtual or "
+                        + "interface dispatch")
+                .contains("callback, SPI, lambda, collection implementation")
+                .contains("This predefined scope does not change the "
+                        + "Module status.")
+                .contains("<th>cha-local-receiver-inference</th>")
+                .doesNotContain("cha-adjacent-receiver-inference")
+                .contains("CHA Impact Path pruning uses caller-local "
+                        + "receiver facts only")
+                .contains("<th>JDK-declared dispatch targets pruned</th>");
     }
 
     private ShardedReport generateShardedReport(
@@ -735,7 +744,8 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("Current module target/classes precedence")
                 .contains("winner-&lt;unsafe&gt;")
                 .contains("example:library:jar:2")
-                .contains("No module-specific limitation was recorded.")
+                .contains("CHA does not expand JDK-declared virtual or "
+                        + "interface dispatch")
                 .doesNotContain("winner-<unsafe>")
                 .doesNotContain(shadowed.toString());
     }
@@ -1051,7 +1061,10 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("\"source\":\"example:library\"")
                 .contains("\"impact\":2")
                 .contains("\"structural\":1")
-                .contains("\"name\":\"hidden\"");
+                .contains("\"name\":\"hidden\"")
+                .contains("\"memberMetrics\":[{\"memberId\":0,"
+                        + "\"impact\":2,\"structural\":1},{\"memberId\":1,"
+                        + "\"impact\":0,\"structural\":0}]");
     }
 
     private void writeClass(

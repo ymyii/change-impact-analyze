@@ -1,9 +1,6 @@
 package io.github.dependencyanalysis.impact;
 
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
-
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
-import io.github.dependencyanalysis.callgraph.strategy.CallGraphPolicy;
 import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSelection;
 import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
@@ -25,7 +22,6 @@ import java.nio.file.Path;
  * @param reflectionOptions command-wide WALA ReflectionOptions
  * @param dependencyAnalysisScope dependency method-body scope
  * @param jdkModel command-wide JDK Method Model selection
- * @param resultRefinements command-wide result-refinement selection
  * @param dependencySelection changed Maven dependency source boundary
  * @param executors Analyzer-owned pool registry
  * @param reportCache command report cache, nullable for compatibility callers
@@ -40,85 +36,9 @@ record PerModulePipelineOptions(
         WalaReflectionOptions reflectionOptions,
         DependencyAnalysisScopeMode dependencyAnalysisScope,
         JdkModelSelection jdkModel,
-        ResultRefinementSelection resultRefinements,
         DependencyArtifactSelection dependencySelection,
         ManagedExecutorRegistry executors,
         ReportCache reportCache) {
-
-    /** Compatibility constructor using the default k-object depth. */
-    PerModulePipelineOptions(
-            final long timeoutSeconds,
-            final int parallelism,
-            final PipelineOutputPaths paths,
-            final EntrypointSelection selection,
-            final CallGraphAlgorithm algorithm,
-            final WalaReflectionOptions reflection,
-            final DependencyAnalysisScopeMode dependencyScope,
-            final JdkModelSelection selectedJdkModel,
-            final ManagedExecutorRegistry executorRegistry) {
-        this(timeoutSeconds, parallelism, paths, selection, algorithm,
-                CallGraphAlgorithm.defaultKObjDepth(), reflection,
-                dependencyScope, selectedJdkModel,
-                ResultRefinementSelection.defaultSelection(),
-                DependencyArtifactSelection.allDependencies(),
-                executorRegistry, null);
-    }
-
-    /** Compatibility constructor using the default JDK model. */
-    PerModulePipelineOptions(
-            final long timeoutSeconds,
-            final int parallelism,
-            final PipelineOutputPaths paths,
-            final EntrypointSelection selection,
-            final CallGraphAlgorithm algorithm,
-            final WalaReflectionOptions reflection,
-            final DependencyAnalysisScopeMode dependencyScope,
-            final ManagedExecutorRegistry executorRegistry) {
-        this(timeoutSeconds, parallelism, paths, selection, algorithm,
-                CallGraphAlgorithm.defaultKObjDepth(), reflection,
-                dependencyScope,
-                CallGraphPolicy.defaultJdkModel(algorithm),
-                ResultRefinementSelection.defaultSelection(),
-                DependencyArtifactSelection.allDependencies(),
-                executorRegistry, null);
-    }
-
-    PerModulePipelineOptions(
-            final long timeoutSeconds,
-            final int parallelism,
-            final Path tempDirectory,
-            final EntrypointSelection selection,
-            final CallGraphAlgorithm algorithm,
-            final WalaReflectionOptions reflection,
-            final ManagedExecutorRegistry executorRegistry) {
-        this(timeoutSeconds, parallelism,
-                new PipelineOutputPaths(tempDirectory, null),
-                selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
-                reflection,
-                DependencyAnalysisScopeMode.defaultMode(),
-                CallGraphPolicy.defaultJdkModel(algorithm),
-                ResultRefinementSelection.defaultSelection(),
-                DependencyArtifactSelection.allDependencies(),
-                executorRegistry, null);
-    }
-
-    PerModulePipelineOptions(
-            final long timeoutSeconds,
-            final int parallelism,
-            final Path tempDirectory,
-            final EntrypointSelection selection,
-            final CallGraphAlgorithm algorithm,
-            final ManagedExecutorRegistry executorRegistry) {
-        this(timeoutSeconds, parallelism,
-                new PipelineOutputPaths(tempDirectory, null),
-                selection, algorithm, CallGraphAlgorithm.defaultKObjDepth(),
-                WalaReflectionOptions.defaultOptions(),
-                DependencyAnalysisScopeMode.defaultMode(),
-                CallGraphPolicy.defaultJdkModel(algorithm),
-                ResultRefinementSelection.defaultSelection(),
-                DependencyArtifactSelection.allDependencies(),
-                executorRegistry, null);
-    }
 
     /** @return command temporary directory */
     Path temporaryDirectory() {

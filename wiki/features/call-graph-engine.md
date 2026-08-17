@@ -21,6 +21,10 @@ code_refs:
     desc: "算法无关 build context"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/strategy/cha/ChaCallGraphRequest.java"
     desc: "CHA ownership、dispatch 与 ancestor retention input"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/strategy/cha/ChaDispatchTargetPolicy.java"
+    desc: "CHA JDK声明分派与external target保留规则"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/strategy/cha/JdkDeclaredDispatchPruningSummary.java"
+    desc: "JDK dispatch裁剪计数与bounded stable examples"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/strategy/kobj/KObjCallGraphRequest.java"
     desc: "k-obj depth、Reflection、JDK model 与 boundary input"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/protocol/methodhandle/LocalMethodHandleFactResolver.java"
@@ -39,7 +43,7 @@ code_refs:
 
 Analyzer 正式支持 Class Hierarchy Analysis（CHA，类层次分析），默认 identifier 为 `cha`。`k-obj` 是显式 opt-in 的实验性 context-sensitive algorithm。CLI、日志、Diagnostics JSON 和 HTML 使用 `cha`、`k-obj`；`k-obj` 在 help、启动诊断和 Report 中标记 `experimental`。
 
-Call Graph层只接收自身immutable input，输出graph、metadata、typed limitation与boundary finding。它不接收`ModuleAnalysisUnit`、`BoundChangePoint`等impact domain，也不绑定业务evidence。Diagnostics JSON使用Schema 10；algorithm值域为`cha | k-obj`，ChangePoint collection SSA证据由impact orchestration追加，不改变Call Graph topology contract。
+Call Graph层只接收自身immutable input，输出graph、metadata、typed limitation与boundary finding。它不接收`ModuleAnalysisUnit`、`BoundChangePoint`等impact domain，也不绑定业务evidence。Diagnostics JSON使用Schema 12；algorithm值域为`cha | k-obj`，ChangePoint collection SSA与Impact Path pruning证据由impact orchestration追加，不改变Call Graph topology contract。
 
 ## Package Architecture
 
@@ -96,7 +100,9 @@ Strategy 完成 fixed point 后返回 `CallGraphStrategyResult`。Engine 冻结 
 - 使用 `CHACallGraph`，Context 为 `Everywhere`。
 - `changed-paths` 裁剪无关 external target，不为被裁剪调用生成 dependency boundary limitation。
 - 为 PROJECT、reactor dependency 和 selected external type 传递保留 external ancestor chain；保留 reachable concrete method 的真实 IR。
-- `Object.toString/hashCode` 继续使用 Diff-directed target policy。
+- 只在virtual/interface dispatch target set解析时，对Primordial/Extension loader声明的JDK方法只保留JDK-origin concrete target；PROJECT、REACTOR_DEPENDENCY、DEPENDENCY、SYNTHETIC与abstract target删除。JDK concrete target仍作为leaf；JDK interface没有concrete JDK target时不产生调用边。
+- JDK规则不影响`invokestatic`、`invokespecial`、constructor、普通method resolution或`k-obj`。它明确接受callback、Service Provider Interface（SPI，服务提供者接口）、lambda、collection implementation与应用`Thread`/`Runnable`链漏报；该预定义范围不改变Module status。
+- 不使用JAR依赖闭包或concrete class可访问性删除dispatch target；二者都会删除合法动态分派。既有external body boundary与ancestor retention继续独立生效。
 - caller-local Class、ServiceLoader 与 MethodHandle 常量无法唯一恢复时输出 typed limitation，不猜测 target。
 
 ### k-obj
@@ -122,7 +128,7 @@ Strategy 完成 fixed point 后返回 `CallGraphStrategyResult`。Engine 冻结 
 - 每个 JVM parameter slot使用一个 declared-type candidate；interface/abstract reference使用共享 synthetic placeholder。
 - ownership precedence 为 `JDK > PROJECT > REACTOR_DEPENDENCY > DEPENDENCY`，duplicate class只保留稳定 winner。
 - 每个 Module 独立拥有 scope、hierarchy、cache 和 graph，不共享可变 WALA state。
-- topology capture只在显式diagnostics时执行；Schema 10保存node identity、Context、rank、path、source/IR snapshot、scope、boundary metadata与独立ChangePoint collection证据。
+- topology capture只在显式diagnostics时执行；Schema 12保存node identity、Context、rank、path、source/IR snapshot、scope、boundary metadata、固定SSA状态、`jdkDeclaredDispatchPrunedTargetCount`与最多10条stable example、caller-local Impact Path edge裁剪证据及独立ChangePoint collection证据。
 - `StronglyConnectedComponents`是全项目canonical SCC实现：使用调用方提供的incoming/outgoing adjacency与stable comparator，采用iterative traversal并返回稳定排序组件。`CallGraphTopologyAnalyzer`的cycle识别与Impact root selection必须复用该utility，禁止维护平行SCC算法。
 
 ## Failure Contract

@@ -9,20 +9,18 @@ relations:
   - path: "wiki/features/report-generator.md"
     desc: "Impact Path、Structural Reference Path 与 code evidence 输出"
 code_refs:
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactCommand.java"
-    desc: "统一result refinement CLI selection"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/refinement/ResultRefinementSelection.java"
-    desc: "immutable算法选择与稳定执行顺序"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/refinement/cha/ChaLocalReceiverEdgeRefiner.java"
-    desc: "查询期CHA局部Receiver推导与edge decision cache"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/refinement/cha/ChaLocalReceiverRefinementSummary.java"
-    desc: "Module级typed metrics与bounded examples"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/pruning/cha/ChaImpactPathPruningEngine.java"
+    desc: "固定caller-local extension registry、edge cache与fail-open执行"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/pruning/cha/ChaReceiverTypeResolver.java"
+    desc: "caller-local IR、Def-Use、callsite、receiver与dispatch cache"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/pruning/ImpactPathPruningSummary.java"
+    desc: "Module级统一metrics与bounded caller-to-callee edge evidence"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
     desc: "command-wide common pool、串行Module生命周期与session释放边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/DependencyArtifactSelection.java"
     desc: "进入Evidence与Impact Query前的changed-member来源边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleImpactTracer.java"
-    desc: "Evidence anchor驱动的deterministic reverse BFS与representative path"
+    desc: "Evidence anchor驱动的QueryNode reverse BFS与representative path"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ReferenceEvidence.java"
     desc: "算法无关terminal evidence与stable key"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChangePointEvidenceCollector.java"
@@ -66,7 +64,7 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChangePointTerminal.java"
     desc: "路径末端BoundChangePoint与exact ReferenceEvidence"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/SeedProgressReporter.java"
-    desc: "-vv下单个QueryNode独立计时、visited与10秒心跳"
+    desc: "-vv下单个QueryNode独立计时、state metrics与10秒心跳"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChangePointDisposition.java"
     desc: "ChangePoint 最终 disposition contract"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/BytecodeSsaFilter.java"
@@ -79,7 +77,7 @@ code_refs:
 
 ## Summary
 
-Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`ModuleCallGraphSession`。`StructuralImpactScanner`先扫描全部effective class metadata；随后算法无关`ChangePointEvidenceCollector`在同一线程顺序遍历最终Call Graph一次。Query按exact `QueryNode`分组执行deterministic reverse breadth-first search（BFS，广度优先搜索），在`cha-local-receiver-inference`裁剪后的实际切片边上计算root strongly connected component（SCC，强连通分量）。Impact Path只物化“root PROJECT method → seed → changed member”的确定性最短代表路径；路径中的PROJECT methods通过`getAffectedMethods()`统一报告，不再为每个中间method生成后缀路径。
+Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`ModuleCallGraphSession`。`StructuralImpactScanner`先扫描全部effective class metadata；随后算法无关`ChangePointEvidenceCollector`在同一线程顺序遍历最终Call Graph一次。Query按exact `QueryNode`分组执行deterministic reverse breadth-first search（BFS，广度优先搜索），并在固定CHA caller-local extension裁剪后的QueryNode slice上计算root strongly connected component（SCC，强连通分量）。Impact Path只物化“root PROJECT method → seed → changed member”的确定性最短代表路径；路径中的PROJECT methods通过`getAffectedMethods()`统一报告，不再为每个中间method生成后缀路径。
 
 ## Design Decisions
 
@@ -88,7 +86,7 @@ Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`Mo
 - Runtime package必须同时匹配class loader identity与package name；protected receiver只读取caller-local verifier type，不读取points-to dataflow。
 - 构图strategy不得定义私有terminal evidence或绑定ChangePoint；dynamic observation必须在session冻结前转换为公共Evidence。
 - `ModuleImpactTracer`只负责Evidence anchor materialization、access decision、reverse BFS与disposition reduction。
-- `cha-local-receiver-inference`只在CHA reverse BFS访问原图predecessor时做caller-local Receiver证明；只删除已有edge，不修改Call Graph、Class Hierarchy或session。
+- CHA只在reverse BFS访问原图predecessor时运行固定caller-local Receiver extension；只删除已证明不可能的调用边，不修改Call Graph、Class Hierarchy或session。
 - Impact Path不物化中间callsite edge。中间节点关系由Call Graph predecessor topology保证；命中具体ChangePoint的可审计原因由末端`ReferenceEvidence`表达。
 
 ## Actors / Entrypoints
@@ -123,18 +121,18 @@ Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`Mo
 
 - ordinary与structural terminal都来自`reverseBfsBindings`并按exact `QueryNode`分组；ordinary resolver生成的seed必须能回查到同一binding，否则query fail-fast。一个QueryNode query处理该节点关联的全部Evidence。PROJECT direct structural reference直接生成结果，不进入QueryNode query计数。
 - QueryNode与其evidence binding先按stable key排序，再分配Module-local稳定ordinal。不同Call Graph Context仍是不同QueryNode，不按method文本合并。
-- 每个QueryNode query使用局部queue、`visited`、`next`和唯一`ReverseTrace`执行一次deterministic reverse BFS；Module级`traceCache`不存在。
+- 每个QueryNode query使用局部queue、`visited`、`next`和唯一`ReverseTrace`执行一次deterministic reverse BFS；state identity固定为exact `QueryNode`，Module级`traceCache`不存在。
 - worker只返回immutable ordinary path、structural path与recovery结果，不返回`ReverseTrace`、`visited`或`next`。query返回前释放局部`ReverseTrace`强引用；同时存活的反向切片不超过active QueryNode worker数。
-- Traversal identity 是 exact `CGNode`，禁止使用 `Context.toString()` 作为 stable identity。
-- Reverse BFS保留`cha-local-receiver-inference`判断后的实际predecessor/successor切片边；WALA fake root与fake world-clinit先移除，不参与root判断或Report。
-- canonical SCC utility对切片分解组件。没有外部incoming edge的SCC是root component；普通单节点root必须是无真实caller的PROJECT method。
+- Traversal node identity 是 exact `CGNode`；禁止使用 `Context.toString()` 作为 stable identity。
+- Reverse BFS在加入predecessor前以`(caller,callee)`运行`cha-local-receiver-inference`。只有extension返回`PROVEN_INFEASIBLE`才跳过调用边；`UNKNOWN`、`NOT_APPLICABLE`和非中断异常均fail-open保留，中断继续传播。
+- `visited`、`next`、incoming/successor adjacency与canonical SCC均基于`QueryNode`；WALA fake root与fake world-clinit先移除，不参与root判断或Report。
+- canonical SCC utility对QueryNode slice分解组件。没有外部incoming edge的SCC是root component；普通单node root必须是无真实caller的PROJECT method。
 - root SCC优先选择declared PROJECT entrypoint；不存在时选择stable comparator最小的PROJECT node。root component不含PROJECT node时不生成Impact Path，并沿用`NO_PROJECT_PATH` disposition。
 - 每个root component只生成一条到seed的deterministic shortest path；多个root component分别保留。A→B→seed只物化A root path，B通过affected methods关系报告，不执行path containment比较。
-- 选择`cha-local-receiver-inference`且实际algorithm为CHA时，Reverse BFS在predecessor进入`visited/next/queue`前校验exact `(caller CGNode, callee CGNode)` edge。只有关联的全部callsite及其全部`IR.getCalls(site)` invoke instance均证明排除callee时才跳过；任一feasible、unknown、fixed dispatch或缺失证据均保留。
-- Fake root、static/special invoke、缺失IR/callsite与原callsite单target不执行Receiver推导。Module Query内全部QueryNode worker共享edge、caller IR/Def-Use与caller/value resolution cache；Query结束即释放。Impact Path与Structural Reference Path使用同一结果。
-- Receiver v1仅识别`new`非数组reference exact type、exact `phi`并集、透明`pi`及单一可解析非数组reference `checkcast`。显式`null`不产生正常target，`phi(null,new B)`为exact `B`；exact/upper-bound混合、全upper-bound或任一unknown `phi`整体unknown。
-- `this`、参数、field/array load、method return、collection content、数组、多类型或unresolved cast及其他unsupported SSA instruction均unknown。推导使用iterative worklist和visited value set，不递归、不设数值预算；可恢复异常fail-open，线程中断继续传播。
-- exact集合逐个通过target Class Hierarchy解析继承方法或interface default method；unresolved、abstract或不一致结果保留edge。Upper bound只在完整class/interface cone target排除callee时删除edge。
+- Local extension保留caller-local规则：只有关联的全部callsite及其全部`IR.getCalls(site)` invoke instance均证明排除callee时才跳过；任一feasible、unknown、fixed dispatch、单原始target或缺失证据均保留。它识别`new`非数组reference exact type、exact `phi`并集、透明`pi`、单一可解析非数组reference `checkcast`与既有upper bound；显式`null`不产生正常target。
+- Extension不跨方法映射formal parameter/actual argument，也不追踪producer callsite return。bridge、factory和其他跨方法receiver flow保守保留；这是固定分析范围，不改变Module status。
+- `this`、field/array load、collection content、数组、多类型或unresolved cast、缺失IR/callsite及其他unsupported SSA instruction均unknown并保留。推导使用iterative worklist和visited value set，不递归、不设数值预算。
+- `ChaReceiverTypeResolver`复用IR、Def-Use、callsite、receiver与dispatch resolution cache。exact集合逐个执行JVM method dispatch resolution，再与candidate callee method reference比较；不使用class name直接相等，因此保留继承方法、interface default method与合法override。Upper bound只在完整class/interface cone排除callee时裁剪。
 - Impact Path与Structural Reference Path只保存有序node sequence和terminal，不调用`getPossibleSites(caller, callee)`反查中间callsite。
 - completion result到达后立即归并，不保存全部query结果。同一`changed member + root MethodId`汇总不同seed、Context和路线：先选hop数最少的path，再比较exact node sequence，最后按terminal evidence stable key决胜。serial与parallel执行得到相同代表路径。
 - `ImpactPath.getRootMethod()`返回路径首个PROJECT method；`getAffectedMethods()`返回路径内全部PROJECT `MethodId`，按路径顺序并跨Context去重；`getRootKind()`区分普通method root与root SCC。旧的单数affected method接口不保留。
@@ -148,9 +146,9 @@ Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`Mo
 - 直接构造`ModuleImpactTracer`的Java调用保持inline串行，不创建线程池。
 - 每个Module的`impact-query` INFO start在planning前输出，包含`changes`与`evidenceBindings`。planning完成后DEBUG输出`seeds`、去重后`queryNodes`与该Module worker上限；INFO completion输出最终计数与耗时。
 - `evidence-analysis` INFO覆盖Structural scan与唯一node scan的start/end/fail；`-vv`由collector协调线程按5秒时间门限输出`scannedNodes/scannedBodies/scannedInstructions/evidence/bindings`，不创建heartbeat scheduler。
-- `-vv`为每个QueryNode输出transient Console-only `query-node-started`、可选`query-node-progress`与`query-node-completed`；Phase位于五段prefix第五段最前面，值保持`REVERSE_BFS`、`PATH_MATERIALIZATION`与`REPRESENTATIVE_SELECTION`，message不再重复`phase=`。字段包含稳定`queryNodeOrdinal`、`evidenceSeeds`、elapsed、recent node及本QueryNode独立的`visited`。PROJECT direct structural reference不输出QueryNode事件。
-- 每个QueryNode从`elapsedMs=0`、`visited=0`独立计时。单个query运行满10秒后输出首个progress，以后按自身20、30、40秒周期输出；query之间不继承elapsed、visited、recent node、Phase或heartbeat ordinal。
-- BFS期间visited表示当前QueryNode已发现节点数；BFS完成后固定为该QueryNode局部`ReverseTrace.visited`总数。心跳只读取per-QueryNode thread-safe snapshot，不遍历正在修改的graph collection，也不读取method body、IR或SSA instruction。
+- `-vv`为每个QueryNode输出transient Console-only `query-node-started`、可选`query-node-progress`与`query-node-completed`；Phase位于五段prefix第五段最前面，值保持`REVERSE_BFS`、`PATH_MATERIALIZATION`与`REPRESENTATIVE_SELECTION`，message不再重复`phase=`。字段包含稳定`queryNodeOrdinal`、`evidenceSeeds`、elapsed、recent node，以及本QueryNode独立的`visited`、`edgeChecks`与`prunedEdges`。PROJECT direct structural reference不输出QueryNode事件。
+- 每个QueryNode从`elapsedMs=0`与零state metrics独立计时。单个query运行满10秒后输出首个progress，以后按自身20、30、40秒周期输出；query之间不继承elapsed、metrics、recent node、Phase或heartbeat ordinal。
+- BFS期间`visited`表示已发现的exact QueryNode数，`edgeChecks`与`prunedEdges`表示当前query检查及删除的caller-to-callee edge数；BFS完成后固定为该QueryNode局部`ReverseTrace`总数。心跳使用fixed-delay，只读取per-QueryNode thread-safe snapshot，不遍历正在修改的graph collection，也不读取method body、IR或SSA instruction。
 - QueryNode正常完成时先停止心跳再输出total elapsed与visited；异常路径只停止心跳并传播异常，不伪造completed。INFO/DEBUG不创建scheduler；这些line只进入Console，不进入JSON或HTML Report。
 - 任一QueryNode失败时取消并等待当前Module已启动的其他query退出，再将该Module转换为`FAILED_ANALYSIS`。共享pool继续服务后续Module；pipeline结束或全局异常时统一关闭。
 
@@ -191,14 +189,14 @@ Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`Mo
 - 找到reference且全部仍合法时为`ACCESS_REMAINS_VALID`；完全未找到reference才是`DECLARED_REFERENCE_NOT_FOUND`。
 - Target type/declaration无法解析时生成`ACCESS_TARGET_TYPE_UNRESOLVED`或`ACCESS_DECLARATION_UNRESOLVED`，reason为`INCONCLUSIVE_SCOPE_VALIDATION`。
 
-## Result Refinement
+## Fixed SSA and Impact Path Pruning
 
-- `--result-refinement-algorithms`接受`none`、`cha-local-receiver-inference`、`ssa-equivalence`或两者逗号组合，默认`ssa-equivalence`。显式值是完整覆盖；传`none`关闭全部refinement。标识符大小写不敏感，重复值去重并按固定顺序序列化；空项、unknown及`none`混用为参数错误。
-- `ssa-equivalence`不再消费Impact Path。它在唯一logical JAR pair的ChangePoint收集阶段，只比较body hash不同且class major version不同的`METHOD_BODY_CHANGED`。
-- old/new分别使用同一目标JDK 8建立pair-local Class Hierarchy与独立SSA cache，不构建Call Graph，也不复用Module target session。
-- `MATCHED`在Module binding前抑制ChangePoint；`DIFFERENT`与`UNKNOWN`保留。`UNKNOWN`不改变Module status/reason，证据进入Module input、HTML与Schema 10 diagnostics。
-- `cha-local-receiver-inference`仍只在CHA reverse BFS中收窄已有edge。双选时两种算法位于不同阶段，不存在path-level SSA串联顺序。
-- `ModuleAnalysisResult`只保存`impactPaths`和`structuralPaths`；不保存candidate/final双路径或path-level SSA result。
+- `--result-refinement-algorithms`、selection、converter与pipeline配置字段已删除；旧option作为未知参数返回exit code `1`。
+- SSA equivalence固定在唯一logical JAR pair的ChangePoint收集阶段运行，只比较body hash不同且class major version不同的`METHOD_BODY_CHANGED`。old/new分别使用同一目标JDK 8建立pair-local Class Hierarchy与独立SSA cache，不构建Call Graph，也不复用Module target session。
+- `MATCHED`在Module binding前抑制ChangePoint；`DIFFERENT`与`UNKNOWN`保留。`UNKNOWN`不改变Module status/reason，证据进入Module input、HTML与Schema 12 diagnostics。
+- CHA固定执行experimental `cha-local-receiver-inference` extension；`k-obj`不执行Impact Path pruning，但SSA equivalence仍固定启用。`ModuleAnalysisResult`只保存统一`ImpactPathPruningSummary`，不保存selection、candidate/final双路径或path-level SSA result。
+- Extension统一输出requests、unique evaluations、cache hits、pruned、feasible、unknown、not applicable与fail-open errors，并附带callsite/invoke及exact/upper-bound/null/unknown resolution计数。
+- 只有TRACE或显式diagnostics请求才格式化最多10条稳定example，包含caller/callee identity、program counter、decision、reason与inferred receiver summary。INFO/DEBUG不承担该字符串构造成本。
 
 ## Code Comparison Evidence
 
@@ -221,11 +219,11 @@ Call Graph fixed point完成后，Impact query只读graph、`ChangePointEvidence
 - Given access narrowing与reachable pre-existing bytecode reference；When new access明确不允许或protected receiver无法证明合法；Then保留definite/potential Impact Path及typed old/new access evidence。
 - Given全部相关reference在new access下仍合法；When完成query；Then disposition为`ACCESS_REMAINS_VALID`，不生成Affected Call Chain。
 - Given target CHA无法解析必要type/declaration；When完成query；Then limitation通过Result Object进入统一coverage reduction。
-- Given默认selection；When JAR diff发现跨class major的body变化；Then先执行SSA ChangePoint filtering，再决定Module是否需要构建Call Graph。
-- GivenCHA local-only且caller Receiver exact排除当前callee；When reverse BFS访问该原图edge；Then虚假predecessor不进入path、原图node/edge计数不变，且pruned metric大于零。
-- GivenReceiver推导为unknown、单target或不适用；When reverse BFS访问edge；Then保留原CHA edge，不新增coverage limitation。
-- Given显式`none`；When执行JAR diff；Then不创建old/new SSA session，body hash变化按普通ChangePoint保留。
-- Given双算法选择；When完成分析；ThenSSA在ChangePoint收集期运行，CHA local receiver只在后续reverse BFS运行，二者不通过path-level中间结果耦合。
+- Given JAR diff发现跨class major的body变化；When收集ChangePoint；Then固定执行SSA filtering，再决定Module是否需要构建Call Graph。
+- GivenCHA且caller Receiver exact排除当前callee；When reverse BFS访问该edge；Then虚假predecessor不进入path、原图node/edge计数不变，且local pruned metric大于零。
+- Givenreceiver事实只存在于bridge actual argument或factory return；When reverse BFS访问该跨方法flow；Then不执行跨边界推导并保守保留CHA edge。
+- GivenReceiver推导为unknown、单target或不适用；When reverse BFS访问edge；Then保留原CHA关系，不新增coverage limitation。
+- Given旧`--result-refinement-algorithms`；When解析Impact CLI；Then作为unknown option返回exit code `1`。Given`k-obj`；Then只固定执行SSA ChangePoint filtering，不执行CHA Impact Path pruning。
 
 ### Non-Functional
 

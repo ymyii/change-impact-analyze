@@ -12,6 +12,8 @@ import io.github.dependencyanalysis.callgraph.scope.DuplicateClassResolution;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphStrategyCapabilities;
 import io.github.dependencyanalysis.callgraph.strategy.StrategyModelMetadata;
+import io.github.dependencyanalysis.callgraph.strategy.cha
+        .JdkDeclaredDispatchPruningSummary;
 import io.github.dependencyanalysis.callgraph.topology.CallGraphTopologySnapshot;
 import com.ibm.wala.classLoader.IClass;
 import com.ibm.wala.classLoader.SyntheticClass;
@@ -64,6 +66,9 @@ public final class ModuleCallGraphSession {
     /** External dependency body-boundary evidence and node counts. */
     private final DependencyBodyBoundaryMetadata dependencyBoundary;
 
+    /** Fixed CHA JDK-declared dispatch pruning evidence. */
+    private final JdkDeclaredDispatchPruningSummary jdkDispatchPruning;
+
     /** Optional read-only benchmark topology capture. */
     private final CallGraphTopologySnapshot topology;
 
@@ -95,6 +100,7 @@ public final class ModuleCallGraphSession {
         dynamicEvidence = strategy.dynamicEvidence();
         jdkModelMetadata = strategy.jdkModel();
         strategyCapabilities = strategy.capabilities();
+        jdkDispatchPruning = strategy.jdkDeclaredDispatchPruning();
         dependencyBoundary = values.dependencyBoundary();
         topology = values.topology();
         modelLimitations = strategy.limitations();
@@ -179,6 +185,11 @@ public final class ModuleCallGraphSession {
     /** @return dependency body boundary output */
     public DependencyBodyBoundaryMetadata getDependencyBoundary() {
         return dependencyBoundary;
+    }
+
+    /** @return fixed CHA JDK-declared dispatch pruning evidence */
+    public JdkDeclaredDispatchPruningSummary getJdkDispatchPruning() {
+        return jdkDispatchPruning;
     }
 
     /** @return true when a fixed-point model reported a limitation */

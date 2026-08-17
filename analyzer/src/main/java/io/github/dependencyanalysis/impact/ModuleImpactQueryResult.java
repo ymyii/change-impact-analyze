@@ -1,6 +1,6 @@
 package io.github.dependencyanalysis.impact;
 
-import io.github.dependencyanalysis.impact.refinement.cha.ChaLocalReceiverRefinementSummary;
+import io.github.dependencyanalysis.impact.pruning.ImpactPathPruningSummary;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -26,8 +26,8 @@ public final class ModuleImpactQueryResult {
     /** Typed query coverage limitations. */
     private final List<QueryLimitation> limitations;
 
-    /** Query-time CHA local-receiver refinement summary. */
-    private final ChaLocalReceiverRefinementSummary receiverRefinement;
+    /** Query-time fixed Impact Path pruning summary. */
+    private final ImpactPathPruningSummary impactPathPruning;
 
     /**
      * Creates a module query result.
@@ -82,18 +82,18 @@ public final class ModuleImpactQueryResult {
             final List<QueryLimitation> queryLimitations) {
         this(impactPaths, structures, pointDispositions, pointObservations,
                 queryLimitations,
-                ChaLocalReceiverRefinementSummary.notSelected());
+                ImpactPathPruningSummary.notExecuted());
     }
 
     /**
-     * Creates a complete typed query result with refinement evidence.
+     * Creates a complete typed query result with pruning evidence.
      *
      * @param impactPaths reported impact paths
      * @param structures structural impacts
      * @param pointDispositions point dispositions
      * @param pointObservations typed evidence by ChangePoint
      * @param queryLimitations query coverage limitations
-     * @param refinement query-time CHA receiver refinement summary
+     * @param pruning query-time fixed Impact Path pruning summary
      */
     ModuleImpactQueryResult(
             final List<ImpactPath> impactPaths,
@@ -103,7 +103,7 @@ public final class ModuleImpactQueryResult {
             final Map<BoundChangePoint,
                     List<ImpactEvidence>> pointObservations,
             final List<QueryLimitation> queryLimitations,
-            final ChaLocalReceiverRefinementSummary refinement) {
+            final ImpactPathPruningSummary pruning) {
         paths = Collections.unmodifiableList(
                 new ArrayList<>(impactPaths));
         structuralPaths = Collections.unmodifiableList(
@@ -116,8 +116,8 @@ public final class ModuleImpactQueryResult {
                 evidence.put(point, List.copyOf(values)));
         observations = Collections.unmodifiableMap(evidence);
         limitations = queryLimitations.stream().distinct().sorted().toList();
-        receiverRefinement = java.util.Objects.requireNonNull(
-                refinement, "refinement");
+        impactPathPruning = java.util.Objects.requireNonNull(
+                pruning, "pruning");
     }
 
     /** @return reported Impact Paths */
@@ -145,8 +145,8 @@ public final class ModuleImpactQueryResult {
         return limitations;
     }
 
-    /** @return query-time CHA local-receiver refinement summary */
-    public ChaLocalReceiverRefinementSummary getReceiverRefinement() {
-        return receiverRefinement;
+    /** @return query-time fixed Impact Path pruning summary */
+    public ImpactPathPruningSummary getImpactPathPruning() {
+        return impactPathPruning;
     }
 }

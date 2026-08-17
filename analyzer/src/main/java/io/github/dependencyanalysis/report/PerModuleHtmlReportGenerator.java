@@ -22,9 +22,7 @@ import io.github.dependencyanalysis.impact.ImpactPath;
 import io.github.dependencyanalysis.impact.ModuleAnalysisResult;
 import io.github.dependencyanalysis.impact.ModuleAnalysisStatus;
 import io.github.dependencyanalysis.impact.QueryNode;
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementAlgorithm;
-import io.github.dependencyanalysis.impact.refinement.ResultRefinementSelection;
-import io.github.dependencyanalysis.impact.refinement.cha.ChaLocalReceiverRefinementSummary;
+import io.github.dependencyanalysis.impact.pruning.ImpactPathPruningSummary;
 import io.github.dependencyanalysis.impact.StructuralReferencePath;
 import io.github.dependencyanalysis.preflight.PreflightReport;
 import io.github.dependencyanalysis.preflight.PreflightResult;
@@ -224,7 +222,7 @@ public final class PerModuleHtmlReportGenerator {
                     maven.getSource().toString(),
                     entrypointSelectionLabel(run),
                     "embedded " + plugin.getVersion(),
-                    run.getResultRefinementSelection());
+                    run.getCallGraphAlgorithm());
             final Map<ModuleAnalysisResult, ModulePages> pages =
                     writeModulePages(run, modules,
                             absolute.getFileName().toString(), moduleRuntime);
@@ -278,8 +276,7 @@ public final class PerModuleHtmlReportGenerator {
             final OverallContext context) throws IOException {
         writeDocument(target, "Impact Analysis Report", "Overall", "", "",
                 overallToc(), body -> {
-        final boolean semanticComparison = run.getResultRefinementSelection()
-                .isEnabled(ResultRefinementAlgorithm.SSA_EQUIVALENCE);
+        final boolean semanticComparison = true;
         body
                 .append("<h1 id=\"top\">Impact Analysis Report</h1>")
                 .append("<section id=\"read\"><h2>How to read this report")
@@ -306,6 +303,13 @@ public final class PerModuleHtmlReportGenerator {
                 .append("built. Baseline artifacts supply dependency, ")
                 .append("bytecode ")
                 .append("and method-comparison evidence.</li></ul></section>");
+        body.append("<p><strong>CHA JDK dispatch boundary:</strong> CHA does ")
+                .append("not expand a virtual or interface call declared by ")
+                .append("the JDK to non-JDK implementations. Callback, SPI, ")
+                .append("lambda, collection implementation, and application ")
+                .append("Thread or Runnable chains may therefore be omitted. ")
+                .append("This predefined scope does not change Module ")
+                .append("status.</p>");
         body.append(SsaEvidenceHtmlRenderer.warning(semanticComparison));
         body.append("<p>Code comparisons are generated locally from dependency "
                 + "bytecode and may differ from the original source code.</p>");
@@ -363,13 +367,9 @@ public final class PerModuleHtmlReportGenerator {
                                 : run.getReflectionOptions().identifier()))
                 .append(row("JDK method model",
                         run.getJdkModel().identifier()))
-                .append(row("Result refinement algorithms",
-                        refinementSelectionStatus(
-                                run.getResultRefinementSelection())))
-                .append(row("CHA local receiver inference",
-                        chaReceiverStatus(run)))
-                .append(row("SSA equivalence",
-                        experimentalStatus(semanticComparison)))
+                .append(row("SSA equivalence", "fixed enabled (experimental)"))
+                .append(pruningRows(run.getModuleResults()))
+                .append(chaPruningBoundaryRow(run.getCallGraphAlgorithm()))
                 .append(changeSelectionRows(run))
                 .append(row("Entrypoint includes",
                         run.getEntrypointSelection().includes()))
@@ -378,8 +378,7 @@ public final class PerModuleHtmlReportGenerator {
                 .append(row("Maven executable",
                         context.maven().getExecutable()))
                 .append(row("SSA matched / different / unknown",
-                        ssaCounts(run.getModuleResults(),
-                                semanticComparison)))
+                        ssaCounts(run.getModuleResults())))
                 .append("</table></details>");
         body.append(SsaEvidenceHtmlRenderer.render(
                 uniqueSsaComparisons(run.getModuleResults())));
@@ -530,20 +529,13 @@ public final class PerModuleHtmlReportGenerator {
                 .append(sessionRows(module))
                 .append(row("Raw status", module.getStatus()))
                 .append(row("Raw reason", module.getReason()))
-                .append(row("Result refinement algorithms",
-                        refinementSelectionStatus(runtime.refinements())))
-                .append(row("CHA local receiver inference",
-                        module.getReceiverRefinement().status().label()
-                                + " (experimental)"))
-                .append(receiverRefinementRows(module))
                 .append(row("SSA equivalence",
-                        experimentalStatus(runtime.refinements().isEnabled(
-                                ResultRefinementAlgorithm
-                                        .SSA_EQUIVALENCE))))
+                        "fixed enabled (experimental)"))
+                .append(pruningRows(List.of(module)))
+                .append(chaPruningBoundaryRow(
+                        runtime.callGraphAlgorithm()))
                 .append(row("SSA matched / different / unknown",
-                        ssaCounts(List.of(module), runtime.refinements()
-                                .isEnabled(ResultRefinementAlgorithm
-                                        .SSA_EQUIVALENCE))))
+                        ssaCounts(List.of(module))))
                 .append(row("Complete dependency changes / selected "
                                 + "effective members",
                         module.getUnit().getDependencyChanges().size() + " / "
@@ -555,6 +547,19 @@ public final class PerModuleHtmlReportGenerator {
                 .append("</h2>");
         final List<String> limitations = new ArrayList<>(
                 module.getLimitations());
+        if (runtime.callGraphAlgorithm() == CallGraphAlgorithm.CHA) {
+            limitations.add("CHA Impact Path pruning uses caller-local "
+                    + "receiver facts only; bridge parameters, factory "
+                    + "returns, and other cross-method receiver flows may "
+                    + "retain conservative false-positive paths. This "
+                    + "predefined scope does not change the Module status.");
+            limitations.add("CHA does not expand JDK-declared virtual or "
+                    + "interface dispatch to non-JDK implementations; "
+                    + "callback, SPI, lambda, collection implementation, "
+                    + "and application Thread or Runnable chains may be "
+                    + "omitted. This predefined scope does not change the "
+                    + "Module status.");
+        }
         module.getUnit().getJarDiffFailures().forEach(failure -> limitations
                 .add("JAR member comparison unavailable for "
                         + jarLabel(failure.dependencyUpgradeKey()) + ": "
@@ -608,6 +613,8 @@ public final class PerModuleHtmlReportGenerator {
                                 .ancestorRetainedExternalMethodNodeCount()))
                 .append(row("Pruned external method targets",
                         metadata.prunedExternalMethodTargetCount()))
+                .append(row("JDK-declared dispatch targets pruned",
+                        jdkDeclaredDispatchPrunedTargetCount(module)))
                 .append("</table><h3>Changed dependency paths</h3>");
         if (selection.paths().isEmpty()) {
             body.append("<p>No reverse dependency path evidence was ")
@@ -1350,51 +1357,41 @@ public final class PerModuleHtmlReportGenerator {
                 SsaComparisonStatus.UNKNOWN);
     }
 
-    private String ssaCounts(
-            final List<ModuleAnalysisResult> modules,
-            final boolean enabled) {
-        return enabled ? ssaCounts(modules) : "not run";
-    }
-
-    private String experimentalStatus(final boolean enabled) {
-        return enabled ? "enabled (experimental)"
-                : "disabled (experimental)";
-    }
-
-    private String refinementSelectionStatus(
-            final ResultRefinementSelection selection) {
-        return selection.isEmpty() ? ResultRefinementSelection.NONE
-                : selection + " (experimental)";
-    }
-
-    private String chaReceiverStatus(final AnalysisRunResult run) {
-        if (!run.getResultRefinementSelection().isEnabled(
-                ResultRefinementAlgorithm.CHA_LOCAL_RECEIVER_INFERENCE)) {
-            return "disabled (experimental)";
+    private String pruningRows(
+            final List<ModuleAnalysisResult> modules) {
+        final StringBuilder rows = new StringBuilder();
+        for (String identifier
+                : ImpactPathPruningSummary.FIXED_EXTENSION_IDS) {
+            final List<ImpactPathPruningSummary.ExtensionSummary> summaries =
+                    modules.stream().flatMap(module -> module
+                            .getImpactPathPruning().extensions().stream())
+                            .filter(value -> value.identifier()
+                                    .equals(identifier)).toList();
+            final String status = summaries.stream()
+                    .map(value -> value.status().label())
+                    .distinct().sorted()
+                    .collect(java.util.stream.Collectors.joining(", "));
+            final long checked = summaries.stream().mapToLong(value ->
+                    value.metrics().uniqueEvaluations()).sum();
+            final long pruned = summaries.stream().mapToLong(value ->
+                    value.metrics().pruned()).sum();
+            final long unknown = summaries.stream().mapToLong(value ->
+                    value.metrics().unknown()).sum();
+            rows.append(row(identifier,
+                    (status.isEmpty() ? "not executed" : status)
+                            + " (experimental); edges checked / pruned / "
+                            + "unknown: "
+                            + checked + " / " + pruned + " / " + unknown));
         }
-        return run.getCallGraphAlgorithm() == CallGraphAlgorithm.CHA
-                ? "applied (experimental)"
-                : "not applied by non-cha (experimental)";
+        return rows.toString();
     }
 
-    private String receiverRefinementRows(
-            final ModuleAnalysisResult module) {
-        final ChaLocalReceiverRefinementSummary.Metrics metrics =
-                module.getReceiverRefinement().metrics();
-        return row("CHA receiver edges checked / pruned / unknown",
-                metrics.uniqueEvaluatedEdges() + " / "
-                        + metrics.prunedEdges() + " / "
-                        + metrics.retainedUnknownEdges())
-                + row("CHA receiver edge cache hits",
-                metrics.cacheHits())
-                + row("CHA receiver callsites / invokes checked",
-                metrics.callsitesChecked() + " / "
-                        + metrics.invokeInstancesChecked())
-                + row("CHA receiver exact / upper / no-target / unknown",
-                metrics.exactResolutions() + " / "
-                        + metrics.upperBoundResolutions() + " / "
-                        + metrics.noNormalTargetResolutions() + " / "
-                        + metrics.unknownResolutions());
+    private String chaPruningBoundaryRow(
+            final CallGraphAlgorithm algorithm) {
+        return algorithm == CallGraphAlgorithm.CHA
+                ? row("CHA Impact Path pruning boundary",
+                "caller-local receiver facts only; cross-method receiver "
+                        + "flows are retained conservatively") : "";
     }
 
     private List<SsaComparisonEvidence> uniqueSsaComparisons(
@@ -1490,6 +1487,8 @@ public final class PerModuleHtmlReportGenerator {
                 parameterCandidateCount(module))
                 + row("Call Graph nodes", stats.methodCount())
                 + row("Call Graph edges", stats.edgeCount())
+                + row("JDK-declared dispatch targets pruned",
+                jdkDeclaredDispatchPrunedTargetCount(module))
                 + row("WALA Context count", contextCount(module));
     }
 
@@ -1516,6 +1515,13 @@ public final class PerModuleHtmlReportGenerator {
         return module.getCallGraphSnapshot() == null
                 ? DependencyBoundarySnapshot.empty()
                 : module.getCallGraphSnapshot().dependencyBoundary();
+    }
+
+    private int jdkDeclaredDispatchPrunedTargetCount(
+            final ModuleAnalysisResult module) {
+        return module.getCallGraphSnapshot() == null ? 0
+                : module.getCallGraphSnapshot()
+                .jdkDeclaredDispatchPrunedTargetCount();
     }
 
     private String row(final String name, final Object value) {
@@ -1776,7 +1782,7 @@ public final class PerModuleHtmlReportGenerator {
      * @param mavenSource selected Maven runtime source
      * @param entrypointBoundary selected PROJECT entrypoint boundary
      * @param pluginVersion Maven Dependency Plugin source/version
-     * @param refinements command-wide result-refinement selection
+     * @param callGraphAlgorithm command-wide Call Graph algorithm
      */
     private record ModuleRuntime(
             String jdkVersion,
@@ -1784,6 +1790,6 @@ public final class PerModuleHtmlReportGenerator {
             String mavenSource,
             String entrypointBoundary,
             String pluginVersion,
-            ResultRefinementSelection refinements) {
+            CallGraphAlgorithm callGraphAlgorithm) {
     }
 }

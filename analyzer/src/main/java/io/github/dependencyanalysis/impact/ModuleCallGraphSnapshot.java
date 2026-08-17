@@ -12,6 +12,7 @@ import java.util.Objects;
  * @param parameterCandidateCount parameter candidate count
  * @param selectedEntrypointClassCount selected PROJECT class count
  * @param contextCount distinct rendered Context count
+ * @param jdkDeclaredDispatchPrunedTargetCount fixed CHA pruning count
  * @param dependencyBoundary dependency boundary metrics
  */
 public record ModuleCallGraphSnapshot(
@@ -20,6 +21,7 @@ public record ModuleCallGraphSnapshot(
         int parameterCandidateCount,
         int selectedEntrypointClassCount,
         long contextCount,
+        int jdkDeclaredDispatchPrunedTargetCount,
         DependencyBoundarySnapshot dependencyBoundary) {
 
     /** Validates non-negative metrics. */
@@ -27,7 +29,8 @@ public record ModuleCallGraphSnapshot(
         Objects.requireNonNull(stats, "stats");
         Objects.requireNonNull(dependencyBoundary, "dependencyBoundary");
         if (entrypointCount < 0 || parameterCandidateCount < 0
-                || selectedEntrypointClassCount < 0 || contextCount < 0) {
+                || selectedEntrypointClassCount < 0 || contextCount < 0
+                || jdkDeclaredDispatchPrunedTargetCount < 0) {
             throw new IllegalArgumentException(
                     "negative Module Call Graph snapshot metric");
         }

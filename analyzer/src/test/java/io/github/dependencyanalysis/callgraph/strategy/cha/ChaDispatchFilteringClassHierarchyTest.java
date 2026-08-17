@@ -48,6 +48,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** Tests Diff-directed CHA filtering before target node expansion. */
 class ChaDispatchFilteringClassHierarchyTest {
 
+    /** Expected JDK-declared targets removed by the dispatch fixture. */
+    private static final int EXPECTED_JDK_PRUNED_TARGETS = 4;
+
     /** Fixture root. */
     @TempDir
     private Path temporary;
@@ -102,21 +105,17 @@ class ChaDispatchFilteringClassHierarchyTest {
                         ownership));
 
         assertThat(filtered.getPossibleTargets(reference))
-                .containsExactly(addedMethod, changedMethod, projectMethod,
-                        reactorMethod, syntheticMethod, objectMethod);
+                .containsExactly(objectMethod);
         assertThat(filtered.getPossibleTargets(receiver, reference))
-                .containsExactly(addedMethod, changedMethod, projectMethod,
-                        reactorMethod, syntheticMethod, objectMethod);
+                .containsExactly(objectMethod);
         assertThat(filtered.getPossibleTargets(reference))
-                .containsExactly(addedMethod, changedMethod, projectMethod,
-                        reactorMethod, syntheticMethod, objectMethod);
+                .containsExactly(objectMethod);
 
         filtered.clearCaches();
 
         assertThat(clears).hasValue(1);
         assertThat(filtered.getPossibleTargets(reference))
-                .containsExactly(addedMethod, changedMethod, projectMethod,
-                        reactorMethod, syntheticMethod, objectMethod);
+                .containsExactly(objectMethod);
     }
 
     @Test
@@ -190,9 +189,107 @@ class ChaDispatchFilteringClassHierarchyTest {
                         ownership));
 
         assertThat(filtered.getPossibleTargets(stringToString))
-                .isSameAs(stringTargets);
+                .containsExactly(stringMethod);
         assertThat(filtered.getPossibleTargets(objectEquals))
-                .isSameAs(equalsTargets);
+                .containsExactly(equalsMethod);
+    }
+
+    @Test
+    void jdkDeclaredDispatchDropsNonJdkTargetsButCustomInterfaceDoesNot()
+            throws Exception {
+        final ClassOwnershipIndex ownership = new ClassOwnershipIndex();
+        ownership.addDirectory(classes("project/Runner"), CodeOrigin.PROJECT);
+        final ModuleAnalysisUnit unit = unit(List.of());
+        final TypeReference runnable = TypeReference.findOrCreate(
+                ClassLoaderReference.Primordial, "Ljava/lang/Runnable");
+        final MethodReference jdkReference = MethodReference.findOrCreate(
+                runnable, "run", "()V");
+        final IMethod jdkMethod = method(runnable, "run", "()V", false);
+        final IMethod projectMethod = method(application("project/Runner"),
+                "run", "()V", false);
+        final IMethod syntheticMethod = method(
+                application("project/Runner$$Lambda$1"),
+                "run", "()V", true);
+        final TypeReference iterator = TypeReference.findOrCreate(
+                ClassLoaderReference.Primordial, "Ljava/util/Iterator");
+        final MethodReference iteratorReference =
+                MethodReference.findOrCreate(
+                        iterator, "next", "()Ljava/lang/Object;");
+        final IMethod jdkIteratorMethod = method(
+                TypeReference.findOrCreate(ClassLoaderReference.Primordial,
+                        "Ljava/util/ArrayList$Itr"),
+                "next", "()Ljava/lang/Object;", false);
+        final IMethod projectIteratorMethod = method(
+                application("project/Runner"),
+                "next", "()Ljava/lang/Object;", false);
+        final TypeReference thread = TypeReference.findOrCreate(
+                ClassLoaderReference.Primordial, "Ljava/lang/Thread");
+        final MethodReference threadReference = MethodReference.findOrCreate(
+                thread, "run", "()V");
+        final IMethod jdkThreadMethod = method(
+                thread, "run", "()V", false);
+        final TypeReference custom = application("project/CustomRunner");
+        final MethodReference customReference = MethodReference.findOrCreate(
+                custom, "run", "()V");
+        final Map<MethodReference, Set<IMethod>> targets =
+                new LinkedHashMap<>();
+        targets.put(jdkReference, linkedSet(
+                projectMethod, syntheticMethod, jdkMethod));
+        targets.put(iteratorReference, linkedSet(
+                projectIteratorMethod, jdkIteratorMethod));
+        targets.put(threadReference, linkedSet(
+                projectMethod, jdkThreadMethod));
+        targets.put(customReference, linkedSet(projectMethod));
+        final ChaDispatchTargetPolicy policy =
+                ChaDispatchTargetPolicy.create(
+                        new ModuleCallGraphInputAdapter().adapt(unit),
+                        ownership, ChaAncestorRetentionPolicy.disabled(),
+                        false, true);
+        final IClassHierarchy filtered =
+                new ChaDispatchFilteringClassHierarchy(
+                        hierarchy(targets, jdkMethod.getDeclaringClass(),
+                                new AtomicInteger()), policy);
+
+        assertThat(filtered.getPossibleTargets(jdkReference))
+                .containsExactly(jdkMethod);
+        assertThat(filtered.getPossibleTargets(iteratorReference))
+                .containsExactly(jdkIteratorMethod);
+        assertThat(filtered.getPossibleTargets(threadReference))
+                .containsExactly(jdkThreadMethod);
+        assertThat(filtered.getPossibleTargets(customReference))
+                .containsExactly(projectMethod);
+        assertThat(policy.jdkDeclaredDispatchSummary().prunedTargetCount())
+                .isEqualTo(EXPECTED_JDK_PRUNED_TARGETS);
+        assertThat(policy.jdkDeclaredDispatchSummary().examples())
+                .hasSize(EXPECTED_JDK_PRUNED_TARGETS)
+                .allSatisfy(example -> assertThat(example.declaredTarget())
+                        .containsAnyOf("Ljava/lang/Runnable, run()V",
+                                "Ljava/util/Iterator, next()",
+                                "Ljava/lang/Thread, run()V"))
+                .extracting(JdkDeclaredDispatchPruningSummary.TargetExample
+                        ::removedOrigin)
+                .containsExactlyInAnyOrder(
+                        "PROJECT", "PROJECT", "PROJECT", "SYNTHETIC");
+    }
+
+    @Test
+    void disabledPolicyDoesNotApplyJdkDeclaredBoundary() {
+        final TypeReference runnable = TypeReference.findOrCreate(
+                ClassLoaderReference.Primordial, "Ljava/lang/Runnable");
+        final MethodReference reference = MethodReference.findOrCreate(
+                runnable, "run", "()V");
+        final IMethod projectMethod = method(application("project/Runner"),
+                "run", "()V", false);
+        final HierarchyFixture fixture = hierarchy(reference,
+                projectMethod.getDeclaringClass(), linkedSet(projectMethod),
+                new AtomicInteger());
+        final IClassHierarchy filtered =
+                new ChaDispatchFilteringClassHierarchy(
+                        fixture.hierarchy(),
+                        ChaDispatchTargetPolicy.disabled());
+
+        assertThat(filtered.getPossibleTargets(reference))
+                .containsExactly(projectMethod);
     }
 
     @Test
