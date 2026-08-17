@@ -938,7 +938,7 @@ class WalaFixedPointModelsTest {
     }
 
     @Test
-    void chaFiltersObjectDispatchBeforeCreatingUnrelatedTargetNodes()
+    void chaResolvesObjectDeclarationBeforeDispatchFiltering()
             throws Exception {
         final Path externalClasses = compile("ExternalOverrides", """
                 public class ExternalOverrides {
@@ -1038,13 +1038,13 @@ class WalaFixedPointModelsTest {
                         "java/lang/Object", "hashCode")).isTrue();
                 assertThat(hasEdge(session, "ObjectDispatchApp", "execute",
                         "ObjectDispatchApp$ProjectOverride", "toString"))
-                        .isTrue();
+                        .isFalse();
                 assertThat(hasEdge(session, "ObjectDispatchApp", "execute",
-                        "ReactorOverride", "hashCode")).isTrue();
+                        "ReactorOverride", "hashCode")).isFalse();
                 assertThat(hasEdge(session, "ObjectDispatchApp", "execute",
-                        "ExternalOverrides$Changed", "toString")).isTrue();
+                        "ExternalOverrides$Changed", "toString")).isFalse();
                 assertThat(hasEdge(session, "ObjectDispatchApp", "execute",
-                        "ExternalOverrides$Changed", "hashCode")).isTrue();
+                        "ExternalOverrides$Changed", "hashCode")).isFalse();
                 assertThat(hasEdge(session, "ObjectDispatchApp", "execute",
                         "ExternalOverrides$Unrelated", "toString")).isFalse();
                 assertThat(hasEdge(session, "ObjectDispatchApp", "execute",
@@ -1059,12 +1059,7 @@ class WalaFixedPointModelsTest {
                         "ExternalOverrides$Unrelated", "hashCode")).isFalse();
                 assertThat(new ModuleImpactTracer(diagnostics()).trace(
                         unit, session, evidence(unit, session)).getPaths())
-                        .anySatisfy(path -> {
-                            assertThat(path.getRootMethod().owner())
-                                    .isEqualTo("ObjectDispatchApp");
-                            assertThat(path.getRootMethod().name())
-                                    .isEqualTo("execute");
-                        });
+                        .isEmpty();
             }
 
         }

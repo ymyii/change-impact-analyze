@@ -23,6 +23,8 @@ code_refs:
     desc: "CHA ownership、dispatch 与 ancestor retention input"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/strategy/cha/ChaDispatchTargetPolicy.java"
     desc: "CHA JDK声明分派与external target保留规则"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/strategy/cha/ChaDispatchFilteringClassHierarchy.java"
+    desc: "CHA声明类型解析与dispatch target set过滤边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/strategy/cha/JdkDeclaredDispatchPruningSummary.java"
     desc: "JDK dispatch裁剪计数与bounded stable examples"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/strategy/kobj/KObjCallGraphRequest.java"
@@ -100,7 +102,7 @@ Strategy 完成 fixed point 后返回 `CallGraphStrategyResult`。Engine 冻结 
 - 使用 `CHACallGraph`，Context 为 `Everywhere`。
 - `changed-paths` 裁剪无关 external target，不为被裁剪调用生成 dependency boundary limitation。
 - 为 PROJECT、reactor dependency 和 selected external type 传递保留 external ancestor chain；保留 reachable concrete method 的真实 IR。
-- 只在virtual/interface dispatch target set解析时，对Primordial/Extension loader声明的JDK方法只保留JDK-origin concrete target；PROJECT、REACTOR_DEPENDENCY、DEPENDENCY、SYNTHETIC与abstract target删除。JDK concrete target仍作为leaf；JDK interface没有concrete JDK target时不产生调用边。
+- 只在virtual/interface dispatch target set解析时，先通过`IClassHierarchy`解析调用点声明类型，再按resolved Primordial/Extension loader识别JDK方法；未解析声明保持fail-open。JDK声明只保留JDK-origin concrete target，PROJECT、REACTOR_DEPENDENCY、DEPENDENCY、SYNTHETIC与abstract target删除。JDK concrete target仍作为leaf；JDK interface没有concrete JDK target时不产生调用边。
 - JDK规则不影响`invokestatic`、`invokespecial`、constructor、普通method resolution或`k-obj`。它明确接受callback、Service Provider Interface（SPI，服务提供者接口）、lambda、collection implementation与应用`Thread`/`Runnable`链漏报；该预定义范围不改变Module status。
 - 不使用JAR依赖闭包或concrete class可访问性删除dispatch target；二者都会删除合法动态分派。既有external body boundary与ancestor retention继续独立生效。
 - caller-local Class、ServiceLoader 与 MethodHandle 常量无法唯一恢复时输出 typed limitation，不猜测 target。

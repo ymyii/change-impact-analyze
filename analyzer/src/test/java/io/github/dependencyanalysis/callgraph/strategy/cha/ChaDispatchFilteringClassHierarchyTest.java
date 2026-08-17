@@ -212,9 +212,13 @@ class ChaDispatchFilteringClassHierarchyTest {
                 "run", "()V", true);
         final TypeReference iterator = TypeReference.findOrCreate(
                 ClassLoaderReference.Primordial, "Ljava/util/Iterator");
+        final TypeReference applicationIterator = application(
+                "java/util/Iterator");
         final MethodReference iteratorReference =
                 MethodReference.findOrCreate(
-                        iterator, "next", "()Ljava/lang/Object;");
+                        applicationIterator, "next",
+                        "()Ljava/lang/Object;");
+        final IClass resolvedIterator = type(iterator, false);
         final IMethod jdkIteratorMethod = method(
                 TypeReference.findOrCreate(ClassLoaderReference.Primordial,
                         "Ljava/util/ArrayList$Itr"),
@@ -247,7 +251,10 @@ class ChaDispatchFilteringClassHierarchyTest {
                         false, true);
         final IClassHierarchy filtered =
                 new ChaDispatchFilteringClassHierarchy(
-                        hierarchy(targets, jdkMethod.getDeclaringClass(),
+                        hierarchy(targets,
+                                Map.of(applicationIterator,
+                                        resolvedIterator),
+                                jdkMethod.getDeclaringClass(),
                                 new AtomicInteger()), policy);
 
         assertThat(filtered.getPossibleTargets(jdkReference))
@@ -532,11 +539,20 @@ class ChaDispatchFilteringClassHierarchyTest {
             final Map<MethodReference, Set<IMethod>> targets,
             final IClass receiver,
             final AtomicInteger clears) {
+        return hierarchy(targets, Map.of(), receiver, clears);
+    }
+
+    private static IClassHierarchy hierarchy(
+            final Map<MethodReference, Set<IMethod>> targets,
+            final Map<TypeReference, IClass> resolvedTypes,
+            final IClass receiver,
+            final AtomicInteger clears) {
         return proxy(IClassHierarchy.class,
                 (ignored, called, args) -> switch (called.getName()) {
                     case "getPossibleTargets" -> targets.get(args[
                             args.length - 1]);
-                    case "lookupClass" -> receiver;
+                    case "lookupClass" -> resolvedTypes.getOrDefault(
+                            args[0], receiver);
                     case "clearCaches" -> {
                         clears.incrementAndGet();
                         yield null;

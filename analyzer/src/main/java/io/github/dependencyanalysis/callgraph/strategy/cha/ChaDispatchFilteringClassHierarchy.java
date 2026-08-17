@@ -71,15 +71,41 @@ public final class ChaDispatchFilteringClassHierarchy
     private Set<IMethod> filter(
             final MethodReference reference,
             final Set<IMethod> targets) {
-        if (!policy.filtersDispatch(reference)) {
+        final MethodReference policyReference = resolveDeclaration(reference);
+        if (!policy.filtersDispatch(policyReference)) {
             return targets;
         }
         final LinkedHashSet<IMethod> retained = new LinkedHashSet<>();
         targets.stream().filter(target ->
-                        policy.retainsDispatchTarget(reference, target))
+                        policy.retainsDispatchTarget(
+                                policyReference, target))
                 .sorted(METHOD_ORDER)
                 .forEach(retained::add);
         return Collections.unmodifiableSet(retained);
+    }
+
+    /**
+     * Resolves the declared type through parent delegation before policy use.
+     *
+     * <p>Shrike records bytecode references with the caller's loader. An
+     * Application reference to a JDK type therefore becomes Primordial or
+     * Extension only after hierarchy lookup.</p>
+     *
+     * @param reference original call-site declaration
+     * @return resolved declaration, or the original unresolved reference
+     */
+    private MethodReference resolveDeclaration(
+            final MethodReference reference) {
+        final IClass resolved = delegate.lookupClass(
+                reference.getDeclaringClass());
+        if (resolved == null || !resolved.getName().equals(
+                reference.getDeclaringClass().getName())) {
+            return reference;
+        }
+        final TypeReference resolvedType = resolved.getReference();
+        return resolvedType.equals(reference.getDeclaringClass())
+                ? reference : MethodReference.findOrCreate(
+                        resolvedType, reference.getSelector());
     }
 
     @Override
