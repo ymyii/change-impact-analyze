@@ -116,6 +116,23 @@ public final class MavenDependencyPluginRuntimeManager {
             final Path configDir,
             final List<String> arguments,
             final String configuredVersion) {
+        return prepare(configDir, arguments, configuredVersion, null);
+    }
+
+    /**
+     * Prepares plugin repositories while preserving runtime global settings.
+     *
+     * @param configDir complete application config directory
+     * @param arguments validated user Maven arguments
+     * @param configuredVersion optional dependency plugin version override
+     * @param defaultGlobalSettings runtime default global settings, nullable
+     * @return prepared plugin execution contract
+     */
+    public MavenDependencyPluginRuntime prepare(
+            final Path configDir,
+            final List<String> arguments,
+            final String configuredVersion,
+            final Path defaultGlobalSettings) {
         final Path normalizedConfig = configDir
                 .toAbsolutePath().normalize();
         final String override = configuredVersion == null
@@ -136,7 +153,8 @@ public final class MavenDependencyPluginRuntimeManager {
             final List<PreparedRepository> repositories = List.of(
                     dependency, artifactPath);
             final SettingsOverlay overlay = overlayGlobalSettings(
-                    normalizedConfig, repositories, arguments);
+                    normalizedConfig, repositories, arguments,
+                    defaultGlobalSettings);
             final List<Path> cleanup = new ArrayList<>();
             cleanup.add(overlay.settings);
             if (artifactPathArchive.snapshot) {
@@ -314,12 +332,15 @@ public final class MavenDependencyPluginRuntimeManager {
     private SettingsOverlay overlayGlobalSettings(
             final Path configDir,
             final List<PreparedRepository> repositories,
-            final List<String> arguments)
+            final List<String> arguments,
+            final Path defaultGlobalSettings)
             throws IOException, ParserConfigurationException,
             SAXException, TransformerException {
         final GlobalSettingsArguments parsed =
                 GlobalSettingsArguments.parse(arguments);
-        final Document document = settingsDocument(parsed.settings);
+        final Path sourceSettings = parsed.settings == null
+                ? defaultGlobalSettings : parsed.settings;
+        final Document document = settingsDocument(sourceSettings);
         addPluginRepositories(document, repositories);
         final byte[] content = serialize(document);
         final Path settingsDir = configDir.resolve("runtime")

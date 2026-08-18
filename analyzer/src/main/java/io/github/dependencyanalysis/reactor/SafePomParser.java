@@ -1,4 +1,4 @@
-package io.github.dependencyanalysis.tree;
+package io.github.dependencyanalysis.reactor;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -22,7 +22,7 @@ import org.xml.sax.ErrorHandler;
 import org.xml.sax.SAXParseException;
 
 /** Secure minimal Maven POM parser. */
-final class SafePomParser {
+public final class SafePomParser {
 
     /** Explicit active profile ids. */
     private final Set<String> activeProfiles;
@@ -33,17 +33,54 @@ final class SafePomParser {
     /** Maven user properties. */
     private final Map<String, String> properties;
 
+    /** Java version used by the Maven subprocess. */
+    private final String javaVersion;
+
+    /** OS name used by the Maven subprocess. */
+    private final String osName;
+
+    /** OS architecture used by the Maven subprocess. */
+    private final String osArch;
+
+    /** OS version used by the Maven subprocess. */
+    private final String osVersion;
+
     /**
      * Creates parser from Maven argument tokens.
      *
      * @param mavenArguments validated tokens
      */
-    SafePomParser(
+    public SafePomParser(
             final List<String> mavenArguments) {
+        this(resolveContext(mavenArguments));
+    }
+
+    /**
+     * Creates a parser from resolved Maven activation inputs.
+     *
+     * @param context Maven activation inputs
+     */
+    public SafePomParser(final MavenActivationContext context) {
         activeProfiles = new HashSet<>();
+        activeProfiles.addAll(context.getSettingsProfiles());
         inactiveProfiles = new HashSet<>();
         properties = new HashMap<>();
-        parseArguments(mavenArguments);
+        javaVersion = context.getJavaVersion();
+        osName = context.getOsName();
+        osArch = context.getOsArch();
+        osVersion = context.getOsVersion();
+        parseArguments(context.getArguments());
+    }
+
+    private static MavenActivationContext resolveContext(
+            final List<String> arguments) {
+        try {
+            return MavenActivationContext.resolve(arguments,
+                    System.getProperty("java.version", ""));
+        } catch (Exception exception) {
+            throw new IllegalArgumentException(
+                    "Unable to resolve Maven activation context", exception);
+        }
     }
 
     /**
@@ -54,7 +91,7 @@ final class SafePomParser {
      * @return descriptor
      * @throws Exception on malformed or unsafe XML
      */
-    PomDescriptor parse(
+    public PomDescriptor parse(
             final Path repositoryRoot,
             final Path relativePom)
             throws Exception {
@@ -68,6 +105,8 @@ final class SafePomParser {
                 modelProperties(project, projectDir,
                         inheritedProperties(repositoryRoot, pom,
                                 project, new HashSet<>()));
+        final Map<String, String> activationProperties =
+                activationProperties();
         final Element parent = child(
                 project, "parent");
         final String group = firstNonBlank(
@@ -97,23 +136,21 @@ final class SafePomParser {
                 child(project, "profiles"), "profile");
         final boolean hasNonDefault = profiles.stream()
                 .anyMatch(profile -> isNonDefaultActive(
-                        profile, projectDir,
-                        modelProperties));
+                        profile, projectDir, activationProperties));
         for (Element profile : profiles) {
             final List<String> profileModules =
                     modules(child(profile, "modules"),
                             modelProperties);
             all.addAll(profileModules);
             if (isActive(profile, projectDir,
-                    modelProperties, hasNonDefault)) {
+                    activationProperties, hasNonDefault)) {
                 active.addAll(profileModules);
             }
         }
         return new PomDescriptor(relativePom,
                 group + ":" + artifact + ":"
                         + version, packaging,
-                stableDistinct(all),
-                stableDistinct(active), "");
+                stable(all), stable(active), "");
     }
 
     private void parseArguments(
@@ -133,7 +170,7 @@ final class SafePomParser {
                 profileValue = true;
             } else if (argument.startsWith("-P")
                     && argument.length() > 2) {
-                addProfiles(argument.substring(2));
+                addProfiles(optionValue(argument, 2));
             } else if (argument.startsWith(
                     "--activate-profiles=")) {
                 addProfiles(argument.substring(
@@ -143,13 +180,20 @@ final class SafePomParser {
                 propertyValue = true;
             } else if (argument.startsWith("-D")
                     && argument.length() > 2) {
-                addProperty(argument.substring(2));
+                addProperty(optionValue(argument, 2));
             } else if (argument.startsWith(
                     "--define=")) {
                 addProperty(argument.substring(
                         argument.indexOf('=') + 1));
             }
         }
+    }
+
+    private String optionValue(
+            final String argument,
+            final int optionLength) {
+        final String value = argument.substring(optionLength);
+        return value.startsWith("=") ? value.substring(1) : value;
     }
 
     private void addProfiles(final String value) {
@@ -183,14 +227,14 @@ final class SafePomParser {
     private boolean isActive(
             final Element profile,
             final Path projectDir,
-            final Map<String, String> modelProperties,
+            final Map<String, String> activationProperties,
             final boolean hasNonDefault) {
         final String id = text(profile, "id");
         if (inactiveProfiles.contains(id)) {
             return false;
         }
         if (isNonDefaultActive(profile,
-                projectDir, modelProperties)) {
+                projectDir, activationProperties)) {
             return true;
         }
         final Element activation = child(
@@ -204,7 +248,7 @@ final class SafePomParser {
     private boolean isNonDefaultActive(
             final Element profile,
             final Path projectDir,
-            final Map<String, String> modelProperties) {
+            final Map<String, String> activationProperties) {
         final String id = text(profile, "id");
         if (inactiveProfiles.contains(id)) {
             return false;
@@ -223,7 +267,7 @@ final class SafePomParser {
         if (!jdk.isBlank()) {
             present = true;
             matches &= matchesJdk(jdk,
-                    System.getProperty("java.version", ""));
+                    javaVersion);
         }
         final Element os = child(activation, "os");
         if (os != null) {
@@ -235,13 +279,13 @@ final class SafePomParser {
         if (property != null) {
             present = true;
             matches &= matchesProperty(property,
-                    modelProperties);
+                    activationProperties);
         }
         final Element file = child(activation, "file");
         if (file != null) {
             present = true;
             matches &= matchesFile(file, projectDir,
-                    modelProperties);
+                    activationProperties);
         }
         return present && matches;
     }
@@ -271,11 +315,15 @@ final class SafePomParser {
     private boolean matchesFile(
             final Element file,
             final Path projectDir,
-            final Map<String, String> modelProperties) {
+            final Map<String, String> activationProperties) {
+        final Map<String, String> fileProperties =
+                new HashMap<>(activationProperties);
+        fileProperties.put("basedir", projectDir.toString());
+        fileProperties.put("project.basedir", projectDir.toString());
         final String exists = interpolate(
-                text(file, "exists"), modelProperties);
+                text(file, "exists"), fileProperties);
         final String missing = interpolate(
-                text(file, "missing"), modelProperties);
+                text(file, "missing"), fileProperties);
         boolean result = true;
         if (!exists.isBlank()) {
             result = Files.exists(resolveFile(
@@ -298,15 +346,15 @@ final class SafePomParser {
 
     private boolean matchesJdk(
             final String expression,
-            final String javaVersion) {
+            final String runtimeVersion) {
         final String value = expression.trim();
         if (value.startsWith("!")) {
             return !matchesJdk(value.substring(1),
-                    javaVersion);
+                    runtimeVersion);
         }
         if (!value.startsWith("[")
                 && !value.startsWith("(")) {
-            return javaVersion.startsWith(value);
+            return runtimeVersion.startsWith(value);
         }
         final String[] bounds = value.substring(1,
                         value.length() - 1)
@@ -315,10 +363,10 @@ final class SafePomParser {
             return false;
         }
         final int lower = bounds[0].isBlank() ? 1
-                : compareVersions(javaVersion,
+                : compareVersions(runtimeVersion,
                 bounds[0]);
         final int upper = bounds[1].isBlank() ? -1
-                : compareVersions(javaVersion,
+                : compareVersions(runtimeVersion,
                 bounds[1]);
         final boolean lowerMatch = bounds[0].isBlank()
                 || (value.startsWith("[")
@@ -353,12 +401,9 @@ final class SafePomParser {
     }
 
     private boolean matchesOs(final Element os) {
-        final String name = System.getProperty(
-                "os.name", "").toLowerCase(Locale.ROOT);
-        final String arch = System.getProperty(
-                "os.arch", "").toLowerCase(Locale.ROOT);
-        final String version = System.getProperty(
-                "os.version", "").toLowerCase(Locale.ROOT);
+        final String name = osName.toLowerCase(Locale.ROOT);
+        final String arch = osArch.toLowerCase(Locale.ROOT);
+        final String version = osVersion.toLowerCase(Locale.ROOT);
         return matchesOsValue(text(os, "name"), name)
                 && matchesOsValue(text(os, "arch"), arch)
                 && matchesOsVersion(text(os, "version"),
@@ -428,6 +473,9 @@ final class SafePomParser {
         System.getProperties().forEach((key, value) ->
                 result.put(key.toString(),
                         value.toString()));
+        System.getenv().forEach((key, value) ->
+                result.put("env." + key, value));
+        addMavenRuntimeProperties(result);
         result.putAll(inherited);
         result.putAll(pomProperties(project));
         result.put("basedir", projectDir.toString());
@@ -435,6 +483,25 @@ final class SafePomParser {
                 projectDir.toString());
         result.putAll(properties);
         return result;
+    }
+
+    private Map<String, String> activationProperties() {
+        final Map<String, String> result = new HashMap<>();
+        System.getProperties().forEach((key, value) ->
+                result.put(key.toString(), value.toString()));
+        System.getenv().forEach((key, value) ->
+                result.put("env." + key, value));
+        addMavenRuntimeProperties(result);
+        result.putAll(properties);
+        return result;
+    }
+
+    private void addMavenRuntimeProperties(
+            final Map<String, String> target) {
+        target.put("java.version", javaVersion);
+        target.put("os.name", osName);
+        target.put("os.arch", osArch);
+        target.put("os.version", osVersion);
     }
 
     private Map<String, String> inheritedProperties(
@@ -571,10 +638,9 @@ final class SafePomParser {
         return result;
     }
 
-    private List<String> stableDistinct(
+    private List<String> stable(
             final List<String> values) {
-        return values.stream().distinct()
-                .sorted().toList();
+        return values.stream().sorted().toList();
     }
 
     private String firstNonBlank(

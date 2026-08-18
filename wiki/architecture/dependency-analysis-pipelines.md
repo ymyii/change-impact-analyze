@@ -8,6 +8,10 @@ relations:
     desc: "构图后 evidence、QueryNode reverse query 与固定CHA调用边裁剪"
   - path: "wiki/features/dependency-evidence-collection.md"
     desc: "Schema v3 dependency evidence 与 logical artifact binding"
+  - path: "wiki/features/maven-build-runner.md"
+    desc: "共享reactor scope到Maven compile的执行合同"
+  - path: "wiki/features/repository-dependency-tree-report.md"
+    desc: "tree入口scope与报告边界"
   - path: "wiki/features/report-generator.md"
     desc: "冻结结果到 HTML 的消费边界"
   - path: "wiki/rules/package-boundaries.md"
@@ -19,6 +23,12 @@ code_refs:
     desc: "command-level Impact 执行边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
     desc: "pair diff、构图、evidence、query、code comparison和snapshot编排"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/reactor/ReactorInventoryBuilder.java"
+    desc: "tree/impact共享的入口POM与祖先aggregator resolver"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/reactor/MavenActivationContext.java"
+    desc: "与实际Maven执行对齐的profile activation context"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleScopePlanner.java"
+    desc: "共享scope到impact Module模型的适配"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/DependencyArtifactSelection.java"
     desc: "JAR Diff前的changed dependency source边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/BytecodeDiffResult.java"
@@ -45,7 +55,7 @@ code_refs:
 
 Root CLI 分发 `impact` 与 `tree`。`impact` 只编译 target，并为每个 relevant Module 构建一张 selected Call Graph；baseline 提供dependency evidence与old artifact。默认组合为`cha + changed-paths + jdk-model none`，Static Single Assignment（SSA，静态单赋值）与decompiled Java equivalence固定启用；CHA固定执行caller-local `cha-local-receiver-inference` Impact Path裁剪extension。`k-obj`是显式选择的实验性algorithm。
 
-`ImpactCommand`通过`ImpactExecutionEngine`启动默认per-Module实现。scope planning后创建唯一command-wide`common`pool，front preparation、logical JAR pair diff、Impact Query与code comparison顺序复用，并统一受`--analysis-parallelism`限制。Relevant Module仍按stable key串行完成Call Graph、单线程Evidence analysis、Impact Query与report-safe snapshot。`TreeCommand`只承载CLI；`TreeExecutionEngine`为每个Reactor执行单次`compile + dependency tree + classpath evidence` Maven session，再完成Module冲突类扫描、反编译、cache与增量发布。
+`impact`与`tree`先通过中立`reactor` package把一个入口POM解析为`FULL_REACTOR`、`SINGLE_MODULE`或`STANDALONE`。Resolver只读取入口active module graph和文件系统祖先aggregator，不依赖任一命令package，也不执行repository-wide discovery。`ImpactCommand`分别对baseline和target workspace规划scope；`TreeCommand`对current/ref snapshot规划一个scope。后续Call Graph、dependency tree与Report pipeline消费同一边界模型。
 
 ## Key Terms
 
@@ -53,6 +63,7 @@ Root CLI 分发 `impact` 与 `tree`。`impact` 只编译 target，并为每个 r
 - Evidence analysis：Call Graph fixed point完成后的单线程阶段，包含Structural metadata scan、唯一Call Graph node scan与统一binding。
 - Reverse BFS binding：`QueryNode -> ChangePointTerminal`辅助索引；只为Reverse BFS导航，不替代`BoundChangePoint` resolution事实。
 - Finalization：把coverage、query和stage metrics组装成Module结果，并在Report cache前移除live WALA对象。
+- Reactor scope：入口POM、active module closure、execution root、requested Module和scope mode组成的不可变边界。Git root只提供映射与eligibility，不代表分析范围。
 
 ## Architecture Decisions
 
@@ -68,11 +79,18 @@ Evidence阶段不复制node集合、不并发调用`CGNode.getIR()`。并发只�
 
 命令引擎直接连接现有typed领域实现；阶段输入输出使用`ModuleAnalysisUnit`、`ModuleCallGraphSession`、`ChangePointEvidenceIndex`和`ModuleImpactQueryResult`。不允许弱类型artifact map或可改变核心顺序的任意回调。
 
+### tree与impact共享reactor scope resolver
+
+入口aggregator优先限定自身active subtree；leaf只沿祖先链查找owner并选择最外层匹配aggregator；无owner时standalone。该结构决策保证同一`--path`不会因命令不同而产生不同Maven session边界，也禁止通过Git root全仓枚举补偿非祖先aggregator布局。
+
 ## Package Dependency Direction
 
 ```mermaid
 flowchart LR
   CLI["cli / impact command"] --> Impact["impact pipeline + domain"]
+  CLI --> Reactor["reactor scope resolver"]
+  Reactor --> Impact
+  Reactor --> Tree["tree pipeline"]
   Impact --> Engine["callgraph.engine"]
   Engine --> Strategy["callgraph.strategy"]
   Strategy --> CHA["strategy.cha"]
@@ -84,7 +102,7 @@ flowchart LR
   Snapshot --> Report["report"]
 ```
 
-`classpath`是`impact`与`tree`共同依赖的中立层，拥有binary-name ownership、winner precedence与`LOW`/`HIGH`冲突分类。`impact`在JDK 8 scope加入JDK parent precedence；`tree`只使用PROJECT、REACTOR_DEPENDENCY与DEPENDENCY，并按Classpath Evidence中的Maven JVM major解析Multi-Release JAR。
+`reactor`和`classpath`是`impact`与`tree`共同依赖的中立层。前者拥有POM安全解析、profile activation、module graph与aggregator resolution；后者拥有binary-name ownership、winner precedence与`LOW`/`HIGH`冲突分类。
 
 禁止反向边：`callgraph.. -> impact..`、`callgraph.. -> report..`、`report.. -> strategy.cha..|strategy.kobj..`。CHA 与 `k-obj` implementation 不互相引用；公共 protocol 不依赖 strategy 或 engine。
 
@@ -92,7 +110,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-  Scope["repository / Module scope planning"] --> Prepare["baseline dependency + target compile"]
+  Scope["entry POM + active graph + ancestor aggregator"] --> Prepare["baseline dependency + target compile"]
   Prepare --> Evidence["Schema v3 dependency evidence"]
   Evidence --> Diff["complete Maven Dependency Diff"]
   Diff --> Selection["dependency-selection: changed JAR Glob boundary"]
@@ -134,6 +152,9 @@ flowchart TD
 
 - Reactor root：target reactor 执行一次 `mvn compile`；active Module 独立分析。
 - Leaf Module：从所属 reactor root执行 `-pl <path> -am compile`，只报告当前 Module。
+- Nested aggregator入口：只分析该入口管理的active subtree，不扩大到外层reactor。
+- Standalone：入口POM没有active child且不属于任何祖先active closure时，从入口目录直接执行，不附加`-pl/-am`。
+- Baseline和target分别解析scope；`allModules`与reactor coordinates继续用于artifact ownership、`REACTOR_DEPENDENCY` classpath和上游`target/classes`，Module增删保留`BASELINE_ONLY`/`TARGET_ONLY`。
 - 当前 Module classes 为 `PROJECT`；上游 reactor Module 为 `REACTOR_DEPENDENCY`；外部 selected artifact 为 `DEPENDENCY`；target JDK 为 `JDK`。
 - Entrypoint class 只来自当前 Module classes index。Scope、hierarchy、cache 和 Call Graph 均为 per-Module。
 - Requested dependency scope 与 actual scope 分开保存。无法稳定恢复完整 changed path 时，只对当前 Module fallback 到 `full`，并生成 typed warning。
@@ -163,7 +184,7 @@ flowchart TD
 
 ## Failure Boundaries
 
-- Impact全局preparation或publication失败终止command；Module scope、Call Graph、Evidence、Query或finalization失败转换为该Module的typed failure，后续Module继续。
+- 入口POM缺失、active module缺失或越界、cycle、重复/不可解析coordinate和settings parse failure属于全局preparation failure，不回退repository扫描。Call Graph、Evidence、Query或finalization失败转换为该Module的typed failure，后续Module继续。
 - 方法体反编译不可用是候选级fail-open；command-owned cache基础设施或完整性失败是全局fail-fast。
 - `ChangePointEvidenceIndex`在binding与resolution不一致时fail-fast，禁止生成缺少terminal事实的路径。
 - Tree command-level preflight失败不替换旧Report；Reactor collection失败记录issue并继续；renderer/publisher失败由`TreeExecutionEngine`关闭Report session并返回失败状态。

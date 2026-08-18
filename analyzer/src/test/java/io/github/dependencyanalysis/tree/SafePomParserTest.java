@@ -1,5 +1,8 @@
 package io.github.dependencyanalysis.tree;
 
+import io.github.dependencyanalysis.reactor.PomDescriptor;
+import io.github.dependencyanalysis.reactor.SafePomParser;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -86,5 +89,25 @@ class SafePomParserTest {
 
         assertThat(descriptor.getCoordinate())
                 .isEqualTo("test:module:3.1.0-SNAPSHOT");
+    }
+
+    @Test
+    void pomPropertyDoesNotActivatePropertyProfile() throws Exception {
+        Files.writeString(repository.resolve("pom.xml"), """
+                <project><modelVersion>4.0.0</modelVersion>
+                  <groupId>test</groupId><artifactId>root</artifactId>
+                  <version>1</version>
+                  <properties><pom-only>true</pom-only></properties>
+                  <profiles><profile><id>pom-property</id><activation>
+                    <property><name>pom-only</name></property>
+                  </activation><modules><module>unexpected</module></modules>
+                  </profile></profiles>
+                </project>
+                """);
+
+        final PomDescriptor descriptor = new SafePomParser(List.of())
+                .parse(repository, Path.of("pom.xml"));
+
+        assertThat(descriptor.getActiveModules()).isEmpty();
     }
 }

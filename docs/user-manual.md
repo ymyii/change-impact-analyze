@@ -3,7 +3,7 @@
 Dependency Analyzer 是面向 Maven 项目的 Java 命令行工具，提供两个相互独立的任务：
 
 - `impact`：比较依赖升级前后的 resolved dependency 和 bytecode，分析可能受影响的业务调用路径，生成离线 HTML 报告。
-- `tree`：扫描 Git repository 中的 Maven reactor，生成 repository 级离线 dependency tree 与版本冲突报告。
+- `tree`：从一个入口POM解析active Maven reactor scope，生成离线dependency tree与版本冲突报告。
 
 本手册从“已经获得可运行的 `dependency-analyzer.jar`”开始。所有示例使用
 `/path/to/dependency-analyzer.jar` 表示该 JAR 的实际绝对路径。
@@ -27,7 +27,7 @@ Dependency Analyzer 是面向 Maven 项目的 Java 命令行工具，提供两�
 | 目标 | 使用命令 | 必要输入 | 主要输出 |
 |---|---|---|---|
 | 判断一次依赖升级可能影响哪些业务入口和调用路径 | `impact` | Maven project、baseline local Git ref、完整 JDK 8 | Overall Index、Module Index、Affected Paths |
-| 查看 repository 或指定范围的 resolved dependency tree 与版本冲突 | `tree` | Git repository 内的 Maven project | Repository Index、Reactor page |
+| 查看一个Maven project scope的resolved dependency tree与版本冲突 | `tree` | Git repository内且直接包含POM的Maven project | Repository Index、Reactor page |
 
 两条命令可以独立使用：
 
@@ -42,7 +42,7 @@ Dependency Analyzer 是面向 Maven 项目的 Java 命令行工具，提供两�
 
 - Analyzer JAR 使用 Java 17 runtime 启动。
 - `git` command 可运行。
-- 分析路径位于 Git repository 内。
+- 分析路径位于Git repository内，并直接包含readable`pom.xml`；只包含若干子项目的容器目录不是有效入口。
 - 目标 Maven project 所需的 repository、mirror、proxy、credential 和 local repository 已通过 Maven settings 配置。
 - 输出位置可写。
 
@@ -178,14 +178,14 @@ Affected Paths 为空不等于已经证明没有业务影响。还应检查 Modu
 
 ## 4. 快速开始：tree
 
-本教程分析 current checkout 的完整 Git repository 范围。
+本教程从current checkout当前目录的入口POM解析一个Maven scope。
 
 ### 4.1 准备输入
 
 确认：
 
-1. 当前目录或 `--path` 位于 Git repository 内。
-2. 范围内至少存在一个可分析的 `pom.xml`。
+1. 当前目录或`--path`位于Git repository内。
+2. 该目录直接包含readable`pom.xml`。
 3. Maven 能够解析 project dependency。
 4. output directory 可创建或可写。
 
@@ -201,7 +201,7 @@ java -jar /path/to/dependency-analyzer.jar tree \
 
 | Exit code | 含义 |
 |---:|---|
-| `0` | 全部 Reactor 成功，报告状态为 `SUCCESS`。 |
+| `0` | 入口scope成功，报告状态为`SUCCESS`。 |
 | `1` | 参数或 command-level Preflight 失败；旧报告不被替换。 |
 | `2` | 报告为 `COMPLETED_WITH_ISSUES` 或 `FAILED`。 |
 
@@ -369,6 +369,8 @@ java -jar /path/to/dependency-analyzer.jar \
 
 `-s`、`--settings`、`-gs`、`--global-settings` 后的相对 path 以 target Git repository root 解析。
 
+同一组token同时传给scope resolver和Maven subprocess。除显式`-P`与`-D`外，resolver还遵循`activeByDefault`、实际Maven JVM的JDK/OS、POM-relative file activation，以及user/global settings中的active profile；inactive profile module不参与ownership。
+
 ## 6. tree 操作指南
 
 ### 6.1 分析指定 local ref
@@ -380,9 +382,9 @@ java -jar /path/to/dependency-analyzer.jar tree \
   --output build/release-dependencies
 ```
 
-`--ref` 省略时分析 current checkout；提供时创建 local ref 的 detached snapshot，不执行 fetch。
+`--ref`省略时分析current checkout；提供时创建local ref的detached snapshot，不执行fetch。同一Git-relative path必须在目标ref中存在directory和readable`pom.xml`。
 
-### 6.2 分析 repository 中的指定范围
+### 6.2 分析指定Maven project scope
 
 ```sh
 java -jar /path/to/dependency-analyzer.jar tree \
@@ -392,11 +394,12 @@ java -jar /path/to/dependency-analyzer.jar tree \
 
 范围规则：
 
-- path 命中 reactor root 时，分析完整 active reactor。
-- path 只命中 child Module 时，分析 requested Module 及其同 reactor dependency closure。
-- 独立 reactor 不跨 reactor 追踪，仍作为普通 resolved artifact。
-- Git ignored path 和 Git submodule 不扫描。
-- pure aggregator POM 参与 Maven execution context，但不生成 Module result。
+- path的入口POM存在active module时，入口就是aggregator；递归分析其active module subtree，不向外层reactor扩大。
+- path是leaf Module时，只检查从入口父目录到Git root的祖先`pom.xml`。若多个祖先active module closure包含入口，选择最外层匹配aggregator，并执行`-pl <aggregator-relative-path> -am`。
+- leaf的Maven session包含`-am`上游依赖，但Report只有入口Module；上游仍可作为`REACTOR_DEPENDENCY`进入classpath。
+- 没有匹配祖先时按`STANDALONE`执行当前POM，不附加`-pl/-am`。非祖先aggregator不会被自动发现；相关依赖可能转为Maven repository解析，或因artifact不可用而失败。
+- Git root下其他POM不会被枚举。Ignored POM、Git submodule内POM、symlink逃逸和Git root外module被拒绝。
+- `packaging=pom`且存在active child的pure aggregator只作为execution context，不生成Module tab；单POM project和非`pom` aggregator仍生成Module结果。
 
 ### 6.3 激活 profile 并限制 scope
 
@@ -455,7 +458,7 @@ dependency-analyzer impact \
 
 | Short | Long | Required | Default | Repeatable | 说明 |
 |---:|---|:---:|---|:---:|---|
-| `-p` | `--path <dir>` | No | current directory | No | Git repository 内的 Maven project/分析目录。 |
+| `-p` | `--path <dir>` | No | current directory | No | Git repository内、直接包含readable POM的Maven project目录。 |
 | `-b` | `--baseline <local-ref>` | Yes | — | No | 比较起点 local Git ref。 |
 | `-t` | `--target <local-ref>` | No | current checkout | No | 比较终点 local Git ref。 |
 | `-o` | `--output <file>` | Yes | — | No | Overall HTML Index；parent 必须存在且可写。 |
@@ -486,8 +489,8 @@ dependency-analyzer tree \
 
 | Short | Long | Required | Default | Repeatable | 说明 |
 |---:|---|:---:|---|:---:|---|
-| `-p` | `--path <dir>` | No | current directory | No | Git repository 与报告分析范围。 |
-| `-r` | `--ref <local-ref>` | No | current checkout | No | 单个 tree snapshot 的 local Git ref。 |
+| `-p` | `--path <dir>` | No | current directory | No | Git repository内、直接包含readable POM的Maven project目录。 |
+| `-r` | `--ref <local-ref>` | No | current checkout | No | 单个tree snapshot的local Git ref；同一relative path必须含POM。 |
 | `-o` | `--output <dir>` | Yes | — | No | Offline HTML report directory。 |
 | `-s` | `--scopes <csv>` | No | `compile,runtime,provided,test,system` | No | 纳入dependency tree、版本冲突和external/Reactor dependency冲突类扫描的scope。 |
 | `-d` | `--dependency-plugin-version <version>` | No | 内嵌 `3.6.1` | No | Maven Dependency Plugin 高级 override。 |
@@ -683,14 +686,14 @@ Repository Index 展示：
 
 Reactor page 展示：
 
-- Reactor 与 Module metadata。
+- Reactor与Module metadata；Analysis mode明确为`FULL_REACTOR`、`SINGLE_MODULE`或`STANDALONE`。
 - Reactor/Module issue。
 - Reactor-level Cross-module conflicts。
 - 每个Module的冲突类表：Class、Risk、Winner、Shadowed sources、Selection、Decompiled code。
 - 每个 Module 的 Internal conflicts。
 - Maven-style verbose dependency tree。
 
-冲突类表支持大小写不敏感检索、`LOW`/`HIGH` Risk filter、Class/Risk/Winner排序和10/50/100分页。默认`HIGH`优先，再按binary name。点击“查看反编译代码”后默认展示winner，可切换shadowed source；同一时间最多展开一行。检索、filter、sort、分页或Module tab变化会关闭并释放当前源码。Shard缺失或损坏时显示文件名与Retry；反编译本身失败时显示`Unavailable`，finding仍保留。
+冲突类表支持大小写不敏感检索、`LOW`/`HIGH` Risk filter、Class/Risk/Winner排序和10/50/100分页。点击“查看反编译代码”后Winner按钮默认active；切换Shadowed source后只有新按钮保持active，源码同步更新。Active状态使用持久`aria-pressed=true`样式，并保留键盘focus。Shard schema保持v1；同一时间最多展开一行。
 
 报告完全离线，可直接通过`file://`打开；源码只通过文本节点渲染，不作为HTML执行。
 
@@ -700,14 +703,13 @@ Command-level Preflight 失败返回 exit code `1`，不清理或覆盖旧报告
 
 1. 只替换 output 中由工具拥有的 `index.html` 和
    `dependency-report/`。
-2. 发布 `RUNNING 0/N` Index。
-3. 每个 Reactor 完成后先发布 Reactor page，再刷新
-   `RUNNING x/N` Index。
-4. 全部成功时写 `SUCCESS N/N`。
+2. 发布`RUNNING 0/1` Index。
+3. 入口scope完成后先发布Reactor page，再刷新终态Index。
+4. 成功时写`SUCCESS 1/1`。
 5. 存在已处理 issue 时写 `COMPLETED_WITH_ISSUES`。
-6. pipeline/report failure 写 `FAILED x/N`，保留已经完整发布的 page。
+6. pipeline/report failure写`FAILED`，保留已经完整发布的page。
 
-硬中断后，最后一次成功 checkpoint 可能保持 `RUNNING x/N`，已发布 page 仍可打开。
+硬中断后，最后一次成功checkpoint仍可能保留，已完整发布page可继续打开。
 
 Reactor status：
 
@@ -883,8 +885,7 @@ Command-generated workspace、temporary evidence 和 settings overlay 位于 con
 - 检查：Console Maven output；用户 settings 中的 repository、mirror、proxy、credential 和 local repository。
 - 处理：修正 Maven settings 或缓存所需 artifact；必要时使用
   `-v` 查看完整 Maven subprocess output。
-- 影响：`impact` 可能无法形成 Module evidence；`tree` 对应 Reactor 为
-  `FAILED` 或 `DEGRADED`。
+- 影响：`impact`可能无法形成Module evidence；`tree`对应Reactor为`FAILED`或`DEGRADED`。若入口按`STANDALONE`执行，原本由非祖先aggregator提供的sibling artifact不会自动进入Maven session。
 
 ### 10.5 Call Graph 长时间运行
 
@@ -923,8 +924,8 @@ Command-generated workspace、temporary evidence 和 settings overlay 位于 con
 
 - 现象：tree Index 中 Reactor 为 `FAILED`。
 - 检查：Repository Index 和 Reactor page 的问题表，以及 Console Analysis diagnostics。
-- 处理：修复 malformed POM、缺失 active Module POM、repository 外 module path、Plugin goal resolution 或 Maven Module failure。
-- 影响：其他 Reactor 继续；最终 exit code 为 `2`，已发布 page 保留。
+- 处理：修复malformed POM、缺失active Module POM、repository外module path、active graph cycle、重复/不可解析coordinate、Plugin goal resolution或Maven Module failure。
+- 影响：当前入口scope失败；最终exit code为`2`，已发布page保留。Scope preparation failure在Preflight阶段返回`1`，旧Report不被替换。
 
 ### 10.10 Reactor 为 DEGRADED 且 classpath incomplete
 

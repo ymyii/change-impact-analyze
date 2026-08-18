@@ -27,6 +27,8 @@ code_refs:
     desc: "两个 repository ZIP、独立 cache 与 settings overlay"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/MavenDependencyPluginRuntime.java"
     desc: "Plugin goals、repository list 与 command-scoped cleanup"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/reactor/MavenActivationContext.java"
+    desc: "实际Maven JVM与settings profile activation context"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/Jdk8RuntimeProvider.java"
     desc: "impact target JDK 8 provider"
   - path: "plugins/artifact-path-resolver/pom.xml"
@@ -55,7 +57,7 @@ Maven Runtime为`impact`和`tree`提供`3.6.3 <= Maven version < 4.0.0` executab
 - 两个 Plugin repository 保持独立，Dependency Evidence Plugin Snapshot 刷新不会重复解压约 16 MB 的 Maven Dependency Plugin repository。
 - Stable repository 由 completion marker 和必要 JAR/POM 判定可复用；Snapshot repository 每次 command 解压到独立 leaf，避免并发 command 相互覆盖，并在 runtime close 时清理。
 - 解压使用 file lock、staging、Zip Slip 防护和 atomic publish；cleanup 只作用于工具拥有的 leaf。
-- Global settings overlay 仅在 command 存续期间存在，一个 active profile 注册两个 file `pluginRepository`，并将两个 repository ID 从 wildcard mirror 排除。
+- Global settings overlay仅在command存续期间存在；它以显式`-gs`或configured Maven runtime默认`conf/settings.xml`为基底，一个active profile注册两个file `pluginRepository`，并将两个repository ID从wildcard mirror排除。
 - Dependency Evidence Plugin repository ZIP 只包含 Maven layout 下的 JAR 与 consumer POM；JAR class major `<=52`，Jackson Core relocate 到 Plugin private package。Consumer POM 引入 `maven-dependency-tree:3.2.1`，并排除 Maven 已导出的 Resolver API。
 
 ## Actors / Entrypoints
@@ -72,7 +74,8 @@ Maven Runtime为`impact`和`tree`提供`3.6.3 <= Maven version < 4.0.0` executab
 - Stable Plugin repository 位于 `runtime/plugin-repositories/<component>/<version>/content`；Snapshot 位于 `.../<version>/runs/<uuid>`。
 - Plugin runtime 按顺序暴露 Dependency Plugin repository 与 Dependency Evidence Plugin repository；fully-qualified goals 使用 build metadata 中的 Plugin version。
 - Dependency Evidence Plugin 为 Snapshot 时，settings 启用 Snapshot、`updatePolicy=always` 并追加 `-U`；Stable 时只启用 release。
-- 用户 `-gs` 内容被合并；独立 `-s`、mirror、proxy、server、local repository 和普通 Maven arguments 保留。Settings 内容不输出到 Console。
+- 用户`-gs`内容或Maven runtime默认global settings被合并；独立`-s`、mirror、proxy、server、local repository和普通Maven arguments保留。Settings内容不输出到Console。
+- Reactor scope activation读取同一组`-P`、`-D`、user/global settings active profile，并使用实际`mvn --version`报告的Java version、OS name/version/arch。`activeByDefault`、JDK、OS、property和POM-relative file activation均在调用Maven前确定active module graph。
 - Preflight evidence 只报告 Dependency Plugin version、Dependency Evidence Plugin version 与 repository 数量；Mojo evidence 报告 `implementation=dependency-evidence-v3`、version 和 command cache output path。
 - `--java-home` 设置 Maven subprocess `JAVA_HOME`；`impact` 只接受完整 JDK 8，`tree` 只要求该 JDK 与 Maven/project 兼容。
 
@@ -81,7 +84,7 @@ Maven Runtime为`impact`和`tree`提供`3.6.3 <= Maven version < 4.0.0` executab
 1. 选择用户 Maven executable，或准备 versioned Apache Maven distribution cache。
 2. 分别准备 Maven Dependency Plugin repository ZIP 与 Dependency Evidence Plugin repository ZIP。
 3. 检查 marker 与必要文件；需要重建时在 staging 解压并 atomic publish。
-4. 合并用户 global settings，注册两个 file `pluginRepository`，必要时启用 Snapshot refresh。
+4. 合并显式或runtime默认global settings，注册两个file `pluginRepository`，必要时启用Snapshot refresh。
 5. `tree` 执行 `dependency:tree`；`impact` 执行 `collect-dependency-evidence`。
 6. Command 结束时清理 temporary settings 与 Snapshot repository leaf；Stable cache 保留复用。
 
@@ -96,6 +99,7 @@ Maven Runtime为`impact`和`tree`提供`3.6.3 <= Maven version < 4.0.0` executab
 - Given Dependency Evidence Plugin 使用 Snapshot；When 连续 preparation；Then Dependency Plugin cache path 保持不变，Evidence Plugin 使用新 leaf 并传入 `-U`。
 - Given并发 preparation；When四个 command 同时准备；Then Stable cache 唯一完整，Snapshot leaf 彼此独立。
 - Given command 关闭；When runtime cleanup；Then temporary settings 和 Snapshot leaf 删除，Stable cache 保留。
+- Given Maven runtime global settings含active profile；When scope resolution与Plugin execution；Then两者观察到同一active profile，overlay不丢失原配置。
 - Given `os.name` 为 Windows；When 选择内嵌 launcher；Then 返回 `mvn.cmd`；Linux/macOS 返回 `mvn`。
 
 ### Non-Functional

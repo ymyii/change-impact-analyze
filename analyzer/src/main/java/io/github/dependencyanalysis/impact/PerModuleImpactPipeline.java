@@ -51,6 +51,7 @@ import io.github.dependencyanalysis.metrics.ManagedExecutorRegistry
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 import io.github.dependencyanalysis.runtime.MavenDependencyPluginRuntime;
 import io.github.dependencyanalysis.runtime.MavenRuntimeDescriptor;
+import io.github.dependencyanalysis.reactor.MavenActivationContext;
 import io.github.dependencyanalysis.runtime.ReportCache;
 import io.github.dependencyanalysis.workspace.WorkspaceResult;
 
@@ -103,6 +104,9 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
 
     /** Target JDK. */
     private final JavaRuntimeDescriptor javaRuntime;
+
+    /** Maven activation inputs captured from the actual runtime probe. */
+    private final MavenActivationContext mavenActivation;
 
     /** Module Call Graph timeout. */
     private final long callGraphTimeoutSeconds;
@@ -173,6 +177,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                 dependencyPlugin, "dependencyPlugin");
         mavenArguments = List.copyOf(arguments);
         javaRuntime = Objects.requireNonNull(targetJava, "javaRuntime");
+        mavenActivation = Objects.requireNonNull(
+                options.mavenActivation(), "mavenActivation");
         callGraphTimeoutSeconds = options.callGraphTimeoutSeconds();
         analysisParallelism = options.analysisParallelism();
         temporaryDirectory = options.temporaryDirectory();
@@ -210,9 +216,11 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
         final long planningStart = System.currentTimeMillis();
         final ModuleScopePlanner planner = new ModuleScopePlanner();
         final ReactorAnalysisScope baselineScope = planner.plan(
-                workspace.getBaseline().getPath(), mavenArguments);
+                workspace.getBaseline().getPath(), mavenActivation);
         final ReactorAnalysisScope targetScope = planner.plan(
-                workspace.getTarget().getPath(), mavenArguments);
+                workspace.getTarget().getPath(), mavenActivation);
+        logScope("baseline", baselineScope);
+        logScope("target", targetScope);
         elapsed.put("scope-planning",
                 System.currentTimeMillis() - planningStart);
         if (targetScope.getMode() != baselineScope.getMode()) {
@@ -231,6 +239,23 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                 throw failure;
             }
         }
+    }
+
+    private void logScope(
+            final String side,
+            final ReactorAnalysisScope scope) {
+        final boolean standalone = scope.getMode()
+                == AnalysisMode.SINGLE_MODULE
+                && scope.getProjectArguments().isEmpty();
+        diagnostics.info(DiagnosticContext.of(
+                        "pipeline", "reactor-scope").withSide(side),
+                "mode=" + (standalone ? "STANDALONE" : scope.getMode())
+                        + "; root=" + scope.getReactorRoot()
+                        + "; reportModules=" + scope.getModules().size()
+                        + (standalone
+                        ? "; reason=no active ancestor aggregator owns "
+                                + "entry POM"
+                        : ""));
     }
 
     private AnalysisRunResult runWithCommonPool(

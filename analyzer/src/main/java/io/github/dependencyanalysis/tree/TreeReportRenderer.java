@@ -79,6 +79,10 @@ public final class TreeReportRenderer {
             border:1px solid var(--line);padding:12px;background:#fff;
             font:13px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}
             .source-switches{display:flex;gap:6px;flex-wrap:wrap}
+            .source-switches button[aria-pressed=true]{background:#175cd3;
+            border-color:#175cd3;color:#fff;font-weight:700}
+            .source-switches button:focus-visible{outline:3px solid #84adff;
+            outline-offset:2px}
             a{color:#175cd3}
             """;
 
@@ -96,13 +100,15 @@ public final class TreeReportRenderer {
             button.textContent='Retry';button.onclick=retry;panel.append(text,button);};
             const showCandidate=(panel,data,index)=>{panel.textContent='';const nav=
             document.createElement('div');nav.className='source-switches';const pre=
-            document.createElement('pre');data.candidates.forEach((candidate,i)=>{
+            document.createElement('pre');const buttons=[];const select=selected=>{
+            buttons.forEach((button,i)=>button.setAttribute('aria-pressed',String(
+            i===selected)));const candidate=data.candidates[selected];pre.textContent=
+            candidate.available?candidate.sourceCode:'Unavailable';};data.candidates
+            .forEach((candidate,i)=>{
             const button=document.createElement('button');button.type='button';
             button.textContent=(candidate.winner?'Winner — ':'Shadowed — ')+
-            candidate.source;button.setAttribute('aria-pressed',String(i===index));
-            button.onclick=()=>showCandidate(panel,data,i);nav.append(button);});
-            const selected=data.candidates[index];pre.textContent=selected.available?
-            selected.sourceCode:'Unavailable';panel.append(nav,pre);};
+            candidate.source;button.onclick=()=>select(i);buttons.push(button);
+            nav.append(button);});panel.append(nav,pre);select(index);};
             const openCode=row=>{closeCode();const button=row.querySelector(
             '[data-view-class-code]');const detail=document.createElement('tr');
             detail.className='class-code-row';const cell=document.createElement('td');
@@ -566,8 +572,7 @@ public final class TreeReportRenderer {
                 .append(escape(reactor.getReactor()
                         .getRootPom().toString()))
                 .append("</code></td><td>")
-                .append(reactor.getReactor().isRootSelected()
-                        ? "FULL_REACTOR" : "BOUNDED_MODULE")
+                .append(reactor.getReactor().getScopeMode())
                 .append("</td><td class=\"")
                 .append(reactor.getStatus()).append("\">")
                 .append(reactor.getStatus()).append("</td><td>")

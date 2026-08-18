@@ -25,6 +25,7 @@ import io.github.dependencyanalysis.preflight
         .PreflightContext;
 import io.github.dependencyanalysis.preflight
         .PreflightReport;
+import io.github.dependencyanalysis.reactor.MavenActivationContext;
 import io.github.dependencyanalysis.report
         .PerModuleHtmlReportGenerator;
 import io.github.dependencyanalysis.runtime
@@ -366,6 +367,8 @@ public final class ImpactCommand
                     reflectionOptions,
                     dependencyAnalysisScope, jdkModel,
                     selections.dependencies(),
+                    context.get(ImpactPreflightService.MAVEN_ACTIVATION,
+                            MavenActivationContext.class),
                     metrics.executors(), reportCache));
             result = engine.run(context.get(
                     ImpactPreflightService.WORKSPACE, WorkspaceResult.class));

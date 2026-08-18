@@ -26,6 +26,7 @@ import io.github.dependencyanalysis.preflight
         .PreflightScope;
 import io.github.dependencyanalysis.preflight
         .SimplePreflightCheck;
+import io.github.dependencyanalysis.reactor.MavenActivationContext;
 import io.github.dependencyanalysis.runtime
         .CommandRunDirectory;
 import io.github.dependencyanalysis.runtime
@@ -80,6 +81,14 @@ final class ImpactPreflightService {
     /** Prepared Maven runtime key. */
     static final String MAVEN_RUNTIME =
             "impact.maven-runtime";
+
+    /** Maven version probe output key. */
+    static final String MAVEN_VERSION_OUTPUT =
+            "impact.maven-version-output";
+
+    /** Maven profile activation inputs key. */
+    static final String MAVEN_ACTIVATION =
+            "impact.maven-activation";
 
     /** Prepared embedded Maven Dependency Plugin runtime key. */
     static final String DEPENDENCY_PLUGIN_RUNTIME =
@@ -242,6 +251,10 @@ final class ImpactPreflightService {
         checks.add(required("impact.maven-version",
                 List.of("impact.maven-runtime"),
                 context -> probeVersion(context)));
+        checks.add(required("impact.reactor-activation",
+                List.of("impact.maven-version",
+                        "impact.maven-arguments"),
+                context -> prepareActivation(context)));
         checks.add(required("impact.dependency-plugin-runtime",
                 List.of("impact.maven-version",
                         "impact.maven-arguments"),
@@ -365,10 +378,31 @@ final class ImpactPreflightService {
                     "");
         }
         context.put(MAVEN_RUNTIME,
-                runtime.withVersion(version));
+                runtime.withProbe(version, result.getCombinedOutput()));
+        context.put(MAVEN_VERSION_OUTPUT,
+                result.getCombinedOutput());
         return PreflightOutcome.pass(
                 "Maven version is supported",
                 MavenRuntimeEvidence.version(version));
+    }
+
+    private PreflightOutcome prepareActivation(
+            final PreflightContext context) throws Exception {
+        final MavenRuntimeDescriptor runtime = context.get(
+                MAVEN_RUNTIME, MavenRuntimeDescriptor.class);
+        final MavenActivationContext activation =
+                MavenActivationContext.resolveFromMavenOutput(
+                        context.get(MAVEN_ARGS, List.class),
+                        context.get(MAVEN_VERSION_OUTPUT, String.class),
+                        runtime.getExecutable(),
+                        runtime.getDefaultGlobalSettings());
+        context.put(MAVEN_ACTIVATION, activation);
+        return PreflightOutcome.pass(
+                "Maven profile activation inputs resolved",
+                "java=" + activation.getJavaVersion()
+                        + "; os=" + activation.getOsName()
+                        + "; settingsProfiles="
+                        + activation.getSettingsProfiles().size());
     }
 
     private PreflightOutcome prepareDependencyPlugin(
@@ -379,7 +413,7 @@ final class ImpactPreflightService {
                 new MavenDependencyPluginRuntimeManager().prepare(
                         runtime.getConfigDir(),
                         context.get(MAVEN_ARGS, List.class),
-                        null));
+                        null, runtime.getDefaultGlobalSettings()));
         context.put(DEPENDENCY_PLUGIN_RUNTIME, plugin);
         return PreflightOutcome.pass(
                 "Maven Dependency Plugin runtime prepared",

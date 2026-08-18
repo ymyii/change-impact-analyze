@@ -1,5 +1,7 @@
 package io.github.dependencyanalysis.tree;
 
+import io.github.dependencyanalysis.reactor.ReactorDescriptor;
+
 import io.github.dependencyanalysis.preflight
         .PreflightReport;
 import io.github.dependencyanalysis.runtime

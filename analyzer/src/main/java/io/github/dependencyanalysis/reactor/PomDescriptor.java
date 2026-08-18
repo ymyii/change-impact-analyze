@@ -1,10 +1,10 @@
-package io.github.dependencyanalysis.tree;
+package io.github.dependencyanalysis.reactor;
 
 import java.nio.file.Path;
 import java.util.List;
 
 /** Minimal safe POM model for reactor discovery. */
-final class PomDescriptor {
+public final class PomDescriptor {
 
     /** Repository-relative POM path. */
     private final Path path;
@@ -34,7 +34,7 @@ final class PomDescriptor {
      * @param enabledModules active modules
      * @param parseFailure isolated parse failure
      */
-    PomDescriptor(
+    public PomDescriptor(
             final Path pomPath,
             final String projectCoordinate,
             final String projectPackaging,
@@ -50,32 +50,32 @@ final class PomDescriptor {
     }
 
     /** @return repository-relative POM path */
-    Path getPath() {
+    public Path getPath() {
         return path;
     }
 
     /** @return project coordinate */
-    String getCoordinate() {
+    public String getCoordinate() {
         return coordinate;
     }
 
     /** @return Maven packaging */
-    String getPackaging() {
+    public String getPackaging() {
         return packaging;
     }
 
     /** @return all module declarations */
-    List<String> getDeclaredModules() {
+    public List<String> getDeclaredModules() {
         return declaredModules;
     }
 
     /** @return active module declarations */
-    List<String> getActiveModules() {
+    public List<String> getActiveModules() {
         return activeModules;
     }
 
     /** @return isolated parse failure */
-    String getFailure() {
+    public String getFailure() {
         return failure;
     }
 }

@@ -4,6 +4,7 @@ import io.github.dependencyanalysis.bytecode.DecompiledMethod;
 import io.github.dependencyanalysis.classpath.ClassConflictRisk;
 import io.github.dependencyanalysis.classpath.CodeOrigin;
 import io.github.dependencyanalysis.preflight.PreflightReport;
+import io.github.dependencyanalysis.reactor.ReactorDescriptor;
 import io.github.dependencyanalysis.runtime.MavenRuntimeDescriptor;
 import io.github.dependencyanalysis.runtime.MavenRuntimeSource;
 import io.github.dependencyanalysis.runtime.MavenVersion;

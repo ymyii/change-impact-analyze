@@ -1,4 +1,4 @@
-package io.github.dependencyanalysis.tree;
+package io.github.dependencyanalysis.reactor;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -19,8 +19,8 @@ public final class ReactorDescriptor {
     /** Active POM paths directly requested by the user path. */
     private final List<Path> requestedPoms;
 
-    /** Whether the user path directly selected the reactor root. */
-    private final boolean rootSelected;
+    /** Resolved command scope mode. */
+    private final ReactorScopeMode scopeMode;
 
     /** Discovery violations. */
     private final List<String> violations;
@@ -33,13 +33,13 @@ public final class ReactorDescriptor {
      * @param poms active POMs
      * @param problems boundary or model problems
      */
-    ReactorDescriptor(
+    public ReactorDescriptor(
             final Path pom,
             final String projectCoordinate,
             final List<Path> poms,
             final List<String> problems) {
         this(pom, projectCoordinate, poms, poms,
-                problems);
+                ReactorScopeMode.FULL_REACTOR, problems);
     }
 
     /**
@@ -51,17 +51,41 @@ public final class ReactorDescriptor {
      * @param selectedPoms active POMs directly requested by user path
      * @param problems boundary or model problems
      */
-    ReactorDescriptor(
+    public ReactorDescriptor(
             final Path pom,
             final String projectCoordinate,
             final List<Path> poms,
             final List<Path> selectedPoms,
             final List<String> problems) {
+        this(pom, projectCoordinate, poms, selectedPoms,
+                selectedPoms.contains(pom)
+                        ? ReactorScopeMode.FULL_REACTOR
+                        : ReactorScopeMode.SINGLE_MODULE,
+                problems);
+    }
+
+    /**
+     * Creates a descriptor with an explicit scope mode.
+     *
+     * @param pom root POM
+     * @param projectCoordinate root coordinate
+     * @param poms complete active reactor POMs
+     * @param selectedPoms directly requested POMs
+     * @param mode resolved scope mode
+     * @param problems discovery violations
+     */
+    public ReactorDescriptor(
+            final Path pom,
+            final String projectCoordinate,
+            final List<Path> poms,
+            final List<Path> selectedPoms,
+            final ReactorScopeMode mode,
+            final List<String> problems) {
         rootPom = pom;
         coordinate = projectCoordinate;
         activePoms = List.copyOf(poms);
         requestedPoms = List.copyOf(selectedPoms);
-        rootSelected = requestedPoms.contains(rootPom);
+        scopeMode = mode;
         violations = List.copyOf(problems);
     }
 
@@ -85,9 +109,14 @@ public final class ReactorDescriptor {
         return requestedPoms;
     }
 
-    /** @return whether the user path directly selected the reactor root */
-    public boolean isRootSelected() {
-        return rootSelected;
+    /** @return resolved scope mode */
+    public ReactorScopeMode getScopeMode() {
+        return scopeMode;
+    }
+
+    /** @return whether Maven needs {@code -pl/-am} */
+    public boolean requiresProjectSelection() {
+        return scopeMode == ReactorScopeMode.SINGLE_MODULE;
     }
 
     /** @return discovery violations */

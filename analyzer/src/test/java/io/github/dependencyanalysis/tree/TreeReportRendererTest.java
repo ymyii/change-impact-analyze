@@ -1,5 +1,8 @@
 package io.github.dependencyanalysis.tree;
 
+import io.github.dependencyanalysis.reactor.ReactorDescriptor;
+import io.github.dependencyanalysis.reactor.ReactorScopeMode;
+
 import io.github.dependencyanalysis.bytecode.DecompiledMethod;
 import io.github.dependencyanalysis.classpath.ClassConflictRisk;
 import io.github.dependencyanalysis.classpath.CodeOrigin;
@@ -45,6 +48,27 @@ class TreeReportRendererTest {
     /** Temporary output parent. */
     @TempDir
     private Path temporary;
+
+    @Test
+    void rendersAllReactorScopeModesExactly() throws Exception {
+        for (ReactorScopeMode mode : ReactorScopeMode.values()) {
+            final Path pom = Path.of(mode.name().toLowerCase(), "pom.xml");
+            final ReactorDescriptor descriptor = new ReactorDescriptor(
+                    pom, "g:" + mode.name().toLowerCase() + ":1",
+                    List.of(pom), List.of(pom), mode, List.of());
+            final ReactorTreeResult reactor = new ReactorTreeResult(
+                    descriptor, List.of(module("g:app:1", List.of(), "")),
+                    ReactorStatus.SUCCESS, "");
+            final Path output = temporary.resolve(mode.name());
+
+            new TreeReportRenderer().render(
+                    result(List.of(reactor)), output);
+
+            assertThat(onlyReactorPage(output)).content()
+                    .contains("<th>Analysis mode</th>")
+                    .contains("<td>" + mode + "</td>");
+        }
+    }
 
     @Test
     void rendersStaticHierarchyWithoutTreeControlsAndEscapesContent()
@@ -642,6 +666,13 @@ class TreeReportRendererTest {
                 .contains("data-view-class-code")
                 .doesNotContain("package sample; class Duplicate {}")
                 .doesNotContain(secretProject.toString(), secretJar.toString());
+        assertThat(output.resolve(
+                "dependency-report/assets/report.css")).content()
+                .contains(".source-switches button[aria-pressed=true]");
+        assertThat(output.resolve(
+                "dependency-report/assets/report.js")).content()
+                .contains("button.setAttribute('aria-pressed'")
+                .contains("panel.append(nav,pre);select(index)");
         final Path data = pagePath.resolveSibling(pagePath.getFileName()
                 .toString().replace(".html", "-class-conflict-data"));
         try (Stream<Path> files = Files.list(data)) {

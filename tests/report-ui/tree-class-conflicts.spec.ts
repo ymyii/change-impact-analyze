@@ -26,12 +26,44 @@ test("loads one class source lazily and switches logical sources",
         await expect(view).toHaveAttribute("aria-expanded", "true");
         await expect(page.locator(".class-code-panel pre"))
             .toContainText("return \"winner\"");
+        const winner = page.getByRole("button", {name: /Winner —/});
+        const shadowed = page.getByRole("button", {name: /Shadowed —/});
+        await expect(winner).toHaveAttribute("aria-pressed", "true");
+        await expect(shadowed).toHaveAttribute("aria-pressed", "false");
+        const inactiveStyle = await shadowed.evaluate(element => {
+            const style = getComputedStyle(element);
+            return {
+                background: style.backgroundColor,
+                border: style.borderColor,
+                color: style.color,
+                weight: style.fontWeight
+            };
+        });
+        const activeStyle = await winner.evaluate(element => {
+            const style = getComputedStyle(element);
+            return {
+                background: style.backgroundColor,
+                border: style.borderColor,
+                color: style.color,
+                weight: style.fontWeight
+            };
+        });
+        expect(activeStyle).not.toEqual(inactiveStyle);
         expect(shards).toHaveLength(1);
         expect(await page.evaluate(() =>
             (window as Window & {__treeInjected?: boolean}).__treeInjected))
             .toBeUndefined();
 
-        await page.getByRole("button", {name: /Shadowed —/}).click();
+        await winner.focus();
+        await page.keyboard.press("Tab");
+        await expect(shadowed).toBeFocused();
+        const focusedOutline = await shadowed.evaluate(element =>
+            getComputedStyle(element).outlineStyle);
+        expect(focusedOutline).not.toBe("none");
+        await shadowed.press("Enter");
+        await expect(shadowed).toBeFocused();
+        await expect(shadowed).toHaveAttribute("aria-pressed", "true");
+        await expect(winner).toHaveAttribute("aria-pressed", "false");
         await expect(page.locator(".class-code-panel pre"))
             .toContainText("return \"shadowed\"");
 

@@ -2,6 +2,9 @@ package io.github.dependencyanalysis.tree;
 
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
+import io.github.dependencyanalysis.reactor.ReactorDescriptor;
+import io.github.dependencyanalysis.reactor.ReactorScopeMode;
+import io.github.dependencyanalysis.reactor.RepositoryInventory;
 import io.github.dependencyanalysis.runtime
         .MavenDependencyPluginRuntime;
 import io.github.dependencyanalysis.runtime
@@ -22,7 +25,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -63,7 +65,7 @@ public final class TreeDependencyCollector {
     }
 
     /**
-     * Collects a full reactor or a requested dependency closure.
+     * Collects a full reactor, one owned leaf, or one standalone project.
      *
      * @param snapshot repository snapshot
      * @param inventory repository inventory
@@ -86,7 +88,8 @@ public final class TreeDependencyCollector {
                      new MavenDependencyPluginRuntimeManager()
                              .prepare(runtime.getConfigDir(),
                                      mavenArguments,
-                                     pluginVersion)) {
+                                     pluginVersion,
+                                     runtime.getDefaultGlobalSettings())) {
             return collect(snapshot, inventory, reactor,
                     runtime, pluginRuntime, scopes, null);
         } catch (java.io.IOException exception) {
@@ -240,10 +243,12 @@ public final class TreeDependencyCollector {
         boolean failed = false;
         boolean degraded = false;
         final List<Path> initialPoms = inventory.analysisPoms(
-                reactor, reactor.isRootSelected()
+                reactor, reactor.getScopeMode()
+                        == ReactorScopeMode.FULL_REACTOR
                         ? reactor.getActivePoms()
                         : reactor.getRequestedPoms());
-        final ModuleAnalysisRole initialRole = reactor.isRootSelected()
+        final ModuleAnalysisRole initialRole = reactor.getScopeMode()
+                == ReactorScopeMode.FULL_REACTOR
                 ? ModuleAnalysisRole.REACTOR_ROOT_SCOPE
                 : ModuleAnalysisRole.REQUESTED;
         final ModuleCollectionContext context = new ModuleCollectionContext(
@@ -256,19 +261,6 @@ public final class TreeDependencyCollector {
             failed |= !module.getFailure().isBlank();
             degraded |= !module.getClasspathIssues().isEmpty() || !complete;
             addModuleReasons(reasons, module, complete);
-        }
-        if (!reactor.isRootSelected()) {
-            final List<Path> dependencyPoms = inventory.analysisPoms(reactor,
-                    dependencyPoms(inventory, reactor, modules));
-            for (Path pom : dependencyPoms) {
-                final ModuleTreeResult module = collectModule(pom,
-                        ModuleAnalysisRole.DEPENDENCY, context);
-                modules.add(module);
-                failed |= !module.getFailure().isBlank();
-                degraded |= !module.getClasspathIssues().isEmpty()
-                        || !complete;
-                addModuleReasons(reasons, module, complete);
-            }
         }
         return new ModuleCollectionResult(modules, reasons, failed, degraded);
     }
@@ -329,7 +321,7 @@ public final class TreeDependencyCollector {
             final Path target = snapshot.getRoot()
                     .resolve(pom).getParent()
                     .resolve("target");
-            if (reactor.isRootSelected()) {
+            if (!reactor.requiresProjectSelection()) {
                 try {
                     Files.createDirectories(target);
                 } catch (Exception exception) {
@@ -359,10 +351,10 @@ public final class TreeDependencyCollector {
         arguments.add("-B");
         arguments.add("-f");
         arguments.add(pom.toString());
-        if (!reactor.isRootSelected()) {
+        if (reactor.requiresProjectSelection()) {
             arguments.add("-pl");
             arguments.add(String.join(",",
-                    projectSelectors(inventory, reactor)));
+                    projectSelectors(reactor)));
             arguments.add("-am");
         }
         arguments.add("compile");
@@ -392,62 +384,15 @@ public final class TreeDependencyCollector {
     }
 
     private List<String> projectSelectors(
-            final RepositoryInventory inventory,
             final ReactorDescriptor reactor) {
+        final Path rootDirectory = reactor.getRootPom().getParent() == null
+                ? Path.of("") : reactor.getRootPom().getParent();
         return reactor.getRequestedPoms().stream()
                 .sorted(Comparator.comparing(Path::toString))
-                .map(inventory::coordinateOf)
-                .map(this::projectSelector)
-                .toList();
-    }
-
-    private String projectSelector(
-            final String coordinate) {
-        final String[] parts = coordinate.split(":", -1);
-        if (parts.length < 2
-                || parts[0].isBlank()
-                || parts[1].isBlank()) {
-            throw new IllegalStateException(
-                    "Unable to create Maven project selector: "
-                            + coordinate);
-        }
-        return parts[0] + ":" + parts[1];
-    }
-
-    private List<Path> dependencyPoms(
-            final RepositoryInventory inventory,
-            final ReactorDescriptor reactor,
-            final List<ModuleTreeResult> requestedModules) {
-        final Map<String, Path> activeByCoordinate =
-                new LinkedHashMap<>();
-        for (Path pom : reactor.getActivePoms()) {
-            activeByCoordinate.putIfAbsent(
-                    inventory.coordinateOf(pom), pom);
-        }
-        final Set<Path> requested = new HashSet<>(
-                reactor.getRequestedPoms());
-        final Set<Path> dependencies =
-                new LinkedHashSet<>();
-        for (ModuleTreeResult module : requestedModules) {
-            for (DependencyOccurrence occurrence
-                    : module.getOccurrences()) {
-                if (!occurrence.isSelected()
-                        || !occurrence.isReactorModule()) {
-                    continue;
-                }
-                final Path dependency = activeByCoordinate.get(
-                        occurrence.getKey().getGroupId() + ":"
-                                + occurrence.getKey()
-                                .getArtifactId() + ":"
-                                + occurrence.getEffectiveVersion());
-                if (dependency != null
-                        && !requested.contains(dependency)) {
-                    dependencies.add(dependency);
-                }
-            }
-        }
-        return dependencies.stream()
-                .sorted(Comparator.comparing(Path::toString))
+                .map(pom -> pom.getParent() == null
+                        ? Path.of("") : pom.getParent())
+                .map(rootDirectory::relativize)
+                .map(Path::toString)
                 .toList();
     }
 

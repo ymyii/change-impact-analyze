@@ -6,6 +6,8 @@ relations:
     desc: "Root CLI、共享基础设施和两条分析 pipeline 的架构边界"
   - path: "wiki/features/maven-runtime.md"
     desc: "内嵌 Maven 与两个 Plugin repository 的 runtime 行为"
+  - path: "wiki/features/repository-dependency-tree-report.md"
+    desc: "tree单入口Maven scope与离线Report行为"
   - path: "wiki/rules/process-command-resolution.md"
     desc: "外部命令执行的跨平台约束"
   - path: "wiki/rules/release-versioning.md"
@@ -39,6 +41,8 @@ code_refs:
     desc: "Root CLI 和 global options 入口"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
     desc: "Spring backend per-Module impact pipeline 编排"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/reactor/ReactorInventoryBuilder.java"
+    desc: "impact/tree共享的Maven reactor scope resolver"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
     desc: "tree pipeline 编排"
   - path: "benchmarks/impact-medium/run-suite.sh"
@@ -49,7 +53,7 @@ code_refs:
 
 ## Summary
 
-Dependency Analyzer 是 Java 17 + Maven + picocli CLI。`impact` 使用显式完整 JDK 8 比较 dependency 升级前后的 bytecode 与业务调用影响；`tree` 扫描 Git repository 内的 Maven reactor，生成 repository 级 offline HTML dependency tree report。
+Dependency Analyzer是Java 17 + Maven + picocli CLI。`impact`使用显式完整JDK 8比较dependency升级前后的bytecode与业务调用影响；`tree`从一个直接包含POM的Maven project目录解析reactor scope，生成offline HTML dependency tree report。
 
 Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer，`plugins/pom.xml`只聚合内置Maven Plugin，`models/jdk/pom.xml`与`models/jdk8/pom.xml`分别构建公共engine和JDK 8 catalog/façade。独立artifact通过Maven local repository按dependency顺序交付，不加入root`<modules>`。
 
@@ -63,7 +67,7 @@ Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer
 - `impact`只构建target per-Module selected Call Graph；`cha`为正式默认algorithm，`k-obj`为显式opt-in的experimental algorithm。Call Graph层冻结自身metadata后，由Impact层统一采集Evidence并执行Impact query。
 - CHA固定`jdk-model none`、不应用WALA ReflectionOptions且不遍历JDK body；JDK声明的virtual/interface dispatch不扩展到非JDK实现。`k-obj`默认`jdk8`并可显式`none`。Analyzer仍将JDK model class/catalog打入uber JAR。
 - SSA equivalence固定在JAR Diff阶段启用；CHA固定执行caller-local `cha-local-receiver-inference` Impact Path pruning extension。不存在result refinement CLI selection或关闭分支。
-- 两个 subcommand 共享 Maven runtime 和 preflight Schema，但分别组装检查 DAG；pipeline 只消费 preflight decision。
+- 两个subcommand共享Maven runtime、preflight Schema和中立reactor scope resolver，但分别组装检查DAG；pipeline只消费typed scope与preflight decision。
 
 ## Module Map
 
@@ -71,9 +75,10 @@ Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer
 - `analyzer/` - GAV `io.github.dependencyanalysis:dependency-analyzer:3.0.0-SNAPSHOT`；Java 17 CLI/application，输出为`target/dependency-analyzer.jar`。
 - `analyzer/src/main/java/io/github/dependencyanalysis/runtime/` - 内嵌或用户指定 Maven runtime、两个 Plugin repository cache 与 settings overlay。
 - `analyzer/src/main/java/io/github/dependencyanalysis/preflight/` - DAG preflight framework 和结果 Schema。
+- `analyzer/src/main/java/io/github/dependencyanalysis/reactor/` - 安全POM解析、profile activation、active module graph、祖先aggregator与不可变scope模型。
 - `analyzer/src/main/java/io/github/dependencyanalysis/impact/` - `impact` command、Call Graph input/reason adapter、evidence绑定、pipeline和影响追踪domain。
 - `analyzer/src/main/java/io/github/dependencyanalysis/impact/pruning/` - 固定CHA caller-local Impact Path edge extension contract、receiver resolver与统一summary；Static Single Assignment（SSA，静态单赋值）equivalence位于`bytecode/`。
-- `analyzer/src/main/java/io/github/dependencyanalysis/tree/` - Git snapshot、reactor inventory、dependency collection、version analysis 和 HTML report。
+- `analyzer/src/main/java/io/github/dependencyanalysis/tree/` - Git snapshot、dependency collection、version analysis和HTML report。
 - `analyzer/src/main/java/io/github/dependencyanalysis/callgraph/` - 仅保留package边界；production class按engine、strategy、protocol、jdk、entrypoint、scope、boundary、topology、model与local职责进入子包。
 - `analyzer/src/main/java/io/github/dependencyanalysis/callgraph/strategy/{cha,kobj}/` - 互相隔离的CHA与`k-obj`实现；动态协议adapter只位于`kobj`子包。
 - `analyzer/src/main/java/io/github/dependencyanalysis/{build,dependency,bytecode,jar,report,workspace}/` - `impact` pipeline的其他稳定阶段实现。

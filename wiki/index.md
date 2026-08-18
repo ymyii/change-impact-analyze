@@ -10,29 +10,29 @@ code_refs: []
 ## Project
 
 ### [Dependency Analyzer](project/dependency-analyzer.md)
-- Summary: 四个独立Maven reactor；Java 17 Analyzer内嵌Java 8 Plugin与JDK 8 Method Model；`impact`分析显式JDK 8 target，`tree`生成repository级report。
+- Summary: 四个独立Maven reactor；Java 17 Analyzer内嵌Java 8 Plugin与JDK 8 Method Model；`impact`与`tree`共享单入口reactor scope resolver。
 
 ## Architecture
 
 ### [Dependency Analysis Pipelines](architecture/dependency-analysis-pipelines.md)
-- Summary: `ImpactExecutionEngine`统一并发；`tree`单次Reactor Maven session执行compile/tree/classpath evidence；共享classpath层统一winner与LOW/HIGH冲突语义。
+- Summary: 中立reactor层统一`tree`/`impact`入口scope；Impact保持per-Module Call Graph编排，tree以单次Maven session生成dependency与classpath evidence。
 
 ## Features
 
 ### [CLI Preflight and Diagnostics](features/cli-preflight-diagnostics.md)
-- Summary: Console-only五段DiagnosticLog、Java-first短路过滤指标、`-vv` SSA method审计、Runtime Metrics与显式Schema 13 topology JSON边界。
+- Summary: 入口POM与reactor scope fail-fast、Console-only五段DiagnosticLog、`-vv`审计、Runtime Metrics与显式Schema 13 topology JSON边界。
 
 ### [Maven Runtime](features/maven-runtime.md)
-- Summary: 用户 executable、跨平台内嵌 Maven 3.6.3、两个独立 repository ZIP，以及 Stable/Snapshot 分离 cache 与 command-scoped settings。
+- Summary: 用户或内嵌Maven、双repository ZIP、command-scoped settings overlay，以及与实际Maven JVM/settings一致的profile activation。
 
 ### [Repository Dependency Tree Report](features/repository-dependency-tree-report.md)
-- Summary: bounded/full Reactor执行compile、dependency tree与classpath evidence；Module冲突类按LOW/HIGH展示，并通过离线shard懒加载反编译代码。
+- Summary: 单入口`FULL_REACTOR`/`SINGLE_MODULE`/`STANDALONE` scope执行Maven evidence；leaf只报告入口Module，冲突源码按钮提供持久active状态。
 
 ### [Git Workspace Management](features/git-workspace-management.md)
-- Summary: `impact`/`tree` config UUID workspace/tmp、owner lock、command-owned report-cache、stale recovery与detached worktree cleanup。
+- Summary: `impact`/`tree`保持Git-relative入口POM路径，使用UUID workspace/tmp、owner lock、stale recovery与detached worktree cleanup。
 
 ### [Maven Build Runner](features/maven-build-runner.md)
-- Summary: 只编译 target；reactor root compile 一次，leaf 使用 `-pl/-am`；baseline dependency 与 target build 并行。
+- Summary: 只编译target；入口aggregator完整compile、owned leaf使用`-pl/-am`、standalone直接执行，baseline与target分别规划scope。
 
 ### [Structured Dependency Evidence Collection](features/dependency-evidence-collection.md)
 - Summary: Plugin 3.1提供impact Schema v3与tree Classpath Evidence Schema v1；两者复用owner、路径边界与原子发布且只写command cache。

@@ -1,5 +1,7 @@
 package io.github.dependencyanalysis.tree;
 
+import io.github.dependencyanalysis.reactor.ReactorDescriptor;
+
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLogFormatter;
 import io.github.dependencyanalysis.diagnostic.LogVerbosity;

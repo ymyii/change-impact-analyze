@@ -9,8 +9,6 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -265,11 +263,14 @@ class PackagedJarCliIT {
         final String scopedPage = readOnlyReactorPage(
                 scopedReport);
         assertThat(scopedPage)
-                .contains("BOUNDED_MODULE")
+                .contains("SINGLE_MODULE")
                 .contains("test:module:jar:1")
                 .contains("test:library:jar:1")
+                .contains(">module</button>")
                 .doesNotContain("test:root:pom:1</h2>")
-                .doesNotContain("test:unrelated:jar:1");
+                .doesNotContain(">library</button>",
+                        ">unrelated</button>",
+                        "test:unrelated:jar:1");
         HtmlReportUsabilityVerifier.verifyTree(scopedReport);
     }
 
@@ -565,44 +566,26 @@ class PackagedJarCliIT {
     }
 
     @Test
-    void interruptedJarKeepsLastPublishedCheckpoint()
+    void containerWithoutEntryPomKeepsLastPublishedReport()
             throws Exception {
-        assumeFalse(System.getProperty("os.name", "")
-                        .toLowerCase(Locale.ROOT)
-                        .contains("win"),
-                "POSIX fake Maven test");
         final Path repository = createIndependentReactors();
         final Path output = temporary.resolve(
-                "interrupted-report");
-        final Path fakeMaven = fakeBlockingMaven();
-        final Path log = temporary.resolve("interrupted.log");
-        final List<String> command = jarCommand(
-                "-m", fakeMaven.toString(),
+                "preserved-report");
+        Files.createDirectories(output);
+        final Path previous = output.resolve("index.html");
+        Files.writeString(previous, "previous-report");
+
+        final ProcessResult result = runJar(
+                "-m", maven.toString(),
                 "tree", "-p", repository.toString(),
                 "-o", output.toString(),
                 "-d", "3.6.1");
-        final Process process = new ProcessBuilder(command)
-                .redirectErrorStream(true)
-                .redirectOutput(log.toFile()).start();
-        try {
-            waitForCheckpoint(output.resolve("index.html"),
-                    "<td>1/2</td>", Duration.ofSeconds(20));
-        } finally {
-            process.destroyForcibly();
-            process.waitFor();
-        }
 
-        assertThat(output.resolve("index.html"))
-                .content().contains("RUNNING")
-                .contains("<td>1/2</td>");
-        try (java.util.stream.Stream<Path> pages =
-                     Files.list(output.resolve(
-                             "dependency-report/reactors"))) {
-            assertThat(pages.filter(Files::isRegularFile)
-                    .count()).isEqualTo(1L);
-        }
-        assertThat(readOnlyReactorPage(output))
-                .contains("test:a:jar:1");
+        assertThat(result.exitCode).isEqualTo(1);
+        assertThat(result.output)
+                .contains("Analysis POM is unavailable")
+                .contains("report=NOT_GENERATED");
+        assertThat(previous).content().isEqualTo("previous-report");
     }
 
     private Path createRepository(
@@ -949,53 +932,6 @@ class PackagedJarCliIT {
                 StandardCharsets.UTF_8);
     }
 
-    private Path fakeBlockingMaven() throws Exception {
-        final Path executable = temporary.resolve(
-                "blocking-mvn");
-        Files.writeString(executable, """
-                #!/bin/sh
-                if [ "$1" = "--version" ]; then
-                  echo "Apache Maven 3.9.9"
-                  exit 0
-                fi
-                pom=""
-                output=""
-                classpath=""
-                while [ "$#" -gt 0 ]; do
-                  case "$1" in
-                    -f)
-                      shift
-                      pom="$1"
-                      ;;
-                    -DoutputFile=*)
-                      output="${1#-DoutputFile=}"
-                      ;;
-                    -Dcia.classpathEvidenceDirectory=*)
-                      classpath="${1#-Dcia.classpathEvidenceDirectory=}"
-                      ;;
-                  esac
-                  shift
-                done
-                base="$(dirname "$pom")"
-                artifact="$(basename "$base")"
-                if [ "$artifact" = "b" ]; then
-                  sleep 30
-                fi
-                mkdir -p "$base/$(dirname "$output")"
-                printf 'test:%s:jar:1\n' "$artifact" \
-                  > "$base/$output"
-                canonical="$(cd "$base" && pwd -P)"
-                mkdir -p "$classpath"
-                printf '{"schemaVersion":1,"javaMajor":17,"module":{"groupId":"test","artifactId":"%s","type":"jar","extension":"jar","classifier":"","version":"1","baseVersion":"1"},"moduleDirectory":"%s","entries":[],"issues":[]}\n' \
-                  "$artifact" "$canonical" \
-                  > "$classpath/classpath-module-$artifact.json"
-                exit 0
-                """, StandardCharsets.UTF_8);
-        assertThat(executable.toFile()
-                .setExecutable(true)).isTrue();
-        return executable;
-    }
-
     private Path fakeFailingMaven() throws Exception {
         final Path executable = temporary.resolve(
                 "failing-mvn");
@@ -1071,23 +1007,6 @@ class PackagedJarCliIT {
         assertThat(executable.toFile()
                 .setExecutable(true)).isTrue();
         return executable;
-    }
-
-    private void waitForCheckpoint(
-            final Path index,
-            final String expected,
-            final Duration timeout) throws Exception {
-        final Instant deadline = Instant.now().plus(timeout);
-        while (Instant.now().isBefore(deadline)) {
-            if (Files.isRegularFile(index)
-                    && Files.readString(index)
-                    .contains(expected)) {
-                return;
-            }
-            Thread.sleep(100L);
-        }
-        throw new AssertionError(
-                "Checkpoint was not published: " + expected);
     }
 
     private String readOnlyReactorPage(final Path output)

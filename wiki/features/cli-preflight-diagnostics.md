@@ -33,6 +33,12 @@ code_refs:
     desc: "CLI、pipeline与Java API共享的algorithm/model policy"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/preflight/PreflightRunner.java"
     desc: "check DAG"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactPreflightService.java"
+    desc: "impact入口POM、Maven activation与workspace门禁"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreePreflightService.java"
+    desc: "tree snapshot入口POM与reactor scope门禁"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/reactor/ReactorInventoryBuilder.java"
+    desc: "共享scope preparation failure边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/diagnostic/DiagnosticContext.java"
     desc: "stage、substage、可选phase与stable identity context"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/diagnostic/DiagnosticEvent.java"
@@ -69,6 +75,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 
 - INFO保留稳定进度、warning和error；DEBUG增加分析决策、完整Maven output与异常stack；TRACE再增加细粒度evidence和Runtime Metrics。
 - 全部Diagnostic line只进入Console；HTML不保留event snapshot，也不渲染Diagnostics section。
+- `impact`与`tree`的analysis directory必须直接包含readable`pom.xml`。Scope diagnostic明确输出`FULL_REACTOR`、`SINGLE_MODULE`或`STANDALONE`及execution root。
 
 ## Core Flow
 
@@ -88,7 +95,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 ## Impact Options
 
 - `--baseline <ref>` required；`--target <ref>` 默认 current checkout。
-- `--path <path>`：reactor root 或 leaf Module。
+- `--path <path>`：直接包含POM的aggregator root、leaf Module或standalone project；只包含子项目的容器目录无效。
 - `--analysis-target spring-backend`：默认且唯一 target。
 - `--analysis-parallelism <N>`：未传值时运行期取`max(1, Runtime.getRuntime().availableProcessors() / 2)`，向下取整；显式值必须`>=1`。作为唯一`common`pool大小，全局限制front preparation、JAR diff、Impact Query与code comparison；值为`1`时front preparation串行。显式值超过可用CPU时输出warning，不截断。
 - `--call-graph-algorithm <cha|k-obj>`：默认`cha`，command-wide应用到全部Module；`k-obj`标记为`experimental`。大小写不敏感，不接受alias或自动fallback；其他标识在参数解析阶段失败。
@@ -113,10 +120,10 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 
 ## Preflight Boundary
 
-- 校验path/Git/root POM/output/JDK 8/Maven version/Maven arguments、内嵌Dependency Plugin`3.6.1`与Dependency Evidence Plugin`3.1.0-SNAPSHOT` runtime、workspace/structured evidence capability。
+- 校验path/Git/入口POM/output/JDK 8/Maven version/Maven arguments、实际Maven JVM与settings profile activation、内嵌Dependency Plugin`3.6.1`与Dependency Evidence Plugin`3.1.0-SNAPSHOT` runtime、workspace/structured evidence capability。
 - Preflight failure 不启动 pipeline，不触碰旧 Report。
 - 完整Dependency Diff后的`dependency-selection` Stage输出candidate/selected/excluded pair、include/exclude数量与耗时；DEBUG逐pattern输出匹配数。JAR Diff生命周期只统计selected pair。单个pattern未命中不是failure，只要整体仍有selected pair即继续。
-- Reactor/leaf mode、Module coordinate collision、physical artifact ambiguity 属于 preparation failure。
+- Active module缺失或越界、cycle、重复/不可解析coordinate、Reactor/leaf/standalone scope与physical artifact ambiguity属于preparation failure；禁止repository-wide fallback。
 - entrypoint selector 使用当前 Module `target/classes` 的 immutable index；interface、annotation、private nested class与private method/constructor不进入root范围。Filtered门禁与Call Graph roots复用同一index；privacy过滤不从scope删除class/method。Relevant Module无可执行root时为`SKIPPED_USER_ENTRYPOINT_SCOPE`；所有relevant Module均无匹配时command exit `1`，不替换旧Report。
 - `PROJECT`/`REACTOR_DEPENDENCY` excluded JDK reference、scope I/O/scanner failure 与 Call Graph failure 属于 handled failed Module result，可产生 partial Report。外部 `DEPENDENCY` reference 只产生 `INCONCLUSIVE` warning。
 - 非CHA默认`jdk8`的Synthetic loader、安装或catalog completeness failure属于Call Graph failed Module；不转换为coverage limitation，也不fallback到`none`。CHA固定跳过安装。

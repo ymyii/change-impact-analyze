@@ -1,5 +1,7 @@
 package io.github.dependencyanalysis.tree;
 
+import io.github.dependencyanalysis.reactor.ReactorDescriptor;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

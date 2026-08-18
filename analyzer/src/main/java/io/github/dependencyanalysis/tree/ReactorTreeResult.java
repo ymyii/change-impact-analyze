@@ -1,5 +1,7 @@
 package io.github.dependencyanalysis.tree;
 
+import io.github.dependencyanalysis.reactor.ReactorDescriptor;
+
 import java.util.List;
 
 /** Collected dependency results for one reactor. */

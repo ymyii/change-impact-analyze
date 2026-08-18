@@ -1,4 +1,4 @@
-package io.github.dependencyanalysis.tree;
+package io.github.dependencyanalysis.reactor;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -24,7 +24,7 @@ public final class RepositoryInventory {
      * @param inventoryReactors reactors
      * @param pomDescriptors parsed POMs
      */
-    RepositoryInventory(
+    public RepositoryInventory(
             final List<ReactorDescriptor>
                     inventoryReactors,
             final Map<java.nio.file.Path,
@@ -40,7 +40,7 @@ public final class RepositoryInventory {
      * @param pomDescriptors all repository POMs
      * @param relativeAnalysisPath analysis directory relative to Git root
      */
-    RepositoryInventory(
+    public RepositoryInventory(
             final List<ReactorDescriptor>
                     inventoryReactors,
             final Map<java.nio.file.Path,
@@ -100,19 +100,14 @@ public final class RepositoryInventory {
             final ReactorDescriptor reactor,
             final List<Path> candidates) {
         return candidates.stream()
-                .filter(pom -> !isPureAggregatorRoot(
-                        reactor, pom))
+                .filter(pom -> !isPureAggregator(pom))
                 .toList();
     }
 
-    private boolean isPureAggregatorRoot(
-            final ReactorDescriptor reactor,
-            final Path pom) {
-        return pom.equals(reactor.getRootPom())
-                && "pom".equals(packagingOf(
-                        reactor.getRootPom()))
-                && reactor.getActivePoms().stream()
-                .anyMatch(active -> !active.equals(
-                        reactor.getRootPom()));
+    private boolean isPureAggregator(final Path pom) {
+        final PomDescriptor descriptor = poms.get(pom);
+        return descriptor != null
+                && "pom".equals(descriptor.getPackaging())
+                && !descriptor.getActiveModules().isEmpty();
     }
 }

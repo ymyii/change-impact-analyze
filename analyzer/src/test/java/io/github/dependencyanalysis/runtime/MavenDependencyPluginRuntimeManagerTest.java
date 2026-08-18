@@ -127,6 +127,25 @@ class MavenDependencyPluginRuntimeManagerTest {
     }
 
     @Test
+    void preservesRuntimeGlobalSettingsWhenNoOverride() throws Exception {
+        final Path global = temporary.resolve("runtime-settings.xml");
+        Files.writeString(global, """
+                <settings><activeProfiles>
+                  <activeProfile>runtime-profile</activeProfile>
+                </activeProfiles></settings>
+                """);
+
+        try (MavenDependencyPluginRuntime runtime =
+                     new MavenDependencyPluginRuntimeManager().prepare(
+                             temporary.resolve("runtime-global"),
+                             List.of(), null, global)) {
+            assertThat(settings(runtime)).content()
+                    .contains("runtime-profile")
+                    .contains("dependency-analyzer-embedded-plugins");
+        }
+    }
+
+    @Test
     void missingRequiredFileRebuildsWithoutContentFingerprinting()
             throws Exception {
         final Path config = temporary.resolve("rebuild");

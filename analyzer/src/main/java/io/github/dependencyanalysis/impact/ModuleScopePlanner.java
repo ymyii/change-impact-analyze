@@ -1,9 +1,11 @@
 package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
-import io.github.dependencyanalysis.tree.ReactorDescriptor;
-import io.github.dependencyanalysis.tree.ReactorInventoryBuilder;
-import io.github.dependencyanalysis.tree.RepositoryInventory;
+import io.github.dependencyanalysis.reactor.ReactorDescriptor;
+import io.github.dependencyanalysis.reactor.ReactorInventoryBuilder;
+import io.github.dependencyanalysis.reactor.ReactorScopeMode;
+import io.github.dependencyanalysis.reactor.RepositoryInventory;
+import io.github.dependencyanalysis.reactor.MavenActivationContext;
 import io.github.dependencyanalysis.util.CommandResolver;
 
 import java.nio.charset.StandardCharsets;
@@ -15,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+// Wiki: wiki/architecture/dependency-analysis-pipelines.md - Impact scope
 /** Resolves reactor-root and leaf-module execution modes. */
 final class ModuleScopePlanner {
 
@@ -32,12 +35,27 @@ final class ModuleScopePlanner {
     ReactorAnalysisScope plan(
             final Path requestedPath,
             final List<String> mavenArguments) throws Exception {
+        return plan(requestedPath, MavenActivationContext.resolve(
+                mavenArguments, System.getProperty("java.version", "")));
+    }
+
+    /**
+     * Resolves one workspace path using shared Maven activation inputs.
+     *
+     * @param requestedPath workspace path prepared for one Git side
+     * @param activation Maven activation inputs
+     * @return resolved reactor scope
+     * @throws Exception on Git or POM scope failure
+     */
+    ReactorAnalysisScope plan(
+            final Path requestedPath,
+            final MavenActivationContext activation) throws Exception {
         final Path repositoryRoot = gitRoot(requestedPath);
         final Path relative = repositoryRoot.relativize(
                 requestedPath.toRealPath());
         final RepositoryInventory inventory =
                 new ReactorInventoryBuilder().build(
-                        repositoryRoot, relative, mavenArguments);
+                        repositoryRoot, relative, activation);
         final Path requestedPom = relative.resolve("pom.xml").normalize();
         final ReactorDescriptor reactor = selectReactor(
                 inventory, requestedPom);
@@ -46,8 +64,8 @@ final class ModuleScopePlanner {
                     "Maven reactor inventory is invalid: "
                             + reactor.getViolations());
         }
-        final boolean reactorMode = reactor.isRootSelected()
-                || reactor.getRequestedPoms().size() > 1;
+        final boolean reactorMode = reactor.getScopeMode()
+                == ReactorScopeMode.FULL_REACTOR;
         final AnalysisMode mode = reactorMode
                 ? AnalysisMode.REACTOR : AnalysisMode.SINGLE_MODULE;
         final List<Path> selectedPoms = reactorMode
@@ -66,7 +84,7 @@ final class ModuleScopePlanner {
                 new LinkedHashSet<>(allModules.stream()
                         .map(ModuleId::getCoordinate).toList());
         final List<String> projectArguments;
-        if (mode == AnalysisMode.SINGLE_MODULE) {
+        if (reactor.requiresProjectSelection()) {
             if (modules.size() != 1) {
                 throw new IllegalStateException(
                         "Leaf scope must resolve exactly one module: "
@@ -85,16 +103,19 @@ final class ModuleScopePlanner {
     private ReactorDescriptor selectReactor(
             final RepositoryInventory inventory,
             final Path requestedPom) {
-        final List<ReactorDescriptor> matches = inventory.getReactors()
-                .stream()
-                .filter(item -> item.getActivePoms().contains(requestedPom))
-                .toList();
-        if (matches.size() != 1) {
+        if (inventory.getReactors().size() != 1) {
             throw new IllegalStateException(
-                    "Requested POM must belong to exactly one active reactor: "
-                            + requestedPom + "; matches=" + matches.size());
+                    "Requested POM must resolve exactly one Maven scope: "
+                            + requestedPom + "; scopes="
+                            + inventory.getReactors().size());
         }
-        return matches.get(0);
+        final ReactorDescriptor result = inventory.getReactors().get(0);
+        if (!result.getActivePoms().contains(requestedPom)) {
+            throw new IllegalStateException(
+                    "Requested POM is absent from resolved Maven scope: "
+                            + requestedPom);
+        }
+        return result;
     }
 
     private List<ModuleId> moduleIds(

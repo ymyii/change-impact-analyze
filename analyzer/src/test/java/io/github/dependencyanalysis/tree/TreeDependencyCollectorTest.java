@@ -1,5 +1,10 @@
 package io.github.dependencyanalysis.tree;
 
+import io.github.dependencyanalysis.reactor.PomDescriptor;
+import io.github.dependencyanalysis.reactor.ReactorDescriptor;
+import io.github.dependencyanalysis.reactor.ReactorScopeMode;
+import io.github.dependencyanalysis.reactor.RepositoryInventory;
+
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -42,7 +47,7 @@ class TreeDependencyCollectorTest {
     }
 
     @Test
-    void excludesOnlyMultiProjectPomPackagingRoot() {
+    void excludesPurePomAggregatorsFromAnalysisModules() {
         final Path root = Path.of("pom.xml");
         final Path child = Path.of("child/pom.xml");
         final List<Path> active = List.of(root, child);
@@ -54,12 +59,32 @@ class TreeDependencyCollectorTest {
 
         assertThat(reactor.getActivePoms())
                 .containsExactlyElementsOf(active);
-        assertThat(reactor.isRootSelected()).isTrue();
+        assertThat(reactor.getScopeMode())
+                .isEqualTo(ReactorScopeMode.FULL_REACTOR);
         assertThat(inventory.analysisPoms(
                 reactor, reactor.getActivePoms()))
                 .containsExactly(child);
         assertThat(inventory.analysisPoms(
                 reactor, List.of(root))).isEmpty();
+
+        final Path nested = Path.of("nested/pom.xml");
+        final Path leaf = Path.of("nested/leaf/pom.xml");
+        final List<Path> nestedActive = List.of(root, nested, leaf);
+        final ReactorDescriptor nestedReactor = new ReactorDescriptor(
+                root, "test:root:1", nestedActive, nestedActive,
+                List.of());
+        final Map<Path, PomDescriptor> descriptors = new LinkedHashMap<>();
+        descriptors.put(root, new PomDescriptor(root, "test:root:1",
+                "pom", List.of("nested"), List.of("nested"), ""));
+        descriptors.put(nested, new PomDescriptor(nested, "test:nested:1",
+                "pom", List.of("leaf"), List.of("leaf"), ""));
+        descriptors.put(leaf, new PomDescriptor(leaf, "test:leaf:1",
+                "jar", List.of(), List.of(), ""));
+        final RepositoryInventory nestedInventory = new RepositoryInventory(
+                List.of(nestedReactor), descriptors);
+
+        assertThat(nestedInventory.analysisPoms(
+                nestedReactor, nestedActive)).containsExactly(leaf);
     }
 
     @Test
@@ -69,7 +94,7 @@ class TreeDependencyCollectorTest {
                 root, "test:single:1", List.of(root),
                 List.of(root), List.of());
         final RepositoryInventory singleInventory = inventory(
-                single, "pom", List.of("missing-child"));
+                single, "pom", List.of());
 
         assertThat(singleInventory.analysisPoms(
                 single, single.getActivePoms()))

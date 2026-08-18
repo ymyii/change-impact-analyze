@@ -23,6 +23,11 @@ import io.github.dependencyanalysis.preflight
         .PreflightScope;
 import io.github.dependencyanalysis.preflight
         .SimplePreflightCheck;
+import io.github.dependencyanalysis.reactor.ReactorInventoryBuilder;
+import io.github.dependencyanalysis.reactor.MavenActivationContext;
+import io.github.dependencyanalysis.reactor.ReactorDescriptor;
+import io.github.dependencyanalysis.reactor.ReactorScopeMode;
+import io.github.dependencyanalysis.reactor.RepositoryInventory;
 import io.github.dependencyanalysis.runtime
         .CommandRunDirectory;
 import io.github.dependencyanalysis.runtime
@@ -63,6 +68,10 @@ final class TreePreflightService {
     /** Maven runtime key. */
     static final String MAVEN_RUNTIME =
             "tree.maven-runtime";
+
+    /** Maven version probe output key. */
+    static final String MAVEN_VERSION_OUTPUT =
+            "tree.maven-version-output";
 
     /** Maven Dependency Plugin runtime key. */
     static final String DEPENDENCY_PLUGIN_RUNTIME =
@@ -184,6 +193,21 @@ final class TreePreflightService {
                                 exception.getMessage(), "");
                     }
                 }));
+        checks.add(command("tree.root-pom",
+                List.of("tree.snapshot"), context -> {
+                    final RepositorySnapshot snapshot = context.get(
+                            SNAPSHOT, RepositorySnapshot.class);
+                    final Path pom = snapshot.getAnalysisRoot()
+                            .resolve("pom.xml");
+                    if (!Files.isRegularFile(pom)
+                            || !Files.isReadable(pom)) {
+                        return PreflightOutcome.fail(
+                                "Analysis POM is unavailable",
+                                pom.toString(), "");
+                    }
+                    return PreflightOutcome.pass(
+                            "Analysis POM is readable", pom.toString());
+                }));
         checks.add(command("tree.output",
                 List.of("tree.path"),
                 context -> checkOutput()));
@@ -219,6 +243,7 @@ final class TreePreflightService {
                         context, pluginVersion)));
         checks.add(command("tree.reactor-inventory",
                 List.of("tree.snapshot",
+                        "tree.root-pom",
                         "tree.dependency-plugin-runtime",
                         "tree.scope-filter"),
                 context -> prepareInventory(context)));
@@ -334,7 +359,9 @@ final class TreePreflightService {
                     "");
         }
         context.put(MAVEN_RUNTIME,
-                runtime.withVersion(version));
+                runtime.withProbe(version, result.getCombinedOutput()));
+        context.put(MAVEN_VERSION_OUTPUT,
+                result.getCombinedOutput());
         return PreflightOutcome.pass(
                 "Maven version is supported",
                 MavenRuntimeEvidence.version(version));
@@ -351,7 +378,8 @@ final class TreePreflightService {
                         .prepare(runtime.getConfigDir(),
                                 context.get(MAVEN_ARGS,
                                         List.class),
-                                pluginVersion));
+                                pluginVersion,
+                                runtime.getDefaultGlobalSettings()));
         context.put(DEPENDENCY_PLUGIN_RUNTIME, plugin);
         return PreflightOutcome.pass(
                 "Maven Dependency Plugin runtime prepared",
@@ -366,19 +394,29 @@ final class TreePreflightService {
         final RepositoryInventory inventory =
                 new ReactorInventoryBuilder().build(
                         context.get(SNAPSHOT,
-                                RepositorySnapshot.class),
-                        context.get(MAVEN_ARGS,
-                                List.class));
+                                RepositorySnapshot.class).getRoot(),
+                        context.get(SNAPSHOT,
+                                RepositorySnapshot.class).getAnalysisPath(),
+                        MavenActivationContext.resolveFromMavenOutput(
+                                context.get(MAVEN_ARGS, List.class),
+                                context.get(MAVEN_VERSION_OUTPUT,
+                                        String.class),
+                                context.get(MAVEN_RUNTIME,
+                                        MavenRuntimeDescriptor.class)
+                                        .getExecutable(),
+                                context.get(MAVEN_RUNTIME,
+                                        MavenRuntimeDescriptor.class)
+                                        .getDefaultGlobalSettings()));
         context.put(INVENTORY, inventory);
-        if (inventory.getReactors().isEmpty()) {
-            return PreflightOutcome.fail(
-                    "No active Maven POM matches analysis path",
-                    inventory.getAnalysisPath().toString(), "");
-        }
+        final ReactorDescriptor scope = inventory.getReactors().get(0);
+        final String standaloneReason = scope.getScopeMode()
+                == ReactorScopeMode.STANDALONE
+                ? "; reason=no active ancestor aggregator owns entry POM"
+                : "";
         return PreflightOutcome.pass(
-                "Maven reactors discovered",
-                "reactors=" + inventory
-                        .getReactors().size());
+                "Maven reactor scope resolved",
+                "mode=" + scope.getScopeMode() + "; root="
+                        + scope.getRootPom() + standaloneReason);
     }
 
 }

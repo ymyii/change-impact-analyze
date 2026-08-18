@@ -6,6 +6,7 @@ import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
 import io.github.dependencyanalysis.metrics.ManagedExecutorRegistry;
 import io.github.dependencyanalysis.dependency.DependencyArtifactSelection;
+import io.github.dependencyanalysis.reactor.MavenActivationContext;
 import io.github.dependencyanalysis.runtime.ReportCache;
 
 import java.nio.file.Path;
@@ -23,6 +24,7 @@ import java.nio.file.Path;
  * @param dependencyAnalysisScope dependency method-body scope
  * @param jdkModel command-wide JDK Method Model selection
  * @param dependencySelection changed Maven dependency source boundary
+ * @param mavenActivation Maven profile activation inputs
  * @param executors Analyzer-owned pool registry
  * @param reportCache command-owned report cache
  */
@@ -37,6 +39,7 @@ record PerModulePipelineOptions(
         DependencyAnalysisScopeMode dependencyAnalysisScope,
         JdkModelSelection jdkModel,
         DependencyArtifactSelection dependencySelection,
+        MavenActivationContext mavenActivation,
         ManagedExecutorRegistry executors,
         ReportCache reportCache) {
 

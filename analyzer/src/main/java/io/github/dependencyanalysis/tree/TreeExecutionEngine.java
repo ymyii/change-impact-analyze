@@ -6,6 +6,8 @@ import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis.preflight.PreflightContext;
 import io.github.dependencyanalysis.preflight.PreflightReport;
+import io.github.dependencyanalysis.reactor.ReactorDescriptor;
+import io.github.dependencyanalysis.reactor.RepositoryInventory;
 import io.github.dependencyanalysis.runtime.CommandRunDirectory;
 import io.github.dependencyanalysis.runtime.MavenDependencyPluginRuntime;
 import io.github.dependencyanalysis.runtime.MavenRuntimeDescriptor;

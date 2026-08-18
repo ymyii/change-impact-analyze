@@ -21,8 +21,8 @@ code_refs:
     desc: "subcommand UUID run、owner marker、file lock 和 stale cleanup"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/ReportCache.java"
     desc: "owned temporary run下的report-cache安全边界"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/ReactorInventoryBuilder.java"
-    desc: "tracked/non-ignored untracked POM 与 submodule filtering"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/reactor/ReactorInventoryBuilder.java"
+    desc: "入口module graph的Git边界、ignored与submodule eligibility"
 ---
 
 # Feature: Git Workspace Management
@@ -36,9 +36,9 @@ Git Workspace Management 为 `impact` 准备 baseline/target project workspace�
 - `impact` baseline 和显式 target 使用 detached worktree；未传 target 时使用 current project directory。
 - `tree --ref` 使用 detached repository worktree；未传 ref 时直接分析 current checkout。
 - `tree --path` 先解析真实 directory 和所属 Git root，保存 Git-root-relative analysis path；detached snapshot 必须存在同一路径。
-- Tree inventory 以 relative analysis path 计算 direct-match `requestedPoms`；命中 reactor root 时进入 full-reactor mode，否则由 collector 计算 bounded dependency closure。
+- Tree与impact都把relative analysis path作为唯一入口scope；入口必须直接包含POM。Scope resolver只读取入口active graph和祖先aggregator，不枚举repository POM。
 - Local ref 只通过 `rev-parse --verify <ref>^{commit}` 解析，不 fetch。
-- Git file discovery 使用 tracked + non-ignored untracked，并排除 stage mode `160000` Git submodule path。
+- Current checkout入口与active module POM可为tracked或non-ignored untracked；ignored POM、stage mode `160000` Git submodule内POM和symlink逃逸被拒绝。
 - 每次 command 使用 UUID run directory、有效 owner marker 和 `<config>/locks` file lock；cleanup 只能删除当前 owned run。
 - `impact` dependency evidence 只写 `impact/tmp/<run-id>/dependency-evidence/{baseline|target}/<nonce>`，不写 baseline、target 或 current source directory。
 - `impact`与`tree` Report中间数据只写当前`<command>/tmp/<run-id>/report-cache`。Cache复用同一run ID、owner marker、active lock与stale recovery，不创建第二套root或锁。
@@ -52,7 +52,7 @@ Git Workspace Management 为 `impact` 准备 baseline/target project workspace�
 
 ## Behavior Contract
 
-- Project 可位于 Git root 子目录；impact worktree 保持同一 relative project path。
+- Project可位于Git root子目录；impact baseline/target worktree和tree local-ref snapshot都保持同一relative analysis path，且该路径必须存在directory与POM。
 - Current tree snapshot metadata 包含 repository root、branch、commit 和 dirty flag。
 - Tree snapshot metadata 同时包含 user input path、resolved Git root 与 relative analysis path。
 - Local-ref snapshot 只包含对应 commit，不包含 current dirty/untracked 文件。
@@ -86,7 +86,7 @@ Git Workspace Management 为 `impact` 准备 baseline/target project workspace�
 
 ### Functional
 
-- Given current dirty/untracked eligible POM；When tree inventory；Then POM 可被发现。
+- Given current dirty/non-ignored untracked入口或active module POM；When scope resolution；Then该POM可进入入口graph。
 - Given local ref；When snapshot；Then report commit 等于 ref resolved commit。
 - Given Git submodule 内 POM；When discovery；Then POM 被排除。
 
@@ -103,7 +103,7 @@ Git Workspace Management 为 `impact` 准备 baseline/target project workspace�
 
 - Invalid local ref、非 Git directory 或 Git command failure 在 preflight 阻断相应 scope。
 - Input path 不存在、不是 directory、越出 resolved Git root 或在 local ref snapshot 中不存在时阻断 command。
-- External module normalized path 越出 snapshot root 时 reactor model check failure。
+- Active module normalized path越出snapshot root时scope preparation fail-fast，不扫描其他POM或回退。
 
 ## Implementation Boundaries
 

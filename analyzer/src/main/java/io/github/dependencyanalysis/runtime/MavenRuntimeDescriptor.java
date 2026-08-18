@@ -1,5 +1,7 @@
 package io.github.dependencyanalysis.runtime;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 
@@ -21,6 +23,9 @@ public final class MavenRuntimeDescriptor {
     /** Complete application config directory. */
     private final Path configDir;
 
+    /** Runtime default global settings, when discoverable. */
+    private final Path defaultGlobalSettings;
+
     /**
      * Creates a runtime descriptor.
      *
@@ -36,6 +41,18 @@ public final class MavenRuntimeDescriptor {
             final MavenVersion runtimeVersion,
             final Path runtimeJavaHome,
             final Path runtimeConfigDir) {
+        this(runtimeSource, runtimeExecutable, runtimeVersion,
+                runtimeJavaHome, runtimeConfigDir,
+                inferGlobalSettings(runtimeExecutable));
+    }
+
+    private MavenRuntimeDescriptor(
+            final MavenRuntimeSource runtimeSource,
+            final Path runtimeExecutable,
+            final MavenVersion runtimeVersion,
+            final Path runtimeJavaHome,
+            final Path runtimeConfigDir,
+            final Path runtimeGlobalSettings) {
         source = Objects.requireNonNull(runtimeSource, "source");
         executable = Objects.requireNonNull(
                 runtimeExecutable, "executable")
@@ -45,6 +62,7 @@ public final class MavenRuntimeDescriptor {
                 ? null : runtimeJavaHome.toAbsolutePath().normalize();
         configDir = Objects.requireNonNull(runtimeConfigDir, "configDir")
                 .toAbsolutePath().normalize();
+        defaultGlobalSettings = runtimeGlobalSettings;
     }
 
     /** @return runtime source */
@@ -73,6 +91,15 @@ public final class MavenRuntimeDescriptor {
     }
 
     /**
+     * Returns the configured runtime's default global settings when present.
+     *
+     * @return {@code conf/settings.xml}, or null when it cannot be resolved
+     */
+    public Path getDefaultGlobalSettings() {
+        return defaultGlobalSettings;
+    }
+
+    /**
      * Returns a copy with detected version.
      *
      * @param detected detected version
@@ -80,6 +107,47 @@ public final class MavenRuntimeDescriptor {
      */
     public MavenRuntimeDescriptor withVersion(final MavenVersion detected) {
         return new MavenRuntimeDescriptor(
-                source, executable, detected, javaHome, configDir);
+                source, executable, detected, javaHome, configDir,
+                defaultGlobalSettings);
+    }
+
+    /**
+     * Returns a copy enriched from the actual Maven version probe.
+     *
+     * @param detected detected version
+     * @param output complete {@code mvn --version} output
+     * @return enriched runtime descriptor
+     */
+    public MavenRuntimeDescriptor withProbe(
+            final MavenVersion detected,
+            final String output) {
+        Path settings = defaultGlobalSettings;
+        for (String line : output.lines().toList()) {
+            final String value = line.trim();
+            if (value.startsWith("Maven home:")) {
+                final Path home = Path.of(value.substring(
+                        "Maven home:".length()).trim());
+                final Path candidate = home.resolve("conf/settings.xml");
+                if (Files.isRegularFile(candidate)) {
+                    settings = candidate.toAbsolutePath().normalize();
+                }
+            }
+        }
+        return new MavenRuntimeDescriptor(
+                source, executable, detected, javaHome, configDir, settings);
+    }
+
+    private static Path inferGlobalSettings(final Path runtimeExecutable) {
+        try {
+            final Path real = runtimeExecutable.toRealPath();
+            final Path bin = real.getParent();
+            final Path home = bin == null ? null : bin.getParent();
+            final Path settings = home == null ? null
+                    : home.resolve("conf/settings.xml");
+            return settings != null && Files.isRegularFile(settings)
+                    ? settings : null;
+        } catch (IOException exception) {
+            return null;
+        }
     }
 }

@@ -1,5 +1,8 @@
 package io.github.dependencyanalysis.tree;
 
+import io.github.dependencyanalysis.reactor.ReactorDescriptor;
+import io.github.dependencyanalysis.reactor.ReactorInventoryBuilder;
+import io.github.dependencyanalysis.reactor.RepositoryInventory;
 import io.github.dependencyanalysis.runtime
         .MavenRuntimeDescriptor;
 import io.github.dependencyanalysis.runtime
@@ -67,7 +70,8 @@ class TreeDependencyCollectorIT {
                              repository, null)) {
             final RepositoryInventory inventory =
                     new ReactorInventoryBuilder().build(
-                            snapshot, List.of());
+                            snapshot.getRoot(),
+                            snapshot.getAnalysisPath(), List.of());
             final ReactorDescriptor reactor = inventory
                     .getReactors().get(0);
 
@@ -97,7 +101,7 @@ class TreeDependencyCollectorIT {
     }
 
     @Test
-    void buildsFullReactorAndAddsRequestedDependencies()
+    void buildsUpstreamClosureButReportsOnlyRequestedModule()
             throws Exception {
         final Path repository = createSiblingReactor();
         final MavenRuntimeDescriptor runtime =
@@ -110,7 +114,8 @@ class TreeDependencyCollectorIT {
                              null)) {
             final RepositoryInventory inventory =
                     new ReactorInventoryBuilder().build(
-                            snapshot, List.of());
+                            snapshot.getRoot(),
+                            snapshot.getAnalysisPath(), List.of());
             final ReactorDescriptor reactor = inventory
                     .getReactors().get(0);
 
@@ -129,11 +134,9 @@ class TreeDependencyCollectorIT {
             assertThat(result.getStatus()).isEqualTo(
                     ReactorStatus.SUCCESS);
             assertThat(result.getModules())
-                    .hasSize(2)
+                    .hasSize(1)
                     .extracting(ModuleTreeResult::getPom)
-                    .containsExactly(
-                            Path.of("module-b/pom.xml"),
-                            Path.of("module-a/pom.xml"));
+                    .containsExactly(Path.of("module-b/pom.xml"));
             assertThat(result.getModules())
                     .filteredOn(module -> module.getPom()
                             .equals(Path.of(
@@ -152,14 +155,6 @@ class TreeDependencyCollectorIT {
                                                 .isReactorModule())
                                                 .isTrue());
                     });
-            assertThat(result.getModules())
-                    .filteredOn(module -> module.getPom()
-                            .equals(Path.of(
-                                    "module-a/pom.xml")))
-                    .singleElement()
-                    .satisfies(module -> assertThat(
-                            module.getRole()).isEqualTo(
-                            ModuleAnalysisRole.DEPENDENCY));
             assertThat(result.getModules())
                     .extracting(ModuleTreeResult::getPom)
                     .doesNotContain(Path.of("pom.xml"));
@@ -202,7 +197,8 @@ class TreeDependencyCollectorIT {
                              repository.resolve("app"), null)) {
             final RepositoryInventory inventory =
                     new ReactorInventoryBuilder().build(
-                            snapshot, List.of());
+                            snapshot.getRoot(),
+                            snapshot.getAnalysisPath(), List.of());
 
             final ReactorTreeResult result =
                     new TreeDependencyCollector().collect(
@@ -214,15 +210,9 @@ class TreeDependencyCollectorIT {
                     ReactorStatus.SUCCESS);
             assertThat(result.getModules())
                     .extracting(ModuleTreeResult::getPom)
-                    .containsExactly(Path.of("app/pom.xml"),
-                            Path.of("core/pom.xml"),
-                            Path.of("middle/pom.xml"));
+                    .containsExactly(Path.of("app/pom.xml"));
             assertThat(result.getModules().get(0).getRole())
                     .isEqualTo(ModuleAnalysisRole.REQUESTED);
-            assertThat(result.getModules().subList(1, 3))
-                    .allSatisfy(module -> assertThat(
-                            module.getRole()).isEqualTo(
-                            ModuleAnalysisRole.DEPENDENCY));
         }
     }
 
@@ -254,7 +244,8 @@ class TreeDependencyCollectorIT {
                              repository.resolve("app"), null)) {
             final RepositoryInventory inventory =
                     new ReactorInventoryBuilder().build(
-                            snapshot, List.of());
+                            snapshot.getRoot(),
+                            snapshot.getAnalysisPath(), List.of());
 
             final ReactorTreeResult result =
                     new TreeDependencyCollector().collect(
@@ -271,40 +262,29 @@ class TreeDependencyCollectorIT {
     }
 
     @Test
-    void selectsMultipleRequestedModulesBeforeDependencies()
+    void analyzesStandaloneProjectFromItsOwnPom()
             throws Exception {
         final Path repository = temporary.resolve(
-                "multiple-requested-repository");
+                "standalone-repository");
         Files.createDirectories(repository);
         write(repository.resolve("pom.xml"), """
                 <project>
                   <modelVersion>4.0.0</modelVersion>
-                  <groupId>test</groupId><artifactId>root</artifactId>
-                  <version>1</version><packaging>pom</packaging>
-                  <modules><module>library</module>
-                    <module>apps/one</module><module>apps/two</module>
-                    <module>unrelated</module></modules>
+                  <groupId>test</groupId><artifactId>standalone</artifactId>
+                  <version>1</version>
                 </project>
                 """);
-        write(repository.resolve("library/pom.xml"),
-                modulePom("library", ""));
-        write(repository.resolve("apps/one/pom.xml"),
-                nestedModulePom("one",
-                        dependency("library", "compile")));
-        write(repository.resolve("apps/two/pom.xml"),
-                nestedModulePom("two", ""));
-        write(repository.resolve("unrelated/pom.xml"),
-                modulePom("unrelated", ""));
         initialize(repository);
         final MavenRuntimeDescriptor runtime =
                 new MavenRuntimeManager().prepare(null,
-                        temporary.resolve("multiple-config"), null);
+                        temporary.resolve("standalone-config"), null);
         try (RepositorySnapshot snapshot =
                      new GitSnapshotProvider().open(
-                             repository.resolve("apps"), null)) {
+                             repository, null)) {
             final RepositoryInventory inventory =
                     new ReactorInventoryBuilder().build(
-                            snapshot, List.of());
+                            snapshot.getRoot(),
+                            snapshot.getAnalysisPath(), List.of());
 
             final ReactorTreeResult result =
                     new TreeDependencyCollector().collect(
@@ -316,15 +296,9 @@ class TreeDependencyCollectorIT {
                     ReactorStatus.SUCCESS);
             assertThat(result.getModules())
                     .extracting(ModuleTreeResult::getPom)
-                    .containsExactly(Path.of("apps/one/pom.xml"),
-                            Path.of("apps/two/pom.xml"),
-                            Path.of("library/pom.xml"));
-            assertThat(result.getModules().subList(0, 2))
-                    .allSatisfy(module -> assertThat(
-                            module.getRole()).isEqualTo(
-                            ModuleAnalysisRole.REQUESTED));
-            assertThat(result.getModules().get(2).getRole())
-                    .isEqualTo(ModuleAnalysisRole.DEPENDENCY);
+                    .containsExactly(Path.of("pom.xml"));
+            assertThat(result.getModules().get(0).getRole())
+                    .isEqualTo(ModuleAnalysisRole.REQUESTED);
         }
     }
 
