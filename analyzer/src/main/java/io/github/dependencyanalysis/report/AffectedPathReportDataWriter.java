@@ -39,7 +39,7 @@ import java.util.stream.Collectors;
 final class AffectedPathReportDataWriter {
 
     /** Browser report data schema. */
-    private static final int SCHEMA_VERSION = 4;
+    private static final int SCHEMA_VERSION = 5;
 
     /** JavaScript callback installed by the Affected Paths page. */
     private static final String CALLBACK =
@@ -79,7 +79,7 @@ final class AffectedPathReportDataWriter {
      * @return small browser manifest
      * @throws IOException on shard publication failure
      */
-    AffectedPathReportManifest write(
+    AffectedPathReportData write(
             final ModuleAnalysisResult module,
             final Path directory,
             final String relativeDirectory) throws IOException {
@@ -134,16 +134,30 @@ final class AffectedPathReportDataWriter {
                 + "; bytes=" + metrics.bytes
                 + "; maxShardBytes=" + metrics.maximum
                 + "; oversizedShards=" + metrics.oversized);
-        return new AffectedPathReportManifest(
+        final AffectedPathReportManifest manifest =
+                new AffectedPathReportManifest(
                 SCHEMA_VERSION, projection.impactRows(),
                 projection.rows().size() - projection.impactRows(),
                 projection.sources(),
                 Collections.unmodifiableMap(
                         new LinkedHashMap<>(descriptors)));
+        final Map<BoundChangePoint, AffectedPathReportData.MemberData>
+                memberData = new LinkedHashMap<>();
+        for (int index = 0; index < projection.memberKeys().size(); index++) {
+            final MemberProjection member = projection.members().get(index);
+            memberData.put(projection.memberKeys().get(index),
+                    new AffectedPathReportData.MemberData(member.signature(),
+                            member.diffStatus(), member.diffId()));
+        }
+        return new AffectedPathReportData(manifest,
+                Collections.unmodifiableMap(memberData));
     }
 
     private Projection project(final ModuleAnalysisResult module) {
-        final List<BoundChangePoint> members = pathMembers(module);
+        final List<BoundChangePoint> members = module.getUnit()
+                .getChangePoints().stream().distinct()
+                .sorted(Comparator.comparing(BoundChangePoint::stableKey))
+                .toList();
         final Map<BoundChangePoint, Integer> memberIds = ids(members);
         final List<DependencyUpgradeKey> dependencies = members.stream()
                 .map(BoundChangePoint::getDependencyUpgradeKey).distinct()
@@ -192,6 +206,9 @@ final class AffectedPathReportDataWriter {
                 paths, rows, key, path,
                 structuralMembers.getOrDefault(key, Set.of()), methodIds));
 
+        final Map<Integer, List<RowRangeProjection>> memberRanges =
+                rowRangesByMember(rows, members.size());
+
         final List<DiffProjection> diffs = new ArrayList<>();
         final List<MemberProjection> memberRecords = new ArrayList<>();
         for (int id = 0; id < members.size(); id++) {
@@ -213,8 +230,8 @@ final class AffectedPathReportDataWriter {
             memberRecords.add(new MemberProjection(id,
                     dependencyIds.get(member.getDependencyUpgradeKey()),
                     member.getChangePoint().getKind().name(),
-                    member.getChangePoint().getOwner().replace('/', '.'),
-                    member.getChangePoint().getName(), status, diffId));
+                    ReportSignatures.changedMember(member.getChangePoint()),
+                    status, diffId, memberRanges.get(id)));
         }
         final List<DependencyProjection> dependencyRecords =
                 new ArrayList<>();
@@ -262,7 +279,8 @@ final class AffectedPathReportDataWriter {
         return new Projection(List.copyOf(paths), List.copyOf(rows),
                 List.copyOf(methods), List.copyOf(memberRecords),
                 List.copyOf(dependencyRecords), List.copyOf(diffs),
-                List.copyOf(sourceRanges), List.copyOf(sources), impactRows);
+                List.copyOf(sourceRanges), List.copyOf(sources),
+                List.copyOf(members), impactRows);
     }
 
     private String sourceKey(final DependencyUpgradeKey dependency) {
@@ -281,13 +299,14 @@ final class AffectedPathReportDataWriter {
         final int rowStart = rows.size();
         members.forEach(memberId -> rows.add(new RowProjection(
                 rows.size(), pathId, memberId)));
+        final List<String> affected = affectedMethods(path.getNodes(), "");
         paths.add(new PathProjection(pathId, "impact",
                 path.getClassification().name(),
                 path.getRootKind().name(),
                 path.getRootKind()
-                        == ImpactPathRootKind.STRONGLY_CONNECTED_COMPONENT,
+                == ImpactPathRootKind.STRONGLY_CONNECTED_COMPONENT,
                 "", "", "", methodIds(path.getNodes(), methodIds),
-                affectedMethods(path.getNodes(), ""), rowStart,
+                affected, pathSearchText(path.getNodes(), List.of()), rowStart,
                 rows.size() - rowStart, key));
     }
 
@@ -303,12 +322,16 @@ final class AffectedPathReportDataWriter {
         members.forEach(memberId -> rows.add(new RowProjection(
                 rows.size(), pathId, memberId)));
         final String owner = structuralOwner(path);
+        final String relation = path.getReference().getKind().getLabel();
+        final String changedClass = path.getReference().getChangedClass()
+                .replace('/', '.');
+        final List<String> affected = affectedMethods(path.getNodes(), owner);
         paths.add(new PathProjection(pathId, "structural",
                 path.getClassification().name(), "", false,
-                owner, path.getReference().getKind().getLabel(),
-                path.getReference().getChangedClass().replace('/', '.'),
+                owner, relation, changedClass,
                 methodIds(path.getNodes(), methodIds),
-                affectedMethods(path.getNodes(), owner), rowStart,
+                affected, pathSearchText(path.getNodes(),
+                        List.of(owner, relation, changedClass)), rowStart,
                 rows.size() - rowStart, key));
     }
 
@@ -319,17 +342,27 @@ final class AffectedPathReportDataWriter {
                 methodKey(node.methodId()))).toList();
     }
 
-    private String affectedMethods(
+    private List<String> affectedMethods(
             final List<QueryNode> nodes,
             final String fallback) {
         final Set<String> project = new LinkedHashSet<>();
         nodes.stream().filter(node -> node.origin() == CodeOrigin.PROJECT)
-                .map(node -> humanMethod(node.methodId()))
+                .map(node -> ReportSignatures.method(node.methodId()))
                 .forEach(project::add);
         if (!project.isEmpty()) {
-            return String.join(", ", project);
+            return List.copyOf(project);
         }
-        return fallback.isBlank() ? "Unavailable" : fallback;
+        return List.of(fallback.isBlank() ? "Unavailable" : fallback);
+    }
+
+    private String pathSearchText(
+            final List<QueryNode> nodes,
+            final List<String> structural) {
+        final List<String> values = new ArrayList<>();
+        nodes.stream().map(node -> ReportSignatures.method(node.methodId()))
+                .forEach(values::add);
+        values.addAll(structural);
+        return String.join(" ", values);
     }
 
     private void collectMethods(
@@ -339,21 +372,46 @@ final class AffectedPathReportDataWriter {
             final String key = methodKey(node.methodId());
             final boolean project = node.origin() == CodeOrigin.PROJECT;
             methods.merge(key, new MethodProjection(-1,
-                            humanMethod(node.methodId()), project),
+                            ReportSignatures.method(node.methodId()), project),
                     (left, right) -> new MethodProjection(-1, left.label(),
                             left.project() || right.project()));
         }
     }
 
-    private List<BoundChangePoint> pathMembers(
-            final ModuleAnalysisResult module) {
-        final Set<BoundChangePoint> points = new LinkedHashSet<>();
-        module.getImpactPaths().forEach(path -> points.add(
-                path.getTerminal().getChangePoint()));
-        module.getStructuralPaths().forEach(path -> points.add(
-                path.getChangePoint()));
-        return points.stream().sorted(Comparator.comparing(
-                BoundChangePoint::stableKey)).toList();
+    private Map<Integer, List<RowRangeProjection>> rowRangesByMember(
+            final List<RowProjection> rows,
+            final int memberCount) {
+        final Map<Integer, List<Integer>> rowIds = new LinkedHashMap<>();
+        for (int memberId = 0; memberId < memberCount; memberId++) {
+            rowIds.put(memberId, new ArrayList<>());
+        }
+        rows.forEach(row -> rowIds.get(row.memberId()).add(row.id()));
+        final Map<Integer, List<RowRangeProjection>> result =
+                new LinkedHashMap<>();
+        rowIds.forEach((memberId, ids) -> result.put(memberId,
+                contiguousRanges(ids)));
+        return result;
+    }
+
+    private List<RowRangeProjection> contiguousRanges(
+            final List<Integer> rowIds) {
+        if (rowIds.isEmpty()) {
+            return List.of();
+        }
+        final List<RowRangeProjection> result = new ArrayList<>();
+        int start = rowIds.get(0);
+        int previous = start;
+        for (int index = 1; index < rowIds.size(); index++) {
+            final int value = rowIds.get(index);
+            if (value != previous + 1) {
+                result.add(new RowRangeProjection(
+                        start, previous - start + 1));
+                start = value;
+            }
+            previous = value;
+        }
+        result.add(new RowRangeProjection(start, previous - start + 1));
+        return List.copyOf(result);
     }
 
     private <T> Map<T, Integer> ids(final List<T> values) {
@@ -385,13 +443,7 @@ final class AffectedPathReportDataWriter {
     }
 
     private String structuralOwner(final StructuralReferencePath path) {
-        final String member = path.getReference().getReferencingMember();
-        return path.getReference().getReferencingClass().replace('/', '.')
-                + (member.isBlank() ? "" : "#" + member);
-    }
-
-    private String humanMethod(final MethodId method) {
-        return method.owner().replace('/', '.') + "#" + method.name();
+        return ReportSignatures.structuralOwner(path.getReference());
     }
 
     private List<AffectedPathReportManifest.ShardDescriptor> writeShards(
@@ -493,6 +545,11 @@ final class AffectedPathReportDataWriter {
             json.writeNumberField("pathId", value.id());
             json.writeStringField("type", value.type());
             json.writeStringField("searchText", value.searchText());
+            json.writeArrayFieldStart("affectedMethods");
+            for (String method : value.affectedMethods()) {
+                json.writeString(method);
+            }
+            json.writeEndArray();
             json.writeNumberField("rowStart", value.rowStart());
             json.writeNumberField("rowCount", value.rowCount());
             json.writeEndObject();
@@ -562,18 +619,21 @@ final class AffectedPathReportDataWriter {
             json.writeNumberField("dependencyUpgradeId",
                     value.dependencyId());
             json.writeStringField("changePointKind", value.kind());
-            json.writeStringField("owner", value.owner());
-            if (value.name() == null) {
-                json.writeNullField("name");
-            } else {
-                json.writeStringField("name", value.name());
-            }
+            json.writeStringField("signature", value.signature());
             json.writeStringField("codeDiffStatus", value.diffStatus());
             if (value.diffId() == null) {
                 json.writeNullField("codeDiffId");
             } else {
                 json.writeNumberField("codeDiffId", value.diffId());
             }
+            json.writeArrayFieldStart("rowRanges");
+            for (RowRangeProjection range : value.rowRanges()) {
+                json.writeStartObject();
+                json.writeNumberField("start", range.start());
+                json.writeNumberField("count", range.count());
+                json.writeEndObject();
+            }
+            json.writeEndArray();
             json.writeEndObject();
         };
     }
@@ -648,6 +708,7 @@ final class AffectedPathReportDataWriter {
             List<DiffProjection> diffs,
             List<SourceRangeProjection> sourceRanges,
             List<AffectedPathReportManifest.SourceDescriptor> sources,
+            List<BoundChangePoint> memberKeys,
             int impactRows) {
     }
 
@@ -661,6 +722,7 @@ final class AffectedPathReportDataWriter {
             String relation,
             String changedClass,
             List<Integer> methodIds,
+            List<String> affectedMethods,
             String searchText,
             int rowStart,
             int rowCount,
@@ -680,10 +742,10 @@ final class AffectedPathReportDataWriter {
             int id,
             int dependencyId,
             String kind,
-            String owner,
-            String name,
+            String signature,
             String diffStatus,
-            Integer diffId) {
+            Integer diffId,
+            List<RowRangeProjection> rowRanges) {
     }
 
     private record DependencyProjection(
@@ -698,6 +760,9 @@ final class AffectedPathReportDataWriter {
             int id,
             int rowStart,
             int rowCount) {
+    }
+
+    private record RowRangeProjection(int start, int count) {
     }
 
     private record DiffProjection(int id, String unifiedDiff) {

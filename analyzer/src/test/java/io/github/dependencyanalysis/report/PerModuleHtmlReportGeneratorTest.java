@@ -322,7 +322,7 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("filtered.slice(start, end)")
                 .contains("rowsNode.replaceChildren(fragment)")
                 .contains("const state = {query: \"\", includes: [], "
-                        + "excludes: [], kind: \"all\"");
+                        + "excludes: [], dependency: \"\"");
     }
 
     @Test
@@ -359,7 +359,7 @@ class PerModuleHtmlReportGeneratorTest {
         final String unsafeDiff = "+String marker = \"</script>&"
                 + Character.toString(LINE_SEPARATOR)
                 + Character.toString(PARAGRAPH_SEPARATOR) + "\";";
-        final ImpactPath impactPath = new ImpactPath(List.of(root),
+        final ImpactPath impactPath = new ImpactPath(List.of(root, secondRoot),
                 new ChangePointTerminal(affected, referenceEvidence(
                         EvidenceMechanism.METHOD_DECLARATION, unsafeDetail)),
                 ImpactClassification.TRANSITIVE,
@@ -428,13 +428,13 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("<option value=\"structural\">Structural")
                 .contains("<option value=\"all\">All</option>")
                 .contains("id=\"affected-path-manifest\"")
-                .contains("\"schemaVersion\":4")
+                .contains("\"schemaVersion\":5")
                 .contains("\"sources\"")
                 .contains("source-index-00000.js")
                 .contains("\"shards\"")
                 .contains("index-00001.js")
                 .contains("paths-00001.js")
-                .contains("Searching affected methods:")
+                .contains("Search affected methods, members, paths, or ")
                 .contains("searchGeneration")
                 .contains("Retry")
                 .contains("diff-line diff-add")
@@ -565,8 +565,8 @@ class PerModuleHtmlReportGeneratorTest {
 
     private void assertAffectedPathShards(final String shards) {
         assertThat(shards)
-                .contains("example.app.Controller#handle")
-                .contains("example.app.Controller#search")
+                .contains("example.app.Controller#handle()V")
+                .contains("example.app.Controller#search()V")
                 .contains("\"pathId\":0", "\"rowId\":0")
                 .contains("\"type\":\"impact\"")
                 .contains("\"type\":\"structural\"")
@@ -577,6 +577,13 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("\"codeDiffStatus\":\"AVAILABLE\"")
                 .contains("\"changePointKind\":"
                         + "\"METHOD_BODY_CHANGED\"")
+                .contains("\"signature\":"
+                        + "\"example.library.Api#changed()I\"")
+                .contains("\"affectedMethods\":[")
+                .contains("\"affectedMethods\":["
+                        + "\"example.app.Controller#handle()V\","
+                        + "\"example.app.Controller#search()V\"]")
+                .contains("\"rowRanges\":[")
                 .doesNotContain("fixture </script><script>alert(1)")
                 .doesNotContain(Character.toString(LINE_SEPARATOR))
                 .doesNotContain(Character.toString(PARAGRAPH_SEPARATOR));
@@ -588,14 +595,19 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("id=\"path-search-submit\"")
                 .contains("id=\"path-dependency-include\"")
                 .contains("id=\"path-dependency-exclude\"")
+                .contains("id=\"path-scope-form\"")
+                .contains("id=\"path-dependency-filter\"")
+                .contains("id=\"path-member-filter\"")
+                .contains("id=\"path-method-filter\"")
                 .contains("searchForm.addEventListener(\"submit\"")
-                .contains("function pathSegments(path, member, methods)")
+                .contains("function pathSegments(path, member, methodValues)")
                 .contains("function appendPathSequenceCell(")
                 .contains("document.createTextNode(\" → \")")
                 .contains("document.createElement(\"br\")")
                 .contains("path.type === \"impact\"")
                 .contains("(index + 1) % 2 === 0")
                 .contains("white-space:normal;overflow-wrap:anywhere")
+                .contains("white-space:nowrap;writing-mode:horizontal-tb")
                 .doesNotContain(".path-sequence{white-space:nowrap")
                 .doesNotContain("searchInput.addEventListener(\"input\"")
                 .doesNotContain("max-width:1440px");
@@ -934,7 +946,7 @@ class PerModuleHtmlReportGeneratorTest {
         }
         assertThat(impact)
                 .contains("No affected path matched the current filters.")
-                .contains("\"schemaVersion\":4")
+                .contains("\"schemaVersion\":5")
                 .contains("\"count\":0")
                 .doesNotContain("example.library.Api#call")
                 .doesNotContain("decision=ACCESSIBLE")
@@ -1043,7 +1055,7 @@ class PerModuleHtmlReportGeneratorTest {
     }
 
     /**
-     * Generated Schema 4 fixture and its captured diagnostics.
+     * Generated Schema 5 fixture and its captured diagnostics.
      *
      * @param directory command-owned Module directory
      * @param impact Affected Paths HTML
@@ -1112,10 +1124,17 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("id=\"changed-member-table\"")
                 .contains("id=\"member-dependency-include\"")
                 .contains("id=\"member-dependency-exclude\"")
+                .contains("id=\"member-scope-form\"")
+                .contains("id=\"member-dependency-filter\"")
+                .contains("id=\"member-member-filter\"")
+                .contains("id=\"member-chain\"")
+                .contains("<th>Code diff</th>")
                 .contains("\"source\":\"example:library\"")
                 .contains("\"impact\":2")
                 .contains("\"structural\":1")
-                .contains("\"name\":\"hidden\"")
+                .contains("\"signature\":"
+                        + "\"example.library.Api#hidden()V\"")
+                .contains("Not generated — no impact path")
                 .contains("\"memberMetrics\":[{\"memberId\":0,"
                         + "\"impact\":2,\"structural\":1},{\"memberId\":1,"
                         + "\"impact\":0,\"structural\":0}]");

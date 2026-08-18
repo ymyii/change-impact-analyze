@@ -1,17 +1,18 @@
 (() => {
     "use strict";
 
+    const common = window.CIA_REPORT;
     const manifestNode = document.getElementById("affected-path-manifest");
     const rowsNode = document.getElementById("path-rows");
     const emptyNode = document.getElementById("path-empty");
-    if (!manifestNode || !rowsNode || !emptyNode) {
+    if (!common || !manifestNode || !rowsNode || !emptyNode) {
         return;
     }
 
     let manifest;
     try {
         manifest = JSON.parse(manifestNode.textContent);
-        if (manifest.schemaVersion !== 4 || !manifest.rowRanges
+        if (manifest.schemaVersion !== 5 || !manifest.rowRanges
                 || !manifest.shards || !Array.isArray(manifest.sources)) {
             throw new Error("Unsupported Affected Paths schema.");
         }
@@ -22,11 +23,18 @@
     }
     manifestNode.remove();
 
+    const {node, globs, sourceMatches, fillDatalist, exactValue,
+        normalizeRanges, intersectRanges, createDiffRow,
+        createShardLoader} = common;
     const typeSelect = document.getElementById("path-type");
+    const scopeForm = document.getElementById("path-scope-form");
     const searchForm = document.getElementById("path-search-form");
     const searchInput = document.getElementById("path-search");
     const includeInput = document.getElementById("path-dependency-include");
     const excludeInput = document.getElementById("path-dependency-exclude");
+    const dependencyFilter = document.getElementById("path-dependency-filter");
+    const memberFilter = document.getElementById("path-member-filter");
+    const methodFilter = document.getElementById("path-method-filter");
     const pageSizeSelect = document.getElementById("path-page-size");
     const summaryNode = document.getElementById("path-result-summary");
     const pageInput = document.getElementById("path-page");
@@ -35,27 +43,14 @@
     const previousButton = document.getElementById("path-previous");
     const nextButton = document.getElementById("path-next");
     const lastButton = document.getElementById("path-last");
+    const dependencyValues = new Set(manifest.sources.map(value =>
+        value.source));
     const state = {type: "impact", pageSize: 20, page: 1,
         expandedRowId: null, baseRanges: [], ranges: [],
-        applied: {query: "", includes: [], excludes: []},
-        searchGeneration: 0, renderGeneration: 0};
-    const requests = new Map();
-    const pending = new Map();
-
-    function node(tag, className, text) {
-        const value = document.createElement(tag);
-        if (className) {
-            value.className = className;
-        }
-        if (text !== undefined) {
-            value.textContent = text;
-        }
-        return value;
-    }
-
-    function shardKey(kind, id) {
-        return `${kind}:${id}`;
-    }
+        applied: {query: "", dependency: "", member: "", method: "",
+            includes: [], excludes: []},
+        includes: [], excludes: [], searchGeneration: 0, renderGeneration: 0,
+        members: null, dependencies: null, indexes: null};
 
     function recordId(kind, record) {
         if (kind === "index") {
@@ -67,6 +62,12 @@
         return record.id;
     }
 
+    function validRanges(values) {
+        return Array.isArray(values) && values.every(value =>
+            Number.isInteger(value.start) && value.start >= 0
+                && Number.isInteger(value.count) && value.count >= 0);
+    }
+
     function validRecord(kind, record) {
         if (!record || typeof record !== "object") {
             return false;
@@ -75,7 +76,8 @@
         const text = value => typeof value === "string";
         if (kind === "index") {
             return integer(record.pathId) && text(record.type)
-                && text(record.searchText) && integer(record.rowStart)
+                && text(record.searchText) && Array.isArray(record.affectedMethods)
+                && record.affectedMethods.every(text) && integer(record.rowStart)
                 && integer(record.rowCount);
         }
         if (kind === "source-index") {
@@ -100,9 +102,8 @@
         }
         if (kind === "members") {
             return integer(record.id) && integer(record.dependencyUpgradeId)
-                && text(record.changePointKind) && text(record.owner)
-                && (record.name === null || text(record.name))
-                && text(record.codeDiffStatus)
+                && text(record.changePointKind) && text(record.signature)
+                && text(record.codeDiffStatus) && validRanges(record.rowRanges)
                 && (record.codeDiffId === null || integer(record.codeDiffId));
         }
         if (kind === "dependencies") {
@@ -114,149 +115,13 @@
             && text(record.unifiedDiff);
     }
 
-    window.__CIA_AFFECTED_PATH_SHARD__ = payload => {
-        const current = document.currentScript;
-        const key = current && current.dataset
-            ? current.dataset.ciaAffectedPathShard : "";
-        const waiter = pending.get(key);
-        if (!waiter) {
-            return;
-        }
-        const validRecords = payload && Array.isArray(payload.records)
-            && payload.records.length === waiter.descriptor.records
-            && payload.records.every((record, index) =>
-                validRecord(waiter.kind, record)
-                    && recordId(waiter.kind, record)
-                    === waiter.descriptor.firstId + index);
-        if (!payload || payload.schemaVersion !== manifest.schemaVersion
-                || payload.kind !== waiter.kind
-                || payload.shardId !== waiter.descriptor.id || !validRecords) {
-            waiter.reject(new Error(
-                `Invalid ${waiter.file} shard payload or schema.`));
-            return;
-        }
-        waiter.registered = true;
-        waiter.resolve(payload.records);
-    };
-
-    function descriptors(kind) {
-        return Array.isArray(manifest.shards[kind])
-            ? manifest.shards[kind] : [];
-    }
-
-    function descriptorForId(kind, id) {
-        return descriptors(kind).find(value => id >= value.firstId
-            && id <= value.lastId);
-    }
-
-    function loadShard(kind, descriptor) {
-        const key = shardKey(kind, descriptor.id);
-        if (requests.has(key)) {
-            return requests.get(key);
-        }
-        let script;
-        const request = new Promise((resolve, reject) => {
-            const waiter = {resolve, reject, file: descriptor.file,
-                kind, descriptor, registered: false};
-            pending.set(key, waiter);
-            script = document.createElement("script");
-            script.src = descriptor.file;
-            script.async = true;
-            script.dataset.ciaAffectedPathShard = key;
-            script.onload = () => {
-                if (!waiter.registered) {
-                    reject(new Error(
-                        `Affected path shard did not register: ${descriptor.file}`));
-                }
-            };
-            script.onerror = () => reject(new Error(
-                `Affected path shard could not be loaded: ${descriptor.file}`));
-            document.head.append(script);
-        }).finally(() => {
-            pending.delete(key);
-            requests.delete(key);
-            if (script) {
-                script.remove();
-            }
-        });
-        requests.set(key, request);
-        return request;
-    }
-
-    async function recordsForIds(kind, ids) {
-        if (!ids.size) {
-            return new Map();
-        }
-        const selected = new Map();
-        ids.forEach(id => {
-            const descriptor = descriptorForId(kind, id);
-            if (!descriptor) {
-                throw new Error(`No ${kind} shard contains record ${id}.`);
-            }
-            selected.set(descriptor.id, descriptor);
-        });
-        const chunks = await Promise.all([...selected.values()].map(value =>
-            loadShard(kind, value)));
-        const result = new Map();
-        chunks.flat().forEach(record => {
-            const id = recordId(kind, record);
-            if (ids.has(id)) {
-                result.set(id, record);
-            }
-        });
-        ids.forEach(id => {
-            if (!result.has(id)) {
-                const descriptor = descriptorForId(kind, id);
-                throw new Error(`Missing ${kind} record ${id} in ${descriptor.file}.`);
-            }
-        });
-        return result;
-    }
+    const shards = createShardLoader(manifest, validRecord, recordId);
+    fillDatalist("path-dependency-options", dependencyValues);
 
     function oneRange(name) {
         const value = manifest.rowRanges[name];
         return value && value.count > 0
             ? [{start: value.start, count: value.count}] : [];
-    }
-
-    function normalizeRanges(values) {
-        const result = [];
-        [...values].filter(value => value.count > 0)
-            .sort((left, right) => left.start - right.start)
-            .forEach(value => {
-                const previous = result[result.length - 1];
-                const end = value.start + value.count;
-                if (previous && value.start <= previous.start + previous.count) {
-                    previous.count = Math.max(previous.start + previous.count,
-                        end) - previous.start;
-                } else {
-                    result.push({start: value.start, count: value.count});
-                }
-            });
-        return result;
-    }
-
-    function intersectRanges(leftValues, rightValues) {
-        const left = normalizeRanges(leftValues);
-        const right = normalizeRanges(rightValues);
-        const result = [];
-        let leftIndex = 0;
-        let rightIndex = 0;
-        while (leftIndex < left.length && rightIndex < right.length) {
-            const start = Math.max(left[leftIndex].start, right[rightIndex].start);
-            const end = Math.min(left[leftIndex].start + left[leftIndex].count,
-                right[rightIndex].start + right[rightIndex].count);
-            if (end > start) {
-                result.push({start, count: end - start});
-            }
-            if (left[leftIndex].start + left[leftIndex].count <
-                    right[rightIndex].start + right[rightIndex].count) {
-                leftIndex += 1;
-            } else {
-                rightIndex += 1;
-            }
-        }
-        return result;
     }
 
     function applyViewType() {
@@ -288,36 +153,56 @@
         return result;
     }
 
-    function glob(expression) {
-        const separator = expression.indexOf(":");
-        if (!expression || separator <= 0
-                || separator !== expression.lastIndexOf(":")
-                || separator === expression.length - 1 || /\s/.test(expression)) {
-            throw new Error(`Invalid dependency Glob: ${expression}`);
+    async function loadCatalog(kind, generation) {
+        const records = [];
+        const values = shards.descriptors(kind);
+        for (let index = 0; index < values.length; index += 1) {
+            summaryNode.textContent =
+                `Loading ${kind} index ${index + 1} of ${values.length}…`;
+            records.push(...await shards.loadShard(kind, values[index]));
+            if (generation !== state.searchGeneration) {
+                return null;
+            }
         }
-        const segment = value => new RegExp(`^${[...value].map(character => {
-            if (character === "*") {
-                return ".*";
-            }
-            if (character === "?") {
-                return ".";
-            }
-            return character.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        }).join("")}$`);
-        return {expression,
-            group: segment(expression.slice(0, separator)),
-            artifact: segment(expression.slice(separator + 1))};
+        return records;
     }
 
-    function globs(value) {
-        return value.split(",").map(item => item.trim()).filter(Boolean)
-            .map(glob);
+    async function members(generation) {
+        if (!state.members) {
+            const values = await loadCatalog("members", generation);
+            if (!values) {
+                return null;
+            }
+            state.members = values;
+            fillDatalist("path-member-options", values
+                .filter(value => value.rowRanges.length > 0)
+                .map(value => value.signature));
+        }
+        return state.members;
     }
 
-    function sourceMatches(source, pattern) {
-        const separator = source.indexOf(":");
-        return pattern.group.test(source.slice(0, separator))
-            && pattern.artifact.test(source.slice(separator + 1));
+    async function dependencies(generation) {
+        if (!state.dependencies) {
+            const values = await loadCatalog("dependencies", generation);
+            if (!values) {
+                return null;
+            }
+            state.dependencies = new Map(values.map(value => [value.id, value]));
+        }
+        return state.dependencies;
+    }
+
+    async function indexes(generation) {
+        if (!state.indexes) {
+            const values = await loadCatalog("index", generation);
+            if (!values) {
+                return null;
+            }
+            state.indexes = values;
+            fillDatalist("path-method-options", values.flatMap(value =>
+                value.affectedMethods));
+        }
+        return state.indexes;
     }
 
     function selectedSources(includes, excludes) {
@@ -329,19 +214,19 @@
         });
     }
 
-    async function sourceRanges(includes, excludes, generation) {
-        if (includes.length === 0 && excludes.length === 0) {
+    async function rangesForSources(sources, generation) {
+        if (sources.length === manifest.sources.length) {
             return oneRange("all");
         }
-        const sources = selectedSources(includes, excludes);
         const ranges = [];
         for (let index = 0; index < sources.length; index += 1) {
-            summaryNode.textContent = `Loading source ranges ${index + 1} of ${sources.length}…`;
+            summaryNode.textContent =
+                `Loading dependency ranges ${index + 1} of ${sources.length}…`;
             const ids = new Set();
             for (let offset = 0; offset < sources[index].count; offset += 1) {
                 ids.add(sources[index].firstId + offset);
             }
-            const records = await recordsForIds("source-index", ids);
+            const records = await shards.recordsForIds("source-index", ids);
             if (generation !== state.searchGeneration) {
                 return null;
             }
@@ -351,32 +236,109 @@
         return normalizeRanges(ranges);
     }
 
-    async function methodRanges(query, generation) {
-        if (!query) {
-            return oneRange("all");
+    function memberRanges(values, predicate) {
+        return normalizeRanges(values.filter(predicate)
+            .flatMap(value => value.rowRanges));
+    }
+
+    function indexRanges(values, predicate) {
+        return normalizeRanges(values.filter(predicate).map(value => ({
+            start: value.rowStart, count: value.rowCount})));
+    }
+
+    function dependencyLabel(dependency) {
+        return dependency
+            ? `${dependency.oldArtifact} → ${dependency.newArtifact} (${dependency.scope})`
+            : "Unavailable";
+    }
+
+    async function calculateRanges(generation, includes, excludes) {
+        const sourceScope = selectedSources(includes, excludes);
+        let result = await rangesForSources(sourceScope, generation);
+        if (!result || generation !== state.searchGeneration) {
+            return null;
         }
-        const ranges = [];
-        const values = descriptors("index");
-        for (let index = 0; index < values.length; index += 1) {
-            summaryNode.textContent =
-                `Searching affected methods: index shard ${index + 1} of ${values.length}…`;
-            const records = await loadShard("index", values[index]);
-            if (generation !== state.searchGeneration) {
+        const dependency = dependencyFilter.value.trim();
+        if (dependency) {
+            exactValue(dependencyFilter, dependencyValues, "Dependency filter");
+            const dependencyRanges = await rangesForSources(
+                manifest.sources.filter(value => value.source === dependency),
+                generation);
+            if (!dependencyRanges) {
                 return null;
             }
-            records.forEach(record => {
-                if (record.searchText.toLocaleLowerCase().includes(query)) {
-                    ranges.push({start: record.rowStart, count: record.rowCount});
-                }
-            });
+            result = intersectRanges(result, dependencyRanges);
         }
-        return normalizeRanges(ranges);
+
+        const memberText = memberFilter.value.trim();
+        let memberValues = null;
+        if (memberText || searchInput.value.trim()) {
+            memberValues = await members(generation);
+            if (!memberValues) {
+                return null;
+            }
+        }
+        if (memberText) {
+            const choices = new Set(memberValues.filter(value =>
+                value.rowRanges.length > 0).map(value => value.signature));
+            exactValue(memberFilter, choices, "Changed member filter");
+            result = intersectRanges(result, memberRanges(memberValues,
+                value => value.signature === memberText));
+        }
+
+        const methodText = methodFilter.value.trim();
+        let indexValues = null;
+        if (methodText || searchInput.value.trim()) {
+            indexValues = await indexes(generation);
+            if (!indexValues) {
+                return null;
+            }
+        }
+        if (methodText) {
+            const choices = new Set(indexValues.flatMap(value =>
+                value.affectedMethods));
+            exactValue(methodFilter, choices,
+                "Affected application method filter");
+            result = intersectRanges(result, indexRanges(indexValues,
+                value => value.affectedMethods.includes(methodText)));
+        }
+
+        const query = searchInput.value.trim().toLocaleLowerCase();
+        if (query) {
+            const dependencyValuesById = await dependencies(generation);
+            if (!dependencyValuesById) {
+                return null;
+            }
+            const queryRanges = [];
+            queryRanges.push(...indexRanges(indexValues, value =>
+                value.searchText.toLocaleLowerCase().includes(query)));
+            queryRanges.push(...memberRanges(memberValues, value => {
+                const dependencyValue = dependencyValuesById.get(
+                    value.dependencyUpgradeId);
+                return value.signature.toLocaleLowerCase().includes(query)
+                    || dependencyLabel(dependencyValue)
+                        .toLocaleLowerCase().includes(query)
+                    || (dependencyValue && dependencyValue.source
+                        .toLocaleLowerCase().includes(query));
+            }));
+            result = intersectRanges(result, normalizeRanges(queryRanges));
+        }
+        return result;
     }
 
     function appliedSummary() {
         const values = [];
         if (state.applied.query) {
-            values.push(`affected method “${state.applied.query}”`);
+            values.push(`search “${state.applied.query}”`);
+        }
+        if (state.applied.dependency) {
+            values.push(`dependency ${state.applied.dependency}`);
+        }
+        if (state.applied.member) {
+            values.push(`member ${state.applied.member}`);
+        }
+        if (state.applied.method) {
+            values.push(`affected method ${state.applied.method}`);
         }
         if (state.applied.includes.length) {
             values.push(`include ${state.applied.includes.join(", ")}`);
@@ -387,29 +349,23 @@
         return values.length ? ` Applied: ${values.join("; ")}.` : "";
     }
 
-    async function submitSearch() {
-        let includes;
-        let excludes;
-        try {
-            includes = globs(includeInput.value);
-            excludes = globs(excludeInput.value);
-        } catch (error) {
-            summaryNode.textContent = `${error.message}. The last successful result was retained.`;
-            return;
-        }
-        const query = searchInput.value.toLocaleLowerCase();
+    async function applySearchAndFilters(
+            includes = state.includes, excludes = state.excludes) {
         const generation = ++state.searchGeneration;
         state.renderGeneration += 1;
         try {
-            const [sources, methods] = await Promise.all([
-                sourceRanges(includes, excludes, generation),
-                methodRanges(query, generation)
-            ]);
-            if (generation !== state.searchGeneration || !sources || !methods) {
+            const ranges = await calculateRanges(generation,
+                includes, excludes);
+            if (!ranges || generation !== state.searchGeneration) {
                 return;
             }
-            state.baseRanges = intersectRanges(sources, methods);
-            state.applied = {query,
+            state.baseRanges = ranges;
+            state.includes = includes;
+            state.excludes = excludes;
+            state.applied = {query: searchInput.value.trim(),
+                dependency: dependencyFilter.value.trim(),
+                member: memberFilter.value.trim(),
+                method: methodFilter.value.trim(),
                 includes: includes.map(value => value.expression),
                 excludes: excludes.map(value => value.expression)};
             state.page = 1;
@@ -418,7 +374,13 @@
             await render(false);
         } catch (error) {
             if (generation === state.searchGeneration) {
-                showError(error, submitSearch);
+                if (error.retryable) {
+                    showError(error, () => applySearchAndFilters(
+                        includes, excludes));
+                } else {
+                    summaryNode.textContent =
+                        `${error.message}. The last successful result was retained.`;
+                }
             }
         }
     }
@@ -430,23 +392,17 @@
         return cell;
     }
 
-    function memberLabel(member) {
-        return member.name ? `${member.owner}#${member.name}` : member.owner;
+    function dependencyDisplay(member, dependencyValuesById) {
+        return dependencyLabel(dependencyValuesById.get(
+            member.dependencyUpgradeId));
     }
 
-    function dependencyLabel(member, dependencies) {
-        const dependency = dependencies.get(member.dependencyUpgradeId);
-        return dependency
-            ? `${dependency.oldArtifact} → ${dependency.newArtifact} (${dependency.scope})`
-            : "Unavailable";
+    function pathMethods(path, methodValues) {
+        return path.methodIds.map(id => methodValues.get(id)).filter(Boolean);
     }
 
-    function pathMethods(path, methods) {
-        return path.methodIds.map(id => methods.get(id)).filter(Boolean);
-    }
-
-    function affectedMethods(path, methods) {
-        const project = pathMethods(path, methods)
+    function affectedMethods(path, methodValues) {
+        const project = pathMethods(path, methodValues)
             .filter(method => method.project).map(method => method.label);
         if (project.length) {
             return [...new Set(project)].join(", ");
@@ -455,20 +411,20 @@
             ? path.applicationMember : "Unavailable";
     }
 
-    function pathSegments(path, member, methods) {
-        const values = pathMethods(path, methods).map(method => method.label);
+    function pathSegments(path, member, methodValues) {
+        const values = pathMethods(path, methodValues).map(method => method.label);
         if (path.type === "structural") {
             values.push(path.applicationMember, path.relation,
                 path.changedClass);
         }
-        values.push(`Changed member: ${memberLabel(member)}`);
+        values.push(`Changed member: ${member.signature}`);
         return values;
     }
 
-    function appendPathSequenceCell(row, path, member, methods) {
+    function appendPathSequenceCell(row, path, member, methodValues) {
         const cell = node("td", "path-sequence");
         const code = node("code");
-        const values = pathSegments(path, member, methods);
+        const values = pathSegments(path, member, methodValues);
         values.forEach((value, index) => {
             code.append(document.createTextNode(value));
             if (index + 1 < values.length) {
@@ -482,53 +438,21 @@
         row.append(cell);
     }
 
-    function diffClass(line) {
-        if (line.startsWith("--- ")) {
-            return "diff-line diff-file-old";
-        }
-        if (line.startsWith("+++ ")) {
-            return "diff-line diff-file-new";
-        }
-        if (line.startsWith("@@")) {
-            return "diff-line diff-hunk";
-        }
-        if (line.startsWith("+")) {
-            return "diff-line diff-add";
-        }
-        if (line.startsWith("-")) {
-            return "diff-line diff-delete";
-        }
-        return "diff-line";
-    }
-
-    function createDiffRow(comparison) {
-        const diffRow = node("tr", "path-diff-row");
-        const cell = node("td", "path-diff");
-        cell.colSpan = 8;
-        const pre = node("pre", "diff");
-        const code = node("code", "diff-code");
-        comparison.unifiedDiff.replace(/\r\n?/g, "\n").split("\n")
-            .forEach(line => code.append(node("span", diffClass(line),
-                line || "\u00a0")));
-        pre.append(code);
-        cell.append(pre);
-        diffRow.append(cell);
-        return diffRow;
-    }
-
     function appendCodeDiffCell(row, relation, member) {
-        const cell = node("td");
+        const cell = node("td", "code-diff-cell");
         if (member.codeDiffStatus === "UNAVAILABLE") {
             cell.append(node("span", "muted", "Unavailable"));
         } else if (member.codeDiffStatus === "JAVA_TEXT_IDENTICAL") {
             cell.append(node("span", "muted", "Java text identical"));
+        } else if (member.codeDiffId === null) {
+            cell.append(node("span", "muted", "Unavailable"));
         } else {
-            const button = node("button", "table-action", "View Java diff");
+            const open = state.expandedRowId === relation.rowId;
+            const button = node("button", "table-action",
+                open ? "Hide Java diff" : "View Java diff");
             button.type = "button";
-            button.setAttribute("aria-expanded",
-                state.expandedRowId === relation.rowId ? "true" : "false");
+            button.setAttribute("aria-expanded", open ? "true" : "false");
             button.addEventListener("click", () => {
-                const open = state.expandedRowId === relation.rowId;
                 state.expandedRowId = open ? null : relation.rowId;
                 render(false);
             });
@@ -537,7 +461,8 @@
         row.append(cell);
     }
 
-    function createRow(relation, path, member, methods, dependencies) {
+    function createRow(relation, path, member, methodValues,
+            dependencyValuesById) {
         const row = node("tr", "path-row");
         const typeCell = node("td");
         typeCell.append(node("span", `badge ${path.type}`,
@@ -545,14 +470,14 @@
         row.append(typeCell);
         appendCell(row,
             `${path.classification === "DIRECT" ? "Direct" : "Transitive"} ${path.type === "impact" ? "dependency" : "structural"} impact`);
-        appendCell(row, affectedMethods(path, methods), "method-cell", true);
-        appendCell(row, dependencyLabel(member, dependencies),
+        appendCell(row, affectedMethods(path, methodValues), "method-cell", true);
+        appendCell(row, dependencyDisplay(member, dependencyValuesById),
             "dependency-cell", true);
         const kindCell = node("td");
         kindCell.append(node("span", "badge kind", member.changePointKind));
         row.append(kindCell);
-        appendCell(row, memberLabel(member), "member-cell", true);
-        appendPathSequenceCell(row, path, member, methods);
+        appendCell(row, member.signature, "member-cell", true);
+        appendPathSequenceCell(row, path, member, methodValues);
         appendCodeDiffCell(row, relation, member);
         return row;
     }
@@ -584,31 +509,31 @@
             : `Loading ${start + 1}–${end} of ${matches} matching records…`;
         try {
             const rowIds = new Set(rowIdsForPage(start, end));
-            const relations = await recordsForIds("rows", rowIds);
+            const relations = await shards.recordsForIds("rows", rowIds);
             const pathIds = new Set([...relations.values()]
                 .map(value => value.pathId));
             const memberIds = new Set([...relations.values()]
                 .map(value => value.changedMemberId));
-            const [paths, members] = await Promise.all([
-                recordsForIds("paths", pathIds),
-                recordsForIds("members", memberIds)
+            const [paths, memberValues] = await Promise.all([
+                shards.recordsForIds("paths", pathIds),
+                shards.recordsForIds("members", memberIds)
             ]);
             const methodIds = new Set();
             paths.forEach(path => path.methodIds.forEach(id =>
                 methodIds.add(id)));
-            const dependencyIds = new Set([...members.values()]
+            const dependencyIds = new Set([...memberValues.values()]
                 .map(value => value.dependencyUpgradeId));
-            const [methods, dependencies] = await Promise.all([
-                recordsForIds("methods", methodIds),
-                recordsForIds("dependencies", dependencyIds)
+            const [methodValues, dependencyValuesById] = await Promise.all([
+                shards.recordsForIds("methods", methodIds),
+                shards.recordsForIds("dependencies", dependencyIds)
             ]);
             let expandedDiff = null;
             if (state.expandedRowId !== null
                     && relations.has(state.expandedRowId)) {
-                const expandedMember = members.get(relations.get(
+                const expandedMember = memberValues.get(relations.get(
                     state.expandedRowId).changedMemberId);
                 if (expandedMember && expandedMember.codeDiffId !== null) {
-                    expandedDiff = (await recordsForIds("diffs",
+                    expandedDiff = (await shards.recordsForIds("diffs",
                         new Set([expandedMember.codeDiffId])))
                         .get(expandedMember.codeDiffId);
                 }
@@ -619,15 +544,15 @@
             const fragment = document.createDocumentFragment();
             [...relations.values()].sort((left, right) =>
                 left.rowId - right.rowId).forEach(relation => {
-                    const row = createRow(relation,
-                        paths.get(relation.pathId),
-                        members.get(relation.changedMemberId),
-                        methods, dependencies);
-                    fragment.append(row);
-                    if (state.expandedRowId === relation.rowId && expandedDiff) {
-                        fragment.append(createDiffRow(expandedDiff));
-                    }
-                });
+                const row = createRow(relation,
+                    paths.get(relation.pathId),
+                    memberValues.get(relation.changedMemberId),
+                    methodValues, dependencyValuesById);
+                fragment.append(row);
+                if (state.expandedRowId === relation.rowId && expandedDiff) {
+                    fragment.append(createDiffRow(expandedDiff, 8));
+                }
+            });
             rowsNode.replaceChildren(fragment);
             emptyNode.textContent =
                 "No affected path matched the current filters.";
@@ -651,10 +576,41 @@
         }
     }
 
+    scopeForm.addEventListener("submit", event => {
+        event.preventDefault();
+        try {
+            const includes = globs(includeInput.value);
+            const excludes = globs(excludeInput.value);
+            applySearchAndFilters(includes, excludes);
+        } catch (error) {
+            summaryNode.textContent =
+                `${error.message}. The last successful result was retained.`;
+        }
+    });
     searchForm.addEventListener("submit", event => {
         event.preventDefault();
-        submitSearch();
+        applySearchAndFilters();
     });
+    [dependencyFilter, memberFilter, methodFilter].forEach(input =>
+        input.addEventListener("change", () => applySearchAndFilters()));
+    memberFilter.addEventListener("focus", () => {
+        const generation = state.searchGeneration;
+        members(generation).then(values => {
+            if (values && generation === state.searchGeneration) {
+                render(false);
+            }
+        }).catch(error => showError(error,
+            () => members(state.searchGeneration)));
+    }, {once: true});
+    methodFilter.addEventListener("focus", () => {
+        const generation = state.searchGeneration;
+        indexes(generation).then(values => {
+            if (values && generation === state.searchGeneration) {
+                render(false);
+            }
+        }).catch(error => showError(error,
+            () => indexes(state.searchGeneration)));
+    }, {once: true});
     typeSelect.addEventListener("change", () => {
         state.type = typeSelect.value;
         applyViewType();
@@ -666,23 +622,28 @@
     });
     pageInput.addEventListener("change", () => {
         state.page = Number(pageInput.value) || 1;
+        state.expandedRowId = null;
         render(false);
     });
     firstButton.addEventListener("click", () => {
         state.page = 1;
+        state.expandedRowId = null;
         render(false);
     });
     previousButton.addEventListener("click", () => {
         state.page -= 1;
+        state.expandedRowId = null;
         render(false);
     });
     nextButton.addEventListener("click", () => {
         state.page += 1;
+        state.expandedRowId = null;
         render(false);
     });
     lastButton.addEventListener("click", () => {
         state.page = Math.max(1,
             Math.ceil(matchingCount() / state.pageSize));
+        state.expandedRowId = null;
         render(false);
     });
 

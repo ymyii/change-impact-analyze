@@ -26,10 +26,10 @@ final class HtmlReportUsabilityVerifier {
     private static final Pattern SHARD_RESOURCE = Pattern.compile(
             "\\\"file\\\":\\\"([^\\\"]+\\.js)\\\"");
 
-    /** Canonical Schema 4 shard header matcher. */
+    /** Canonical Schema 5 shard header matcher. */
     private static final Pattern SHARD_HEADER = Pattern.compile(
             "^window\\.__CIA_AFFECTED_PATH_SHARD__\\(\\{"
-            + "\\\"schemaVersion\\\":4,\\\"kind\\\":\\\"([a-z-]+)\\\","
+            + "\\\"schemaVersion\\\":5,\\\"kind\\\":\\\"([a-z-]+)\\\","
             + "\\\"shardId\\\":([0-9]+),\\\"records\\\":\\[");
 
     /** Non-empty title matcher. */
@@ -143,12 +143,16 @@ final class HtmlReportUsabilityVerifier {
         if (html.contains("id=\"affected-path-manifest\"")) {
             assertThat(html).as("Affected Paths contract in %s", page)
                     .contains("id=\"path-table\"")
-                    .contains("\"schemaVersion\":4")
+                    .contains("\"schemaVersion\":5")
                     .contains("\"rowRanges\"")
                     .contains("\"sources\"")
                     .contains("id=\"path-search-form\"")
+                    .contains("id=\"path-scope-form\"")
                     .contains("id=\"path-dependency-include\"")
                     .contains("id=\"path-dependency-exclude\"")
+                    .contains("id=\"path-dependency-filter\"")
+                    .contains("id=\"path-member-filter\"")
+                    .contains("id=\"path-method-filter\"")
                     .contains("\"shards\"")
                     .contains("__CIA_AFFECTED_PATH_SHARD__")
                     .contains("position:sticky")
@@ -161,6 +165,10 @@ final class HtmlReportUsabilityVerifier {
             assertThat(html).as("Changed member table contract in %s", page)
                     .contains("id=\"changed-member-table\"")
                     .contains("\"memberMetrics\"")
+                    .contains("id=\"member-scope-form\"")
+                    .contains("id=\"member-dependency-filter\"")
+                    .contains("id=\"member-member-filter\"")
+                    .contains("id=\"member-chain\"")
                     .contains("id=\"member-page-size\"")
                     .contains("aria-live=\"polite\"");
         }
@@ -170,7 +178,7 @@ final class HtmlReportUsabilityVerifier {
             final Path file,
             final String content) {
         final Matcher header = SHARD_HEADER.matcher(content);
-        assertThat(header.find()).as("Schema 4 header in %s", file)
+        assertThat(header.find()).as("Schema 5 header in %s", file)
                 .isTrue();
         final String expectedName = header.group(1) + "-" + String.format(
                 Locale.ROOT, "%05d", Integer.parseInt(header.group(2)))

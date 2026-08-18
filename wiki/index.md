@@ -56,7 +56,7 @@ code_refs: []
 - Summary: ChangePoint收集期固定执行decompiled Java first、normalized SSA on miss的短路过滤；下游仅消费effective ChangePoint，CHA query按caller-local事实生成确定性代表路径。
 
 ### [Report Generator](features/report-generator.md)
-- Summary: Affected Paths保持Schema 4离线分片；Impact Path每两节点折行、Structural Path软换行，Technical details展示无源码分阶段过滤证据。
+- Summary: Schema 5离线深度检索与完整JVM签名交互由Java静态门禁和双viewport `file://` Playwright门禁共同约束。
 
 ## Rules
 
@@ -84,7 +84,7 @@ code_refs: []
 ## Runbooks
 
 ### [Build, Test, Package](runbooks/build-test-package.md)
-- Summary: 公共model、JDK 8 model、Plugin与Analyzer四reactor顺序bootstrap；完整JDK 8 gate、uber JAR和CLI smoke。
+- Summary: 四reactor顺序bootstrap、artifact-first Maven gate、uber JAR/CLI smoke，以及独立必跑的Chromium双viewport Report gate。
 
 ### [JDK Models Build and Test](runbooks/jdk-models-build-test.md)
 - Summary: 公共JDK engine与JDK 8 model的顺序构建、exact catalog/fixed-point/Packaging验收、metrics与failure entrypoint。

@@ -73,8 +73,8 @@ class StructuralImpactScannerTest {
         assertThat(evidence.get("dep/RemovedGeneric"))
                 .contains("CLASS_SIGNATURE");
         assertThat(evidence.get("dep/RemovedField"))
-                .contains("FIELD_DESCRIPTOR:field",
-                        "FIELD_SIGNATURE:field");
+                .contains("FIELD_DESCRIPTOR:field:Ldep/RemovedField;",
+                        "FIELD_SIGNATURE:field:Ldep/RemovedField;");
         assertThat(evidence.get("dep/RemovedParameter"))
                 .contains("METHOD_DESCRIPTOR:method(Ldep/"
                         + "RemovedParameter;)V");

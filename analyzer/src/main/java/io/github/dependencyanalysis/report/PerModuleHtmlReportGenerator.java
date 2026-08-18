@@ -76,6 +76,10 @@ public final class PerModuleHtmlReportGenerator {
     private static final String AFFECTED_PATHS_SCRIPT = resource(
             "/io/github/dependencyanalysis/report/affected-paths.js");
 
+    /** Shared offline report behavior. */
+    private static final String REPORT_COMMON_SCRIPT = resource(
+            "/io/github/dependencyanalysis/report/report-common.js");
+
     /** Inlined offline Changed Members interaction script. */
     private static final String CHANGED_MEMBERS_SCRIPT = resource(
             "/io/github/dependencyanalysis/report/changed-members.js");
@@ -94,6 +98,8 @@ public final class PerModuleHtmlReportGenerator {
             + "a{color:var(--accent)}header{border-bottom:1px solid"
             + " var(--line);padding:14px 24px;background:var(--surface)}"
             + ".breadcrumbs,.siblings{display:flex;gap:8px;flex-wrap:wrap}"
+            + ".breadcrumbs>*,.siblings>*,h1{min-width:0;"
+            + "overflow-wrap:anywhere}"
             + ".siblings{margin-top:8px}.layout{display:grid;grid-template-"
             + "columns:240px minmax(0,1fr);gap:clamp(18px,2vw,32px);"
             + "width:100%;margin:0 auto;padding:clamp(14px,2vw,28px)}"
@@ -149,14 +155,15 @@ public final class PerModuleHtmlReportGenerator {
             + " var(--focus);outline-offset:2px}.table-scroll{overflow-x:auto;"
             + "border:1px solid var(--line);border-radius:var(--radius);"
             + "background:var(--surface)}.table-scroll table{margin:0}"
-            + ".path-table{min-width:1320px}.changed-member-table{"
-            + "min-width:1100px}.path-sequence{min-width:340px;"
+            + ".path-table{min-width:1420px}.changed-member-table{"
+            + "min-width:1280px}.path-sequence{min-width:340px;"
             + "inline-size:clamp(340px,42vw,640px);max-inline-size:640px;"
             + "white-space:normal;overflow-wrap:anywhere}.numeric{"
             + "text-align:right!important;"
             + "font-variant-numeric:tabular-nums}.pagination{display:flex;"
             + "gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0}"
-            + ".pagination input{width:76px}.path-diff-row td{padding:0}"
+            + ".pagination input{width:76px}.path-diff-row td,"
+            + ".member-diff-row td{padding:0}"
             + ".path-diff{background:#0b1220;padding:12px!important}"
             + ".diff-code{display:block}"
             + ".diff-line{display:block;min-height:1.55em;padding:0 6px}"
@@ -164,6 +171,17 @@ public final class PerModuleHtmlReportGenerator {
             + ".diff-delete,.diff-file-old{color:#fca5a5;background:#3f1115}"
             + ".diff-hunk{color:#93c5fd;background:#172554}"
             + ".diff-file-new,.diff-file-old,.diff-hunk{font-weight:700}"
+            + ".table-action{display:inline-flex;align-items:center;justify-"
+            + "content:center;min-inline-size:112px;inline-size:max-content;"
+            + "white-space:nowrap;writing-mode:horizontal-tb;line-height:1.2}"
+            + ".code-diff-cell{min-width:132px}.scope-card{margin:12px 0}"
+            + ".scope-card fieldset{border:1px solid var(--line-strong);"
+            + "border-radius:var(--radius);padding:12px;background:"
+            + "var(--surface-alt)}.scope-card legend{padding:0 6px;"
+            + "font-weight:700}.scope-controls{display:flex;gap:12px;"
+            + "align-items:end;flex-wrap:wrap}.scope-card .muted{"
+            + "margin:8px 0 0}"
+            + ".filter-input{min-inline-size:220px}"
             + ".hidden{display:none!important}summary{cursor:pointer;"
             + "font-weight:600}.sequence{font-size:14px}caption{padding:8px;"
             + "text-align:left}"
@@ -259,15 +277,15 @@ public final class PerModuleHtmlReportGenerator {
             final ModulePages pages = new ModulePages(
                     base + ".html", base + "-impact.html");
             final String dataDirectoryName = base + "-impact-data";
-            final AffectedPathReportManifest manifest =
+            final AffectedPathReportData reportData =
                     new AffectedPathReportDataWriter(
                             diagnostics, maxShardBytes).write(
                             module, directory.resolve(dataDirectoryName),
                             dataDirectoryName);
             writeModuleIndexPage(directory.resolve(pages.index()), module,
-                    pages, overallFile, runtime);
+                    pages, overallFile, runtime, reportData);
             writeImpactPage(directory.resolve(pages.impact()), module,
-                    pages, overallFile, manifest);
+                    pages, overallFile, reportData.manifest());
             result.put(module, pages);
         }
         return result;
@@ -473,7 +491,8 @@ public final class PerModuleHtmlReportGenerator {
             final ModuleAnalysisResult module,
             final ModulePages pages,
             final String overallFile,
-            final ModuleRuntime runtime) throws IOException {
+            final ModuleRuntime runtime,
+            final AffectedPathReportData reportData) throws IOException {
         writeDocument(target, "Module summary", "Module Index",
                 breadcrumbs(overallFile, module, pages.index(),
                         "Module Index"), siblingLinks(pages, "index"),
@@ -514,7 +533,7 @@ public final class PerModuleHtmlReportGenerator {
                                 + "single-threaded)"))
                 .append(row("Analysis elapsed", module.getElapsedMillis()
                         + " ms")).append("</table></section>");
-        appendChangedMemberMetrics(body, module);
+        appendChangedMemberMetrics(body, module, reportData);
         body.append("<section id=\"scope\"><h2>Analysis scope</h2><p>")
                 .append("Application module: <code>")
                 .append(escape(module.getModuleId().getCoordinate().toString()))
@@ -813,23 +832,48 @@ public final class PerModuleHtmlReportGenerator {
     // Wiki: wiki/features/report-generator.md - Changed member metrics
     private void appendChangedMemberMetrics(
             final HtmlSink body,
-            final ModuleAnalysisResult module) {
+            final ModuleAnalysisResult module,
+            final AffectedPathReportData reportData) {
         body.append("<section id=\"changed-members\"><h2>Changed members")
                 .append("</h2><p>Counts include impact call paths and ")
-                .append("structural reference paths.</p>")
-                .append("<div class=\"report-controls\">")
-                .append("<label class=\"report-control\">Dependency or ")
-                .append("member search<input id=\"member-search\" type=")
-                .append("\"search\" aria-controls=\"changed-member-table\">")
-                .append("</label><label class=\"report-control\">")
-                .append("Include dependencies<input id=")
+                .append("structural reference paths.</p><form id=")
+                .append("\"member-scope-form\" class=\"scope-card\">")
+                .append("<fieldset><legend>Dependency scope</legend><div ")
+                .append("class=\"scope-controls\"><label class=")
+                .append("\"report-control\">Include dependencies<input id=")
                 .append("\"member-dependency-include\" type=\"text\" ")
                 .append("placeholder=\"com.acme.*:*\" aria-controls=")
                 .append("\"changed-member-table\"></label><label class=")
                 .append("\"report-control\">Exclude dependencies<input id=")
                 .append("\"member-dependency-exclude\" type=\"text\" ")
                 .append("placeholder=\"com.acme.internal:*\" aria-controls=")
-                .append("\"changed-member-table\"></label><label class=")
+                .append("\"changed-member-table\"></label><button type=")
+                .append("\"submit\">Apply scope</button></div><p class=")
+                .append("\"muted\">Scope narrows the CLI-selected changed ")
+                .append("dependencies; exclude wins.</p></fieldset></form>")
+                .append("<div class=\"report-controls\"><label class=")
+                .append("\"report-control\">Search dependency or member")
+                .append("<input id=\"member-search\" type=\"search\" ")
+                .append("aria-controls=\"changed-member-table\"></label>")
+                .append("<label class=\"report-control\">Dependency filter")
+                .append("<input id=\"member-dependency-filter\" class=")
+                .append("\"filter-input\" type=\"text\" list=")
+                .append("\"member-dependency-options\" placeholder=\"All\" ")
+                .append("aria-controls=\"changed-member-table\"></label>")
+                .append("<datalist id=\"member-dependency-options\">")
+                .append("</datalist><label class=\"report-control\">")
+                .append("Changed member filter<input id=")
+                .append("\"member-member-filter\" class=\"filter-input\" ")
+                .append("type=\"text\" list=\"member-member-options\" ")
+                .append("placeholder=\"All\" aria-controls=")
+                .append("\"changed-member-table\"></label><datalist id=")
+                .append("\"member-member-options\"></datalist><label class=")
+                .append("\"report-control\">Impact chain<select id=")
+                .append("\"member-chain\" aria-controls=")
+                .append("\"changed-member-table\"><option value=\"all\">")
+                .append("All</option><option value=\"has\">Has impact path")
+                .append("</option><option value=\"none\">No impact path")
+                .append("</option></select></label><label class=")
                 .append("\"report-control\">")
                 .append("ChangePointKind<select id=\"member-kind\" ")
                 .append("aria-controls=\"changed-member-table\">")
@@ -857,6 +901,7 @@ public final class PerModuleHtmlReportGenerator {
                 .append("</th><th class=\"numeric\">Impact</th>")
                 .append("<th class=\"numeric\">Structural</th>")
                 .append("<th class=\"numeric\">Impact total</th>")
+                .append("<th>Code diff</th>")
                 .append("</tr></thead><tbody id=\"member-rows\"></tbody>")
                 .append("</table></div><p id=\"member-empty\" class=")
                 .append("\"muted hidden\" aria-live=\"polite\"></p>")
@@ -876,14 +921,19 @@ public final class PerModuleHtmlReportGenerator {
                 .append("Summary section.</p></noscript><script id=")
                 .append("\"changed-member-data\" type=")
                 .append("\"application/json\">");
-        writeChangedMemberMetricData(body, module);
-        body.append("</script><script>").append(CHANGED_MEMBERS_SCRIPT)
+        writeChangedMemberMetricData(body, module, reportData);
+        body.append("</script><script id=\"changed-member-diff-manifest\" ")
+                .append("type=\"application/json\">")
+                .append(reportData.manifest().toJson())
+                .append("</script><script>").append(REPORT_COMMON_SCRIPT)
+                .append("</script><script>").append(CHANGED_MEMBERS_SCRIPT)
                 .append("</script></section>");
     }
 
     private void writeChangedMemberMetricData(
             final HtmlSink body,
-            final ModuleAnalysisResult module) {
+            final ModuleAnalysisResult module,
+            final AffectedPathReportData reportData) {
         final List<BoundChangePoint> members = module.getUnit()
                 .getChangePoints().stream().distinct()
                 .sorted(Comparator.comparing(BoundChangePoint::stableKey))
@@ -909,7 +959,8 @@ public final class PerModuleHtmlReportGenerator {
             for (int index = 0; index < members.size(); index++) {
                 writeChangedMemberData(json, members.get(index), index,
                         dependencyIds.get(members.get(index)
-                                .getDependencyUpgradeKey()), null);
+                                .getDependencyUpgradeKey()),
+                        reportData.members().get(members.get(index)));
             }
             json.writeEndArray();
             json.writeArrayFieldStart("memberMetrics");
@@ -956,7 +1007,22 @@ public final class PerModuleHtmlReportGenerator {
                 .append("</h1><section id=\"paths\"><h2>Affected paths</h2>")
                 .append("<p>Each row links one root impact path to one ")
                 .append("changed member. Only the current page is rendered.")
-                .append("</p><div class=\"report-controls\">")
+                .append("</p><form id=\"path-scope-form\" class=")
+                .append("\"scope-card\"><fieldset><legend>Dependency ")
+                .append("scope</legend><div class=\"scope-controls\">")
+                .append("<label class=\"report-control\">Include ")
+                .append("dependencies<input id=")
+                .append("\"path-dependency-include\" type=\"text\" ")
+                .append("placeholder=\"com.acme.*:*\" aria-controls=")
+                .append("\"path-table\"></label><label class=")
+                .append("\"report-control\">Exclude dependencies<input id=")
+                .append("\"path-dependency-exclude\" type=\"text\" ")
+                .append("placeholder=\"com.acme.internal:*\" aria-controls=")
+                .append("\"path-table\"></label><button type=\"submit\">")
+                .append("Apply scope</button></div><p class=\"muted\">")
+                .append("Scope narrows the CLI-selected changed dependencies;")
+                .append(" exclude wins.</p></fieldset></form>")
+                .append("<div class=\"report-controls\">")
                 .append("<label class=\"report-control\">View type<select ")
                 .append("id=\"path-type\" aria-controls=\"path-table\">")
                 .append("<option value=\"impact\" selected>Impact</option>")
@@ -964,20 +1030,30 @@ public final class PerModuleHtmlReportGenerator {
                 .append("</option><option value=\"all\">All</option>")
                 .append("</select></label><form id=\"path-search-form\" ")
                 .append("class=\"search-fields\"><label class=")
-                .append("\"report-control\">")
-                .append("Affected method search<input id=\"path-search\" ")
-                .append("type=\"search\" placeholder=\"package.Class#method\"")
-                .append(" aria-controls=\"path-table\"></label><label class=")
-                .append("\"report-control\">Include dependencies<input id=")
-                .append("\"path-dependency-include\" type=\"text\" ")
-                .append("placeholder=\"com.acme.*:*\" aria-controls=")
-                .append("\"path-table\"></label><label class=")
-                .append("\"report-control\">Exclude dependencies<input id=")
-                .append("\"path-dependency-exclude\" type=\"text\" ")
-                .append("placeholder=\"com.acme.internal:*\" aria-controls=")
+                .append("\"report-control\">Search affected methods, ")
+                .append("members, paths, or dependencies<input id=")
+                .append("\"path-search\" type=\"search\" aria-controls=")
                 .append("\"path-table\"></label><button id=")
                 .append("\"path-search-submit\" type=\"submit\">Search")
-                .append("</button></form>")
+                .append("</button></form><label class=\"report-control\">")
+                .append("Dependency filter<input id=")
+                .append("\"path-dependency-filter\" class=\"filter-input\" ")
+                .append("type=\"text\" list=\"path-dependency-options\" ")
+                .append("placeholder=\"All\" aria-controls=\"path-table\">")
+                .append("</label><datalist id=\"path-dependency-options\">")
+                .append("</datalist><label class=\"report-control\">")
+                .append("Changed member filter<input id=")
+                .append("\"path-member-filter\" class=\"filter-input\" ")
+                .append("type=\"text\" list=\"path-member-options\" ")
+                .append("placeholder=\"All\" aria-controls=\"path-table\">")
+                .append("</label><datalist id=\"path-member-options\">")
+                .append("</datalist><label class=\"report-control\">")
+                .append("Affected application method filter<input id=")
+                .append("\"path-method-filter\" class=\"filter-input\" ")
+                .append("type=\"text\" list=\"path-method-options\" ")
+                .append("placeholder=\"All\" aria-controls=\"path-table\">")
+                .append("</label><datalist id=\"path-method-options\">")
+                .append("</datalist>")
                 .append("<label class=\"report-control\">Rows per page")
                 .append("<select id=\"path-page-size\" ")
                 .append("aria-controls=\"path-table\">")
@@ -1014,7 +1090,8 @@ public final class PerModuleHtmlReportGenerator {
                 .append("<script id=\"affected-path-manifest\" ")
                 .append("type=\"application/json\">");
         body.append(manifest.toJson());
-        body.append("</script><script>")
+        body.append("</script><script>").append(REPORT_COMMON_SCRIPT)
+                .append("</script><script>")
                 .append(AFFECTED_PATHS_SCRIPT).append("</script>");
         });
     }
@@ -1041,7 +1118,8 @@ public final class PerModuleHtmlReportGenerator {
             final BoundChangePoint bound,
             final int memberId,
             final int dependencyId,
-            final Integer codeDiffId) throws IOException {
+            final AffectedPathReportData.MemberData memberData)
+            throws IOException {
         final ChangePoint point = bound.getChangePoint();
         json.writeStartObject();
         json.writeNumberField("id", memberId);
@@ -1051,25 +1129,15 @@ public final class PerModuleHtmlReportGenerator {
                         + ":" + bound.getDependencyUpgradeKey()
                         .getNewArtifact().getArtifactId());
         json.writeStringField("changePointKind", point.getKind().name());
-        json.writeStringField("owner", point.getOwner().replace('/', '.'));
-        writeNullableString(json, "name", point.getName());
-        if (codeDiffId == null) {
+        json.writeStringField("signature", memberData.signature());
+        json.writeStringField("codeDiffStatus",
+                memberData.codeDiffStatus());
+        if (memberData.codeDiffId() == null) {
             json.writeNullField("codeDiffId");
         } else {
-            json.writeNumberField("codeDiffId", codeDiffId);
+            json.writeNumberField("codeDiffId", memberData.codeDiffId());
         }
         json.writeEndObject();
-    }
-
-    private void writeNullableString(
-            final JsonGenerator json,
-            final String field,
-            final String value) throws IOException {
-        if (value == null) {
-            json.writeNullField(field);
-        } else {
-            json.writeStringField(field, value);
-        }
     }
 
     private void writeDocument(
@@ -1277,16 +1345,6 @@ public final class PerModuleHtmlReportGenerator {
     private String statusClass(final String status) {
         return "SUCCESS".equals(status) ? "ok"
                 : "FAILED".equals(status) ? "fail" : "warn";
-    }
-
-    private String structuralOwner(final StructuralReferencePath path) {
-        final String member = path.getReference().getReferencingMember();
-        return path.getReference().getReferencingClass().replace('/', '.')
-                + (member.isBlank() ? "" : "#" + member);
-    }
-
-    private String humanMethod(final MethodId method) {
-        return method.owner().replace('/', '.') + "#" + method.name();
     }
 
     private long pathCount(final AnalysisRunResult run) {

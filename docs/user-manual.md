@@ -623,8 +623,9 @@ Changed members 表包含全部 selected effective changed member，包括 Impac
 - Impact。
 - Structural。
 - Impact total，其中 `Impact total = Impact + Structural`。
+- Code diff；只对`Impact total > 0`的member按需展开，零链路member不生成额外comparison。
 
-页面支持 dependency/member search、changed dependency Include/Exclude Glob、`ChangePointKind` filter 和 pagination。浏览器 filter 只能缩小 CLI 已分析的数据，不能恢复 CLI selector 排除的 member。
+页面只有一个搜索框，对Changed dependency与完整changed member JVM签名执行大小写不敏感的子串搜索。Dependency scope使用独立Include/Exclude Glob与`Apply scope`；普通筛选支持target `groupId:artifactId`、完整changed member签名、是否存在Impact chain及`ChangePointKind`，并支持pagination。浏览器Scope和filter只能缩小CLI已分析的数据，不能恢复CLI selector排除的member。
 
 #### Affected Paths
 
@@ -636,6 +637,10 @@ Changed members 表包含全部 selected effective changed member，包括 Impac
 - changed member。
 - Root Impact Path。
 - Vineflower decompiled Java unified diff。
+
+Affected Paths只有一个全局搜索框，搜索Affected application methods、Changed dependency、Changed member/class与Impact path，任一列命中即可。Dependency scope独立提交；普通筛选支持target `groupId:artifactId`、完整changed member签名和单个Affected application method完整签名。Scope、搜索、筛选与View type共同缩小结果。一行包含多个Affected application methods时，选择任一方法均保留该行。
+
+Report中的method使用`dotted.owner#name(JVM descriptor)`，field使用`dotted.owner#name:JVM descriptor`，class使用完整dotted binary name；descriptor变化同时显示完整old/new签名。
 
 Impact Path包含末端`Changed member`，每两个节点强制换行并在行末保留箭头；超长class、method和descriptor可在节点内部软换行。Structural Path不强制按两个节点分组，但同样允许软换行，表格整体仍可横向滚动。
 

@@ -1,0 +1,17 @@
+{
+  "name": "change-impact-analyze-report-tests",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test:report:typecheck": "tsc -p tests/report-ui/tsconfig.json --noEmit",
+    "test:report": "npm run test:report:typecheck && playwright test",
+    "test:report:headed": "npm run test:report:typecheck && playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@types/node": "26.2.0",
+    "typescript": "7.0.2"
+  }
+}

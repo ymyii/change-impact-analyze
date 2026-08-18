@@ -164,7 +164,7 @@ Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`Mo
 ## Structural Reference Path
 
 - Structural metadata在Call Graph完成后从ownership winner收集raw fact；统一collector在唯一node循环中绑定为`STRUCTURAL_REFERENCE + STRUCTURAL_METADATA`。Query不再执行ChangePoint绑定或按reference重扫Call Graph，只做target Class Hierarchy access decision与path materialization。
-- superclass、interface、annotation、generic signature、method/field descriptor、throws reference在ASM visitor中直接形成typed `MetadataReference(kind, member, target, evidence)`，再投影为`StructuralReference`；kind/member不从evidence文字反向解析。
+- superclass、interface、annotation、generic signature、method/field descriptor、throws reference在ASM visitor中直接形成typed `MetadataReference(kind, member, target, evidence)`，再投影为`StructuralReference`；method member保存name与descriptor，field member保存`name:descriptor`，class-level member为空；kind/member不从evidence文字反向解析。
 - PROJECT metadata reference 直接展示 `application class/member -> structural relation -> changed dependency class`，不虚构 method call。
 - REACTOR_DEPENDENCY/DEPENDENCY reference 使用 live WALA graph 做同样的 read-only reverse BFS，恢复 PROJECT boundary。
 - 每个PROJECT root component保留一条shortest representative structural path；无法回到PROJECT时为`UNREACHABLE_STRUCTURAL_REFERENCE`。

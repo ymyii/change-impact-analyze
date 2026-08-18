@@ -16,6 +16,8 @@ relations:
     desc: "Analyzer 能力新增的 semantic benchmark 完成条件"
   - path: "wiki/features/jdk-method-models.md"
     desc: "Analyzer依赖的两个独立model artifact与packaging contract"
+  - path: "wiki/features/report-generator.md"
+    desc: "Impact离线HTML、Schema 5和真实浏览器行为合同"
 code_refs:
   - path: "pom.xml"
     desc: "Analyzer parent/aggregator、Enforcer 与 shared build management"
@@ -33,6 +35,12 @@ code_refs:
     desc: "最终 shaded JAR 与真实 command black-box gate"
   - path: "analyzer/src/integration-test/java/io/github/dependencyanalysis/cli/HtmlReportUsabilityVerifier.java"
     desc: "Impact单文件与Tree多页面HTML可用性gate"
+  - path: "analyzer/src/integration-test/java/io/github/dependencyanalysis/report/ReportBrowserFixtureIT.java"
+    desc: "Playwright使用的确定性离线Report夹具发布入口"
+  - path: "package.json"
+    desc: "Playwright类型检查、无头与headed测试命令"
+  - path: "playwright.config.ts"
+    desc: "双viewport Chromium、单worker与失败artifact配置"
 ---
 
 # Runbook: Build, Test, Package
@@ -47,6 +55,7 @@ code_refs:
 - Maven 3.x。
 - root POM 的 `test.jdk8.home` 默认指向 `/absolute/path/to/jdk8`；必须存在 `bin/java`、`bin/javac`、`jre/lib/rt.jar`，且 probe 结果为 Java 8。其他环境使用 `-Dtest.jdk8.home=/absolute/path/to/jdk8` 覆盖。
 - Integration tests 需要本地 `git` 和可运行 Maven executable。
+- Impact Report浏览器门禁需要Node.js 20或更高版本、npm和Playwright管理的Chromium。
 - 所有 command 从 repository root 执行。
 
 ## Commands
@@ -114,6 +123,35 @@ Surefire/Failsafe 自动将 `test.jdk8.home` 作为 `TEST_JDK8_HOME` 注入 test
 
 Analyzer reactor不构建`plugins/`、`models/jdk`或`models/jdk8`。若local repository缺少对应Plugin repository ZIP或`jdk8-models.version` artifact，dependency resolution必须失败；按model dependency顺序及Plugin入口执行`clean install`。
 
+### Impact Report浏览器门禁
+
+`mvn clean verify`中的`ReportBrowserFixtureIT`先发布`target/playwright-report-fixture/impact.html`及Module、Affected Paths和Schema 5 shards。Playwright只消费该Maven产物；夹具不存在时命令会提示先运行`mvn clean verify`。
+
+首次安装或锁文件变化后安装Node.js依赖与Chromium：
+
+```sh
+npm ci
+npx playwright install chromium
+```
+
+Linux CI安装浏览器及系统依赖：
+
+```sh
+npx playwright install --with-deps chromium
+```
+
+Maven gate成功后执行独立必跑的浏览器gate：
+
+```sh
+npm run test:report
+```
+
+该command先执行TypeScript检查，再通过`file://`在Chromium桌面`1280×800`和小屏幕`390×844`project中运行全部Report tests。交互式本地排查使用：
+
+```sh
+npm run test:report:headed
+```
+
 ### CLI smoke
 
 ```sh
@@ -130,6 +168,7 @@ java -jar target/dependency-analyzer.jar tree --help
 - Plugin reactor 输出 `0 Checkstyle violations`，tests 全部通过，Plugin class major 不超过 `52`。Graph tests 覆盖scope-conflict pruning、multi-path winner normalization、missing winner fail-fast；output tests 覆盖owner/path/symlink 与 atomic publication。
 - Plugin repository ZIP 只有 Maven layout 下当前 version 的 JAR 与 consumer POM，不包含项目生成的 checksum sidecar。
 - Analyzer `mvn clean verify` 的 Surefire 与 Failsafe tests 全部通过且 `Skipped: 0`。
+- `mvn clean verify`生成`target/playwright-report-fixture/`；`npm run test:report`的两个Chromium project全部通过，无HTTP/HTTPS请求、page error或异常console error。
 - `PackageArchitectureTest`在`mvn verify`中强制Call Graph与Impact/Report解耦、CHA与`k-obj`隔离、protocol依赖方向、根包无production class以及Report不访问live strategy。
 - `StagePhaseTerminologyTest`在unit test中扫描主代码、测试、Wiki和用户文档；除WALA/Java强制外部API名称外，不允许项目自有控制流程重新引入旧术语。
 - Diagnostic与Impact Query tests验证五段prefix、可选Phase、Phase不进入Stage计时key、统一`started/completed/failed`正文，以及QueryNode消息正文不再重复`phase=`。
@@ -157,6 +196,9 @@ java -jar target/dependency-analyzer.jar tree --help
 - JDK model artifact resolution failure：先执行`models/jdk`再执行`models/jdk8`的`clean install`，确认root`jdk8-models.version`匹配。
 - Plugin test failure：`plugins/artifact-path-resolver/target/surefire-reports/`。
 - Analyzer unit/integration failure：`target/surefire-reports/`、`target/failsafe-reports/`。
+- `Playwright report fixture is unavailable`：先执行`mvn clean verify`，确认`target/playwright-report-fixture/impact.html`及相邻Module目录存在。
+- Playwright browser executable缺失：执行`npx playwright install chromium`；Linux CI使用`--with-deps chromium`。
+- Playwright失败：检查`target/playwright/html-report/`，以及`target/playwright/test-results/`中的失败截图、`trace.zip`和error context。
 - Checkstyle failure：Maven Console 中的 file/line/check 名称。
 - Shade/manifest failure：检查 `analyzer/pom.xml` 的 `maven-shade-plugin` `finalName` 与 `mainClass`。
 - Embedded repository failure：检查 Analyzer JAR 中 `maven/plugin-repositories/` 的两个 ZIP 和 runtime manager 的必要文件路径。
@@ -168,4 +210,6 @@ java -jar target/dependency-analyzer.jar tree --help
 - Analyzer test JDK 8：root `test.jdk8.home`；command-line `-Dtest.jdk8.home=...` 优先。
 - Analyzer 使用的 Plugin version：root `artifact-path-plugin.version`。
 - Analyzer使用的JDK 8 model version：root`jdk8-models.version`。
+- Report浏览器测试Node.js最低版本：20；browser固定由锁定的Playwright package管理。
+- Playwright Maven夹具：`target/playwright-report-fixture/`；失败artifact：`target/playwright/`。
 - 详细 release 切换见 [Version and Distribution](version-and-distribution.md)。

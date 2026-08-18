@@ -277,19 +277,20 @@ public final class StructuralImpactScanner {
                 final String descriptor,
                 final String signature,
                 final Object value) {
+            final String field = name + ":" + descriptor;
             addDescriptor(descriptor, StructuralReferenceKind.FIELD_TYPE,
-                    name, "FIELD_DESCRIPTOR:" + name);
+                    field, "FIELD_DESCRIPTOR:" + field);
             addSignature(signature, StructuralReferenceKind.SIGNATURE,
-                    name, "FIELD_SIGNATURE:" + name);
+                    field, "FIELD_SIGNATURE:" + field);
             return new FieldVisitor(API) {
                 @Override
                 public AnnotationVisitor visitAnnotation(
                         final String desc, final boolean visible) {
                     addDescriptor(desc, StructuralReferenceKind.ANNOTATION,
-                            name, "FIELD_ANNOTATION:" + name);
+                            field, "FIELD_ANNOTATION:" + field);
                     return annotationVisitor(
-                            StructuralReferenceKind.ANNOTATION, name,
-                            "FIELD_ANNOTATION_VALUE:" + name);
+                            StructuralReferenceKind.ANNOTATION, field,
+                            "FIELD_ANNOTATION_VALUE:" + field);
                 }
 
                 @Override
@@ -299,10 +300,10 @@ public final class StructuralImpactScanner {
                         final String desc,
                         final boolean visible) {
                     addDescriptor(desc, StructuralReferenceKind.ANNOTATION,
-                            name, "FIELD_TYPE_ANNOTATION:" + name);
+                            field, "FIELD_TYPE_ANNOTATION:" + field);
                     return annotationVisitor(
-                            StructuralReferenceKind.ANNOTATION, name,
-                            "FIELD_TYPE_ANNOTATION_VALUE:" + name);
+                            StructuralReferenceKind.ANNOTATION, field,
+                            "FIELD_TYPE_ANNOTATION_VALUE:" + field);
                 }
             };
         }
