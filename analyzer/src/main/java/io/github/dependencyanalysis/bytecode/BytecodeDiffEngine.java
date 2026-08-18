@@ -8,8 +8,10 @@ import io.github.dependencyanalysis.jar.JarLease;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
@@ -18,6 +20,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.concurrent.TimeUnit;
 
 // Wiki: wiki/features/bytecode-diff-engine.md - Bytecode diff engine
 /**
@@ -36,6 +39,9 @@ public final class BytecodeDiffEngine {
 
     /** Fixed ChangePoint-collection SSA filter. */
     private final BytecodeSsaFilter ssaFilter;
+
+    /** Fixed decompiled Java comparison producer. */
+    private final MethodBodyDecompiler decompiler;
 
     /**
      * Creates a bytecode diff engine with normalized SSA filtering enabled.
@@ -60,6 +66,10 @@ public final class BytecodeDiffEngine {
                                     kinds));
         }
         ssaFilter = new BytecodeSsaFilter(runtime, diagnostics);
+        final List<Path> libraries = new ArrayList<>(
+                runtime.getBootClassPath());
+        libraries.addAll(runtime.getExtensionClassPath());
+        decompiler = new MethodBodyDecompiler(diagnostics, libraries);
     }
 
     /**
@@ -88,15 +98,36 @@ public final class BytecodeDiffEngine {
             diffClasses(oldIndex, newIndex, change.getNewArtifact(), raw,
                     candidates);
             if (candidates.isEmpty()) {
-                return new BytecodeDiffResult(raw, raw.size(), List.of());
+                return new BytecodeDiffResult(raw, raw.size(), List.of(),
+                        List.of());
             }
-            final List<SsaComparisonEvidence> evidence = ssaFilter.compare(
-                    change, oldLease.jarFile(), newLease.jarFile(),
-                    candidates);
-            final Set<String> suppressed = evidence.stream()
+            final List<DecompileComparisonEvidence> decompiled =
+                    compareDecompiled(change,
+                            Path.of(oldLease.jarFile().getName()),
+                            Path.of(newLease.jarFile().getName()), candidates);
+            final Set<String> javaSuppressed = decompiled.stream()
                     .filter(value -> value.getStatus()
-                            == SsaComparisonStatus.MATCHED)
-                    .map(SsaComparisonEvidence::stableKey)
+                            == DecompileComparisonStatus.IDENTICAL)
+                    .map(DecompileComparisonEvidence::stableKey)
+                    .collect(java.util.stream.Collectors.toSet());
+            final List<SsaMethodCandidate> ssaCandidates = candidates.stream()
+                    .filter(value -> !javaSuppressed.contains(comparisonKey(
+                            change, value.changePoint())))
+                    .toList();
+            final List<SsaComparisonEvidence> evidence = ssaCandidates.isEmpty()
+                    ? List.of() : ssaFilter.compare(
+                    change, oldLease.jarFile(), newLease.jarFile(),
+                    ssaCandidates);
+            final Map<String, SsaComparisonEvidence> ssaByMethod =
+                    new HashMap<>();
+            evidence.forEach(value -> ssaByMethod.put(
+                    value.stableKey(), value));
+            final List<DecompileComparisonEvidence> combined = decompiled
+                    .stream().map(value -> combineSsaEvidence(
+                            value, ssaByMethod)).toList();
+            final Set<String> suppressed = combined.stream()
+                    .filter(DecompileComparisonEvidence::isSuppressed)
+                    .map(DecompileComparisonEvidence::stableKey)
                     .collect(java.util.stream.Collectors.toSet());
             final List<ChangePoint> effective = raw.stream()
                     .filter(point -> point.getKind()
@@ -105,8 +136,59 @@ public final class BytecodeDiffEngine {
                             change, point)))
                     .toList();
             return new BytecodeDiffResult(
-                    effective, raw.size(), evidence);
+                    effective, raw.size(), evidence, combined);
         }
+    }
+
+    private List<DecompileComparisonEvidence> compareDecompiled(
+            final DependencyChange change,
+            final Path oldJar,
+            final Path newJar,
+            final List<SsaMethodCandidate> candidates) {
+        final List<SsaMethodCandidate> ordered = candidates.stream()
+                .sorted(Comparator.comparing(value -> value.changePoint()
+                        .getOwner() + "|" + value.changePoint().getName()
+                        + value.changePoint().getOldDescriptor()))
+                .toList();
+        final List<DecompileComparisonEvidence> result = new ArrayList<>();
+        for (SsaMethodCandidate candidate : ordered) {
+            final ChangePoint point = candidate.changePoint();
+            final long start = System.nanoTime();
+            final DecompiledMethod oldMethod = decompiler.decompileMethod(
+                    oldJar, point, point.getOldDescriptor(), "old",
+                    change.getOldArtifact());
+            final DecompiledMethod newMethod = decompiler.decompileMethod(
+                    newJar, point, point.getNewDescriptor(), "new",
+                    change.getNewArtifact());
+            final long elapsed = TimeUnit.NANOSECONDS.toMillis(
+                    System.nanoTime() - start);
+            result.add(new DecompileComparisonEvidence(
+                    change.getOldArtifact(), point,
+                    candidate.oldMajorVersion(), candidate.newMajorVersion(),
+                    oldMethod, newMethod, elapsed));
+        }
+        return List.copyOf(result);
+    }
+
+    private DecompileComparisonEvidence combineSsaEvidence(
+            final DecompileComparisonEvidence decompiled,
+            final Map<String, SsaComparisonEvidence> ssaByMethod) {
+        final SsaComparisonEvidence ssa = ssaByMethod.get(
+                decompiled.stableKey());
+        if (decompiled.getStatus() == DecompileComparisonStatus.IDENTICAL) {
+            if (ssa != null) {
+                throw new IllegalStateException(
+                        "SSA executed after identical Java text: "
+                                + decompiled.stableKey());
+            }
+            return decompiled;
+        }
+        if (ssa == null) {
+            throw new IllegalStateException(
+                    "Missing SSA evidence for " + decompiled.stableKey());
+        }
+        return ssa.getStatus() == SsaComparisonStatus.MATCHED
+                ? decompiled.withSsaMatched(ssa) : decompiled;
     }
 
     private String comparisonKey(
@@ -124,7 +206,7 @@ public final class BytecodeDiffEngine {
      * @param newIdx new class index
      * @param art    artifact coordinate
      * @param result change point list
-     * @param candidates version-gated SSA candidates
+     * @param candidates semantic comparison candidates
      */
     private void diffClasses(
             final Map<String, ClassInfo>
@@ -203,7 +285,7 @@ public final class BytecodeDiffEngine {
      * @param art    artifact coordinate
      * @param owner  internal class name
      * @param result change point list
-     * @param candidates version-gated SSA candidates
+     * @param candidates semantic comparison candidates
      */
     private void diffMethods(
             final ClassInfo oldC,
@@ -293,13 +375,9 @@ public final class BytecodeDiffEngine {
                         oldM.getBodyHash(),
                         newM.getBodyHash());
                 result.add(bodyChange);
-                if (ssaFilter != null
-                        && oldC.getMajorVersion()
-                        != newC.getMajorVersion()) {
-                    candidates.add(new SsaMethodCandidate(
-                            bodyChange, oldC.getMajorVersion(),
-                            newC.getMajorVersion()));
-                }
+                candidates.add(new SsaMethodCandidate(
+                        bodyChange, oldC.getMajorVersion(),
+                        newC.getMajorVersion()));
             }
             if (includedKinds.contains(
                     ChangePointKind.METHOD_ACCESS_NARROWED)

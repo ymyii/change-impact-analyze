@@ -50,6 +50,7 @@ SUMMARY_COLUMNS = (
 )
 TOPOLOGY_COLUMNS = (
     "algorithm", "jdk_model", "ssa_equivalence",
+    "decompiled_java_equivalence",
     "impact_path_pruning_extensions", "wala_reflection_options",
     "module", "direction",
     "record_type", "rank", "cg_node_id", "cg_node_identity", "context",
@@ -110,7 +111,7 @@ def load_topology(run_directory: Path) -> dict[str, Any]:
     path = run_directory / "topology.json"
     with path.open(encoding="utf-8") as stream:
         value = json.load(stream)
-    if value.get("schemaVersion") != 12:
+    if value.get("schemaVersion") != 13:
         raise ValueError(f"unsupported topology schema: {path}")
     return value
 
@@ -228,6 +229,37 @@ def validate(
         if topology.get("requestedDependencyAnalysisScope") != scope:
             errors.append(f"{algorithm} topology requested scope 不匹配")
         for module in topology.get("modules", []):
+            collection = module.get("changePointCollection", {})
+            decompiled = collection.get(
+                "decompiledJavaEquivalence", {})
+            if (
+                decompiled.get("enabled"), decompiled.get("fixed"),
+                decompiled.get("evaluationOrder"),
+                decompiled.get("shortCircuitWhen"),
+            ) != (True, True, 1, "IDENTICAL"):
+                errors.append(
+                    f"{algorithm} {module.get('module')} "
+                    "decompiled Java first-stage state 不匹配"
+                )
+            ssa = collection.get("ssaEquivalence", {})
+            if (
+                ssa.get("enabled"), ssa.get("fixed"),
+                ssa.get("evaluationOrder"),
+                ssa.get("shortCircuitedBy"),
+            ) != (
+                True, True, 2, "DECOMPILED_JAVA_TEXT_IDENTICAL"
+            ):
+                errors.append(
+                    f"{algorithm} {module.get('module')} "
+                    "normalized SSA second-stage state 不匹配"
+                )
+            if ssa.get("eligible") != (
+                int(ssa.get("executed", -1)) + int(ssa.get("skipped", -1))
+            ) or ssa.get("skipped") != decompiled.get("identical"):
+                errors.append(
+                    f"{algorithm} {module.get('module')} "
+                    "Java/SSA short-circuit counts 不匹配"
+                )
             if module.get("actualDependencyAnalysisScope") != scope:
                 errors.append(
                     f"{algorithm} {module.get('module')} actual scope="
@@ -343,7 +375,8 @@ def topology_rows(topologies: dict[str, dict[str, Any]]) -> list[dict[str, str]]
             scope_values = {
                 "algorithm": algorithm,
                 "jdk_model": topology["jdkModel"],
-                "ssa_equivalence": "fixed-enabled",
+                "ssa_equivalence": "second-stage-on-java-miss",
+                "decompiled_java_equivalence": "first-stage-short-circuit",
                 "impact_path_pruning_extensions": ",".join(
                     topology["impactPathPruningExtensions"]),
                 "wala_reflection_options": topology["reflectionOptions"],
@@ -399,7 +432,9 @@ def topology_rows(topologies: dict[str, dict[str, Any]]) -> list[dict[str, str]]
                     common = {
                         "algorithm": algorithm,
                         "jdk_model": topology["jdkModel"],
-                        "ssa_equivalence": "fixed-enabled",
+                        "ssa_equivalence": "second-stage-on-java-miss",
+                        "decompiled_java_equivalence":
+                            "first-stage-short-circuit",
                         "impact_path_pruning_extensions": ",".join(
                             topology["impactPathPruningExtensions"]),
                         "wala_reflection_options": topology["reflectionOptions"],
@@ -649,8 +684,8 @@ table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{bo
         f"<h1>CallGraph Benchmark 可观测性报告 — <code>{e(scope)}</code></h1>",
         f'<p>Suite status: <strong class="{"ok" if not errors else "bad"}">{status}</strong>。'
         "正式样本使用全新 Java Virtual Machine（JVM），warm-up 仅用于 topology 与缓存预热；"
-        "canonical algorithm 固定为 CHA；SSA equivalence 与两个 CHA "
-        "Impact Path pruning extension 固定启用。</p>",
+        "canonical algorithm 固定为 CHA；decompiled Java first、normalized "
+        "SSA on miss的方法体过滤与CHA Impact Path pruning extension固定启用。</p>",
     ]
     if errors:
         parts.append("<section><h2>Failure diagnostics</h2><ul>")

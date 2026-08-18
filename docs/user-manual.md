@@ -609,7 +609,7 @@ NONE
 - Preflight 检查与实际 Maven/JDK runtime。
 - dependency change、Impact、Structural 和 affected method 汇总。
 - effective Call Graph Algorithm、JDK Method Model、dependency scope。
-- Coverage limitation、duplicate class resolution 和 SSA evidence。
+- Coverage limitation、duplicate class resolution、SSA evidence 和 Decompiled Java evidence。
 
 #### Module Index
 
@@ -637,8 +637,9 @@ Changed members 表包含全部 selected effective changed member，包括 Impac
 - Root Impact Path。
 - Vineflower decompiled Java unified diff。
 
-Java text 相同显示 `Java text identical`；无法生成时显示
-`Unavailable`。报告不使用 backend、network request、CDN 或浏览器持久化存储。
+Impact Path包含末端`Changed member`，每两个节点强制换行并在行末保留箭头；超长class、method和descriptor可在节点内部软换行。Structural Path不强制按两个节点分组，但同样允许软换行，表格整体仍可横向滚动。
+
+Java text完全相同的`METHOD_BODY_CHANGED`已在ChangePoint收集期过滤，不会进入Affected Paths。retained method body从当前command缓存生成diff；缓存中的反编译结果不可用时显示`Unavailable`，不会再次反编译。报告不使用backend、network request、CDN或浏览器持久化存储。
 
 ### 8.2 impact status
 
@@ -733,10 +734,11 @@ Decision：
 1. 验证 Git、Maven、JDK、输入路径和输出位置。
 2. 解析 baseline dependency，并编译 target。
 3. 解析 target dependency，找出版本变化。
-4. 对 selected changed JAR 执行 bytecode 与 ServiceLoader resource diff。
-5. 对每个 relevant Module 构造 target Call Graph。
-6. 将 changed member evidence 反向追踪到 PROJECT entrypoint。
-7. 生成 Overall、Module 和 Affected Paths 离线报告。
+4. 对 selected changed JAR 执行 bytecode 与 ServiceLoader resource diff；对全部method body候选先执行Vineflower文本比较并写入当前command缓存。
+5. 以`Java text identical || SSA MATCHED`过滤method body ChangePoint：Java文本相同立即过滤并跳过SSA；只有Java未命中时才执行SSA。
+6. 对每个 relevant Module 构造 target Call Graph。
+7. 将 changed member evidence 反向追踪到 PROJECT entrypoint。
+8. 从缓存生成retained method body的Java diff，并发布Overall、Module和Affected Paths离线报告。
 
 Baseline 不编译，也不构建 Call Graph。影响路径基于 target bytecode 和 target Call Graph。
 
@@ -781,15 +783,16 @@ Experimental `k-obj` 提供不同的 receiver context，但更高的 `k` 可能�
 `INCONCLUSIVE` 表示“有可用证据，但覆盖不完整”，不是
 `SUCCESS` 的同义词。
 
-### 9.5 SSA equivalence
+### 9.5 方法体分阶段 equivalence
 
-Static Single Assignment（SSA，静态单赋值）equivalence 固定用于跨 class major version 的 changed method body：
+所有descriptor相同、old/new body均存在且hash不同的`METHOD_BODY_CHANGED`，无论class major version是否相同，都会先执行：
 
-- `MATCHED`：抑制等价的 `METHOD_BODY_CHANGED`。
-- `DIFFERENT`：保留 ChangePoint。
-- `UNKNOWN`：fail-open 保留 ChangePoint，不改变 Module status；原因进入报告和 verbose audit。
+- Vineflower old/new method反编译文本比较：`IDENTICAL`、`DIFFERENT`或`UNKNOWN`。
+- 仅当Java文本为`DIFFERENT`或`UNKNOWN`时，执行normalized Static Single Assignment（SSA，静态单赋值）比较：`MATCHED`、`DIFFERENT`或`UNKNOWN`。
 
-SSA 只用于 ChangePoint collection，不构建 baseline Call Graph，也不证明整条业务路径等价。
+过滤条件固定为`Java text identical || SSA MATCHED`，从左到右短路求值。Java text identical是现有换行规范化后的`String.equals`完全相等，不额外忽略空白、comment或import差异。Java为`IDENTICAL`时记录`JAVA_TEXT_IDENTICAL`并把SSA记为skipped；Java miss后SSA为`MATCHED`时记录`SSA_MATCHED`。两种原因不会同时出现。Java `UNKNOWN`继续执行SSA；SSA `DIFFERENT/UNKNOWN`时fail-open保留ChangePoint。`UNKNOWN`本身不改变Module status。
+
+双Stage比较只用于ChangePoint collection，不构建baseline Call Graph，也不证明整条业务路径或完整runtime behavior等价。反编译源码仅保存在当前command的`report-cache`，发布成功或失败后删除，不跨command复用；cache以`ssaExecuted=false/NOT_EXECUTED/JAVA_TEXT_IDENTICAL_SHORT_CIRCUIT`区分短路和SSA `UNKNOWN`。HTML与显式diagnostics只保存不含源码的状态、原因、hash、class version、耗时、executed/skipped和suppression reason。
 
 ### 9.6 Duplicate class
 
@@ -895,10 +898,10 @@ Command-generated workspace、temporary evidence 和 settings overlay 位于 con
 ### 10.8 SSA equivalence 为 UNKNOWN
 
 - 现象：报告中的 SSA evidence 为 `UNKNOWN`。
-- 检查：Overall/Module 的 SSA evidence；使用 `-vv` 按 method 或
-  `ssaUnknownRetained` 搜索 Console audit。
-- 处理：结合 old/new bytecode、Intermediate Representation（IR，中间表示）、reason 和 Java diff 人工判断。
-- 影响：Fail-open 保留 `METHOD_BODY_CHANGED`；不改变 Module status。
+- 检查：该方法的decompiled Java必为`DIFFERENT`或`UNKNOWN`。查看Overall/Module的SSA evidence；使用 `-vv` 按 method 或
+  `ssaUnknownCandidate` 搜索 Console audit，同时检查Decompiled Java evidence。
+- 处理：结合old/new bytecode、Intermediate Representation（IR，中间表示）、SSA reason和Decompiled Java状态人工判断。
+- 影响：fail-open保留`METHOD_BODY_CHANGED`。Decompiled Java为`IDENTICAL`时已经短路，不会产生SSA `UNKNOWN`。SSA `UNKNOWN`本身不改变Module status。
 
 ### 10.9 Reactor 为 FAILED
 

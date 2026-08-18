@@ -829,7 +829,7 @@ class BytecodeDiffEngineTest {
     }
 
     @Test
-    void suppressesCrossCompilerLayoutChangeWhenNormalizedSsaMatches()
+    void suppressesCrossCompilerLayoutChangeWhenJavaTextIsIdentical()
             throws Exception {
         final Path oldJar = createSsaJar("ssa-old.jar",
                 classWithStaticIntMethod(Opcodes.V1_5, 1, false));
@@ -840,11 +840,12 @@ class BytecodeDiffEngineTest {
                 ssaEngine(javaRuntime()), oldJar, newJar);
 
         assertThat(result.rawChangePointCount()).isEqualTo(1);
-        assertThat(result.ssaComparisons()).singleElement()
+        assertThat(result.ssaComparisons()).isEmpty();
+        assertThat(result.ssaSkippedCount()).isEqualTo(1L);
+        assertThat(result.decompileComparisons()).singleElement()
                 .satisfies(evidence -> {
                     assertThat(evidence.getStatus())
-                            .as(evidence.getReason())
-                            .isEqualTo(SsaComparisonStatus.MATCHED);
+                            .isEqualTo(DecompileComparisonStatus.IDENTICAL);
                     assertThat(evidence.getOldMajorVersion())
                             .isEqualTo(Opcodes.V1_5);
                     assertThat(evidence.getNewMajorVersion())
@@ -870,10 +871,39 @@ class BytecodeDiffEngineTest {
         assertThat(result.ssaComparisons())
                 .extracting(SsaComparisonEvidence::getStatus)
                 .containsExactly(SsaComparisonStatus.DIFFERENT);
+        assertThat(result.decompileComparisons())
+                .extracting(DecompileComparisonEvidence::getStatus)
+                .containsExactly(DecompileComparisonStatus.DIFFERENT);
+        assertThat(result.semanticSuppressedCount()).isZero();
+        assertThat(result.semanticRetainedCount()).isEqualTo(1L);
     }
 
     @Test
-    void doesNotRunSsaWhenClassMajorVersionIsUnchanged()
+    void filtersDifferentJavaWhenNormalizedSsaMatchesAfterMiss()
+            throws Exception {
+        final Path oldJar = createSsaJar("ssa-java-miss-old.jar",
+                classWithNamedParameter("baselineValue", false));
+        final Path newJar = createSsaJar("ssa-java-miss-new.jar",
+                classWithNamedParameter("targetValue", true));
+
+        final BytecodeDiffResult result = diffResult(
+                ssaEngine(javaRuntime()), oldJar, newJar);
+
+        assertThat(result.changePoints()).isEmpty();
+        assertThat(result.decompileComparisons())
+                .extracting(DecompileComparisonEvidence::getStatus)
+                .containsExactly(DecompileComparisonStatus.DIFFERENT);
+        assertThat(result.ssaComparisons())
+                .extracting(SsaComparisonEvidence::getStatus)
+                .containsExactly(SsaComparisonStatus.MATCHED);
+        assertThat(result.ssaSkippedCount()).isZero();
+        assertThat(result.decompileComparisons().get(0)
+                .getSuppressionReasons()).containsExactly(
+                MethodBodySuppressionReason.SSA_MATCHED);
+    }
+
+    @Test
+    void filtersSameMajorVersionMethodAndShortCircuitsSsa()
             throws Exception {
         final Path oldJar = createSsaJar("ssa-gate-old.jar",
                 classWithStaticIntMethod(Opcodes.V1_6, 1, false));
@@ -883,14 +913,21 @@ class BytecodeDiffEngineTest {
         final BytecodeDiffResult result = diffResult(
                 ssaEngine(javaRuntime()), oldJar, newJar);
 
-        assertThat(result.changePoints())
-                .extracting(ChangePoint::getKind)
-                .containsExactly(ChangePointKind.METHOD_BODY_CHANGED);
+        assertThat(result.changePoints()).isEmpty();
         assertThat(result.ssaComparisons()).isEmpty();
+        assertThat(result.decompileComparisons())
+                .extracting(DecompileComparisonEvidence::getStatus)
+                .containsExactly(DecompileComparisonStatus.IDENTICAL);
+        assertThat(result.ssaSkippedCount()).isEqualTo(1L);
+        assertThat(result.semanticSuppressedCount()).isEqualTo(1L);
+        assertThat(result.semanticRetainedCount()).isZero();
+        assertThat(result.decompileComparisons().get(0)
+                .getSuppressionReasons()).containsExactly(
+                MethodBodySuppressionReason.JAVA_TEXT_IDENTICAL);
     }
 
     @Test
-    void retainsEligibleChangeWhenSsaSessionIsUnavailable()
+    void filtersIdenticalJavaWhenSsaSessionIsUnavailable()
             throws Exception {
         final Path oldJar = createSsaJar("ssa-unknown-old.jar",
                 classWithStaticIntMethod(Opcodes.V1_5, 1, false));
@@ -902,12 +939,20 @@ class BytecodeDiffEngineTest {
         final BytecodeDiffResult result = diffResult(
                 ssaEngine(unavailable), oldJar, newJar);
 
-        assertThat(result.changePoints())
-                .extracting(ChangePoint::getKind)
-                .containsExactly(ChangePointKind.METHOD_BODY_CHANGED);
-        assertThat(result.ssaComparisons())
-                .extracting(SsaComparisonEvidence::getStatus)
-                .containsExactly(SsaComparisonStatus.UNKNOWN);
+        assertThat(result.changePoints()).isEmpty();
+        assertThat(result.ssaComparisons()).isEmpty();
+        assertThat(result.ssaSkippedCount()).isEqualTo(1L);
+        assertThat(result.decompileComparisons())
+                .singleElement().satisfies(evidence -> {
+                    assertThat(evidence.getStatus())
+                            .isEqualTo(DecompileComparisonStatus.IDENTICAL);
+                    assertThat(evidence.getSuppressionReasons())
+                            .containsExactly(
+                                    MethodBodySuppressionReason
+                                            .JAVA_TEXT_IDENTICAL);
+                });
+        assertThat(result.semanticSuppressedCount()).isEqualTo(1L);
+        assertThat(result.semanticRetainedCount()).isZero();
     }
 
     @Test
@@ -929,7 +974,7 @@ class BytecodeDiffEngineTest {
                 .contains("[jar-diff][ssa-equivalence-audit]")
                 .contains("artifact=g:a:jar:1.0->g:a:jar:2.0")
                 .contains(method)
-                .contains("retention=ssaDifferentRetained")
+                .contains("retention=ssaDifferentCandidate")
                 .contains("status=DIFFERENT")
                 .contains("section=old-bytecode; begin")
                 .contains("section=new-bytecode; begin")
@@ -950,7 +995,7 @@ class BytecodeDiffEngineTest {
         final Path oldJar = createSsaJar("ssa-audit-unknown-old.jar",
                 classWithStaticIntMethod(Opcodes.V1_5, 1, false));
         final Path newJar = createSsaJar("ssa-audit-unknown-new.jar",
-                classWithStaticIntMethod(Opcodes.V1_6, 1, true));
+                classWithStaticIntMethod(Opcodes.V1_6, 2, false));
         final JavaRuntimeDescriptor unavailable = new JavaRuntimeDescriptor(
                 tempDir, tempDir, "1.8-test", 8, List.of(), List.of());
         final ByteArrayOutputStream output = new ByteArrayOutputStream();
@@ -960,7 +1005,7 @@ class BytecodeDiffEngineTest {
         diffResult(ssaEngine(unavailable, log), oldJar, newJar);
 
         assertThat(output.toString(StandardCharsets.UTF_8))
-                .contains("retention=ssaUnknownRetained")
+                .contains("retention=ssaUnknownCandidate")
                 .contains("status=UNKNOWN")
                 .contains("section=old-bytecode; begin", "ICONST_1")
                 .contains("section=old-ir; begin")
@@ -1467,6 +1512,28 @@ class BytecodeDiffEngineTest {
         }
         method.visitInsn(Opcodes.IRETURN);
         method.visitMaxs(1, localRoundTrip ? 1 : 0);
+        method.visitEnd();
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
+    private byte[] classWithNamedParameter(
+            final String parameterName,
+            final boolean addNop) {
+        final ClassWriter writer = new ClassWriter(0);
+        writer.visit(Opcodes.V1_8, Opcodes.ACC_PUBLIC,
+                "example/CompilerLayout", null, "java/lang/Object", null);
+        final MethodVisitor method = writer.visitMethod(
+                Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "value", "(I)I", null, null);
+        method.visitParameter(parameterName, 0);
+        method.visitCode();
+        if (addNop) {
+            method.visitInsn(Opcodes.NOP);
+        }
+        method.visitVarInsn(Opcodes.ILOAD, 0);
+        method.visitInsn(Opcodes.IRETURN);
+        method.visitMaxs(1, 1);
         method.visitEnd();
         writer.visitEnd();
         return writer.toByteArray();

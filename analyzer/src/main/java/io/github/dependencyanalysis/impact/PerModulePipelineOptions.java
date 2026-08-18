@@ -24,7 +24,7 @@ import java.nio.file.Path;
  * @param jdkModel command-wide JDK Method Model selection
  * @param dependencySelection changed Maven dependency source boundary
  * @param executors Analyzer-owned pool registry
- * @param reportCache command report cache, nullable for compatibility callers
+ * @param reportCache command-owned report cache
  */
 record PerModulePipelineOptions(
         long callGraphTimeoutSeconds,

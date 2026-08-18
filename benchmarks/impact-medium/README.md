@@ -14,10 +14,10 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 
 每个 scope 固定执行：
 
-- 1 次 `cha + none` warm-up，采集Schema 12 topology。
+- 1 次 `cha + none` warm-up，采集Schema 13 topology。
 - 5 次 `cha + none` formal，每次使用全新 Java Virtual Machine（JVM）进程。
 
-双 scope 合计 12 个 JVM 进程。`run-suite.sh` 是单 scope 内部入口，canonical 验收使用 `run-scope-matrix.sh`。Runner 固定传入 `--analysis-parallelism 2`；CHA 固定 `jdk-model=none`，WALA Reflection 配置不应用；SSA equivalence和`cha-local-receiver-inference`不可关闭。
+双 scope 合计 12 个 JVM 进程。`run-suite.sh` 是单 scope 内部入口，canonical 验收使用 `run-scope-matrix.sh`。Runner 固定传入 `--analysis-parallelism 2`；CHA 固定`jdk-model=none`，WALA Reflection配置不应用；decompiled Java first、normalized SSA on miss的方法体过滤和`cha-local-receiver-inference`不可关闭。
 
 本次收敛后的两个Impact call-chain baseline位于`expected-results.tsv`，在明确授权calibration前均保持`PENDING`。不得把`k-obj`historical数据写入CHA canonical baseline。
 
@@ -76,7 +76,7 @@ tmp-files/impact-medium-benchmark/benchmark-report-full.html
 - Affected Call Chains 保留递归、structural reference、external ancestor 和 dependency path evidence。
 - CHA 裁剪无关 external target，不为被裁剪调用生成 dependency boundary limitation。
 - 固定 local receiver extension 保留 `ChangedReceiver`，删除 `unrelatedReceiverPath`，并输出 extension 指标。
-- Report包含JDK声明分派限制和非零裁剪指标；Schema 12保存固定SSA状态、单local extension注册表和模块裁剪证据。
+- Report包含JDK声明分派限制和非零裁剪指标；Schema 13保存decompiled Java first、normalized SSA on miss的短路状态与计数、单local extension注册表和模块裁剪证据。
 - Overall、Module Index、Affected Call Chains、Dependency Changes 页面完整。
 
 ## Contract verification

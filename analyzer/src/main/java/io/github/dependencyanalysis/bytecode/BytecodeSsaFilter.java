@@ -165,7 +165,7 @@ final class BytecodeSsaFilter {
                     .with("method", method);
             final String retention = result.status()
                     == SsaComparisonStatus.DIFFERENT
-                    ? "ssaDifferentRetained" : "ssaUnknownRetained";
+                    ? "ssaDifferentCandidate" : "ssaUnknownCandidate";
             final StringBuilder message = new StringBuilder()
                     .append("audit=started; retention=").append(retention)
                     .append("; status=").append(result.status())

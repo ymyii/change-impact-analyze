@@ -455,14 +455,31 @@
             ? path.applicationMember : "Unavailable";
     }
 
-    function pathSequence(path, member, methods) {
+    function pathSegments(path, member, methods) {
         const values = pathMethods(path, methods).map(method => method.label);
         if (path.type === "structural") {
             values.push(path.applicationMember, path.relation,
                 path.changedClass);
         }
         values.push(`Changed member: ${memberLabel(member)}`);
-        return values.join(" → ");
+        return values;
+    }
+
+    function appendPathSequenceCell(row, path, member, methods) {
+        const cell = node("td", "path-sequence");
+        const code = node("code");
+        const values = pathSegments(path, member, methods);
+        values.forEach((value, index) => {
+            code.append(document.createTextNode(value));
+            if (index + 1 < values.length) {
+                code.append(document.createTextNode(" → "));
+                if (path.type === "impact" && (index + 1) % 2 === 0) {
+                    code.append(document.createElement("br"));
+                }
+            }
+        });
+        cell.append(code);
+        row.append(cell);
     }
 
     function diffClass(line) {
@@ -535,8 +552,7 @@
         kindCell.append(node("span", "badge kind", member.changePointKind));
         row.append(kindCell);
         appendCell(row, memberLabel(member), "member-cell", true);
-        appendCell(row, pathSequence(path, member, methods),
-            "path-sequence", true);
+        appendPathSequenceCell(row, path, member, methods);
         appendCodeDiffCell(row, relation, member);
         return row;
     }

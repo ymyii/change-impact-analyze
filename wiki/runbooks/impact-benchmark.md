@@ -43,7 +43,7 @@ code_refs:
 
 每个 scope 固定：
 
-1. `cha + jdk-model none` warm-up，开启Schema 12 topology capture。
+1. `cha + jdk-model none` warm-up，开启Schema 13 topology capture。
 2. 相同配置执行 5 次 formal，每次启动新 JVM。
 
 `run-scope-matrix.sh` 依次显式设置 `changed-paths`、`full`。CHA 不应用 WALA ReflectionOptions。Suite 不执行algorithm轮换、不包含JDK model control、不包含`k-obj`数据，也不再设置已删除的result refinement环境变量或CLI option。
@@ -54,7 +54,7 @@ code_refs:
 - `scenario-api:1.0.0 -> 2.0.0` 产生固定 raw change set与多条 dependency occurrence path。
 - `BoundaryUseCase` 保留CHA external-target pruning场景；JDK声明分派由Object/Runnable等现有场景验证非JDK target被删除，并要求Report输出限制文本和非零指标。
 - external ancestor chain 保留 reachable concrete method并连接 PROJECT override；同 artifact 的无关 `ExternalPlain.call` 被裁剪。
-- 固定local receiver extension保留`ChangedReceiver`，排除caller-local `unrelatedReceiverPath`，并把edge指标写入Schema 12与Report；bridge参数和factory return不执行跨方法裁剪。
+- 固定local receiver extension保留`ChangedReceiver`，排除caller-local `unrelatedReceiverPath`，并把edge指标写入Schema 13与Report；Schema同时校验decompiled Java first、normalized SSA on miss的短路状态和计数。bridge参数和factory return不执行跨方法裁剪。
 - dynamic protocol 的精细行为由 `k-obj` capability unit tests覆盖，不进入 CHA canonical fixture。
 
 ## Semantic Baseline

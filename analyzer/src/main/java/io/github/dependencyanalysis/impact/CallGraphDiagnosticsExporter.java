@@ -26,6 +26,8 @@ import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.bytecode.SsaComparisonEvidence;
 import io.github.dependencyanalysis.bytecode.SsaComparisonStatus;
+import io.github.dependencyanalysis.bytecode.DecompileComparisonStatus;
+import io.github.dependencyanalysis.bytecode.DecompileComparisonSummary;
 import io.github.dependencyanalysis.jar.IJarRepository;
 import io.github.dependencyanalysis.runtime.JavaRuntimeDescriptor;
 import io.github.dependencyanalysis.runtime.ReportCache;
@@ -49,7 +51,7 @@ import java.util.UUID;
 final class CallGraphDiagnosticsExporter {
 
     /** Diagnostics JSON Schema version. */
-    static final int SCHEMA_VERSION = 12;
+    static final int SCHEMA_VERSION = 13;
 
     /** SHA-256 algorithm name. */
     private static final String SHA_256 = "SHA-256";
@@ -80,58 +82,6 @@ final class CallGraphDiagnosticsExporter {
         javaRuntime = runtime;
         sources = new CallGraphMethodSourceBuilder(
                 diagnostics, runtime, jarRepository);
-    }
-
-    /**
-     * Writes diagnostics for every successfully captured module graph.
-     *
-     * @param output destination JSON
-     * @param configuration command-wide analysis configuration
-     * @param modules module analysis results
-     * @throws IOException on publication failure
-     */
-    void write(
-            final Path output,
-            final AnalysisRunConfiguration configuration,
-            final List<ModuleAnalysisResult> modules) throws IOException {
-        final Path destination = output.toAbsolutePath().normalize();
-        Files.createDirectories(destination.getParent());
-        final Path temporary = destination.resolveSibling(
-                destination.getFileName() + ".tmp-" + UUID.randomUUID());
-        try {
-            try (JsonGenerator json = JSON_FACTORY.createGenerator(
-                    Files.newBufferedWriter(temporary,
-                            StandardCharsets.UTF_8))) {
-                writeDocument(json, configuration, modules);
-            }
-            move(temporary, destination);
-        } finally {
-            Files.deleteIfExists(temporary);
-        }
-    }
-
-    private void writeDocument(
-            final JsonGenerator json,
-            final AnalysisRunConfiguration configuration,
-            final List<ModuleAnalysisResult> modules) throws IOException {
-        json.useDefaultPrettyPrinter();
-        json.writeStartObject();
-        writeConfiguration(json, configuration.callGraphAlgorithm(),
-                configuration.kObjDepth(), configuration.reflectionOptions(),
-                configuration.dependencyAnalysisScope(),
-                configuration.jdkModel());
-        json.writeStringField("jdk", javaRuntime.getVersion());
-        json.writeArrayFieldStart("modules");
-        for (ModuleAnalysisResult module : modules) {
-            final ModuleCallGraphSession session = module.getSession();
-            if (session == null || session.getTopology().isEmpty()) {
-                continue;
-            }
-            writeModule(json, module, session,
-                    session.getTopology().orElseThrow());
-        }
-        json.writeEndArray();
-        json.writeEndObject();
     }
 
     static void writeConfiguration(
@@ -369,14 +319,22 @@ final class CallGraphDiagnosticsExporter {
         json.writeObjectFieldStart("ssaEquivalence");
         final List<SsaComparisonEvidence> comparisons = module.getUnit()
                 .getSsaComparisons();
+        final int semanticEligible = module.getUnit()
+                .getDecompileComparisons().size();
         json.writeBooleanField("enabled", true);
         json.writeBooleanField("fixed", true);
-        json.writeNumberField("eligible", comparisons.size());
+        json.writeNumberField("evaluationOrder", 2);
+        json.writeStringField("shortCircuitedBy",
+                "DECOMPILED_JAVA_TEXT_IDENTICAL");
+        json.writeNumberField("eligible", semanticEligible);
+        json.writeNumberField("executed", comparisons.size());
+        json.writeNumberField("skipped",
+                semanticEligible - comparisons.size());
         json.writeNumberField("matchedSuppressed",
                 comparisonCount(comparisons, SsaComparisonStatus.MATCHED));
-        json.writeNumberField("differentRetained",
+        json.writeNumberField("different",
                 comparisonCount(comparisons, SsaComparisonStatus.DIFFERENT));
-        json.writeNumberField("unknownRetained",
+        json.writeNumberField("unknown",
                 comparisonCount(comparisons, SsaComparisonStatus.UNKNOWN));
         json.writeNumberField("elapsedMillis", comparisons.stream()
                 .mapToLong(SsaComparisonEvidence::getElapsedMillis).sum());
@@ -412,6 +370,63 @@ final class CallGraphDiagnosticsExporter {
         }
         json.writeEndArray();
         json.writeEndObject();
+        writeDecompileEquivalence(json, module.getUnit()
+                .getDecompileComparisons());
+        json.writeEndObject();
+    }
+
+    private void writeDecompileEquivalence(
+            final JsonGenerator json,
+            final List<DecompileComparisonSummary> comparisons)
+            throws IOException {
+        json.writeObjectFieldStart("decompiledJavaEquivalence");
+        json.writeBooleanField("enabled", true);
+        json.writeBooleanField("fixed", true);
+        json.writeNumberField("evaluationOrder", 1);
+        json.writeStringField("shortCircuitWhen", "IDENTICAL");
+        json.writeNumberField("eligible", comparisons.size());
+        json.writeNumberField("identical",
+                decompileComparisonCount(comparisons,
+                        DecompileComparisonStatus.IDENTICAL));
+        json.writeNumberField("different",
+                decompileComparisonCount(comparisons,
+                        DecompileComparisonStatus.DIFFERENT));
+        json.writeNumberField("unknown",
+                decompileComparisonCount(comparisons,
+                        DecompileComparisonStatus.UNKNOWN));
+        json.writeNumberField("elapsedMillis", comparisons.stream()
+                .mapToLong(DecompileComparisonSummary::elapsedMillis).sum());
+        json.writeArrayFieldStart("comparisons");
+        for (DecompileComparisonSummary comparison : comparisons.stream()
+                .sorted(java.util.Comparator.comparing(
+                        DecompileComparisonSummary::stableKey)).toList()) {
+            json.writeStartObject();
+            json.writeStringField("oldArtifact",
+                    comparison.oldArtifact().toString());
+            json.writeStringField("newArtifact",
+                    comparison.newArtifact().toString());
+            json.writeStringField("owner", comparison.owner());
+            json.writeStringField("name", comparison.name());
+            json.writeStringField("descriptor", comparison.descriptor());
+            json.writeStringField("oldHash", comparison.oldHash());
+            json.writeStringField("newHash", comparison.newHash());
+            json.writeNumberField("oldMajorVersion",
+                    comparison.oldMajorVersion());
+            json.writeNumberField("newMajorVersion",
+                    comparison.newMajorVersion());
+            json.writeStringField("status", comparison.status().name());
+            json.writeStringField("reason", comparison.reason());
+            json.writeNumberField("elapsedMillis",
+                    comparison.elapsedMillis());
+            json.writeArrayFieldStart("suppressionReasons");
+            for (Enum<?> reason : comparison.suppressionReasons().stream()
+                    .sorted().toList()) {
+                json.writeString(reason.name());
+            }
+            json.writeEndArray();
+            json.writeEndObject();
+        }
+        json.writeEndArray();
         json.writeEndObject();
     }
 
@@ -449,6 +464,13 @@ final class CallGraphDiagnosticsExporter {
             final SsaComparisonStatus status) {
         return comparisons.stream()
                 .filter(value -> value.getStatus() == status).count();
+    }
+
+    private long decompileComparisonCount(
+            final List<DecompileComparisonSummary> comparisons,
+            final DecompileComparisonStatus status) {
+        return comparisons.stream()
+                .filter(value -> value.status() == status).count();
     }
 
     private void requireComplete(final ReportCache.Fragment fragment)

@@ -9,6 +9,7 @@ import io.github.dependencyanalysis.bytecode.BytecodeDiffEngine;
 import io.github.dependencyanalysis.bytecode.BytecodeDiffResult;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
+import io.github.dependencyanalysis.bytecode.DecompileComparisonSummary;
 import io.github.dependencyanalysis.bytecode.ServiceLoaderResourceDiffEngine;
 import io.github.dependencyanalysis.bytecode.ServiceLoaderResourceDiffResult;
 import io.github.dependencyanalysis.bytecode.ServiceLoaderResourceIssue;
@@ -136,8 +137,11 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
     /** Optional Call Graph benchmark diagnostics JSON. */
     private final Path callGraphDiagnosticsOutput;
 
-    /** Optional command-owned report cache. */
+    /** Command-owned report cache. */
     private final ReportCache reportCache;
+
+    /** Command-owned method body comparison cache. */
+    private final MethodBodyComparisonCache methodBodyCache;
 
     /** Immutable JAR repository for the active command. */
     private IJarRepository jarRepository;
@@ -173,7 +177,9 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
         analysisParallelism = options.analysisParallelism();
         temporaryDirectory = options.temporaryDirectory();
         callGraphDiagnosticsOutput = options.callGraphDiagnosticsOutput();
-        reportCache = options.reportCache();
+        reportCache = Objects.requireNonNull(
+                options.reportCache(), "reportCache");
+        methodBodyCache = new MethodBodyComparisonCache(reportCache);
         entrypointSelection = Objects.requireNonNull(
                 options.entrypointSelection(), "entrypointSelection");
         callGraphAlgorithm = Objects.requireNonNull(
@@ -298,16 +304,11 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                         kObjDepth, reflectionOptions,
                         dependencyAnalysisScope, jdkModel,
                         dependencySelection);
-        if (callGraphDiagnosticsOutput != null && reportCache != null) {
+        if (callGraphDiagnosticsOutput != null) {
             new CallGraphDiagnosticsExporter(
                     diagnostics, javaRuntime, repository()).writeFragments(
                     callGraphDiagnosticsOutput, configuration,
                     reportCache.fragments());
-        } else if (callGraphDiagnosticsOutput != null) {
-            new CallGraphDiagnosticsExporter(
-                    diagnostics, javaRuntime, repository()).write(
-                    callGraphDiagnosticsOutput, configuration,
-                    codeEvidence.modules());
         }
         return new AnalysisRunResult(targetScope.getMode(),
                 overallStatus(codeEvidence.modules()), changes,
@@ -422,8 +423,13 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
         diagnostics.debug(context, "started");
         final CodeComparisonEvidence evidence;
         try {
-            evidence = new CodeComparisonBuilder(
+            evidence = point.getChangePoint().getKind()
+                    == ChangePointKind.METHOD_BODY_CHANGED
+                    ? methodBodyCache.codeComparison(point)
+                    : new CodeComparisonBuilder(
                     diagnostics, javaRuntime, repository()).build(point);
+        } catch (MethodBodyCacheException exception) {
+            throw exception;
         } catch (RuntimeException exception) {
             diagnostics.warn(context, "unavailable: "
                     + exception.getClass().getSimpleName());
@@ -783,7 +789,33 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                     + result.changeCount() + "; pairs="
                     + result.pairCount() + "; failedPairs="
                     + result.failedPairCount() + "; workers="
-                    + result.actualWorkers());
+                    + result.actualWorkers() + "; eligible="
+                    + result.semanticMetrics().eligible()
+                    + "; ssaMatched="
+                    + result.semanticMetrics().ssaMatched()
+                    + "; ssaDifferent="
+                    + result.semanticMetrics().ssaDifferent()
+                    + "; ssaUnknown="
+                    + result.semanticMetrics().ssaUnknown()
+                    + "; ssaExecuted="
+                    + (result.semanticMetrics().eligible()
+                    - result.semanticMetrics().ssaSkipped())
+                    + "; ssaSkipped="
+                    + result.semanticMetrics().ssaSkipped()
+                    + "; javaIdentical="
+                    + result.semanticMetrics().javaIdentical()
+                    + "; javaDifferent="
+                    + result.semanticMetrics().javaDifferent()
+                    + "; javaUnknown="
+                    + result.semanticMetrics().javaUnknown()
+                    + "; unionSuppressed="
+                    + result.semanticMetrics().unionSuppressed()
+                    + "; retained="
+                    + result.semanticMetrics().retained()
+                    + "; ssaElapsedMillis="
+                    + result.semanticMetrics().ssaElapsedMillis()
+                    + "; decompileElapsedMillis="
+                    + result.semanticMetrics().decompileElapsedMillis());
             return result;
         } catch (InterruptedException | RuntimeException exception) {
             diagnostics.failStage(context, "pairs="
@@ -800,8 +832,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
             throws InterruptedException {
         if (groups.isEmpty()) {
             return new BindingResult(Map.of(), Set.of(), Map.of(),
-                    Map.of(), Map.of(), Map.of(), Map.of(),
-                    0, 0, 0, 0);
+                    Map.of(), Map.of(), Map.of(), Map.of(), Map.of(),
+                    0, 0, 0, 0, SemanticComparisonMetrics.empty());
         }
         final int configuredWorkers = jarDiffWorkerLimit();
         final int workers = Math.min(groups.size(), configuredWorkers);
@@ -825,6 +857,10 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                 new LinkedHashMap<>();
         final Map<String, List<SsaComparisonEvidence>> ssaByPair =
                 new LinkedHashMap<>();
+        final Map<String, List<DecompileComparisonSummary>> decompileByPair =
+                new LinkedHashMap<>();
+        SemanticComparisonMetrics semanticMetrics =
+                SemanticComparisonMetrics.empty();
         try {
             for (Future<PairDiff> future : futures) {
                 final PairDiff pair;
@@ -844,6 +880,10 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                     issuesByPair.put(pair.key(),
                             pair.serviceLoaderResourceIssues());
                     ssaByPair.put(pair.key(), pair.ssaComparisons());
+                    decompileByPair.put(pair.key(),
+                            pair.decompileComparisons());
+                    semanticMetrics = semanticMetrics.plus(
+                            pair.semanticMetrics());
                 } else {
                     for (DependencyUpgradeKey key : groups.get(pair.key())) {
                         final String moduleKey = key.getModuleId()
@@ -871,6 +911,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                 new LinkedHashMap<>();
         final Map<String, List<SsaComparisonEvidence>> ssaByModule =
                 new LinkedHashMap<>();
+        final Map<String, List<DecompileComparisonSummary>>
+                decompileByModule = new LinkedHashMap<>();
         for (Map.Entry<String, List<DependencyUpgradeKey>> entry
                 : groups.entrySet()) {
             final List<ChangePoint> points = pairPoints.get(entry.getKey());
@@ -899,6 +941,10 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                 ssaByModule.computeIfAbsent(moduleKey,
                         ignored -> new ArrayList<>()).addAll(
                         ssaByPair.getOrDefault(entry.getKey(), List.of()));
+                decompileByModule.computeIfAbsent(moduleKey,
+                        ignored -> new ArrayList<>()).addAll(
+                        decompileByPair.getOrDefault(
+                                entry.getKey(), List.of()));
             }
         }
         byModule.values().forEach(values -> values.sort(
@@ -910,8 +956,9 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
         final int failedPairCount = groups.size() - pairPoints.size();
         return new BindingResult(byModule, failedModules, failuresByModule,
                 baselineByModule, removedByModule, issuesByModule,
-                ssaByModule,
-                workers, changeCount, groups.size(), failedPairCount);
+                ssaByModule, decompileByModule,
+                workers, changeCount, groups.size(), failedPairCount,
+                semanticMetrics);
     }
 
     private int jarDiffWorkerLimit() {
@@ -937,6 +984,7 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                     kinds, javaRuntime, diagnostics);
             final BytecodeDiffResult bytecode = engine.diff(
                     change, repository());
+            methodBodyCache.write(change, bytecode);
             final List<ChangePoint> points = bytecode.changePoints();
             final ServiceLoaderResourceDiffResult services =
                     new ServiceLoaderResourceDiffEngine(kinds).diff(
@@ -946,23 +994,45 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
             final List<ChangePoint> combined = List.copyOf(unique);
             diagnostics.debug(context, "JAR comparison completed; rawChanges="
                     + bytecode.rawChangePointCount() + "; changes="
-                    + combined.size() + "; ssaEligible="
+                    + combined.size() + "; semanticEligible="
+                    + bytecode.decompileComparisons().size()
+                    + "; ssaExecuted="
                     + bytecode.ssaComparisons().size()
+                    + "; ssaSkipped="
+                    + bytecode.ssaSkippedCount()
                     + "; ssaMatchedSuppressed="
                     + bytecode.matchedSuppressedCount()
-                    + "; ssaDifferentRetained="
-                    + bytecode.differentRetainedCount()
-                    + "; ssaUnknownRetained="
-                    + bytecode.unknownRetainedCount()
+                    + "; ssaDifferent="
+                    + bytecode.differentCount()
+                    + "; ssaUnknown="
+                    + bytecode.unknownCount()
                     + "; ssaElapsedMillis="
-                    + bytecode.ssaElapsedMillis());
+                    + bytecode.ssaElapsedMillis()
+                    + "; javaIdentical="
+                    + bytecode.javaIdenticalCount()
+                    + "; javaDifferent="
+                    + bytecode.javaDifferentCount()
+                    + "; javaUnknown="
+                    + bytecode.javaUnknownCount()
+                    + "; semanticSuppressed="
+                    + bytecode.semanticSuppressedCount()
+                    + "; semanticRetained="
+                    + bytecode.semanticRetainedCount()
+                    + "; decompileElapsedMillis="
+                    + bytecode.decompileElapsedMillis());
             return new PairDiff(key, combined,
                     services.baselineRegistrations(),
                     services.removedRegistrations(), services.issues(),
-                    bytecode.ssaComparisons(), null);
+                    bytecode.ssaComparisons(),
+                    bytecode.decompileComparisons().stream()
+                            .map(value -> value.summary()).toList(),
+                    SemanticComparisonMetrics.from(bytecode), null);
+        } catch (MethodBodyCacheException exception) {
+            throw exception;
         } catch (Exception exception) {
             return new PairDiff(key, List.of(), List.of(), List.of(),
-                    List.of(), List.of(),
+                    List.of(), List.of(), List.of(),
+                    SemanticComparisonMetrics.empty(),
                     JarDiffFailureDiagnostic.emit(
                             diagnostics, context, exception));
         }
@@ -1027,6 +1097,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                     bindings.serviceLoaderResourceIssuesByModule()
                             .getOrDefault(key, List.of()),
                     bindings.ssaComparisonsByModule()
+                            .getOrDefault(key, List.of()),
+                    bindings.decompileComparisonsByModule()
                             .getOrDefault(key, List.of()));
             result.add(new ModuleAnalysisUnit(identity, presence, classes,
                     reactorClasses, ModuleDependencyInputs.fromEvidence(
@@ -1593,6 +1665,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
      * @param removedServiceRegistrations removed provider facts
      * @param serviceLoaderResourceIssues non-fatal resource Diff issues
      * @param ssaComparisons ChangePoint-collection SSA evidence
+     * @param decompileComparisons source-free decompiled Java evidence
+     * @param semanticMetrics pair-level semantic comparison metrics
      * @param failure failure detail, nullable
      */
     private record PairDiff(
@@ -1602,6 +1676,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
             List<ServiceProviderRegistration> removedServiceRegistrations,
             List<ServiceLoaderResourceIssue> serviceLoaderResourceIssues,
             List<SsaComparisonEvidence> ssaComparisons,
+            List<DecompileComparisonSummary> decompileComparisons,
+            SemanticComparisonMetrics semanticMetrics,
             String failure) {
     }
 
@@ -1615,10 +1691,12 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
      * @param removedServiceRegistrationsByModule removed provider facts
      * @param serviceLoaderResourceIssuesByModule resource Diff issues
      * @param ssaComparisonsByModule ChangePoint-collection SSA evidence
+     * @param decompileComparisonsByModule decompiled Java evidence
      * @param actualWorkers actual JAR diff workers
      * @param changeCount unique successful ChangePoints
      * @param pairCount unique logical JAR pairs
      * @param failedPairCount failed logical JAR pairs
+     * @param semanticMetrics command aggregate semantic comparison metrics
      */
     private record BindingResult(
             Map<String, List<BoundChangePoint>> pointsByModule,
@@ -1632,10 +1710,81 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                     serviceLoaderResourceIssuesByModule,
             Map<String, List<SsaComparisonEvidence>>
                     ssaComparisonsByModule,
+            Map<String, List<DecompileComparisonSummary>>
+                    decompileComparisonsByModule,
             int actualWorkers,
             int changeCount,
             int pairCount,
-            int failedPairCount) {
+            int failedPairCount,
+            SemanticComparisonMetrics semanticMetrics) {
+    }
+
+    /**
+     * Pair and command aggregate method-body comparison metrics.
+     *
+     * @param eligible eligible method body candidates
+     * @param ssaMatched normalized SSA matches
+     * @param ssaDifferent normalized SSA differences
+     * @param ssaUnknown normalized SSA unknowns
+     * @param javaIdentical decompiled Java exact matches
+     * @param javaDifferent decompiled Java differences
+     * @param javaUnknown decompiled Java unknowns
+     * @param ssaSkipped candidates short-circuited before normalized SSA
+     * @param unionSuppressed candidates suppressed by either ordered stage
+     * @param retained candidates retained after staged filtering
+     * @param ssaElapsedMillis normalized SSA elapsed milliseconds
+     * @param decompileElapsedMillis decompilation elapsed milliseconds
+     */
+    private record SemanticComparisonMetrics(
+            long eligible,
+            long ssaMatched,
+            long ssaDifferent,
+            long ssaUnknown,
+            long javaIdentical,
+            long javaDifferent,
+            long javaUnknown,
+            long ssaSkipped,
+            long unionSuppressed,
+            long retained,
+            long ssaElapsedMillis,
+            long decompileElapsedMillis) {
+
+        static SemanticComparisonMetrics empty() {
+            return new SemanticComparisonMetrics(0L, 0L, 0L, 0L,
+                    0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L);
+        }
+
+        static SemanticComparisonMetrics from(
+                final BytecodeDiffResult result) {
+            return new SemanticComparisonMetrics(
+                    result.decompileComparisons().size(),
+                    result.matchedSuppressedCount(),
+                    result.differentCount(), result.unknownCount(),
+                    result.javaIdenticalCount(),
+                    result.javaDifferentCount(), result.javaUnknownCount(),
+                    result.ssaSkippedCount(),
+                    result.semanticSuppressedCount(),
+                    result.semanticRetainedCount(),
+                    result.ssaElapsedMillis(),
+                    result.decompileElapsedMillis());
+        }
+
+        SemanticComparisonMetrics plus(
+                final SemanticComparisonMetrics other) {
+            return new SemanticComparisonMetrics(
+                    eligible + other.eligible,
+                    ssaMatched + other.ssaMatched,
+                    ssaDifferent + other.ssaDifferent,
+                    ssaUnknown + other.ssaUnknown,
+                    javaIdentical + other.javaIdentical,
+                    javaDifferent + other.javaDifferent,
+                    javaUnknown + other.javaUnknown,
+                    ssaSkipped + other.ssaSkipped,
+                    unionSuppressed + other.unionSuppressed,
+                    retained + other.retained,
+                    ssaElapsedMillis + other.ssaElapsedMillis,
+                    decompileElapsedMillis + other.decompileElapsedMillis);
+        }
     }
 
     /**

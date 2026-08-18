@@ -68,7 +68,9 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ChangePointDisposition.java"
     desc: "ChangePoint 最终 disposition contract"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/BytecodeSsaFilter.java"
-    desc: "ChangePoint收集期pair-local normalized SSA filtering"
+    desc: "ChangePoint收集期pair-local normalized SSA comparison"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/MethodBodyComparisonCache.java"
+    desc: "方法体Java-first分阶段证据cache与retained body Unified diff"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/CodeComparisonBuilder.java"
     desc: "Impact/Structural member的repository-backed decompiled Java diff"
 ---
@@ -189,22 +191,23 @@ Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`Mo
 - 找到reference且全部仍合法时为`ACCESS_REMAINS_VALID`；完全未找到reference才是`DECLARED_REFERENCE_NOT_FOUND`。
 - Target type/declaration无法解析时生成`ACCESS_TARGET_TYPE_UNRESOLVED`或`ACCESS_DECLARATION_UNRESOLVED`，reason为`INCONCLUSIVE_SCOPE_VALIDATION`。
 
-## Fixed SSA and Impact Path Pruning
+## Fixed Method Body Filtering and Impact Path Pruning
 
 - `--result-refinement-algorithms`、selection、converter与pipeline配置字段已删除；旧option作为未知参数返回exit code `1`。
-- SSA equivalence固定在唯一logical JAR pair的ChangePoint收集阶段运行，只比较body hash不同且class major version不同的`METHOD_BODY_CHANGED`。old/new分别使用同一目标JDK 8建立pair-local Class Hierarchy与独立SSA cache，不构建Call Graph，也不复用Module target session。
-- `MATCHED`在Module binding前抑制ChangePoint；`DIFFERENT`与`UNKNOWN`保留。`UNKNOWN`不改变Module status/reason，证据进入Module input、HTML与Schema 12 diagnostics。
-- CHA固定执行experimental `cha-local-receiver-inference` extension；`k-obj`不执行Impact Path pruning，但SSA equivalence仍固定启用。`ModuleAnalysisResult`只保存统一`ImpactPathPruningSummary`，不保存selection、candidate/final双路径或path-level SSA result。
+- 方法体equivalence固定在唯一logical JAR pair的ChangePoint收集阶段运行。全部descriptor相同且body hash不同的`METHOD_BODY_CHANGED`先执行decompiled Java精确文本比较，不按class major version门禁。Java `IDENTICAL`立即抑制并短路；只有Java `DIFFERENT/UNKNOWN`才使用同一目标JDK 8建立pair-local old/new SSA Class Hierarchy与独立cache，不构建Call Graph，也不复用Module target session。
+- Module binding前按`Java text identical || SSA MATCHED`的顺序和短路语义抑制ChangePoint。Java命中只记录`JAVA_TEXT_IDENTICAL`；Java miss后SSA命中只记录`SSA_MATCHED`，不存在双命中。其余状态组合保留。实际执行的比较为`UNKNOWN`时不改变Module status/reason，compact证据进入Module input、HTML与Schema 13 diagnostics。
+- ChangePoint Evidence collection、Changed members、Impact/Structural Path、disposition与Module status只消费分阶段过滤后的effective ChangePoint；不得在后续阶段恢复已抑制的method body change。
+- CHA固定执行experimental `cha-local-receiver-inference` extension；`k-obj`不执行Impact Path pruning，但方法体Java-first filtering仍固定启用。`ModuleAnalysisResult`只保存统一`ImpactPathPruningSummary`，不保存selection、candidate/final双路径或path-level SSA result。
 - Extension统一输出requests、unique evaluations、cache hits、pruned、feasible、unknown、not applicable与fail-open errors，并附带callsite/invoke及exact/upper-bound/null/unknown resolution计数。
 - 只有TRACE或显式diagnostics请求才格式化最多10条稳定example，包含caller/callee identity、program counter、decision、reason与inferred receiver summary。INFO/DEBUG不承担该字符串构造成本。
 
 ## Code Comparison Evidence
 
-- 只为Impact Path与Structural Reference Path关联的唯一ChangePoint构建code comparison evidence；无路径change不触发反编译。
-- JAR通过`IJarRepository.open(ArtifactCoord)`获取；physical path只由当前temporary `JarLease.jarFile()` handle传给Vineflower或field declaration reader，不进入domain key或Report。
-- Vineflower 使用 exact old/new artifact 与 JDK 8 context；结果按 logical old/new coordinate 与 member identity 去重。
+- 全部method body候选在JAR Diff期完成old/new Vineflower反编译与精确文本比较；每个logical pair写入command-owned cache。只有Impact Path与Structural Reference Path关联的retained ChangePoint才生成最终code comparison evidence。
+- Retained `METHOD_BODY_CHANGED`只从cache读取old/new源码生成Unified diff；cache记录为`UNKNOWN`时直接显示`Unavailable`，不得重新反编译。非body ChangePoint仍按需读取exact old/new artifact。
+- JAR通过`IJarRepository.open(ArtifactCoord)`获取；physical path只由当前temporary `JarLease.jarFile()` handle传给Vineflower或field declaration reader，不进入domain key、cache payload或Report。
 - 输出decompiled Java Git-style Unified diff；状态为`AVAILABLE`、`JAVA_TEXT_IDENTICAL`或`UNAVAILABLE`。不生成ASM fallback；failure reason只写Console。Report按changed member只存一份diff。
-- Code evidence 不参与 Impact/SSA 判定，失败不改变 Module status。
+- 非body Code evidence不参与Impact判定，失败不改变Module status；method body decompiled Java比较已是ChangePoint收集期正式过滤条件。
 
 ## Read-only Boundary
 
@@ -219,11 +222,11 @@ Call Graph fixed point完成后，Impact query只读graph、`ChangePointEvidence
 - Given access narrowing与reachable pre-existing bytecode reference；When new access明确不允许或protected receiver无法证明合法；Then保留definite/potential Impact Path及typed old/new access evidence。
 - Given全部相关reference在new access下仍合法；When完成query；Then disposition为`ACCESS_REMAINS_VALID`，不生成Affected Call Chain。
 - Given target CHA无法解析必要type/declaration；When完成query；Then limitation通过Result Object进入统一coverage reduction。
-- Given JAR diff发现跨class major的body变化；When收集ChangePoint；Then固定执行SSA filtering，再决定Module是否需要构建Call Graph。
+- Given JAR diff发现同major或跨major的body变化；When收集ChangePoint；Then固定先执行Vineflower比较，Java miss后才执行SSA，再决定Module是否需要构建Call Graph。
 - GivenCHA且caller Receiver exact排除当前callee；When reverse BFS访问该edge；Then虚假predecessor不进入path、原图node/edge计数不变，且local pruned metric大于零。
 - Givenreceiver事实只存在于bridge actual argument或factory return；When reverse BFS访问该跨方法flow；Then不执行跨边界推导并保守保留CHA edge。
 - GivenReceiver推导为unknown、单target或不适用；When reverse BFS访问edge；Then保留原CHA关系，不新增coverage limitation。
-- Given旧`--result-refinement-algorithms`；When解析Impact CLI；Then作为unknown option返回exit code `1`。Given`k-obj`；Then只固定执行SSA ChangePoint filtering，不执行CHA Impact Path pruning。
+- Given旧`--result-refinement-algorithms`；When解析Impact CLI；Then作为unknown option返回exit code `1`。Given`k-obj`；Then仍固定执行SSA与decompiled Java ChangePoint filtering，但不执行CHA Impact Path pruning。
 
 ### Non-Functional
 

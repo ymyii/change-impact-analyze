@@ -55,6 +55,14 @@ class GenerateReportTest(unittest.TestCase):
             self.assertNotIn("result_refinement_algorithms", samples[0])
             self.assertNotIn("wall_vs_zero_cfa", summaries[0])
             self.assertEqual({"cha"}, {row["algorithm"] for row in topology})
+            self.assertEqual(
+                {"second-stage-on-java-miss"},
+                {row["ssa_equivalence"] for row in topology},
+            )
+            self.assertEqual(
+                {"first-stage-short-circuit"},
+                {row["decompiled_java_equivalence"] for row in topology},
+            )
             document = output_html.read_text(encoding="utf-8")
             self.assertIn("canonical algorithm 固定为 CHA", document)
             self.assertNotIn("Algorithm comparison", document)
@@ -161,7 +169,7 @@ class GenerateReportTest(unittest.TestCase):
     @staticmethod
     def _topology() -> dict[str, object]:
         return {
-            "schemaVersion": 12,
+            "schemaVersion": 13,
             "algorithm": "cha",
             "kObjDepth": None,
             "reflectionOptions": REPORT.REFLECTION_DEFAULT,
@@ -188,6 +196,35 @@ class GenerateReportTest(unittest.TestCase):
                 "ancestorRetainedExternalMethodNodeCount": 1,
                 "prunedExternalMethodTargetCount": 1,
                 "jdkDeclaredDispatchPrunedTargetCount": 2,
+                "changePointCollection": {
+                    "ssaEquivalence": {
+                        "enabled": True,
+                        "fixed": True,
+                        "evaluationOrder": 2,
+                        "shortCircuitedBy":
+                            "DECOMPILED_JAVA_TEXT_IDENTICAL",
+                        "eligible": 0,
+                        "executed": 0,
+                        "skipped": 0,
+                        "matchedSuppressed": 0,
+                        "different": 0,
+                        "unknown": 0,
+                        "elapsedMillis": 0,
+                        "comparisons": [],
+                    },
+                    "decompiledJavaEquivalence": {
+                        "enabled": True,
+                        "fixed": True,
+                        "evaluationOrder": 1,
+                        "shortCircuitWhen": "IDENTICAL",
+                        "eligible": 0,
+                        "identical": 0,
+                        "different": 0,
+                        "unknown": 0,
+                        "elapsedMillis": 0,
+                        "comparisons": [],
+                    },
+                },
                 "dependencyPaths": [{"seed": "seed", "path": "a -> b"}],
                 "topCallers": [],
                 "topCallees": [],

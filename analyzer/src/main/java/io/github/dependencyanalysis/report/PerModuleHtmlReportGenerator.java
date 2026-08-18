@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
 
 import io.github.dependencyanalysis.bytecode.ChangePoint;
+import io.github.dependencyanalysis.bytecode.DecompileComparisonStatus;
+import io.github.dependencyanalysis.bytecode.DecompileComparisonSummary;
 import io.github.dependencyanalysis.bytecode.SsaComparisonEvidence;
 import io.github.dependencyanalysis.bytecode.SsaComparisonStatus;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
@@ -149,7 +151,9 @@ public final class PerModuleHtmlReportGenerator {
             + "background:var(--surface)}.table-scroll table{margin:0}"
             + ".path-table{min-width:1320px}.changed-member-table{"
             + "min-width:1100px}.path-sequence{min-width:340px;"
-            + "white-space:nowrap}.numeric{text-align:right!important;"
+            + "inline-size:clamp(340px,42vw,640px);max-inline-size:640px;"
+            + "white-space:normal;overflow-wrap:anywhere}.numeric{"
+            + "text-align:right!important;"
             + "font-variant-numeric:tabular-nums}.pagination{display:flex;"
             + "gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0}"
             + ".pagination input{width:76px}.path-diff-row td{padding:0}"
@@ -310,9 +314,7 @@ public final class PerModuleHtmlReportGenerator {
                 .append("Thread or Runnable chains may therefore be omitted. ")
                 .append("This predefined scope does not change Module ")
                 .append("status.</p>");
-        body.append(SsaEvidenceHtmlRenderer.warning(semanticComparison));
-        body.append("<p>Code comparisons are generated locally from dependency "
-                + "bytecode and may differ from the original source code.</p>");
+        appendSemanticComparisonDisclosure(body, semanticComparison);
         appendTerminology(body, run.getCallGraphAlgorithm());
         body.append("<section id=\"run\"><h2>Run summary</h2><table>")
                 .append(row("Status", statusText(run.getStatus().name())))
@@ -367,7 +369,8 @@ public final class PerModuleHtmlReportGenerator {
                                 : run.getReflectionOptions().identifier()))
                 .append(row("JDK method model",
                         run.getJdkModel().identifier()))
-                .append(row("SSA equivalence", "fixed enabled (experimental)"))
+                .append(row("Method body equivalence order",
+                        "Decompiled Java first; normalized SSA on miss"))
                 .append(pruningRows(run.getModuleResults()))
                 .append(chaPruningBoundaryRow(run.getCallGraphAlgorithm()))
                 .append(changeSelectionRows(run))
@@ -377,11 +380,12 @@ public final class PerModuleHtmlReportGenerator {
                         run.getEntrypointSelection().excludes()))
                 .append(row("Maven executable",
                         context.maven().getExecutable()))
-                .append(row("SSA matched / different / unknown",
+                .append(row("SSA matched / different / unknown / skipped",
                         ssaCounts(run.getModuleResults())))
+                .append(row("Java identical / different / unknown",
+                        decompileCounts(run.getModuleResults())))
                 .append("</table></details>");
-        body.append(SsaEvidenceHtmlRenderer.render(
-                uniqueSsaComparisons(run.getModuleResults())));
+        appendSemanticComparisonEvidence(body, run.getModuleResults());
         body.append("</section><section id=\"modules\"><h2>Modules</h2>")
                 .append("<table><tr><th>Module</th><th>Status</th>")
                 .append("<th>Explanation</th><th>Complete dependency ")
@@ -422,6 +426,25 @@ public final class PerModuleHtmlReportGenerator {
         body.append("</table></section>");
         appendPreflight(body, preflight);
         });
+    }
+
+    private void appendSemanticComparisonDisclosure(
+            final HtmlSink body,
+            final boolean enabled) {
+        body.append(SsaEvidenceHtmlRenderer.warning(enabled));
+        body.append("<p class=\"warn\">Exact normalized Vineflower text ")
+                .append("equality also suppresses method body changes.</p>");
+        body.append("<p>Code comparisons are generated locally from dependency "
+                + "bytecode and may differ from the original source code.</p>");
+    }
+
+    private void appendSemanticComparisonEvidence(
+            final HtmlSink body,
+            final List<ModuleAnalysisResult> modules) {
+        body.append(SsaEvidenceHtmlRenderer.render(
+                uniqueSsaComparisons(modules)));
+        body.append(DecompileEvidenceHtmlRenderer.render(
+                uniqueDecompileComparisons(modules)));
     }
 
     private String concurrencyRows(final AnalysisRunResult run) {
@@ -529,13 +552,15 @@ public final class PerModuleHtmlReportGenerator {
                 .append(sessionRows(module))
                 .append(row("Raw status", module.getStatus()))
                 .append(row("Raw reason", module.getReason()))
-                .append(row("SSA equivalence",
-                        "fixed enabled (experimental)"))
+                .append(row("Method body equivalence order",
+                        "Decompiled Java first; normalized SSA on miss"))
                 .append(pruningRows(List.of(module)))
                 .append(chaPruningBoundaryRow(
                         runtime.callGraphAlgorithm()))
-                .append(row("SSA matched / different / unknown",
+                .append(row("SSA matched / different / unknown / skipped",
                         ssaCounts(List.of(module))))
+                .append(row("Java identical / different / unknown",
+                        decompileCounts(List.of(module))))
                 .append(row("Complete dependency changes / selected "
                                 + "effective members",
                         module.getUnit().getDependencyChanges().size() + " / "
@@ -543,6 +568,8 @@ public final class PerModuleHtmlReportGenerator {
                 .append("</table></details>");
         body.append(SsaEvidenceHtmlRenderer.render(
                 uniqueSsaComparisons(List.of(module))));
+        body.append(DecompileEvidenceHtmlRenderer.render(
+                uniqueDecompileComparisons(List.of(module))));
         body.append("</section><section id=\"limits\"><h2>Coverage limitations")
                 .append("</h2>");
         final List<String> limitations = new ArrayList<>(
@@ -1349,12 +1376,26 @@ public final class PerModuleHtmlReportGenerator {
     private String ssaCounts(final List<ModuleAnalysisResult> modules) {
         final List<SsaComparisonEvidence> comparisons =
                 uniqueSsaComparisons(modules);
+        final long eligible = uniqueDecompileComparisons(modules).size();
         return comparisonCount(comparisons,
                 SsaComparisonStatus.MATCHED) + " / "
                 + comparisonCount(comparisons,
                 SsaComparisonStatus.DIFFERENT) + " / "
                 + comparisonCount(comparisons,
-                SsaComparisonStatus.UNKNOWN);
+                SsaComparisonStatus.UNKNOWN) + " / "
+                + (eligible - comparisons.size());
+    }
+
+    private String decompileCounts(
+            final List<ModuleAnalysisResult> modules) {
+        final List<DecompileComparisonSummary> comparisons =
+                uniqueDecompileComparisons(modules);
+        return decompileComparisonCount(comparisons,
+                DecompileComparisonStatus.IDENTICAL) + " / "
+                + decompileComparisonCount(comparisons,
+                DecompileComparisonStatus.DIFFERENT) + " / "
+                + decompileComparisonCount(comparisons,
+                DecompileComparisonStatus.UNKNOWN);
     }
 
     private String pruningRows(
@@ -1405,11 +1446,29 @@ public final class PerModuleHtmlReportGenerator {
         return List.copyOf(unique.values());
     }
 
+    private List<DecompileComparisonSummary> uniqueDecompileComparisons(
+            final List<ModuleAnalysisResult> modules) {
+        final Map<String, DecompileComparisonSummary> unique =
+                new java.util.TreeMap<>();
+        modules.stream().flatMap(module -> module.getUnit()
+                        .getDecompileComparisons().stream())
+                .forEach(value -> unique.putIfAbsent(
+                        value.stableKey(), value));
+        return List.copyOf(unique.values());
+    }
+
     private long comparisonCount(
             final List<SsaComparisonEvidence> comparisons,
             final SsaComparisonStatus status) {
         return comparisons.stream()
                 .filter(value -> value.getStatus() == status).count();
+    }
+
+    private long decompileComparisonCount(
+            final List<DecompileComparisonSummary> comparisons,
+            final DecompileComparisonStatus status) {
+        return comparisons.stream()
+                .filter(value -> value.status() == status).count();
     }
 
     private long contextCount(final ModuleAnalysisResult module) {

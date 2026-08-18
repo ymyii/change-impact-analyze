@@ -168,8 +168,8 @@ if [ "$algorithm" = cha ]; then
 fi
 ! grep -q '<th>Result refinement algorithms</th>' "$report" \
   || fail "removed result refinement selection remains in report"
-grep -q '<th>SSA equivalence</th><td>fixed enabled (experimental)</td>' "$report" \
-  || fail "fixed SSA equivalence state is missing"
+grep -q '<th>Method body equivalence order</th><td>Decompiled Java first; normalized SSA on miss</td>' "$report" \
+  || fail "Java-first method body equivalence order is missing"
 for extension in \
     cha-local-receiver-inference; do
   grep -E -q "<th>$extension</th><td>applied \(experimental\); edges checked / pruned / unknown: [0-9]+ / [0-9]+ / [0-9]+</td>" \
@@ -250,7 +250,8 @@ echo "direct_dependencies=$dependency_count"
 echo "raw_change_kinds=10"
 echo "dependency_analysis_scope=$dependency_scope"
 echo "jdk_model=$jdk_model"
-echo "ssa_equivalence=fixed-enabled"
+echo "ssa_equivalence=second-stage-on-java-miss"
+echo "decompiled_java_equivalence=first-stage-short-circuit"
 echo "impact_path_pruning_extensions=cha-local-receiver-inference"
 echo "visible_change_kinds=$visible_change_kind_count"
 if [ -n "$expected" ] && [ "$expected_impact" != PENDING ]; then

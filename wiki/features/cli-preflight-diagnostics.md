@@ -22,7 +22,7 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/DependencyArtifactSelection.java"
     desc: "include union、exclude precedence与稳定去重"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/CallGraphDiagnosticsExporter.java"
-    desc: "Schema 12固定SSA、JDK dispatch与caller-local Impact Path pruning evidence"
+    desc: "Schema 13 Java-first方法体过滤、JDK dispatch与caller-local Impact Path pruning evidence"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/pruning/ImpactPathPruningSummary.java"
     desc: "Module级extension状态、metrics与bounded examples"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/JdkModelSelectionConverter.java"
@@ -95,7 +95,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - `--k-obj-depth <正整数>`：只可与`k-obj`同时使用，默认`1`，不设置人为上限；零值、负值及与其他算法组合均在Preflight前作为参数错误返回。
 - `--jdk-model <jdk8|none>`：默认依algorithm解析。未指定algorithm/model或显式`cha`但未指定model时为`none`；其他algorithm未指定model时为`jdk8`。显式`cha + jdk8`在Preflight前exit code`1`；其他algorithm仍可显式`none`。
 - `--wala-reflection-options <enum-name>`：默认`ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD`，接受WALA `ReflectionOptions` enum name；`--reflection-options`为alias。CHA保留配置值但不应用，Report显示`not applied by cha`。
-- `--result-refinement-algorithms`已删除；传入旧option由Picocli作为未知参数返回exit code `1`。SSA equivalence固定启用；CHA固定执行experimental `cha-local-receiver-inference` Impact Path pruning extension，`k-obj`不执行路径裁剪。
+- `--result-refinement-algorithms`已删除；传入旧option由Picocli作为未知参数返回exit code `1`。SSA与decompiled Java equivalence固定启用；CHA固定执行experimental `cha-local-receiver-inference` Impact Path pruning extension，`k-obj`不执行路径裁剪。
 - `--entrypoint-include '<class-path-pattern>'` 与 `--entrypoint-exclude ...`：可重复；直接匹配 slash-separated JVM internal class path，include 取并集，exclude 优先。普通 segment支持 `*`、`?`；`**` 只能作为最后一个完整 segment。Colon/dot旧语法、leading/trailing slash、空 segment与嵌入式 `**` 在 CLI validation阶段 exit `1`。
 - `--dependency-include '<groupPattern>:<artifactPattern>'`与`--dependency-exclude ...`：可重复并按首次出现去重；include取并集，未传include表示全部，exclude始终优先。两段均非空且不含空白，只允许一个`:`；`*`和`?`分别匹配当前段任意长度与单字符，`**`没有特殊语义，匹配区分大小写。只比较target `groupId:artifactId`，忽略version、type和classifier。格式错误exit `1`；显式selector整体未选中任何`VERSION_CHANGED` JAR pair时在JAR Diff前exit `1`，不替换旧Report或diagnostics output。
 - `--call-graph-timeout-seconds <N>`：默认 `0`；按 Module、从实际 WALA build 开始计时。
@@ -109,7 +109,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - `PARTIAL_SUCCESS`、`FAILED`：`2`。
 - Argument validation、Preflight、global preparation failure：`1`。
 
-`INCONCLUSIVE`表示analysis在公开model内完成，但存在JAR diff、`invokedynamic`、MethodHandle、ServiceLoader或外部dependency excluded JDK reference uncertainty；它不是hard failure。ChangePoint收集期SSA `UNKNOWN`采用fail-open并保留变化，不再降级Module。仅由最后一类scope gap触发时，Module reason为`INCONCLUSIVE_SCOPE_VALIDATION`。
+`INCONCLUSIVE`表示analysis在公开model内完成，但存在JAR diff、`invokedynamic`、MethodHandle、ServiceLoader或外部dependency excluded JDK reference uncertainty；它不是hard failure。ChangePoint收集期decompiled Java `UNKNOWN`会继续执行SSA；SSA `UNKNOWN`采用fail-open并保留变化。`UNKNOWN`本身不降级Module。仅由最后一类scope gap触发时，Module reason为`INCONCLUSIVE_SCOPE_VALIDATION`。
 
 ## Preflight Boundary
 
@@ -133,14 +133,14 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 - JAR pair failure在`INFO`以WARN输出异常类型和完整message；`DEBUG`/`TRACE`紧接输出同context的完整stack与cause chain。
 - 外部 dependency scope warning 使用 `[scope-validation][module][module=…][artifact=…]` context；每个 artifact 一条，warning text 同时进入 Module `Coverage limitations`。
 - `DiagnosticLog`不保留event list或`getEvents()` snapshot；Overall和Module HTML不包含Diagnostics section、目录入口或event formatter。
-- 显式`--call-graph-diagnostics-output`是用户主动请求的Schema 12 topology JSON，独立于HTML。根对象保存固定`ssaEquivalence.enabled/fixed`与只包含`cha-local-receiver-inference`的`impactPathPruningExtensions`，不再保存`resultRefinementAlgorithms`。Module保存algorithm状态、topology、Context、IR snapshot、JDK声明分派裁剪计数与最多10条caller/callee edge example、Impact Path edge metrics，以及`changePointCollection.ssaEquivalence`的eligible/status/reason/version/hash/timing证据；query-time裁剪不改写topology node/edge。
+- 显式`--call-graph-diagnostics-output`是用户主动请求的Schema 13 topology JSON，独立于HTML。根对象保存固定`ssaEquivalence.enabled/fixed`与只包含`cha-local-receiver-inference`的`impactPathPruningExtensions`，不再保存`resultRefinementAlgorithms`。Module保存algorithm状态、topology、Context、IR snapshot、JDK声明分派裁剪计数与最多10条caller/callee edge example、Impact Path edge metrics。`changePointCollection.decompiledJavaEquivalence`声明`evaluationOrder=1/shortCircuitWhen=IDENTICAL`；`ssaEquivalence`声明`evaluationOrder=2/shortCircuitedBy=DECOMPILED_JAVA_TEXT_IDENTICAL`及eligible/executed/skipped、三态结果、reason、version、hash和timing。只保存单一suppression reason，不写decompiled source。query-time裁剪不改写topology node/edge。
 - Call Graph completion message包含effective`algorithm`、`jdkModel=jdk8|none`与`jdkDeclaredDispatchPrunedTargets`，并仅在`k-obj`时包含实际`kObjDepth`。HTML仍展示CHA Reflection not-applied，但不复制Diagnostic line。
 - `impact-query` INFO completion输出visited nodes、edge checks与pruned edges；`-vv`额外输出最多10条稳定caller/callee edge example。Receiver unknown仍保留原CHA edge，不改变Module status或生成coverage limitation。
 - 每个Module的`evidence-analysis` INFO覆盖Structural metadata scan与唯一Call Graph node scan；start包含`changes/graphNodes`，completion包含`structuralReferences/evidence/queryNodes/bindings`。`-vv` Evidence进度在collector同一线程按5秒门限输出，不创建scheduler。
 - 每个Module的`impact-query` INFO start在planning前输出并包含`changes/evidenceBindings`；planning完成后的DEBUG包含`seeds/queryNodes/workers`。该Stage的开始、完成与失败不携带Phase。`-vv` QueryNode事件使用`query-node-started|progress|completed`，第五段按当前算法活动携带`REVERSE_BFS`、`PATH_MATERIALIZATION`或`REPRESENTATIVE_SELECTION` Phase；message携带stable ordinal、Evidence seed数、elapsed、recent node，以及QueryNode-local `visited`、`edgeChecks`和`prunedEdges`，不重复`phase=`。heartbeat使用fixed-delay，不补发暂停期间的过期事件。
-- JAR diff aggregate INFO completion包含成功logical pair的唯一`changes`总数、logical `pairs`、`failedPairs`与实际`workers`；空diff固定输出`changes=0; pairs=0; failedPairs=0; workers=0`。
-- 每个logical JAR pair的DEBUG completion输出`rawChanges/changes/ssaEligible/ssaMatchedSuppressed/ssaDifferentRetained/ssaUnknownRetained/ssaElapsedMillis`；同一pair绑定多个Module不重复比较或重复计入pair日志。
-- `-vv`对SSA `DIFFERENT`与`UNKNOWN`输出原子多行审计块：Stage为`jar-diff`、substage为`ssa-equivalence-audit`，第五段携带artifact与可搜索method identity；正文固定包含retention、status、reason、hash、class version、耗时及old/new bytecode、原始IR、normalized IR六段。`MATCHED`、INFO与DEBUG不构建该文本。
+- JAR diff aggregate INFO completion包含成功logical pair的唯一`changes`总数、logical `pairs`、`failedPairs`、实际`workers`，以及`eligible`、`ssaExecuted/ssaSkipped`、SSA matched/different/unknown、Java identical/different/unknown、`unionSuppressed`、`retained`和两类elapsed milliseconds；空diff全部计数为`0`。
+- 每个logical JAR pair的DEBUG completion输出`rawChanges/changes/semanticEligible/ssaExecuted/ssaSkipped/ssaMatchedSuppressed/ssaDifferent/ssaUnknown/ssaElapsedMillis/javaIdentical/javaDifferent/javaUnknown/semanticSuppressed/semanticRetained/decompileElapsedMillis`；同一pair绑定多个Module不重复比较或重复计入pair日志。
+- `-vv`对实际执行且结果为SSA `DIFFERENT`与`UNKNOWN`的候选输出原子多行审计块：Stage为`jar-diff`、substage为`ssa-equivalence-audit`，第五段携带artifact与可搜索method identity；正文固定包含candidate label、status、reason、hash、class version、耗时及old/new bytecode、原始IR、normalized IR六段。Java `IDENTICAL`候选短路，不生成SSA审计。`MATCHED`、INFO与DEBUG不构建该文本。
 
 示例：
 

@@ -11,8 +11,11 @@ import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
+import io.github.dependencyanalysis.bytecode.DecompileComparisonStatus;
+import io.github.dependencyanalysis.bytecode.DecompileComparisonSummary;
 import io.github.dependencyanalysis.bytecode.AccessTransition;
 import io.github.dependencyanalysis.bytecode.JvmAccess;
+import io.github.dependencyanalysis.bytecode.MethodBodySuppressionReason;
 import io.github.dependencyanalysis.bytecode.SsaComparisonEvidence;
 import io.github.dependencyanalysis.bytecode.SsaComparisonStatus;
 import io.github.dependencyanalysis.impact.AnalysisMode;
@@ -91,6 +94,18 @@ class PerModuleHtmlReportGeneratorTest {
 
     /** Target JDK major. */
     private static final int TARGET_MAJOR = 8;
+
+    /** Example baseline class major version. */
+    private static final int BASELINE_CLASS_MAJOR = 49;
+
+    /** Example target class major version. */
+    private static final int TARGET_CLASS_MAJOR = 50;
+
+    /** Example SSA comparison elapsed milliseconds. */
+    private static final long SSA_ELAPSED_MILLIS = 3L;
+
+    /** Example decompilation comparison elapsed milliseconds. */
+    private static final long DECOMPILE_ELAPSED_MILLIS = 5L;
 
     /** Example query elapsed metric. */
     private static final long QUERY_ELAPSED_MILLIS = 4L;
@@ -195,11 +210,11 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("Analysis scope and limitations")
                 .contains("Terminology")
                 .contains("k-Object (experimental)")
-                .contains("<th>SSA equivalence</th><td>"
-                        + "fixed enabled (experimental)</td>")
+                .contains("<th>Method body equivalence order</th><td>"
+                        + "Decompiled Java first; normalized SSA on miss</td>")
                 .doesNotContain("Result refinement algorithms")
-                .contains("<th>SSA matched / different / unknown</th>"
-                        + "<td>0 / 0 / 0</td>")
+                .contains("<th>SSA matched / different / unknown / skipped"
+                        + "</th><td>0 / 0 / 0 / 0</td>")
                 .doesNotContain("SSA equivalence workers")
                 .contains("Maven Dependency Plugin")
                 .contains("embedded 3.6.1")
@@ -369,15 +384,18 @@ class PerModuleHtmlReportGeneratorTest {
         final SsaComparisonEvidence ssa = new SsaComparisonEvidence(
                 new DependencyChange(ChangeType.VERSION_CHANGED,
                         oldArtifact, newArtifact, DependencyScope.COMPILE,
-                        "app"), affected.getChangePoint(), 49, 50,
+                        "app"), affected.getChangePoint(),
+                BASELINE_CLASS_MAJOR, TARGET_CLASS_MAJOR,
                 SsaComparisonStatus.MATCHED,
-                "NORMALIZED_SSA_CFG_ISOMORPHIC", 3L);
+                "NORMALIZED_SSA_CFG_ISOMORPHIC", SSA_ELAPSED_MILLIS);
+        final DecompileComparisonSummary decompiled =
+                decompiledSummary(oldArtifact, newArtifact);
         final ModuleAnalysisUnit unit = new ModuleAnalysisUnit(
                 moduleId, ModulePresence.BOTH, temporary.resolve("classes"),
                 List.of(), List.of(), List.of(),
                 new ModuleChangeSet(List.of(), List.of(affected, hidden),
                         List.of(), List.of(), List.of(), List.of(),
-                        List.of(ssa)));
+                        List.of(ssa), List.of(decompiled)));
         final ModuleAnalysisResult module =
                 new ModuleAnalysisResult.Builder(unit)
                         .impactPaths(List.of(impactPath, secondImpactPath))
@@ -437,17 +455,13 @@ class PerModuleHtmlReportGeneratorTest {
         assertNormalizedRelationCounts(report.shards());
         assertChangedMemberMetrics(report.moduleIndex());
         assertChaPruningDisclosure(report.moduleIndex());
-        assertThat(output).content()
-                .contains("<th>SSA equivalence</th><td>"
-                        + "fixed enabled (experimental)</td>")
+        final String overall = Files.readString(output);
+        assertThat(overall)
+                .contains("<th>Method body equivalence order</th><td>"
+                        + "Decompiled Java first; normalized SSA on miss</td>")
                 .doesNotContain("Result refinement algorithms")
-                .doesNotContain("SSA equivalence workers")
-                .contains("<th>SSA matched / different / unknown</th>"
-                        + "<td>1 / 0 / 0</td>")
-                .contains("SSA ChangePoint collection evidence")
-                .contains("49 → 50")
-                .contains("NORMALIZED_SSA_CFG_ISOMORPHIC")
-                .contains("3 ms");
+                .doesNotContain("SSA equivalence workers");
+        assertSemanticComparisonEvidence(overall);
         assertThat(report.shards())
                 .contains("example:library:jar:1", "example:library:jar:2")
                 .contains("-return 1;")
@@ -455,6 +469,38 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("\\u003c/script\\u003e", "\\u0026",
                         "\\u2028", "\\u2029");
         assertRepeatablePublication(report, run, plugin, output);
+    }
+
+    private DecompileComparisonSummary decompiledSummary(
+            final ArtifactCoord oldArtifact,
+            final ArtifactCoord newArtifact) {
+        return new DecompileComparisonSummary(oldArtifact, newArtifact,
+                "example/library/Api", "filtered", "()I",
+                "old-filtered", "new-filtered", BASELINE_CLASS_MAJOR,
+                TARGET_CLASS_MAJOR,
+                DecompileComparisonStatus.DIFFERENT,
+                "DECOMPILED_JAVA_TEXT_DIFFERENT",
+                DECOMPILE_ELAPSED_MILLIS,
+                java.util.Set.of(MethodBodySuppressionReason.SSA_MATCHED));
+    }
+
+    private void assertSemanticComparisonEvidence(final String overall) {
+        assertThat(overall)
+                .contains("<th>SSA matched / different / unknown / skipped"
+                        + "</th><td>1 / 0 / 0 / 0</td>")
+                .contains("<th>Method body equivalence order</th>"
+                        + "<td>Decompiled Java first; normalized SSA on "
+                        + "miss</td>")
+                .contains("<th>Java identical / different / unknown</th>"
+                        + "<td>0 / 1 / 0</td>")
+                .contains("SSA ChangePoint collection evidence")
+                .contains("Decompiled Java ChangePoint collection evidence")
+                .contains("49 → 50")
+                .contains("NORMALIZED_SSA_CFG_ISOMORPHIC")
+                .contains("DECOMPILED_JAVA_TEXT_DIFFERENT")
+                .contains("SSA_MATCHED")
+                .contains("3 ms")
+                .contains("5 ms");
     }
 
     private void assertChaPruningDisclosure(final String moduleIndex) {
@@ -543,6 +589,14 @@ class PerModuleHtmlReportGeneratorTest {
                 .contains("id=\"path-dependency-include\"")
                 .contains("id=\"path-dependency-exclude\"")
                 .contains("searchForm.addEventListener(\"submit\"")
+                .contains("function pathSegments(path, member, methods)")
+                .contains("function appendPathSequenceCell(")
+                .contains("document.createTextNode(\" → \")")
+                .contains("document.createElement(\"br\")")
+                .contains("path.type === \"impact\"")
+                .contains("(index + 1) % 2 === 0")
+                .contains("white-space:normal;overflow-wrap:anywhere")
+                .doesNotContain(".path-sequence{white-space:nowrap")
                 .doesNotContain("searchInput.addEventListener(\"input\"")
                 .doesNotContain("max-width:1440px");
     }

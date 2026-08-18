@@ -297,7 +297,8 @@ public final class ImpactCommand
                         ? "; experimental=true; kObjDepth="
                         + selectedKObjDepth : "")
                         + "; jdkModel=" + jdkModel.identifier()
-                        + "; ssaEquivalence=fixed-enabled"
+                        + "; methodBodyEquivalence="
+                        + "decompiled-java-first-short-circuit"
                         + "; dependencySelection=" + dependencySelection);
         try (PreflightContext context =
                      new PreflightContext()) {
@@ -352,9 +353,8 @@ public final class ImpactCommand
                 ImpactPreflightService.COMMAND_RUN,
                 CommandRunDirectory.class);
         final AnalysisRunResult result;
-        final ReportCache reportCache = normalizedDiagnostics == null
-                ? null : new ReportCache(commandRun, "impact");
-        try (reportCache) {
+        try (ReportCache reportCache = new ReportCache(
+                commandRun, "impact")) {
             final ImpactExecutionEngine engine = new PerModuleImpactPipeline(
                     diagnostics, kinds, mavenRuntime, pluginRuntime,
                     context.get(ImpactPreflightService.MAVEN_ARGS, List.class),
@@ -369,9 +369,7 @@ public final class ImpactCommand
                     metrics.executors(), reportCache));
             result = engine.run(context.get(
                     ImpactPreflightService.WORKSPACE, WorkspaceResult.class));
-            if (reportCache != null) {
-                reportCache.complete();
-            }
+            reportCache.complete();
             publishReport(result, report, diagnostics, mavenRuntime,
                     pluginRuntime, targetJava);
         }

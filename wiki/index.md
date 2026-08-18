@@ -15,12 +15,12 @@ code_refs: []
 ## Architecture
 
 ### [Dependency Analysis Pipelines](architecture/dependency-analysis-pipelines.md)
-- Summary: `ImpactExecutionEngine`以唯一command-wide `common` pool统一限制front preparation、JAR diff、Impact Query与code comparison，Module仍严格串行。
+- Summary: `ImpactExecutionEngine`以唯一command-wide `common` pool统一限制并发；Java-first方法体分阶段证据写入当前run的原子`report-cache`，retained body diff只读缓存。
 
 ## Features
 
 ### [CLI Preflight and Diagnostics](features/cli-preflight-diagnostics.md)
-- Summary: Console-only五段DiagnosticLog、全局common pool并发上限、QueryNode进度、JAR diff汇总、`-vv` SSA method审计与Runtime Metrics、显式topology JSON边界。
+- Summary: Console-only五段DiagnosticLog、Java-first短路过滤指标、`-vv` SSA method审计、Runtime Metrics与显式Schema 13 topology JSON边界。
 
 ### [Maven Runtime](features/maven-runtime.md)
 - Summary: 用户 executable、跨平台内嵌 Maven 3.6.3、两个独立 repository ZIP，以及 Stable/Snapshot 分离 cache 与 command-scoped settings。
@@ -44,7 +44,7 @@ code_refs: []
 - Summary: `ArtifactCoord` 是 dependency JAR logical identity；repository deterministic 选择 Resolver binding，并以 tracked `JarLease` 隔离 physical handle。
 
 ### [Bytecode Diff Engine](features/bytecode-diff-engine.md)
-- Summary: logical coordinate pair经repository lease并行去重Diff；跨class major的method body执行normalized SSA filtering，`-vv`为retained结果输出old/new bytecode与IR审计。
+- Summary: 全部method body候选先执行Vineflower文本比较；Java命中短路，未命中再执行normalized SSA；源码证据只写当前command cache。
 
 ### [Call Graph Engine](features/call-graph-engine.md)
 - Summary: 正式CHA与experimental `k-obj`按strategy隔离；CHA固定限制JDK声明分派，canonical SCC utility由topology与Impact QueryNode slice复用。
@@ -53,10 +53,10 @@ code_refs: []
 - Summary: CHA固定`none`；experimental `k-obj`默认接入独立`models/jdk8`精确catalog，并允许显式`none`。
 
 ### [Impact Tracing](features/impact-tracing.md)
-- Summary: SSA固定在ChangePoint收集期执行；CHA query固定以caller-local receiver事实裁剪调用边，QueryNode级reverse BFS按root SCC生成确定性代表路径。
+- Summary: ChangePoint收集期固定执行decompiled Java first、normalized SSA on miss的短路过滤；下游仅消费effective ChangePoint，CHA query按caller-local事实生成确定性代表路径。
 
 ### [Report Generator](features/report-generator.md)
-- Summary: Impact/Structural Affected Paths采用Schema 4 source-range index、4 MiB离线分片与显式Search；Module与Path按changed-member Maven Glob缩小展示范围，页面自适应占满viewport。
+- Summary: Affected Paths保持Schema 4离线分片；Impact Path每两节点折行、Structural Path软换行，Technical details展示无源码分阶段过滤证据。
 
 ## Rules
 
@@ -93,6 +93,6 @@ code_refs: []
 - Summary: Maven Versions/Enforcer驱动四个独立artifact的Snapshot iteration、Stable release、commit与component Git tag。
 
 ### [Impact Benchmark](runbooks/impact-benchmark.md)
-- Summary: changed-paths/full各执行1次warm-up与5次formal；固定SSA和CHA pruning合同、12个JVM与2组baseline通过后原子发布。
+- Summary: changed-paths/full各执行1次warm-up与5次formal；固定Java-first方法体短路过滤、Schema 13和CHA pruning合同通过后原子发布。
 
 ## Glossary

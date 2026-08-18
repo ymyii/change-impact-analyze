@@ -24,7 +24,8 @@ final class SsaEvidenceHtmlRenderer {
         final StringBuilder body = new StringBuilder();
         body.append("<details><summary>SSA ChangePoint collection evidence")
                 .append("</summary><p class=\"warn\">A normalized SSA match ")
-                .append("suppresses the method body ChangePoint. It is not ")
+                .append("suppresses the method body ChangePoint after the ")
+                .append("decompiled Java comparison misses. It is not ")
                 .append("proof of source or complete runtime behavior ")
                 .append("equivalence.</p><div class=\"table-scroll\"><table>")
                 .append("<thead><tr><th>Dependency</th><th>Method</th>")

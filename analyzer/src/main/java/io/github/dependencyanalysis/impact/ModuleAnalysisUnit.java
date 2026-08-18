@@ -5,6 +5,7 @@ import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.bytecode.ServiceLoaderResourceIssue;
 import io.github.dependencyanalysis.bytecode.ServiceProviderRegistration;
 import io.github.dependencyanalysis.bytecode.SsaComparisonEvidence;
+import io.github.dependencyanalysis.bytecode.DecompileComparisonSummary;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -59,6 +60,9 @@ public final class ModuleAnalysisUnit {
 
     /** ChangePoint-collection normalized SSA evidence. */
     private final List<SsaComparisonEvidence> ssaComparisons;
+
+    /** ChangePoint-collection decompiled Java evidence. */
+    private final List<DecompileComparisonSummary> decompileComparisons;
 
     /**
      * Creates a module analysis unit.
@@ -118,6 +122,7 @@ public final class ModuleAnalysisUnit {
         serviceLoaderResourceIssues = immutable(
                 changes.serviceLoaderResourceIssues());
         ssaComparisons = immutable(changes.ssaComparisons());
+        decompileComparisons = immutable(changes.decompileComparisons());
         changedPathSelection = Objects.requireNonNull(
                 dependencyInputs.changedPathSelection(), "pathSelection");
     }
@@ -202,5 +207,10 @@ public final class ModuleAnalysisUnit {
     /** @return ChangePoint-collection normalized SSA evidence */
     public List<SsaComparisonEvidence> getSsaComparisons() {
         return ssaComparisons;
+    }
+
+    /** @return ChangePoint-collection decompiled Java evidence */
+    public List<DecompileComparisonSummary> getDecompileComparisons() {
+        return decompileComparisons;
     }
 }

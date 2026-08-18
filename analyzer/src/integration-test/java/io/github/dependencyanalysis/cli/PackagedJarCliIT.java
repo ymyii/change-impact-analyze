@@ -309,8 +309,8 @@ class PackagedJarCliIT {
                 .contains("Impact Analysis Report")
                 .contains("<th>Algorithm</th><td>cha</td>")
                 .contains("<th>JDK method model</th><td>none</td>")
-                .contains("<th>SSA equivalence</th><td>"
-                        + "fixed enabled (experimental)</td>")
+                .contains("<th>Method body equivalence order</th><td>"
+                        + "Decompiled Java first; normalized SSA on miss</td>")
                 .doesNotContain("Result refinement algorithms")
                 .contains("Preflight")
                 .contains("impact.java-runtime");

@@ -71,7 +71,7 @@ run_one() {
 }
 
 # One scope: one warm-up and five formal samples. Each invocation starts a
-# fresh JVM with fixed SSA equivalence and fixed CHA pruning extensions.
+# fresh JVM with fixed Java-first filtering and fixed CHA pruning extensions.
 run_one cha warmup 0 0 1 none
 for round in 1 2 3 4 5; do
   run_one cha formal "$round" "$round" 0 none

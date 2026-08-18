@@ -25,10 +25,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class CallGraphDiagnosticsExporterTest {
 
     /** Expected diagnostics JSON Schema version. */
-    private static final int EXPECTED_SCHEMA_VERSION = 12;
+    private static final int EXPECTED_SCHEMA_VERSION = 13;
 
     @Test
-    void writesSchemaV11ConfigurationAndTypedSentinelPath() throws Exception {
+    void writesSchemaV13ConfigurationAndTypedSentinelPath() throws Exception {
         final CallGraphNodeIdentity fakeRoot = node(
                 0, "com.ibm.wala.FakeRoot", "fakeRootMethod",
                 CallGraphNodeSentinelRole.FAKE_ROOT);
@@ -61,7 +61,7 @@ class CallGraphDiagnosticsExporterTest {
         assertThat(CallGraphDiagnosticsExporter.SCHEMA_VERSION)
                 .isEqualTo(EXPECTED_SCHEMA_VERSION);
         assertThat(output.toString())
-                .contains("\"schemaVersion\":12")
+                .contains("\"schemaVersion\":13")
                 .contains("\"reflectionApplied\":\"applied\"")
                 .contains("\"kObjDepth\":1")
                 .contains("\"jdkModel\":\"jdk8\"")

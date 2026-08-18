@@ -22,7 +22,9 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/DependencyArtifactSelection.java"
     desc: "JAR Diff前的changed dependency source边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/bytecode/BytecodeDiffResult.java"
-    desc: "ChangePoint收集期SSA filtering结果与审计证据"
+    desc: "ChangePoint收集期SSA/decompiled Java filtering结果与证据"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/MethodBodyComparisonCache.java"
+    desc: "command-owned方法体源码fragment与缓存diff读取边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ModuleCallGraphInputAdapter.java"
     desc: "业务 domain 到 Call Graph input 的投影"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/engine/ModuleCallGraphEngine.java"
@@ -41,7 +43,7 @@ code_refs:
 
 ## Summary
 
-Root CLI 分发 `impact` 与 `tree`。`impact` 只编译 target，并为每个 relevant Module 构建一张 selected Call Graph；baseline 提供dependency evidence与old artifact。默认组合为`cha + changed-paths + jdk-model none`，Static Single Assignment（SSA，静态单赋值）equivalence固定启用；CHA固定执行caller-local `cha-local-receiver-inference` Impact Path裁剪extension。`k-obj`是显式选择的实验性algorithm。
+Root CLI 分发 `impact` 与 `tree`。`impact` 只编译 target，并为每个 relevant Module 构建一张 selected Call Graph；baseline 提供dependency evidence与old artifact。默认组合为`cha + changed-paths + jdk-model none`，Static Single Assignment（SSA，静态单赋值）与decompiled Java equivalence固定启用；CHA固定执行caller-local `cha-local-receiver-inference` Impact Path裁剪extension。`k-obj`是显式选择的实验性algorithm。
 
 `ImpactCommand`通过`ImpactExecutionEngine`启动默认per-Module实现。scope planning后创建唯一command-wide`common`pool，front preparation、logical JAR pair diff、Impact Query与code comparison顺序复用，并统一受`--analysis-parallelism`限制。Relevant Module仍按stable key串行完成Call Graph、单线程Evidence analysis、Impact Query与report-safe snapshot。`TreeCommand`只承载CLI，`TreeExecutionEngine`负责preflight、Reactor processing与发布。
 
@@ -93,11 +95,12 @@ flowchart TD
   Evidence --> Diff["complete Maven Dependency Diff"]
   Diff --> Selection["dependency-selection: changed JAR Glob boundary"]
   Selection --> JarDiff["selected bytecode + resource diff"]
-  JarDiff --> SSAChoice{"class major differs?"}
-  SSAChoice -->|yes| SSA["fixed pair-local normalized SSA filtering"]
-  SSAChoice -->|no| Effective["effective ChangePoints"]
-  SSA --> Effective
-  Effective --> Bind["BoundChangePoint + SSA evidence per Module"]
+  JarDiff --> Java["all method body candidates: Vineflower exact text"]
+  Java -->|"IDENTICAL: suppress + skip SSA"| Cache["atomic method-body-comparison JSON Lines fragment"]
+  Java -->|"DIFFERENT / UNKNOWN"| Semantic["normalized SSA"]
+  Semantic -->|"MATCHED: suppress; else retain"| Cache
+  Cache --> Effective["effective ChangePoints"]
+  Effective --> Bind["BoundChangePoint + compact staged evidence per Module"]
   Bind --> PathPlan["changed-path union or full scope"]
   PathPlan --> Input["ModuleCallGraphInputAdapter"]
   Input --> Validate["Call Graph scope validation"]
@@ -110,7 +113,7 @@ flowchart TD
   Coverage --> Query["QueryNode reverse Impact Query"]
   Query --> ChaRefine["fixed CHA caller-local pruning registry"]
   ChaRefine --> Snapshot
-  Snapshot --> Compare["concurrent Impact/Structural code comparison"]
+  Snapshot --> Compare["cached body diff + on-demand non-body comparison"]
   Compare --> Report["stream HTML + atomic publication"]
 ```
 
@@ -132,14 +135,14 @@ flowchart TD
 - 当前 Module classes 为 `PROJECT`；上游 reactor Module 为 `REACTOR_DEPENDENCY`；外部 selected artifact 为 `DEPENDENCY`；target JDK 为 `JDK`。
 - Entrypoint class 只来自当前 Module classes index。Scope、hierarchy、cache 和 Call Graph 均为 per-Module。
 - Requested dependency scope 与 actual scope 分开保存。无法稳定恢复完整 changed path 时，只对当前 Module fallback 到 `full`，并生成 typed warning。
-- `DependencyArtifactSelection`只裁剪`VERSION_CHANGED` JAR logical pair产生的Bytecode Diff、ServiceLoader Diff、SSA、ChangePoint、Evidence、Impact Query与code comparison。完整Dependency Diff和target/baseline classpath不裁剪；`changed-paths`仍从选中seed反向保留全部中间依赖，路径外sibling继续使用既有no-op policy。
+- `DependencyArtifactSelection`只裁剪`VERSION_CHANGED` JAR logical pair产生的Bytecode Diff、ServiceLoader Diff、SSA/decompiled Java比较、ChangePoint、Evidence、Impact Query与code comparison。完整Dependency Diff和target/baseline classpath不裁剪；`changed-paths`仍从选中seed反向保留全部中间依赖，路径外sibling继续使用既有no-op policy。
 
 ## Algorithm and Pruning Contract
 
 - `--call-graph-algorithm` 只接受 `cha`、`k-obj`；默认 `cha`，不自动 fallback。
 - CHA 固定 `jdk-model=none`，不应用 Reflection。`k-obj` 默认 `jdk-model=jdk8`，允许显式 `none`，并应用 Reflection。
 - `--k-obj-depth` 只对 `k-obj` 合法，默认 `1`。
-- `--result-refinement-algorithms`已删除，旧参数作为未知option返回exit code `1`。SSA equivalence在ChangePoint收集期固定运行；只处理class major version不同的method body候选，结果与normalization位于`bytecode` package。`MATCHED`抑制，`DIFFERENT/UNKNOWN`保留。
+- `--result-refinement-algorithms`已删除，旧参数作为未知option返回exit code `1`。方法体equivalence在ChangePoint收集期固定运行，不按class major version门禁。全部候选先比较decompiled Java；`IDENTICAL`立即抑制并短路。只有Java `DIFFERENT/UNKNOWN`执行normalized SSA，`MATCHED`抑制，其余fail-open保留。
 - CHA固定执行代码内`cha-local-receiver-inference` extension registry；无CLI、`ServiceLoader`或外部Plugin注册。extension只验证已有caller-to-callee predecessor edge，不发现terminal evidence、不补边、不构建第二张graph。`k-obj`不执行Impact Path裁剪。
 - Reverse BFS以exact `QueryNode`为状态，在加入前驱前执行caller-local receiver裁剪；只有`PROVEN_INFEASIBLE`才跳过调用边，unknown、不适用与非中断异常均fail-open。bridge参数、factory返回值和其他跨方法receiver flow不推导，可能保留保守路径。
 
@@ -149,13 +152,17 @@ flowchart TD
 - scope planning后创建唯一command-wide managed `common`固定线程池，大小严格等于`--analysis-parallelism`。front preparation、JAR diff、Impact Query与code comparison顺序复用；显式值为`1`时baseline dependency与target build串行。
 - 各阶段保留独立worker计数与Diagnostic Stage，但不拥有线程池。工作线程统一使用`dependency-analyzer-common-*`；全局异常取消已提交任务并关闭common pool。
 - 当前Module snapshot无条件把path node转换为`SnapshotQueryNode`，把method Evidence anchor转换为stable-only anchor，清空只供Reverse BFS使用的binding并释放live WALA state；该生命周期不依赖`ReportCache`是否存在。
-- Impact正常HTML发布不启用`ReportCache`，也不写path、observation或code-comparison fragment。只有显式`--call-graph-diagnostics-output`启用cache并在live session期流式写`diagnostic-module`fragment。
-- HTML只读取已冻结Module result；显式Schema 12 topology JSON从diagnostic fragment输出，并保存固定SSA状态、JDK声明分派裁剪指标、caller-local Impact Path edge裁剪证据及`changePointCollection.ssaEquivalence`审计证据。
-- Report完整写入同filesystem staging后原子替换；失败清理command-owned cache。
+- `impact`无条件创建当前run的`ReportCache`。每个selected logical JAR pair原子发布一个稳定排序的`method-body-comparison` JSON Lines fragment；即使eligible为`0`也保留空fragment。记录logical artifact、method identity、hash、class major version、decompile状态与耗时、`ssaExecuted`、SSA三态或`NOT_EXECUTED/JAVA_TEXT_IDENTICAL_SHORT_CIRCUIT`、old/new源码或不可用原因、抑制原因，不保存physical JAR path。
+- filtered和retained候选都进入cache。`ModuleChangeSet`与`ModuleAnalysisUnit`只保存不含源码的compact evidence；完整源码仅存在于cache。
+- Impact/Structural path关联的retained `METHOD_BODY_CHANGED`从cache生成Unified diff；`UNKNOWN`直接生成`Unavailable`，禁止重新调用Vineflower。其他ChangePoint kind沿用按需Code comparison。
+- Cache fragment写入、读取、complete marker、record count、JSON与identity/schema校验失败终止command。单侧或双侧反编译失败只形成`UNKNOWN`，不把JAR pair或Module标记为失败。
+- HTML只读取已冻结Module result；显式Schema 13 topology JSON从diagnostic fragment输出，并保存固定SSA状态、JDK声明分派裁剪指标、caller-local Impact Path edge裁剪证据，以及`changePointCollection.ssaEquivalence`和`changePointCollection.decompiledJavaEquivalence`的无源码审计证据。
+- Report完整写入同filesystem staging后原子替换；发布成功或失败后关闭并删除当前run的`report-cache`，不跨command复用。
 
 ## Failure Boundaries
 
 - Impact全局preparation或publication失败终止command；Module scope、Call Graph、Evidence、Query或finalization失败转换为该Module的typed failure，后续Module继续。
+- 方法体反编译不可用是候选级fail-open；command-owned cache基础设施或完整性失败是全局fail-fast。
 - `ChangePointEvidenceIndex`在binding与resolution不一致时fail-fast，禁止生成缺少terminal事实的路径。
 - Tree command-level preflight失败不替换旧Report；Reactor collection失败记录issue并继续；renderer/publisher失败由`TreeExecutionEngine`关闭Report session并返回失败状态。
 - 线程中断继续传播；不把partial Evidence index发布为completed Module结果。

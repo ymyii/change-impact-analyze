@@ -1,7 +1,7 @@
 package io.github.dependencyanalysis.bytecode;
 
 /**
- * One version-gated method body change eligible for SSA comparison.
+ * One method body change eligible for semantic comparison.
  *
  * @param changePoint method body ChangePoint
  * @param oldMajorVersion baseline class file major version
