@@ -2,13 +2,13 @@ package io.github.dependencyanalysis.callgraph.engine;
 
 import io.github.dependencyanalysis.callgraph.boundary.DependencyBodyBoundaryMetadata;
 import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSelectionMetrics;
-import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.classpath.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.protocol.ModelLimitation;
 import io.github.dependencyanalysis.callgraph.protocol.ModelKind;
 import io.github.dependencyanalysis.callgraph.protocol.invokedynamic.DynamicCallEvidenceIndex;
-import io.github.dependencyanalysis.callgraph.scope.ClassOwnership;
-import io.github.dependencyanalysis.callgraph.scope.ClassOwnershipIndex;
-import io.github.dependencyanalysis.callgraph.scope.DuplicateClassResolution;
+import io.github.dependencyanalysis.classpath.ClassOwnership;
+import io.github.dependencyanalysis.classpath.ClassOwnershipIndex;
+import io.github.dependencyanalysis.classpath.ClassConflictResolution;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphStrategyCapabilities;
 import io.github.dependencyanalysis.callgraph.strategy.StrategyModelMetadata;
@@ -131,9 +131,9 @@ public final class ModuleCallGraphSession {
         return ownership;
     }
 
-    /** @return deterministic conflicting duplicate class resolutions */
-    public List<DuplicateClassResolution> getDuplicateClassResolutions() {
-        return ownership.duplicateClassResolutions();
+    /** @return deterministic class conflict resolutions */
+    public List<ClassConflictResolution> getClassConflictResolutions() {
+        return ownership.classConflictResolutions();
     }
 
     /** @return Call Graph metrics */

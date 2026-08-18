@@ -19,6 +19,8 @@ code_refs:
     desc: "公共 strategy contract 责任与依赖方向"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/protocol/package-info.java"
     desc: "算法无关 protocol contract 边界"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/classpath/package-info.java"
+    desc: "impact/tree共享的classpath ownership与冲突模型"
 ---
 
 # Rule: Package Boundaries
@@ -36,6 +38,7 @@ code_refs:
 - 算法专属 protocol selector、installer、context 和 summary 必须位于对应 strategy 子包；`k-obj` adapter 使用 `strategy.kobj.invokedynamic`、`strategy.kobj.methodhandle`、`strategy.kobj.serviceloader`。
 - `impact` 负责把业务 domain 投影成 `ModuleCallGraphInput`，在 Call Graph metadata 冻结后采集 evidence，并通过单一 mapper 将 Call Graph typed code 转成业务 reason。
 - `report` 只消费 `impact` 已转换、冻结的结果；禁止访问 live CHA 或 `k-obj` implementation。
+- `classpath`拥有`CodeOrigin`、`ClassSource`、`ClassOwnershipIndex`、`ClassConflictResolution`和`ClassConflictRisk`唯一共享模型。`impact`与`tree`都依赖该中立package；禁止在consumer package保留平行duplicate/conflict alias。
 - 每个职责 package 必须有 `package-info.java`，说明责任、允许依赖方向和禁止事项。
 - test package 镜像 production package。跨层集成测试放在实际 orchestration consumer package，不以测试便利为由破坏 production 依赖。
 - 删除能力时同步删除 implementation、registration、CLI identifier、专用测试和文档；保留能力应完成真实 package 迁移，不留兼容壳。

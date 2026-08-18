@@ -1,4 +1,4 @@
-package io.github.dependencyanalysis.callgraph.scope;
+package io.github.dependencyanalysis.classpath;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Objects;
 
 /** Deterministic winner evidence for one conflicting binary class name. */
-public final class DuplicateClassResolution {
+public final class ClassConflictResolution {
 
     /** Internal JVM binary name. */
     private final String binaryName;
@@ -20,19 +20,24 @@ public final class DuplicateClassResolution {
     /** Human-readable precedence rule. */
     private final String precedenceReason;
 
+    /** Conflict risk derived from candidate content digests. */
+    private final ClassConflictRisk risk;
+
     /**
-     * Creates immutable duplicate resolution evidence.
+     * Creates immutable class conflict resolution evidence.
      *
      * @param name internal binary name
      * @param effectiveWinner selected definition
      * @param definitions all definitions
      * @param reason winner rule
+     * @param conflictRisk risk derived from candidate digests
      */
-    DuplicateClassResolution(
+    ClassConflictResolution(
             final String name,
             final ClassOwnership effectiveWinner,
             final List<ClassOwnership> definitions,
-            final String reason) {
+            final String reason,
+            final ClassConflictRisk conflictRisk) {
         binaryName = Objects.requireNonNull(name, "binaryName");
         winner = Objects.requireNonNull(effectiveWinner, "winner");
         candidates = Collections.unmodifiableList(
@@ -40,6 +45,7 @@ public final class DuplicateClassResolution {
                         definitions, "candidates")));
         precedenceReason = Objects.requireNonNull(reason,
                 "precedenceReason");
+        risk = Objects.requireNonNull(conflictRisk, "risk");
     }
 
     /** @return internal JVM binary name */
@@ -67,5 +73,10 @@ public final class DuplicateClassResolution {
     /** @return stable precedence explanation */
     public String getPrecedenceReason() {
         return precedenceReason;
+    }
+
+    /** @return LOW for identical bytes, HIGH for differing definitions */
+    public ClassConflictRisk getRisk() {
+        return risk;
     }
 }

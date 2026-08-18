@@ -1,6 +1,4 @@
-package io.github.dependencyanalysis.callgraph.scope;
-
-import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+package io.github.dependencyanalysis.classpath;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -12,6 +10,8 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
+import java.util.jar.Attributes;
+import java.util.jar.Manifest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -53,7 +53,7 @@ class ClassOwnershipIndexTest {
 
         assertThat(index.ownershipOf("sample/Duplicate").getSource())
                 .isEqualTo(ClassSource.path(first));
-        assertThat(index.duplicateClassResolutions()).singleElement()
+        assertThat(index.classConflictResolutions()).singleElement()
                 .satisfies(resolution -> {
                     assertThat(resolution.getBinaryName())
                             .isEqualTo("sample/Duplicate");
@@ -81,8 +81,8 @@ class ClassOwnershipIndexTest {
 
         assertThat(index.ownershipOf("sample/Duplicate").getSource())
                 .isEqualTo(ClassSource.path(first));
-        assertThat(index.duplicateClassResolutions()).singleElement()
-                .extracting(DuplicateClassResolution::getPrecedenceReason)
+        assertThat(index.classConflictResolutions()).singleElement()
+                .extracting(ClassConflictResolution::getPrecedenceReason)
                 .isEqualTo("External dependency classpath order");
     }
 
@@ -99,13 +99,13 @@ class ClassOwnershipIndexTest {
 
         assertThat(index.ownershipOf("sample/Duplicate").getSource())
                 .isEqualTo(ClassSource.path(reactor));
-        assertThat(index.duplicateClassResolutions()).singleElement()
-                .extracting(DuplicateClassResolution::getPrecedenceReason)
+        assertThat(index.classConflictResolutions()).singleElement()
+                .extracting(ClassConflictResolution::getPrecedenceReason)
                 .isEqualTo("Reactor dependency classpath order");
     }
 
     @Test
-    void identicalDuplicateDoesNotProduceConflictEvidence()
+    void identicalDuplicateProducesLowRiskConflictEvidence()
             throws Exception {
         final Path first = temporary.resolve("identical-first");
         final Path second = temporary.resolve("identical-second");
@@ -117,7 +117,9 @@ class ClassOwnershipIndexTest {
         index.addDirectory(first, CodeOrigin.DEPENDENCY);
         index.addDirectory(second, CodeOrigin.DEPENDENCY);
 
-        assertThat(index.duplicateClassResolutions()).isEmpty();
+        assertThat(index.classConflictResolutions()).singleElement()
+                .extracting(ClassConflictResolution::getRisk)
+                .isEqualTo(ClassConflictRisk.LOW);
         assertThat(index.isEffectiveDefinition(
                 "sample/Duplicate", first)).isTrue();
         assertThat(index.isEffectiveDefinition(
@@ -165,6 +167,32 @@ class ClassOwnershipIndexTest {
     }
 
     @Test
+    void selectsExactMultiReleaseEntryForTargetJavaMajor() throws Exception {
+        final byte[] base = classBytes("sample/Versioned", 0);
+        final byte[] javaEleven = classBytes(
+                "sample/Versioned", Opcodes.ACC_FINAL);
+        final Path jar = multiReleaseJar("multi-release.jar", Map.of(
+                "sample/Versioned.class", base,
+                "META-INF/versions/11/sample/Versioned.class", javaEleven));
+        final ClassOwnershipIndex javaEight = new ClassOwnershipIndex(8);
+        final ClassOwnershipIndex javaElevenIndex =
+                new ClassOwnershipIndex(11);
+
+        javaEight.addJar(jar, CodeOrigin.DEPENDENCY);
+        javaElevenIndex.addJar(jar, CodeOrigin.DEPENDENCY);
+
+        assertThat(javaEight.ownershipOf("sample/Versioned").getEntryName())
+                .isEqualTo("sample/Versioned.class");
+        assertThat(javaElevenIndex.ownershipOf(
+                "sample/Versioned").getEntryName())
+                .isEqualTo("META-INF/versions/11/sample/Versioned.class");
+        assertThat(javaElevenIndex.ownershipOf(
+                "sample/Versioned").getDigest())
+                .isNotEqualTo(javaEight.ownershipOf(
+                        "sample/Versioned").getDigest());
+    }
+
+    @Test
     void validatesOnlyJdkNamesThatConflictWithIndexedClasses()
             throws Exception {
         final Path project = temporary.resolve("jdk-project");
@@ -198,7 +226,7 @@ class ClassOwnershipIndexTest {
 
         assertThat(index.ownershipOf("sample/Duplicate").getSource())
                 .isEqualTo(ClassSource.path(jar));
-        assertThat(index.duplicateClassResolutions()).singleElement()
+        assertThat(index.classConflictResolutions()).singleElement()
                 .satisfies(resolution -> {
                     assertThat(resolution.getWinner().getOrigin())
                             .isEqualTo(CodeOrigin.JDK);
@@ -237,6 +265,25 @@ class ClassOwnershipIndexTest {
                 Files.newOutputStream(path))) {
             for (java.util.Map.Entry<String, byte[]> entry
                     : entries.entrySet()) {
+                output.putNextEntry(new JarEntry(entry.getKey()));
+                output.write(entry.getValue());
+                output.closeEntry();
+            }
+        }
+        return path;
+    }
+
+    private Path multiReleaseJar(
+            final String name,
+            final Map<String, byte[]> entries) throws Exception {
+        final Path path = temporary.resolve(name);
+        final Manifest manifest = new Manifest();
+        manifest.getMainAttributes().put(
+                Attributes.Name.MANIFEST_VERSION, "1.0");
+        manifest.getMainAttributes().putValue("Multi-Release", "true");
+        try (JarOutputStream output = new JarOutputStream(
+                Files.newOutputStream(path), manifest)) {
+            for (Map.Entry<String, byte[]> entry : entries.entrySet()) {
                 output.putNextEntry(new JarEntry(entry.getKey()));
                 output.write(entry.getValue());
                 output.closeEntry();

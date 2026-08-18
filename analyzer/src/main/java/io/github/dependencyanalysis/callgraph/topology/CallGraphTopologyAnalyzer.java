@@ -1,6 +1,6 @@
 package io.github.dependencyanalysis.callgraph.topology;
 
-import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.classpath.CodeOrigin;
 import com.ibm.wala.classLoader.IClass;
 import com.ibm.wala.classLoader.IMethod;
 import com.ibm.wala.ipa.callgraph.CGNode;

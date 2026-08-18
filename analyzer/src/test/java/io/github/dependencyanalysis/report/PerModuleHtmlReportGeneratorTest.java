@@ -27,8 +27,8 @@ import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSelection;
 import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
-import io.github.dependencyanalysis.callgraph.scope.ClassOwnershipIndex;
-import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.classpath.ClassOwnershipIndex;
+import io.github.dependencyanalysis.classpath.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.model.MethodId;
 import io.github.dependencyanalysis.callgraph.scope.ScopeValidationWarning;
 import io.github.dependencyanalysis.impact.ChangePointTerminal;
@@ -771,8 +771,8 @@ class PerModuleHtmlReportGeneratorTest {
                         ModuleAnalysisReason.NONE, "complete")
                 .dispositions(Map.of(bound,
                         ChangePointDisposition.SHADOWED_BY_DUPLICATE))
-                .duplicateClassResolutions(
-                        ownership.duplicateClassResolutions())
+                .classConflictResolutions(
+                        ownership.classConflictResolutions())
                 .build();
         final AnalysisRunResult run = new AnalysisRunResult(
                 AnalysisMode.REACTOR, AnalysisStatus.SUCCESS, List.of(),
@@ -788,7 +788,8 @@ class PerModuleHtmlReportGeneratorTest {
                 java(), output);
 
         assertThat(output).content()
-                .contains("Conflicting duplicate classes</th><td>1")
+                .contains("Class conflicts</th><td>1")
+                .contains("High-risk class conflicts</th><td>1")
                 .contains("Shadowed dependency changes</th><td>1")
                 .contains("Completed");
         final Path owned = temporary.resolve("duplicate-modules");
@@ -805,7 +806,8 @@ class PerModuleHtmlReportGeneratorTest {
                     .findFirst().orElseThrow());
         }
         assertThat(index)
-                .contains("Duplicate class resolution")
+                .contains("Class conflict resolution")
+                .contains("<th>Risk</th>", "HIGH")
                 .contains("sample.Duplicate")
                 .contains("Current module target/classes precedence")
                 .contains("winner-&lt;unsafe&gt;")

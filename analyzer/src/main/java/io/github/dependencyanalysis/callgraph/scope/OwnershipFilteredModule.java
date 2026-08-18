@@ -3,6 +3,9 @@ package io.github.dependencyanalysis.callgraph.scope;
 import com.ibm.wala.classLoader.Module;
 import com.ibm.wala.classLoader.ModuleEntry;
 
+import io.github.dependencyanalysis.classpath.ClassOwnershipIndex;
+import io.github.dependencyanalysis.classpath.ClassSource;
+
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Iterator;

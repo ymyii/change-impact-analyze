@@ -19,6 +19,10 @@ code_refs:
     desc: "cache owner、source workspace 与 symlink boundary"
   - path: "plugins/artifact-path-resolver/src/main/java/io/github/dependencyanalysis/maven/DependencyEvidenceJsonWriter.java"
     desc: "Schema v3 streaming output 与 atomic publication"
+  - path: "plugins/artifact-path-resolver/src/main/java/io/github/dependencyanalysis/maven/CollectClasspathEvidenceMojo.java"
+    desc: "tree ordered classpath evidence collection"
+  - path: "plugins/artifact-path-resolver/src/main/java/io/github/dependencyanalysis/maven/ClasspathEvidenceJsonWriter.java"
+    desc: "Classpath Evidence Schema v1 atomic publication"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/DependencyAnalyzer.java"
     desc: "command-owned cache、单 goal 执行、严格发现与清理"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/DependencyEvidenceJsonParser.java"
@@ -35,13 +39,14 @@ code_refs:
 
 ## Summary
 
-`impact` 不读取 GraphML，也不解析 Maven `omitted for ...` 展示标签。内嵌 Dependency Evidence Plugin `3.0.0` 在一次 Maven session 内直接读取 Maven Dependency Tree API 的结构化对象：`DependencyGraphBuilder` 提供 resolved winner graph，`DependencyCollectorBuilder` 提供 raw occurrence graph。Plugin 生成每 Module 一个 Dependency Evidence Schema v3 JSON；Analyzer 严格解析为唯一 `ModuleDependencyEvidence`。
+`impact`不读取GraphML，也不解析Maven `omitted for ...`展示标签。内嵌Dependency Evidence Plugin `3.1.0-SNAPSHOT`提供两个向后兼容的独立goal：`impact`使用Dependency Evidence Schema v3；`tree`使用Classpath Evidence Schema v1。Schema v3 goal直接读取Maven Dependency Tree API的结构化对象；Schema v1 goal在同一Maven session的`compile`之后记录各Module的实际classpath。
 
 Maven Dependency Plugin 的 text、DOT、GraphML、TGF 是展示序列化。它们仅服务 `tree` 等面向人的报告能力；当前 `tree` 使用 verbose text。任何展示字符串都不是 `impact` 的程序接口。
 
 ## Entrypoints
 
-- Maven goal：`io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:3.0.0:collect-dependency-evidence`。
+- Impact goal：`io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:3.1.0-SNAPSHOT:collect-dependency-evidence`。
+- Tree goal：`io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:3.1.0-SNAPSHOT:collect-classpath-evidence`。
 - `DependencyAnalyzer.analyzeResolved()`：执行一次 goal，直接返回完整 `DependencyAnalysisResult`。
 - `DependencyAnalyzer.analyze()`：从 Schema v3 evidence 投影兼容的 `ModuleDependencyTree`。
 - `PerModuleImpactPipeline`：分别传入 `<command-tmp>/dependency-evidence/baseline` 与 `<command-tmp>/dependency-evidence/target` cache parent。
@@ -159,13 +164,27 @@ Maven Dependency Plugin 的 text、DOT、GraphML、TGF 是展示序列化。它�
 - Maven 成功或失败后 Analyzer 均删除 nonce；异常进程残留由 `CommandRunDirectory` stale-run recovery 删除。
 - 最终 HTML report 仍发布到用户 `--output`。Current target 的 `mvn compile` 可在其 Git workspace 生成 `target/`，不属于 dependency evidence 隔离范围。
 
+## Classpath Evidence Schema v1
+
+`collect-classpath-evidence`使用独立输入`cia.classpathEvidenceDirectory`、`cia.classpathEvidenceOwner`和`cia.classpathEvidenceScopes`，不改变Schema v3字段或`impact`默认scope。每个Module文档包含：
+
+- `schemaVersion: 1`与Maven JVM `javaMajor`。
+- 完整Module coordinate和canonical `moduleDirectory`。
+- 按实际classpath顺序排列的entry；`order`从0连续递增。
+- entry source kind仅允许`PROJECT`、`REACTOR_DEPENDENCY`、`DEPENDENCY`，同时保存logical coordinate、scope和canonical `absolutePath`。
+- `issues`保存无法由`compile`形成的Reactor classifier等不完整原因。
+
+当前Module扫描Maven `build.outputDirectory`；普通Reactor dependency扫描对应Module的`build.outputDirectory`；external与`system` dependency保存Maven实际绑定文件。Packaging为`pom`或没有主类输出的Module允许没有`PROJECT` entry。Reactor classifier不回读旧attached artifact。
+
+Schema v1复用`.cia-evidence-owner`、source workspace边界、symlink拒绝、random temporary sibling和atomic move。Analyzer严格校验Schema、Module identity、scope、连续顺序、source kind与canonical physical path；physical path只在当前command分析期使用。
+
 ## Maven Invocation
 
 ```text
 mvn <effective-arguments> <project-arguments>
     io.github.dependencyanalysis:
     dependency-analyzer-artifact-path-maven-plugin:
-    3.0.0:
+    3.1.0-SNAPSHOT:
     collect-dependency-evidence
     -Dcia.dependencyEvidenceDirectory=<absolute-command-cache-nonce>
     -Dcia.dependencyEvidenceOwner=<random-token>

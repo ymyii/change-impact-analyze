@@ -22,13 +22,22 @@ final class DependencyEvidenceOutputDirectory {
             final String configuredValue,
             final String owner,
             final Path sourceValue) throws MojoFailureException {
+        return validate(configuredValue, owner, sourceValue,
+                "cia.dependencyEvidence");
+    }
+
+    static Path validate(
+            final String configuredValue,
+            final String owner,
+            final Path sourceValue,
+            final String propertyPrefix) throws MojoFailureException {
         if (configuredValue == null || configuredValue.trim().isEmpty()) {
             throw new MojoFailureException(
-                    "cia.dependencyEvidenceDirectory is required");
+                    propertyPrefix + "Directory is required");
         }
         if (owner == null || owner.isEmpty()) {
             throw new MojoFailureException(
-                    "cia.dependencyEvidenceOwner is required");
+                    propertyPrefix + "Owner is required");
         }
         final Path configured;
         try {

@@ -28,7 +28,13 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/ReactorInventoryBuilder.java"
     desc: "Git file set、POM ownership 和 active module inventory"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeDependencyCollector.java"
-    desc: "Full-reactor 或 bounded-module Maven text collection"
+    desc: "单次 Reactor compile、dependency tree 与 classpath evidence collection"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/ClasspathEvidenceJsonParser.java"
+    desc: "Classpath Evidence Schema v1 严格解析与路径校验"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/ModuleClassConflictAnalyzer.java"
+    desc: "Module effective classpath 扫描、风险分类与反编译"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/classpath/ClassOwnershipIndex.java"
+    desc: "impact/tree 共享的 class winner 与冲突模型"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/MavenDependencyPluginRuntimeManager.java"
     desc: "内置 Dependency Plugin repository、settings overlay 和 capability boundary"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/DependencyTextParser.java"
@@ -59,7 +65,9 @@ code_refs:
 
 ## Summary
 
-`TreeCommand`只负责Picocli option与command metrics session；`TreeExecutionEngine`执行Preflight、串行Reactor processing、cache spill/publish/discard和Report终态。分析扫描Git repository内所有eligible `pom.xml`，按Maven `<modules>` ownership识别reactor root。Path命中root时收集完整reactor；只命中child module时收集requested module与同reactor dependency closure。Maven output通过`Reader`逐行解析；conflict grouping使用command cache external sort；HTML通过Writer逐段写入。Packaging为`pom`且存在active child的纯aggregator root保留execution context，但不生成Module result。
+`TreeCommand`只负责Picocli option与command metrics session；`TreeExecutionEngine`执行Preflight、串行Reactor processing、cache spill/publish/discard和Report终态。分析扫描Git repository内所有eligible `pom.xml`，按Maven `<modules>` ownership识别reactor root。Path命中root时收集完整reactor；只命中child module时收集requested module与同reactor dependency closure。每个Reactor在同一次Maven session中依次执行`compile`、verbose dependency tree goal和Classpath Evidence goal。Dependency output通过`Reader`逐行解析；实际classpath按Schema v1严格解析并用于冲突类扫描。Packaging为`pom`且存在active child的纯aggregator root保留execution context，但不生成Module result。
+
+安全POM inventory解析本地`parent.relativePath`链并继承父POM properties，因此`${revision}`等CI-friendly version会在Module identity校验前解析；空`relativePath`或repository外父POM不读取。
 
 ## Design Decisions
 
@@ -75,6 +83,10 @@ code_refs:
 - Dependency tree 是 Maven-style verbose `<pre class="dependency-tree">` 静态证据；页面只为 conflict table 提供 component-scoped 交互，避免大型 tree 的额外状态与操作成本。
 - 每个command复用`CommandRunDirectory`的UUID temporary root，在`report-cache`内写versioned JSON Lines。Reactor发布后立即删除其fragment；cache不进入最终artifact，也不用于断点续跑。
 - Module internal与cross-module grouping采用external sort：batch最多10,000条或约8 MiB payload，任一阈值先到即spill；merge fan-in最多32。Internal只归并当前Module，cross-module只归并selected occurrence摘要。
+- 冲突类边界是单个Module的实际classpath。同一binary name存在两个及以上有效定义即成立；全部SHA-256相同为`LOW`，存在不同摘要为`HIGH`。风险不改变Module、Reactor status或exit code。
+- winner固定为`PROJECT > REACTOR_DEPENDENCY > DEPENDENCY`，同一层按Maven classpath顺序选择。Tree不扫描JDK；`impact`在其JDK 8 scope中保留更高的JDK precedence，并使用相同`LOW`/`HIGH`定义。
+- Multi-Release JAR（多版本JAR）按Classpath Evidence记录的Maven JVM major选择实际可见entry；`module-info.class`不参与扫描。物理路径只用于分析，不进入Report。
+- 只有已识别冲突的class bytes进入Vineflower；同一Module内按SHA-256去重，完整Module classpath作为library context。反编译失败保留finding，源码位置显示`Unavailable`，不改变status或exit code。
 
 ## Actors / Entrypoints
 
@@ -88,14 +100,18 @@ code_refs:
 - 只有 `requestedPoms` 非空的 reactor 执行。一个 path 命中多个 independent reactor root 时分别执行 full-reactor mode；root 与 child 同时命中时 root rule 优先。
 - Bounded-module mode 按稳定 `groupId:artifactId` selector 执行 `-pl <requested> -am`。Dependency closure 来自 requested occurrence，要求 selected、scope 命中、GAV 匹配且属于同 reactor；无关 sibling、root aggregator 和 support project 不进入 Report。
 - Full-reactor mode 即使 active module 位于 reactor root directory 外，只要仍在 Git repository 内也进入 execution。Packaging 为 `pom` 且存在 active child 的纯 aggregator root 不进入 Module result；无 active child 的 `pom` project，以及 packaging 为 `jar`、`war` 等且同时聚合 children 的 root 仍进入分析。Independent reactor dependency 不跨 reactor 追踪。
-- 默认 scope 为 `compile,runtime,provided,test,system`；filter 同时作用于 tree、统计和 version analysis。
-- 每个active module独立调用dependency plugin text output、standard tokens、verbose；不执行compile/package。Parser持有`BufferedReader`并逐行消费UTF-8 output，不用`Files.readString`或完整文本`split`。
+- 默认 scope 为 `compile,runtime,provided,test,system`；filter 同时作用于dependency tree、版本冲突、external/Reactor dependency冲突类扫描。当前Module主类始终纳入。
+- 每个Reactor只启动一次Maven session，goal顺序固定为`compile`、dependency plugin text output、Classpath Evidence。Bounded mode继续使用`-pl/-am`。不执行`test-compile`或`package`，不生成`test-classes`或attached classifier artifact。
+- Reactor classifier只能由`test-compile`或`package`产生时，不读取旧产物；Classpath Evidence记录不完整原因，Reactor标记为`DEGRADED`。Compile或evidence command失败时该Reactor为`FAILED`，其他Reactor继续。
+- Dependency tree Parser持有`BufferedReader`并逐行消费UTF-8 output，不用`Files.readString`或完整文本`split`。
 - 默认 plugin 使用全限定 `org.apache.maven.plugins:maven-dependency-plugin:3.6.1:tree` goal；`-d` override 必须在 Command Preflight 通过完整 evidence capability check。
 - `dependencyManagement` 只通过实际 occurrence 的 Maven verbose annotation 参与分析；未使用的 managed entry、完整 imported BOM 清单和 management 来源文件不在分析范围内。
 - Reactor failure 不阻止其他 reactor report；全局终态为 `SUCCESS`、`COMPLETED_WITH_ISSUES` 或 `FAILED`。
-- Index 的 Metadata 与 Summary 都使用 table；Reactors table 分别统计 Internal conflicts 与 Cross-module conflicts，不输出 `dependency=60` 一类 key/value 文本。
+- Index 的 Metadata 与 Summary 都使用table；Reactors table分别统计Internal conflicts、Cross-module conflicts、Class conflicts和High-risk class conflicts。同一class在不同Module按Module-class relation分别计数。
 - Reactor page 先展示 Reactor metadata、Module metadata 和“问题”，再展示独立的 Cross-module conflicts section 与 Module tabs。Module metadata 分别统计 Internal/Cross-module conflicts，不展示 role 或纳入原因。
-- 每个 Module tab 包含该 Module 的 Internal conflicts table 和单个 Maven-style verbose `<pre>` dependency tree。Tree 使用 `+-`、`\-` 与缩进呈现完整 path，annotation 顺序固定为 version managed、scope managed、optional、omitted reason、reactor module；Tree 内没有 button、link、`<details>`、tooltip 或 click 行为。
+- 每个Module tab先展示固定列Class、Risk、Winner、Shadowed sources、Selection、Decompiled code的冲突类表，再展示Internal conflicts和单个Maven-style verbose `<pre>` dependency tree。Tree使用`+-`、`\-`与缩进呈现完整path，annotation顺序固定为version managed、scope managed、optional、omitted reason、reactor module；Tree本身没有button、link、`<details>`、tooltip或click行为。
+- 冲突类表支持全字段大小写不敏感search、`LOW`/`HIGH` filter、Class/Risk/Winner sort与10/50/100 pagination；默认`HIGH`优先再按binary name。空表保留header但不渲染controls。
+- 点击“查看反编译代码”在当前row下展开，默认winner，可切换全部shadowed source。页面同时最多保留一个展开row与一个payload；分页、search、filter、sort或Module tab变化即释放。源码shard初始不加载，损坏或缺失时显示文件名与Retry；源码只经`textContent`写入。
 - Internal 与 Cross-module conflict table 分别维护 search/filter/sort/page state。两类表都有全字段 search、Scope filter、sortable columns 和 10/50/100 pagination，Cross-module table 额外提供 Module filter；空表保留 header，但不渲染 controls。
 - Reactor 和 Module metadata 使用表格汇总；module role 仅用于内部选择与排序，Report 不展示 role 或纳入原因。
 - Reactor/module failure 和降级证据统一转换为“问题”表行；无 issue 时不生成该 section。
@@ -131,6 +147,8 @@ Maven verbose text 出现 `version managed from X` 或 `scope managed from Y` �
 - `TreeExecutionEngine`拥有Command Preflight、analysis与publication失败边界；`TreeCommand`不读取或传递弱类型Preflight artifact。Preflight准备repository snapshot、Maven runtime和完整inventory；failure不改动旧Report。
 - Command Preflight 成功后重建工具拥有的输出，立即发布 assets、空 reactors directory 与 `RUNNING 0/N` Index；output root 其他文件保留。
 - Console 通过统一五段 Diagnostic prefix 按 `Preflight → Analysis → Summary` 输出。Reactor start/result 使用 `stage=analysis, substage=reactor`；`SUCCESS` 为 `INFO`，degraded/issue 为 `WARN`，failed 为 `ERROR`。
+- `compile`、dependency/classpath collection、Module class scan、conflict decompile与Reactor publish通过`INFO` stage生命周期输出开始、完成、失败与耗时。classpath evidence或class scan不完整时输出Reactor级`WARN`摘要；反编译不可用按Module最多输出20条明细，其余合并为一条suppressed count，不改变Reactor status或exit code。
+- `DEBUG`输出classpath entry、conflict risk、candidate digest/effective entry、反编译缓存命中与shard数量。逐artifact、逐class与逐shard进度只在`TRACE`启用后遍历和生成，避免默认运行承担高频证据成本。
 - Maven collection 每个非空输出行按 level 转发；默认只显示 warning/error，`-v/-vv` 显示完整 output。Failure evidence 只保留 bounded 100-line tail。
 - 每个reactor顺序执行Maven collection并将ordered tree record、normalized occurrence、selected reactor dependency摘要与Module metadata写入command cache；module/version/cross-module analysis通过bounded external grouping聚合issue。
 - Reactor page以UTF-8 Writer顺序写metadata、conflict、Module tab与verbose tree；完整关闭后原子发布，再用Writer原子刷新Index。Index只链接已完整发布的page。

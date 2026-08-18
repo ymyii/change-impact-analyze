@@ -8,4 +8,7 @@
               files="[/\\]CallGraphBuildRequest\.java$"/>
     <suppress checks="ParameterNumber"
               files="[/\\]PerModulePipelineOptions\.java$"/>
+    <!-- Offline JavaScript is kept compact inside the generated report. -->
+    <suppress checks="LineLength"
+              files="[/\\]TreeReportRenderer\.java$"/>
 </suppressions>

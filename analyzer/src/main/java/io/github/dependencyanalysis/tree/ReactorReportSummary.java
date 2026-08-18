@@ -1,5 +1,7 @@
 package io.github.dependencyanalysis.tree;
 
+import io.github.dependencyanalysis.classpath.ClassConflictRisk;
+
 /** Lightweight checkpoint data for one published reactor page. */
 public final class ReactorReportSummary {
 
@@ -30,6 +32,12 @@ public final class ReactorReportSummary {
     /** Cross-module conflict count. */
     private final long crossModuleConflictCount;
 
+    /** Module-class conflict relation count. */
+    private final long classConflictCount;
+
+    /** HIGH-risk Module-class conflict relation count. */
+    private final long highRiskClassConflictCount;
+
     private ReactorReportSummary(
             final String pageFilename,
             final ReactorTreeResult result) {
@@ -47,6 +55,12 @@ public final class ReactorReportSummary {
                         .analyze(item).size()).sum();
         crossModuleConflictCount = new CrossModuleVersionAnalyzer()
                 .analyze(result).size();
+        classConflictCount = result.getModules().stream().mapToLong(
+                value -> value.getClassConflicts().size()).sum();
+        highRiskClassConflictCount = result.getModules().stream()
+                .flatMap(value -> value.getClassConflicts().stream())
+                .filter(value -> value.risk() == ClassConflictRisk.HIGH)
+                .count();
     }
 
     /**
@@ -106,6 +120,16 @@ public final class ReactorReportSummary {
     /** @return cross-module conflict count */
     public long getCrossModuleConflictCount() {
         return crossModuleConflictCount;
+    }
+
+    /** @return Module-class conflict relation count */
+    public long getClassConflictCount() {
+        return classConflictCount;
+    }
+
+    /** @return HIGH-risk Module-class conflict relation count */
+    public long getHighRiskClassConflictCount() {
+        return highRiskClassConflictCount;
     }
 
 }

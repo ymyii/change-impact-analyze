@@ -45,7 +45,7 @@ code_refs:
 
 Root CLI 分发 `impact` 与 `tree`。`impact` 只编译 target，并为每个 relevant Module 构建一张 selected Call Graph；baseline 提供dependency evidence与old artifact。默认组合为`cha + changed-paths + jdk-model none`，Static Single Assignment（SSA，静态单赋值）与decompiled Java equivalence固定启用；CHA固定执行caller-local `cha-local-receiver-inference` Impact Path裁剪extension。`k-obj`是显式选择的实验性algorithm。
 
-`ImpactCommand`通过`ImpactExecutionEngine`启动默认per-Module实现。scope planning后创建唯一command-wide`common`pool，front preparation、logical JAR pair diff、Impact Query与code comparison顺序复用，并统一受`--analysis-parallelism`限制。Relevant Module仍按stable key串行完成Call Graph、单线程Evidence analysis、Impact Query与report-safe snapshot。`TreeCommand`只承载CLI，`TreeExecutionEngine`负责preflight、Reactor processing与发布。
+`ImpactCommand`通过`ImpactExecutionEngine`启动默认per-Module实现。scope planning后创建唯一command-wide`common`pool，front preparation、logical JAR pair diff、Impact Query与code comparison顺序复用，并统一受`--analysis-parallelism`限制。Relevant Module仍按stable key串行完成Call Graph、单线程Evidence analysis、Impact Query与report-safe snapshot。`TreeCommand`只承载CLI；`TreeExecutionEngine`为每个Reactor执行单次`compile + dependency tree + classpath evidence` Maven session，再完成Module冲突类扫描、反编译、cache与增量发布。
 
 ## Key Terms
 
@@ -83,6 +83,8 @@ flowchart LR
   Impact --> Snapshot["frozen report result"]
   Snapshot --> Report["report"]
 ```
+
+`classpath`是`impact`与`tree`共同依赖的中立层，拥有binary-name ownership、winner precedence与`LOW`/`HIGH`冲突分类。`impact`在JDK 8 scope加入JDK parent precedence；`tree`只使用PROJECT、REACTOR_DEPENDENCY与DEPENDENCY，并按Classpath Evidence中的Maven JVM major解析Multi-Release JAR。
 
 禁止反向边：`callgraph.. -> impact..`、`callgraph.. -> report..`、`report.. -> strategy.cha..|strategy.kobj..`。CHA 与 `k-obj` implementation 不互相引用；公共 protocol 不依赖 strategy 或 engine。
 

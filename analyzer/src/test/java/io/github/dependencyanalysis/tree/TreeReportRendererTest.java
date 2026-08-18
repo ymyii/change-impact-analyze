@@ -1,5 +1,8 @@
 package io.github.dependencyanalysis.tree;
 
+import io.github.dependencyanalysis.bytecode.DecompiledMethod;
+import io.github.dependencyanalysis.classpath.ClassConflictRisk;
+import io.github.dependencyanalysis.classpath.CodeOrigin;
 import io.github.dependencyanalysis.preflight
         .PreflightReport;
 import io.github.dependencyanalysis.runtime
@@ -391,10 +394,10 @@ class TreeReportRendererTest {
                 .contains("localeCompare")
                 .contains("Math.ceil")
                 .contains("page=0")
-                .contains("event.key==='ArrowRight'")
-                .contains("event.key==='ArrowLeft'")
-                .contains("event.key==='Home'")
-                .contains("event.key==='End'");
+                .contains("ArrowRight")
+                .contains("ArrowLeft")
+                .contains("Home")
+                .contains("End");
         assertThat(output.resolve("index.html"))
                 .content()
                 .contains("<h2>Metadata</h2>")
@@ -601,6 +604,62 @@ class TreeReportRendererTest {
     }
 
     @Test
+    void publishesLazyClassConflictShardsWithoutPhysicalPathsOrInlineSource()
+            throws Exception {
+        final Path secretProject = temporary.resolve("secret-project");
+        final Path secretJar = temporary.resolve("secret-library.jar");
+        final TreeClassConflictCandidate winner =
+                new TreeClassConflictCandidate(CodeOrigin.PROJECT,
+                        "demo:app:jar:1", "", "digest-project",
+                        "sample/Duplicate.class", secretProject,
+                        DecompiledMethod.available(
+                                "package sample; class Duplicate {}"));
+        final TreeClassConflictCandidate shadowed =
+                new TreeClassConflictCandidate(CodeOrigin.DEPENDENCY,
+                        "demo:library:jar:1", "compile", "digest-library",
+                        "sample/Duplicate.class", secretJar,
+                        DecompiledMethod.unavailable("fixture unavailable"));
+        final TreeClassConflict conflict = new TreeClassConflict(
+                "sample/Duplicate", ClassConflictRisk.HIGH, winner,
+                List.of(winner, shadowed),
+                "Current module target/classes precedence");
+        final ModuleTreeResult module = module(
+                "demo:app:1", List.of(), "")
+                .withClassAnalysis(List.of(conflict), List.of());
+        final Path output = temporary.resolve("class-conflicts");
+
+        new TreeReportRenderer().render(result(List.of(reactor(
+                "pom.xml", ReactorStatus.SUCCESS, "", List.of(module)))),
+                output);
+
+        final Path pagePath = onlyReactorPage(output);
+        final String page = Files.readString(pagePath);
+        assertThat(page)
+                .contains("<h3>冲突类</h3>")
+                .contains("Class</button>", "Risk</button>", "Winner")
+                .contains("Shadowed sources", "Selection", "Decompiled code")
+                .contains("sample.Duplicate", "HIGH")
+                .contains("data-view-class-code")
+                .doesNotContain("package sample; class Duplicate {}")
+                .doesNotContain(secretProject.toString(), secretJar.toString());
+        final Path data = pagePath.resolveSibling(pagePath.getFileName()
+                .toString().replace(".html", "-class-conflict-data"));
+        try (Stream<Path> files = Files.list(data)) {
+            final List<Path> shards = files.toList();
+            assertThat(shards).hasSize(1);
+            final Path shard = shards.get(0);
+            assertThat(shard).content()
+                    .contains("schemaVersion", "sourceCode",
+                            "package sample; class Duplicate {}")
+                    .doesNotContain(secretProject.toString(),
+                            secretJar.toString());
+        }
+        assertThat(output.resolve("index.html")).content()
+                .contains("Class conflicts</th>")
+                .contains("High-risk class conflicts</th>");
+    }
+
+    @Test
     void checkpointSummaryHasNoHeavyResultReferences() {
         assertThat(Arrays.stream(
                         ReactorReportSummary.class
@@ -714,7 +773,10 @@ class TreeReportRendererTest {
         try (Stream<Path> pages = Files.list(
                 output.resolve(
                         "dependency-report/reactors"))) {
-            return pages.findFirst().orElseThrow();
+            return pages.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString()
+                            .endsWith(".html"))
+                    .findFirst().orElseThrow();
         }
     }
 
@@ -724,7 +786,8 @@ class TreeReportRendererTest {
                 output.resolve(
                         "dependency-report/reactors"))) {
             final List<String> result = new ArrayList<>();
-            pages.map(path -> path.getFileName().toString())
+            pages.filter(Files::isRegularFile)
+                    .map(path -> path.getFileName().toString())
                     .sorted().forEach(result::add);
             return result;
         }

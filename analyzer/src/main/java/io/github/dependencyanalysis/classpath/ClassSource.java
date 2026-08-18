@@ -1,4 +1,4 @@
-package io.github.dependencyanalysis.callgraph.scope;
+package io.github.dependencyanalysis.classpath;
 
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 

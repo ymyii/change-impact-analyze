@@ -55,7 +55,7 @@ Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer
 
 ## Design Decisions
 
-- Analyzer开发版本`3.0.0-SNAPSHOT`与Dependency Evidence Plugin`3.0.0`独立使用SemVer。
+- Analyzer开发版本`3.0.0-SNAPSHOT`与Dependency Evidence Plugin`3.1.0-SNAPSHOT`独立使用SemVer。
 - 日常开发在下一次 release 前复用同一个 `X.Y.Z-SNAPSHOT`；只有 release 决策才切换 stable version、commit 并创建 Git tag。
 - Dependency Evidence Plugin 以 Java 8 bytecode 发布；执行 Plugin reactor 的 Maven JVM 可以使用 Java 8 以上版本。Analyzer 使用 Java 17 构建和运行；root POM 的 `test.jdk8.home` 提供完整 JDK 8 默认值，Surefire/Failsafe 将其作为 `TEST_JDK8_HOME` 注入 test JVM，其他环境可通过 `-Dtest.jdk8.home=...` 覆盖。
 - Analyzer JAR 将 Maven Dependency Plugin 和 Dependency Evidence Plugin 内嵌为两个独立 Maven repository ZIP；runtime 不安装 loose JAR/POM，也不维护项目自有 checksum/fingerprint。
@@ -79,7 +79,7 @@ Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer
 - `analyzer/src/main/java/io/github/dependencyanalysis/{build,dependency,bytecode,jar,report,workspace}/` - `impact` pipeline的其他稳定阶段实现。
 - `analyzer/src/test/java/` - unit tests；`analyzer/src/integration-test/java/` - Failsafe integration tests。
 - `plugins/pom.xml` - 独立 Plugin reactor parent/aggregator。
-- `plugins/artifact-path-resolver/` - GAV `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:3.0.0`；Java 8 `collect-dependency-evidence` goal 与 attached `repository` ZIP。
+- `plugins/artifact-path-resolver/` - GAV `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:3.1.0-SNAPSHOT`；Java 8 `collect-dependency-evidence`、`collect-classpath-evidence` goal与attached `repository` ZIP。
 - `models/jdk/` - GAV`io.github.dependencyanalysis:dependency-analyzer-jdk-models:0.1.0-SNAPSHOT`；公共Synthetic IR engine/API。
 - `models/jdk8/` - GAV`io.github.dependencyanalysis:dependency-analyzer-jdk8-models:0.1.0-SNAPSHOT`；384-target catalog与安装façade。
 - `benchmarks/impact-medium/` - 可复现的CHA-only中型impact fixture；每scope 6个进程，双scope共12个进程；baseline确认前不发布tracked TSV snapshot。

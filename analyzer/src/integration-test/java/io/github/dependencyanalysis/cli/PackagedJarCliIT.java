@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
@@ -270,6 +271,54 @@ class PackagedJarCliIT {
                 .doesNotContain("test:root:pom:1</h2>")
                 .doesNotContain("test:unrelated:jar:1");
         HtmlReportUsabilityVerifier.verifyTree(scopedReport);
+    }
+
+    @Test
+    void jarReportsRealProjectReactorAndExternalClassConflicts()
+            throws Exception {
+        final Path repository = createClassConflictRepository();
+        final Path report = temporary.resolve("class-conflict-report");
+
+        final ProcessResult result = runJar(
+                "-v", "tree", "-m", maven.toString(),
+                "-c", temporary.resolve("class-conflict-config").toString(),
+                "-p", repository.toString(), "-o", report.toString());
+
+        assertThat(result.exitCode).as(result.output).isZero();
+        assertThat(result.output)
+                .contains("[analysis][class-scan]")
+                .contains("classConflicts=3");
+        assertThat(report.resolve("index.html")).content()
+                .contains("Class conflicts</th>")
+                .contains("High-risk class conflicts</th>");
+        final String page = readOnlyReactorPage(report);
+        assertThat(page)
+                .contains("fixture.conflict.ReactorHigh")
+                .contains("fixture.conflict.ExternalLow")
+                .contains("fixture.conflict.ExternalHigh")
+                .contains(">LOW</span>")
+                .contains(">HIGH</span>")
+                .contains("PROJECT — test:application:jar:1")
+                .contains("REACTOR_DEPENDENCY — test:library:jar:1")
+                .contains("DEPENDENCY — fixture.external:conflict-a:jar:1")
+                .contains("DEPENDENCY — fixture.external:conflict-b:jar:1")
+                .doesNotContain(repository.toString())
+                .doesNotContain(temporary.resolve(
+                        "class-conflict-artifacts").toString());
+        final Path reactorPage = onlyReactorPagePath(report);
+        final Path dataDirectory = reactorPage.resolveSibling(
+                reactorPage.getFileName().toString().replace(
+                        ".html", "-class-conflict-data"));
+        try (java.util.stream.Stream<Path> shards =
+                     Files.list(dataDirectory)) {
+            final List<Path> files = shards.toList();
+            assertThat(files).hasSize(3);
+            assertThat(files).anySatisfy(path -> assertThat(path)
+                    .content().contains("sourceCode", "ExternalLow"));
+            assertThat(files).allSatisfy(path -> assertThat(path)
+                    .content().doesNotContain(repository.toString()));
+        }
+        HtmlReportUsabilityVerifier.verifyTree(report);
     }
 
     @Test
@@ -657,6 +706,124 @@ class PackagedJarCliIT {
         return repository;
     }
 
+    private Path createClassConflictRepository() throws Exception {
+        final Path repository = temporary.resolve(
+                "class-conflict-repository");
+        final Path artifactRepository = temporary.resolve(
+                "class-conflict-artifacts");
+        final byte[] low = compileConflictClass(
+                "external-low", "ExternalLow", 7);
+        installConflictArtifact(artifactRepository, "conflict-a", Map.of(
+                "fixture/conflict/ExternalLow.class", low,
+                "fixture/conflict/ExternalHigh.class", compileConflictClass(
+                        "external-high-a", "ExternalHigh", 1)));
+        installConflictArtifact(artifactRepository, "conflict-b", Map.of(
+                "fixture/conflict/ExternalLow.class", low,
+                "fixture/conflict/ExternalHigh.class", compileConflictClass(
+                        "external-high-b", "ExternalHigh", 2)));
+
+        Files.createDirectories(repository.resolve(
+                "library/src/main/java/fixture/conflict"));
+        Files.createDirectories(repository.resolve(
+                "application/src/main/java/fixture/conflict"));
+        git(repository, "init");
+        git(repository, "config", "user.email", "test@example.com");
+        git(repository, "config", "user.name", "Test");
+        Files.writeString(repository.resolve("pom.xml"), """
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>test</groupId><artifactId>root</artifactId>
+                  <version>1</version><packaging>pom</packaging>
+                  <properties><maven.compiler.source>8</maven.compiler.source>
+                    <maven.compiler.target>8</maven.compiler.target>
+                  </properties>
+                  <repositories><repository><id>class-conflict-fixture</id>
+                    <url>%s</url></repository></repositories>
+                  <modules><module>library</module>
+                    <module>application</module></modules>
+                </project>
+                """.formatted(artifactRepository.toUri().toASCIIString()),
+                StandardCharsets.UTF_8);
+        Files.writeString(repository.resolve("library/pom.xml"),
+                childPom("library", ""), StandardCharsets.UTF_8);
+        Files.writeString(repository.resolve("application/pom.xml"),
+                childPom("application", """
+                        <dependencies>
+                          <dependency><groupId>test</groupId>
+                            <artifactId>library</artifactId><version>1</version>
+                          </dependency>
+                          <dependency><groupId>fixture.external</groupId>
+                            <artifactId>conflict-a</artifactId><version>1</version>
+                          </dependency>
+                          <dependency><groupId>fixture.external</groupId>
+                            <artifactId>conflict-b</artifactId><version>1</version>
+                          </dependency>
+                        </dependencies>
+                        """), StandardCharsets.UTF_8);
+        Files.writeString(repository.resolve(
+                "library/src/main/java/fixture/conflict/ReactorHigh.java"),
+                conflictSource("ReactorHigh", 1), StandardCharsets.UTF_8);
+        Files.writeString(repository.resolve(
+                "application/src/main/java/fixture/conflict/ReactorHigh.java"),
+                conflictSource("ReactorHigh", 2), StandardCharsets.UTF_8);
+        git(repository, "add", ".");
+        git(repository, "commit", "-m", "class conflict fixture");
+        return repository;
+    }
+
+    private byte[] compileConflictClass(
+            final String fixture,
+            final String className,
+            final int value) throws Exception {
+        final Path source = temporary.resolve(fixture
+                + "/src/fixture/conflict/" + className + ".java");
+        final Path classes = temporary.resolve(fixture + "/classes");
+        Files.createDirectories(source.getParent());
+        Files.createDirectories(classes);
+        Files.writeString(source, conflictSource(className, value),
+                StandardCharsets.UTF_8);
+        final int result = ToolProvider.getSystemJavaCompiler().run(
+                null, null, null, "--release", "8", "-d",
+                classes.toString(), source.toString());
+        if (result != 0) {
+            throw new IllegalStateException(
+                    "Unable to compile conflict fixture " + fixture);
+        }
+        return Files.readAllBytes(classes.resolve(
+                "fixture/conflict/" + className + ".class"));
+    }
+
+    private String conflictSource(
+            final String className,
+            final int value) {
+        return "package fixture.conflict; public class " + className
+                + " { public int value() { return " + value + "; } }";
+    }
+
+    private void installConflictArtifact(
+            final Path repository,
+            final String artifact,
+            final Map<String, byte[]> classes) throws Exception {
+        final Path directory = repository.resolve(
+                "fixture/external/" + artifact + "/1");
+        Files.createDirectories(directory);
+        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(
+                directory.resolve(artifact + "-1.jar")))) {
+            for (Map.Entry<String, byte[]> value : classes.entrySet()) {
+                jar.putNextEntry(new JarEntry(value.getKey()));
+                jar.write(value.getValue());
+                jar.closeEntry();
+            }
+        }
+        Files.writeString(directory.resolve(artifact + "-1.pom"), """
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>fixture.external</groupId>
+                  <artifactId>%s</artifactId><version>1</version>
+                </project>
+                """.formatted(artifact), StandardCharsets.UTF_8);
+    }
+
     private void installChangedDependencyArtifact(
             final Path repository,
             final String version,
@@ -793,6 +960,7 @@ class PackagedJarCliIT {
                 fi
                 pom=""
                 output=""
+                classpath=""
                 while [ "$#" -gt 0 ]; do
                   case "$1" in
                     -f)
@@ -801,6 +969,9 @@ class PackagedJarCliIT {
                       ;;
                     -DoutputFile=*)
                       output="${1#-DoutputFile=}"
+                      ;;
+                    -Dcia.classpathEvidenceDirectory=*)
+                      classpath="${1#-Dcia.classpathEvidenceDirectory=}"
                       ;;
                   esac
                   shift
@@ -813,6 +984,11 @@ class PackagedJarCliIT {
                 mkdir -p "$base/$(dirname "$output")"
                 printf 'test:%s:jar:1\n' "$artifact" \
                   > "$base/$output"
+                canonical="$(cd "$base" && pwd -P)"
+                mkdir -p "$classpath"
+                printf '{"schemaVersion":1,"javaMajor":17,"module":{"groupId":"test","artifactId":"%s","type":"jar","extension":"jar","classifier":"","version":"1","baseVersion":"1"},"moduleDirectory":"%s","entries":[],"issues":[]}\n' \
+                  "$artifact" "$canonical" \
+                  > "$classpath/classpath-module-$artifact.json"
                 exit 0
                 """, StandardCharsets.UTF_8);
         assertThat(executable.toFile()
@@ -852,6 +1028,7 @@ class PackagedJarCliIT {
                 fi
                 pom=""
                 output=""
+                classpath=""
                 while [ "$#" -gt 0 ]; do
                   case "$1" in
                     -f)
@@ -860,6 +1037,9 @@ class PackagedJarCliIT {
                       ;;
                     -DoutputFile=*)
                       output="${1#-DoutputFile=}"
+                      ;;
+                    -Dcia.classpathEvidenceDirectory=*)
+                      classpath="${1#-Dcia.classpathEvidenceDirectory=}"
                       ;;
                   esac
                   shift
@@ -879,6 +1059,13 @@ class PackagedJarCliIT {
                   '+- fixture:duplicate-only:jar:1:compile' \
                   '\\- fixture:duplicate-only:jar:1:compile (omitted for duplicate)' \
                   > "$base/module-b/$output"
+                mkdir -p "$classpath"
+                for artifact in module-a module-b; do
+                  canonical="$(cd "$base/$artifact" && pwd -P)"
+                  printf '{"schemaVersion":1,"javaMajor":17,"module":{"groupId":"test","artifactId":"%s","type":"jar","extension":"jar","classifier":"","version":"1","baseVersion":"1"},"moduleDirectory":"%s","entries":[],"issues":[]}\n' \
+                    "$artifact" "$canonical" \
+                    > "$classpath/classpath-module-$artifact.json"
+                done
                 exit 0
                 """, StandardCharsets.UTF_8);
         assertThat(executable.toFile()
@@ -905,13 +1092,19 @@ class PackagedJarCliIT {
 
     private String readOnlyReactorPage(final Path output)
             throws Exception {
+        return Files.readString(onlyReactorPagePath(output));
+    }
+
+    private Path onlyReactorPagePath(final Path output)
+            throws Exception {
         try (java.util.stream.Stream<Path> pages =
                      Files.list(output.resolve(
                              "dependency-report/reactors"))) {
-            final Path page = pages.filter(
+            return pages.filter(
                             Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString()
+                            .endsWith(".html"))
                     .findFirst().orElseThrow();
-            return Files.readString(page);
         }
     }
 

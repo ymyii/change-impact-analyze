@@ -2,7 +2,7 @@ package io.github.dependencyanalysis.report;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 
-import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.classpath.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.model.MethodId;
 import io.github.dependencyanalysis.impact.BoundChangePoint;
 import io.github.dependencyanalysis.impact.CodeComparisonEvidence;

@@ -15,7 +15,7 @@ code_refs: []
 ## Architecture
 
 ### [Dependency Analysis Pipelines](architecture/dependency-analysis-pipelines.md)
-- Summary: `ImpactExecutionEngine`以唯一command-wide `common` pool统一限制并发；Java-first方法体分阶段证据写入当前run的原子`report-cache`，retained body diff只读缓存。
+- Summary: `ImpactExecutionEngine`统一并发；`tree`单次Reactor Maven session执行compile/tree/classpath evidence；共享classpath层统一winner与LOW/HIGH冲突语义。
 
 ## Features
 
@@ -26,7 +26,7 @@ code_refs: []
 - Summary: 用户 executable、跨平台内嵌 Maven 3.6.3、两个独立 repository ZIP，以及 Stable/Snapshot 分离 cache 与 command-scoped settings。
 
 ### [Repository Dependency Tree Report](features/repository-dependency-tree-report.md)
-- Summary: `TreeCommand`与`TreeExecutionEngine`分离；Git snapshot、bounded/full reactor execution、Reader逐行解析、cache-backed conflict grouping、incremental checkpoint与流式offline report。
+- Summary: bounded/full Reactor执行compile、dependency tree与classpath evidence；Module冲突类按LOW/HIGH展示，并通过离线shard懒加载反编译代码。
 
 ### [Git Workspace Management](features/git-workspace-management.md)
 - Summary: `impact`/`tree` config UUID workspace/tmp、owner lock、command-owned report-cache、stale recovery与detached worktree cleanup。
@@ -35,7 +35,7 @@ code_refs: []
 - Summary: 只编译 target；reactor root compile 一次，leaf 使用 `-pl/-am`；baseline dependency 与 target build 并行。
 
 ### [Structured Dependency Evidence Collection](features/dependency-evidence-collection.md)
-- Summary: Maven resolved/raw graph 结构化采集，Schema v3 统一 selected tree、occurrence topology、reactor keys 与 physical bindings；evidence 只写 command cache。
+- Summary: Plugin 3.1提供impact Schema v3与tree Classpath Evidence Schema v1；两者复用owner、路径边界与原子发布且只写command cache。
 
 ### [Dependency Diff Engine](features/dependency-diff-engine.md)
 - Summary: 对比 baseline/target resolved dependency tree，生成稳定排序的 dependency changes。

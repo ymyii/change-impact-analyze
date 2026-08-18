@@ -71,7 +71,7 @@ public final class ImpactPath {
     public List<MethodId> getAffectedMethods() {
         final LinkedHashSet<MethodId> result = new LinkedHashSet<>();
         nodes.stream().filter(node -> node.origin()
-                        == io.github.dependencyanalysis.callgraph.model
+                        == io.github.dependencyanalysis.classpath
                         .CodeOrigin.PROJECT)
                 .map(QueryNode::methodId).forEach(result::add);
         return List.copyOf(result);

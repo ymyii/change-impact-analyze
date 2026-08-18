@@ -19,6 +19,12 @@ export default async function globalSetup(): Promise<void> {
                 || !modules.some(name => name.endsWith("-impact.html"))) {
             throw new Error("Module report pages are missing.");
         }
+        await access(resolve(FIXTURE_ROOT, "tree", "index.html"));
+        const reactors = await readdir(resolve(
+            FIXTURE_ROOT, "tree", "dependency-report", "reactors"));
+        if (!reactors.some(name => name.endsWith(".html"))) {
+            throw new Error("Tree reactor report page is missing.");
+        }
     } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         throw new Error(

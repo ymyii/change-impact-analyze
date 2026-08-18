@@ -12,10 +12,10 @@ import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSyntheticType
 import io.github.dependencyanalysis.callgraph.jdk.JdkModelInstallation;
 import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.jdk.SpringBackendJdkExclusions;
-import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.classpath.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.protocol.invokedynamic.InvokeDynamicBootstrapModelRegistry;
 import io.github.dependencyanalysis.callgraph.protocol.serviceloader.ServiceLoaderProtocolIndex;
-import io.github.dependencyanalysis.callgraph.scope.ClassOwnershipIndex;
+import io.github.dependencyanalysis.classpath.ClassOwnershipIndex;
 import io.github.dependencyanalysis.callgraph.scope.OwnershipFilteredModule;
 import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
 import io.github.dependencyanalysis.callgraph.strategy.kobj.invokedynamic.KObjInvokeDynamicInstaller;

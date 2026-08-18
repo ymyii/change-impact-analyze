@@ -1,6 +1,7 @@
 package io.github.dependencyanalysis.callgraph.scope;
 
-import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.classpath.ClassOwnershipIndex;
+import io.github.dependencyanalysis.classpath.CodeOrigin;
 
 import com.ibm.wala.classLoader.Module;
 import com.ibm.wala.classLoader.ModuleEntry;

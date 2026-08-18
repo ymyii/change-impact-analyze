@@ -14,6 +14,9 @@ export type ReportCopy = {
     overallUrl: string;
     moduleUrl: string;
     affectedUrl: string;
+    treePath: string;
+    treeShardDirectory: string;
+    treeUrl: string;
 };
 
 type Fixtures = {
@@ -36,6 +39,16 @@ export const test = base.extend<Fixtures>({
         const affectedPath = resolve(moduleDirectory, affectedName);
         const shardDirectory = resolve(moduleDirectory,
             affectedName.slice(0, -".html".length) + "-data");
+        const treeReactorDirectory = resolve(
+            root, "tree", "dependency-report", "reactors");
+        const treeEntries = await readdir(treeReactorDirectory);
+        const treeName = treeEntries.find(name => name.endsWith(".html"));
+        if (!treeName) {
+            throw new Error("Copied report fixture has no Tree reactor page.");
+        }
+        const treePath = resolve(treeReactorDirectory, treeName);
+        const treeShardDirectory = resolve(treeReactorDirectory,
+            treeName.slice(0, -".html".length) + "-class-conflict-data");
         await use({
             root,
             modulePath,
@@ -43,7 +56,10 @@ export const test = base.extend<Fixtures>({
             shardDirectory,
             overallUrl: pathToFileURL(resolve(root, "impact.html")).href,
             moduleUrl: pathToFileURL(modulePath).href,
-            affectedUrl: pathToFileURL(affectedPath).href
+            affectedUrl: pathToFileURL(affectedPath).href,
+            treePath,
+            treeShardDirectory,
+            treeUrl: pathToFileURL(treePath).href
         });
     }
 });
@@ -103,6 +119,15 @@ export async function openAffectedPaths(
     await page.goto(report.affectedUrl);
     await expect(page.locator("#path-result-summary"))
         .toContainText("Showing");
+}
+
+export async function openTree(
+    page: Page,
+    report: ReportCopy
+): Promise<void> {
+    await page.goto(report.treeUrl);
+    await expect(page.locator("[data-class-position]").first())
+        .toContainText("1-10 / 12");
 }
 
 export async function dispatchChange(locator: Locator): Promise<void> {

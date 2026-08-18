@@ -1,12 +1,17 @@
 package io.github.dependencyanalysis.tree;
 
+import com.fasterxml.jackson.core.JsonGenerator;
+
+import io.github.dependencyanalysis.classpath.ClassConflictRisk;
 import io.github.dependencyanalysis.preflight
         .PreflightResult;
 import io.github.dependencyanalysis.preflight
         .PreflightReport;
 import io.github.dependencyanalysis.runtime.ReportCache;
+import io.github.dependencyanalysis.report.ScriptSafeJson;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -19,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -43,7 +49,7 @@ public final class TreeReportRenderer {
             h1{margin:0 0 8px}
             h2{margin-top:28px}.muted{color:var(--muted)}
             .card{background:var(--card);border:1px solid var(--line);
-            border-radius:10px;padding:18px;margin:14px 0}
+            border-radius:10px;padding:18px;margin:14px 0;overflow-x:auto}
             table{border-collapse:collapse;width:100%;background:var(--card)}
             th,td{border:1px solid var(--line);padding:8px;vertical-align:top}
             th{background:#eef1f6;text-align:left}
@@ -68,68 +74,121 @@ public final class TreeReportRenderer {
             [role=tab]{white-space:nowrap}[role=tab][aria-selected=true]{
             border-color:#175cd3;color:#175cd3;font-weight:600}
             [role=tabpanel]{margin-top:0}[hidden],.hidden{display:none}
+            .class-code-panel{padding:12px;background:#f8f9fc}
+            .class-code-panel pre{max-height:70vh;overflow:auto;white-space:pre;
+            border:1px solid var(--line);padding:12px;background:#fff;
+            font:13px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}
+            .source-switches{display:flex;gap:6px;flex-wrap:wrap}
             a{color:#175cd3}
             """;
 
     /** Local report interaction script. */
     private static final String JAVASCRIPT = """
-            (()=>{document.querySelectorAll('[data-conflict-component]')
+            (()=>{let active=null;let retained=null;const pending=new Map();
+            window.__ciaClassConflictPayload=data=>{const accept=pending.get(
+            data&&data.id);if(accept){pending.delete(data.id);accept(data);}};
+            const closeCode=()=>{if(!active)return;active.button.setAttribute(
+            'aria-expanded','false');active.detail.remove();active.script?.remove();
+            pending.delete(active.id);active=null;retained=null;};
+            const showFailure=(panel,file,retry)=>{panel.textContent='';const text=
+            document.createElement('p');text.textContent=`Unable to load ${file}`;
+            const button=document.createElement('button');button.type='button';
+            button.textContent='Retry';button.onclick=retry;panel.append(text,button);};
+            const showCandidate=(panel,data,index)=>{panel.textContent='';const nav=
+            document.createElement('div');nav.className='source-switches';const pre=
+            document.createElement('pre');data.candidates.forEach((candidate,i)=>{
+            const button=document.createElement('button');button.type='button';
+            button.textContent=(candidate.winner?'Winner — ':'Shadowed — ')+
+            candidate.source;button.setAttribute('aria-pressed',String(i===index));
+            button.onclick=()=>showCandidate(panel,data,i);nav.append(button);});
+            const selected=data.candidates[index];pre.textContent=selected.available?
+            selected.sourceCode:'Unavailable';panel.append(nav,pre);};
+            const openCode=row=>{closeCode();const button=row.querySelector(
+            '[data-view-class-code]');const detail=document.createElement('tr');
+            detail.className='class-code-row';const cell=document.createElement('td');
+            cell.colSpan=6;const panel=document.createElement('div');
+            panel.className='class-code-panel';panel.setAttribute('role','status');
+            panel.textContent='Loading…';cell.append(panel);detail.append(cell);
+            row.after(detail);button.setAttribute('aria-expanded','true');const id=
+            row.dataset.payloadId;active={button,detail,id,script:null};const load=()=>{
+            panel.textContent='Loading…';const script=document.createElement('script');
+            active.script=script;script.onerror=()=>{script.remove();pending.delete(id);
+            showFailure(panel,row.dataset.shard,load);};pending.set(id,data=>{
+            script.remove();if(!active||active.id!==id)return;if(!data||
+            data.schemaVersion!==1||!Array.isArray(data.candidates)){
+            showFailure(panel,row.dataset.shard,load);return;}retained=data;
+            const winner=Math.max(0,data.candidates.findIndex(value=>value.winner));
+            showCandidate(panel,data,winner);});script.src=row.dataset.shard;
+            document.head.append(script);};load();};
+            document.querySelectorAll('[data-class-conflict-component]')
             .forEach(component=>{const table=component.querySelector(
-            '[data-conflicts]');if(!table)return;const body=table.tBodies[0];
-            const rows=[...body.children].filter(row=>row.tagName==='TR');
-            if(!rows.length)return;const search=component.querySelector(
+            '[data-class-conflicts]');const body=table.tBodies[0];const rows=[...body
+            .querySelectorAll('[data-class-conflict-row]')];if(!rows.length)return;
+            const search=component.querySelector('[data-class-search]');const risk=
+            component.querySelector('[data-risk-filter]');const size=component
+            .querySelector('[data-class-page-size]');const previous=component
+            .querySelector('[data-class-previous]');const next=component.querySelector(
+            '[data-class-next]');const position=component.querySelector(
+            '[data-class-position]');let page=0;let sort='riskOrder';let direction=1;
+            const value=(row,key)=>row.dataset[key]||'';const render=()=>{closeCode();
+            const query=search.value.trim().toLowerCase();const filtered=rows.filter(
+            row=>(!query||value(row,'classConflictText').includes(query))&&(!risk.value||
+            value(row,'risk')===risk.value));filtered.sort((left,right)=>{const primary=
+            value(left,sort).localeCompare(value(right,sort));return direction*(primary||
+            value(left,'class').localeCompare(value(right,'class')));});rows.forEach(row=>
+            row.classList.add('hidden'));filtered.forEach(row=>body.append(row));const count=
+            Number(size.value);const pages=Math.max(1,Math.ceil(filtered.length/count));
+            page=Math.min(page,pages-1);const start=page*count;const end=Math.min(start+
+            count,filtered.length);filtered.slice(start,end).forEach(row=>row.classList
+            .remove('hidden'));position.textContent=filtered.length?`${start+1}-${end} / ${
+            filtered.length}`:'0 / 0';previous.disabled=page===0;next.disabled=page>=pages-1;};
+            [search,risk,size].forEach(control=>control.addEventListener(control===search?
+            'input':'change',()=>{page=0;render();}));previous.onclick=()=>{page--;render();};
+            next.onclick=()=>{page++;render();};component.querySelectorAll(
+            '[data-class-sort]').forEach(button=>button.onclick=()=>{const key=button
+            .dataset.classSort;direction=sort===key?-direction:1;sort=key;page=0;render();});
+            rows.forEach(row=>row.querySelector('[data-view-class-code]').onclick=()=>{
+            if(active&&active.button===row.querySelector('[data-view-class-code]'))
+            closeCode();else openCode(row);});render();});
+            document.querySelectorAll('[data-conflict-component]').forEach(component=>{
+            const table=component.querySelector('[data-conflicts]');if(!table)return;const
+            body=table.tBodies[0];const rows=[...body.children].filter(row=>row.tagName===
+            'TR');if(!rows.length)return;const search=component.querySelector(
             '[data-conflict-search]');const module=component.querySelector(
             '[data-conflict-module]');const scope=component.querySelector(
-            '[data-conflict-scope]');const size=component.querySelector(
-            '[data-page-size]');const previous=component.querySelector(
-            '[data-page-previous]');const next=component.querySelector(
-            '[data-page-next]');const position=component.querySelector(
-            '[data-page-position]');let page=0;
-            let sort=table.dataset.defaultSort;let direction=1;
-            const value=(row,key)=>row.dataset[key]||'';
-            const render=()=>{const query=search.value.trim().toLowerCase();
-            const filtered=rows.filter(row=>(!query||
-            value(row,'conflictText').includes(query))&&(!module||
-            !module.value||
-            value(row,'modules').split('|').includes(module.value))&&
-            (!scope||!scope.value||
-            value(row,'scopes').split('|').includes(scope.value)));
-            filtered.sort((left,right)=>direction*
-            value(left,sort).localeCompare(value(right,sort)));
-            rows.forEach(row=>row.classList.add('hidden'));
-            filtered.forEach(row=>body.appendChild(row));
-            const count=Number(size.value);const pages=Math.max(1,
-            Math.ceil(filtered.length/count));page=Math.min(page,pages-1);
-            const start=page*count;const end=Math.min(start+count,
-            filtered.length);filtered.slice(start,end).forEach(row=>
-            row.classList.remove('hidden'));position.textContent=
-            filtered.length?`${start+1}-${end} / ${filtered.length}`:'0 / 0';
-            previous.disabled=page===0;next.disabled=page>=pages-1;};
-            [search,module,scope,size].filter(Boolean).forEach(control=>
-            control.addEventListener(
-            control===search?'input':'change',()=>{page=0;render();}));
-            previous.onclick=()=>{page--;render();};
-            next.onclick=()=>{page++;render();};
-            component.querySelectorAll('[data-conflict-sort]').forEach(button=>
-            button.onclick=()=>{const key=button.dataset.conflictSort;
-            direction=sort===key?-direction:1;sort=key;page=0;render();});
-            render();});document.querySelectorAll('[data-module-tabs]')
-            .forEach(tabs=>{const buttons=[...tabs.querySelectorAll(
-            '[role=tab]')];const activate=(button,focus)=>{
-            buttons.forEach(candidate=>{const selected=candidate===button;
-            candidate.setAttribute('aria-selected',String(selected));
-            candidate.tabIndex=selected?0:-1;const panel=tabs.querySelector(
-            '#'+candidate.getAttribute('aria-controls'));
-            panel.hidden=!selected;});
-            if(focus)button.focus();};buttons.forEach((button,index)=>{
-            button.onclick=()=>activate(button,false);button.onkeydown=event=>{
-            let target=index;if(event.key==='ArrowRight')
-            target=(index+1)%buttons.length;
-            else if(event.key==='ArrowLeft')
-            target=(index-1+buttons.length)%buttons.length;
-            else if(event.key==='Home')target=0;
-            else if(event.key==='End')target=buttons.length-1;else return;
-            event.preventDefault();activate(buttons[target],true);};});});})();
+            '[data-conflict-scope]');const size=component.querySelector('[data-page-size]');
+            const previous=component.querySelector('[data-page-previous]');const next=
+            component.querySelector('[data-page-next]');const position=component
+            .querySelector('[data-page-position]');let page=0;let sort=table.dataset
+            .defaultSort;let direction=1;const value=(row,key)=>row.dataset[key]||'';
+            const render=()=>{const query=search.value.trim().toLowerCase();const filtered=
+            rows.filter(row=>(!query||value(row,'conflictText').includes(query))&&(!module||
+            !module.value||value(row,'modules').split('|').includes(module.value))&&(!scope||
+            !scope.value||value(row,'scopes').split('|').includes(scope.value)));filtered
+            .sort((left,right)=>direction*value(left,sort).localeCompare(value(right,sort)));
+            rows.forEach(row=>row.classList.add('hidden'));filtered.forEach(row=>body.append(
+            row));const count=Number(size.value);const pages=Math.max(1,Math.ceil(filtered
+            .length/count));page=Math.min(page,pages-1);const start=page*count;const end=Math
+            .min(start+count,filtered.length);filtered.slice(start,end).forEach(row=>row
+            .classList.remove('hidden'));position.textContent=filtered.length?`${start+1}-${
+            end} / ${filtered.length}`:'0 / 0';previous.disabled=page===0;next.disabled=page>=
+            pages-1;};[search,module,scope,size].filter(Boolean).forEach(control=>control
+            .addEventListener(control===search?'input':'change',()=>{page=0;render();}));
+            previous.onclick=()=>{page--;render();};next.onclick=()=>{page++;render();};
+            component.querySelectorAll('[data-conflict-sort]').forEach(button=>button
+            .onclick=()=>{const key=button.dataset.conflictSort;direction=sort===key?
+            -direction:1;sort=key;page=0;render();});render();});
+            document.querySelectorAll('[data-module-tabs]').forEach(tabs=>{const buttons=
+            [...tabs.querySelectorAll('[role=tab]')];const activate=(button,focus)=>{
+            closeCode();buttons.forEach(candidate=>{const selected=candidate===button;
+            candidate.setAttribute('aria-selected',String(selected));candidate.tabIndex=
+            selected?0:-1;tabs.querySelector('#'+candidate.getAttribute('aria-controls'))
+            .hidden=!selected;});if(focus)button.focus();};buttons.forEach((button,index)=>{
+            button.onclick=()=>activate(button,false);button.onkeydown=event=>{let target=
+            index;if(event.key==='ArrowRight')target=(index+1)%buttons.length;else if(event
+            .key==='ArrowLeft')target=(index-1+buttons.length)%buttons.length;else if(event
+            .key==='Home')target=0;else if(event.key==='End')target=buttons.length-1;else
+            return;event.preventDefault();activate(buttons[target],true);};});});})();
             """;
 
     /** File move operation, injectable for rollback tests. */
@@ -317,6 +376,8 @@ public final class TreeReportRenderer {
                 .append("<th>dependency</th>")
                 .append("<th>internal conflicts</th>")
                 .append("<th>cross-module conflicts</th>")
+                .append("<th>class conflicts</th>")
+                .append("<th>high-risk class conflicts</th>")
                 .append("<th>reason</th></tr>");
         for (ReactorReportSummary summary : summaries) {
             body.append("<tr><td><a href=\"")
@@ -338,6 +399,10 @@ public final class TreeReportRenderer {
                     .append(summary.getInternalConflictCount())
                     .append("</td><td>")
                     .append(summary.getCrossModuleConflictCount())
+                    .append("</td><td>")
+                    .append(summary.getClassConflictCount())
+                    .append("</td><td>")
+                    .append(summary.getHighRiskClassConflictCount())
                     .append("</td><td>")
                     .append(escape(summary.getReason()))
                     .append("</td></tr>");
@@ -402,18 +467,26 @@ public final class TreeReportRenderer {
                 ReactorReportSummary::getInternalConflictCount).sum();
         final long crossModuleConflicts = summaries.stream().mapToLong(
                 ReactorReportSummary::getCrossModuleConflictCount).sum();
+        final long classConflicts = summaries.stream().mapToLong(
+                ReactorReportSummary::getClassConflictCount).sum();
+        final long highRiskClassConflicts = summaries.stream().mapToLong(
+                ReactorReportSummary::getHighRiskClassConflictCount).sum();
         final long processed = summaries.size();
         return "<section class=\"card\"><h2>Summary</h2><table>"
                 + "<thead><tr><th>Status</th><th>Progress</th>"
                 + "<th>Reactors</th><th>Modules</th>"
                 + "<th>Dependencies</th><th>Internal conflicts</th>"
                 + "<th>Cross-module conflicts</th>"
+                + "<th>Class conflicts</th>"
+                + "<th>High-risk class conflicts</th>"
                 + "<th>Failure reason</th></tr></thead><tbody><tr><td class=\""
                 + state + "\">" + state + "</td><td>" + processed
                 + "/" + total + "</td><td>" + processed
                 + "</td><td>" + modules + "</td><td>"
                 + dependencies + "</td><td>" + internalConflicts
                 + "</td><td>" + crossModuleConflicts
+                + "</td><td>" + classConflicts
+                + "</td><td>" + highRiskClassConflicts
                 + "</td><td>" + escape(failureReason)
                 + "</td></tr></tbody></table></section>";
     }
@@ -434,8 +507,11 @@ public final class TreeReportRenderer {
         final List<ConflictRow> crossModule =
                 crossModuleConflictRows(reactor, groupingCache);
         final List<IssueRow> issues = issueRows(reactor);
-        writePageAtomically(target, reactor.getReactor().getCoordinate(),
-                "../assets/", body -> {
+        final ClassConflictShardManifest classData =
+                writeClassConflictData(target, reactor);
+        try {
+            writePageAtomically(target, reactor.getReactor().getCoordinate(),
+                    "../assets/", body -> {
             body.append("<p><a href=\"../../index.html\">")
                 .append("← Repository</a></p><h1>")
                 .append(escape(reactor.getReactor()
@@ -454,8 +530,12 @@ public final class TreeReportRenderer {
                 .append(issueTable(issues));
         appendConflictTable(body, "跨模块依赖冲突",
                 crossModule, true);
-        appendModuleTabs(body, reactor.getModules(), internal);
-        });
+        appendModuleTabs(body, reactor.getModules(), internal, classData);
+            });
+        } catch (IOException | RuntimeException exception) {
+            deleteTree(classData.directory());
+            throw exception;
+        }
     }
 
     private String reactorMetadata(
@@ -467,6 +547,8 @@ public final class TreeReportRenderer {
                 .stream().mapToLong(module -> module
                         .getOccurrences().size()).sum();
         final HtmlSink value = HtmlSink.memory();
+        final long classConflicts = classConflictCount(reactor);
+        final long highRisk = highRiskClassConflictCount(reactor);
         value.append("<section class=\"card\">")
                 .append("<h2>Reactor metadata</h2><table>")
                 .append("<thead><tr><th>Coordinate</th>")
@@ -475,6 +557,8 @@ public final class TreeReportRenderer {
                 .append("<th>Dependencies</th>")
                 .append("<th>Internal conflicts</th>")
                 .append("<th>Cross-module conflicts</th>")
+                .append("<th>Class conflicts</th>")
+                .append("<th>High-risk class conflicts</th>")
                 .append("<th>Issues</th></tr></thead><tbody><tr><td><code>")
                 .append(escape(reactor.getReactor()
                         .getCoordinate()))
@@ -491,6 +575,8 @@ public final class TreeReportRenderer {
                 .append("</td><td>").append(dependencyCount)
                 .append("</td><td>").append(internalConflictCount)
                 .append("</td><td>").append(crossModuleConflictCount)
+                .append("</td><td>").append(classConflicts)
+                .append("</td><td>").append(highRisk)
                 .append("</td><td>").append(issueCount)
                 .append("</td></tr></tbody></table></section>");
         return value.toString();
@@ -507,6 +593,8 @@ public final class TreeReportRenderer {
                 .append("<th>Status</th><th>Dependencies</th>")
                 .append("<th>Internal conflicts</th>")
                 .append("<th>Cross-module conflicts</th>")
+                .append("<th>Class conflicts</th>")
+                .append("<th>High-risk class conflicts</th>")
                 .append("<th>Issues</th></tr></thead>")
                 .append("<tbody>");
         for (ModuleTreeResult module : reactor.getModules()) {
@@ -527,6 +615,10 @@ public final class TreeReportRenderer {
                     .append("</td><td>")
                     .append(internal.get(module).size())
                     .append("</td><td>").append(crossCount)
+                    .append("</td><td>")
+                    .append(module.getClassConflicts().size())
+                    .append("</td><td>")
+                    .append(highRiskClassConflictCount(module))
                     .append("</td><td>").append(issueCount)
                     .append("</td></tr>");
         }
@@ -534,11 +626,199 @@ public final class TreeReportRenderer {
                 .toString();
     }
 
+    private ClassConflictShardManifest writeClassConflictData(
+            final Path reactorPage,
+            final ReactorTreeResult reactor) throws IOException {
+        final String pageName = reactorPage.getFileName().toString();
+        final String base = pageName.endsWith(".html")
+                ? pageName.substring(0, pageName.length() - ".html".length())
+                : pageName;
+        final String directoryName = base + "-class-conflict-data";
+        final Path target = reactorPage.resolveSibling(directoryName);
+        final boolean empty = reactor.getModules().stream().allMatch(
+                module -> module.getClassConflicts().isEmpty());
+        if (empty) {
+            return new ClassConflictShardManifest(target, Map.of());
+        }
+        final Path staging = Files.createTempDirectory(
+                reactorPage.getParent(), ".class-conflict-data-");
+        final Map<TreeClassConflict, ClassConflictShard> shards =
+                new IdentityHashMap<>();
+        try {
+            int sequence = 0;
+            for (ModuleTreeResult module : reactor.getModules()) {
+                for (TreeClassConflict conflict : module.getClassConflicts()) {
+                    final String id = "class-conflict-" + sequence;
+                    final String filename = String.format(
+                            Locale.ROOT, "class-conflict-%05d.js", sequence);
+                    writeClassConflictShard(staging.resolve(filename),
+                            id, conflict);
+                    shards.put(conflict, new ClassConflictShard(
+                            id, directoryName + "/" + filename));
+                    sequence++;
+                }
+            }
+            if (Files.exists(target)) {
+                deleteTree(target);
+            }
+            move(staging, target);
+            return new ClassConflictShardManifest(target, shards);
+        } catch (IOException | RuntimeException exception) {
+            deleteTree(staging);
+            throw exception;
+        }
+    }
+
+    private void writeClassConflictShard(
+            final Path target,
+            final String id,
+            final TreeClassConflict conflict) throws IOException {
+        try (OutputStream stream = Files.newOutputStream(target)) {
+            stream.write("window.__ciaClassConflictPayload(".getBytes(
+                    StandardCharsets.UTF_8));
+            try (JsonGenerator json = ScriptSafeJson.factory()
+                    .createGenerator(stream)) {
+                json.disable(JsonGenerator.Feature.AUTO_CLOSE_TARGET);
+                json.writeStartObject();
+                json.writeNumberField("schemaVersion", 1);
+                json.writeStringField("id", id);
+                json.writeArrayFieldStart("candidates");
+                for (TreeClassConflictCandidate candidate
+                        : conflict.candidates()) {
+                    json.writeStartObject();
+                    json.writeStringField("source", sourceLabel(candidate));
+                    json.writeBooleanField("winner",
+                            candidate == conflict.winner());
+                    json.writeBooleanField("available",
+                            candidate.decompiled().isAvailable());
+                    if (candidate.decompiled().isAvailable()) {
+                        json.writeStringField("sourceCode",
+                                candidate.decompiled().getSource());
+                    }
+                    json.writeEndObject();
+                }
+                json.writeEndArray();
+                json.writeEndObject();
+            }
+            stream.write(");\n".getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    private void appendClassConflictTable(
+            final HtmlSink body,
+            final ModuleTreeResult module,
+            final ClassConflictShardManifest data) {
+        final List<TreeClassConflict> conflicts = module.getClassConflicts()
+                .stream().sorted(Comparator
+                        .comparing((TreeClassConflict value) ->
+                                value.risk() == ClassConflictRisk.HIGH ? 0 : 1)
+                        .thenComparing(TreeClassConflict::binaryName))
+                .toList();
+        body.append("<section class=\"card\" data-class-conflict-component>")
+                .append("<h3>冲突类</h3>");
+        if (!conflicts.isEmpty()) {
+            appendClassConflictControls(body);
+        }
+        body.append("<table data-class-conflicts><thead><tr>")
+                .append(sortableClassHeader("Class", "class"))
+                .append(sortableClassHeader("Risk", "riskOrder"))
+                .append(sortableClassHeader("Winner", "winner"))
+                .append("<th>Shadowed sources</th><th>Selection</th>")
+                .append("<th>Decompiled code</th></tr></thead><tbody>");
+        for (TreeClassConflict conflict : conflicts) {
+            final ClassConflictShard shard = data.shards().get(conflict);
+            final String winner = sourceLabel(conflict.winner());
+            final String shadowed = conflict.shadowed().stream()
+                    .map(this::sourceLabel)
+                    .collect(java.util.stream.Collectors.joining(" | "));
+            final String search = String.join(" ", conflict.displayName(),
+                    conflict.risk().name(), winner, shadowed,
+                    conflict.selection()).toLowerCase(Locale.ROOT);
+            body.append("<tr data-class-conflict-row data-class=\"")
+                    .append(escape(conflict.displayName().toLowerCase(
+                            Locale.ROOT)))
+                    .append("\" data-risk-order=\"")
+                    .append(conflict.risk() == ClassConflictRisk.HIGH
+                            ? "0" : "1")
+                    .append("\" data-risk=\"")
+                    .append(conflict.risk())
+                    .append("\" data-winner=\"")
+                    .append(escape(winner.toLowerCase(Locale.ROOT)))
+                    .append("\" data-class-conflict-text=\"")
+                    .append(escape(search)).append("\" data-payload-id=\"")
+                    .append(escape(shard.id())).append("\" data-shard=\"")
+                    .append(escape(shard.relativeFile())).append("\">")
+                    .append("<td><code>")
+                    .append(escape(conflict.displayName()))
+                    .append("</code></td><td><span class=\"badge ")
+                    .append(conflict.risk() == ClassConflictRisk.HIGH
+                            ? "FAILED" : "muted")
+                    .append("\">").append(conflict.risk())
+                    .append("</span></td><td>").append(escape(winner))
+                    .append("</td><td>").append(escape(shadowed))
+                    .append("</td><td>")
+                    .append(escape(conflict.selection()))
+                    .append("</td><td><button type=\"button\" ")
+                    .append("data-view-class-code aria-expanded=\"false\">")
+                    .append("查看反编译代码</button></td></tr>");
+        }
+        body.append("</tbody></table></section>");
+    }
+
+    private void appendClassConflictControls(final HtmlSink body) {
+        body.append("<div class=\"controls\" data-class-controls>")
+                .append("<label>检索 <input type=\"search\" ")
+                .append("data-class-search></label>")
+                .append("<label>Risk <select data-risk-filter>")
+                .append("<option value=\"\">全部</option>")
+                .append("<option>HIGH</option><option>LOW</option>")
+                .append("</select></label><label>每页 ")
+                .append("<select data-class-page-size>")
+                .append("<option>10</option><option>50</option>")
+                .append("<option>100</option></select></label>")
+                .append("<span class=\"pager\">")
+                .append("<button type=\"button\" data-class-previous>")
+                .append("上一页</button> <span data-class-position></span> ")
+                .append("<button type=\"button\" data-class-next>")
+                .append("下一页</button></span></div>");
+    }
+
+    private String sortableClassHeader(
+            final String label,
+            final String key) {
+        return "<th><button class=\"sortable\" type=\"button\" "
+                + "data-class-sort=\"" + key + "\">" + label
+                + "</button></th>";
+    }
+
+    private String sourceLabel(final TreeClassConflictCandidate candidate) {
+        return candidate.origin() + " — " + candidate.source()
+                + (candidate.scope().isBlank()
+                ? "" : " [" + candidate.scope() + "]");
+    }
+
+    private long classConflictCount(final ReactorTreeResult reactor) {
+        return reactor.getModules().stream().mapToLong(value ->
+                value.getClassConflicts().size()).sum();
+    }
+
+    private long highRiskClassConflictCount(
+            final ReactorTreeResult reactor) {
+        return reactor.getModules().stream().mapToLong(
+                this::highRiskClassConflictCount).sum();
+    }
+
+    private long highRiskClassConflictCount(final ModuleTreeResult module) {
+        return module.getClassConflicts().stream().filter(value ->
+                value.risk() == ClassConflictRisk.HIGH).count();
+    }
+
     private void appendModuleTabs(
             final HtmlSink body,
             final List<ModuleTreeResult> modules,
             final Map<ModuleTreeResult,
-                    List<ConflictRow>> conflicts) {
+                    List<ConflictRow>> conflicts,
+            final ClassConflictShardManifest classData) {
         body.append("<section data-module-tabs><h2>Module 分析</h2>");
         if (modules.isEmpty()) {
             body.append("<p>该 reactor 没有 active module。</p></section>");
@@ -566,7 +846,7 @@ public final class TreeReportRenderer {
         body.append("</div>");
         for (int index = 0; index < modules.size(); index++) {
             appendModulePanel(body, modules.get(index),
-                    conflicts.get(modules.get(index)), index == 0);
+                    conflicts.get(modules.get(index)), index == 0, classData);
         }
         body.append("</section>");
     }
@@ -575,7 +855,8 @@ public final class TreeReportRenderer {
             final HtmlSink body,
             final ModuleTreeResult module,
             final List<ConflictRow> conflicts,
-            final boolean selected) {
+            final boolean selected,
+            final ClassConflictShardManifest classData) {
         final String id = moduleTabId(module);
         body.append("<section role=\"tabpanel\" id=\"module-panel-")
                 .append(id).append("\" aria-labelledby=\"module-tab-")
@@ -584,6 +865,7 @@ public final class TreeReportRenderer {
                 .append("><h2>")
                 .append(escape(module.getCoordinate()))
                 .append("</h2>");
+        appendClassConflictTable(body, module, classData);
         appendConflictTable(body, "模块内部依赖冲突",
                 conflicts, false);
         body.append("<section class=\"card\"><h3>Dependency tree</h3>");
@@ -1140,6 +1422,11 @@ public final class TreeReportRenderer {
                         "Dependency conflict evidence is incomplete.",
                         "使用支持完整 verbose evidence 的 dependency plugin。"));
             }
+            for (String reason : module.getClasspathIssues()) {
+                issues.add(new IssueRow("WARN", "INCOMPLETE_CLASSPATH",
+                        module.getCoordinate(), reason,
+                        "检查 compile 输出、Reactor classifier 与 classpath。"));
+            }
         }
         return issues;
     }
@@ -1150,7 +1437,7 @@ public final class TreeReportRenderer {
         if (!module.isCompleteMediation()) {
             count++;
         }
-        return count;
+        return count + module.getClasspathIssues().size();
     }
 
     private String moduleStatus(
@@ -1159,6 +1446,7 @@ public final class TreeReportRenderer {
             return "FAILED";
         }
         return module.isCompleteMediation()
+                && module.getClasspathIssues().isEmpty()
                 ? "SUCCESS" : "DEGRADED";
     }
 
@@ -1499,6 +1787,28 @@ public final class TreeReportRenderer {
             String version,
             String evidenceHtml,
             String searchText) {
+    }
+
+    /**
+     * Published class source shards for one Reactor page.
+     *
+     * @param directory published data directory
+     * @param shards shard reference by conflict identity
+     */
+    private record ClassConflictShardManifest(
+            Path directory,
+            Map<TreeClassConflict, ClassConflictShard> shards) {
+    }
+
+    /**
+     * One lazy class source payload reference.
+     *
+     * @param id payload identifier
+     * @param relativeFile Reactor-page-relative shard
+     */
+    private record ClassConflictShard(
+            String id,
+            String relativeFile) {
     }
 
     /**

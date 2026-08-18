@@ -1,6 +1,6 @@
 package io.github.dependencyanalysis.callgraph.topology;
 
-import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.classpath.CodeOrigin;
 import java.util.Objects;
 
 /**

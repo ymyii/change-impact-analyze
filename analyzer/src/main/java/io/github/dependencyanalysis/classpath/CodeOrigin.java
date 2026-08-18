@@ -1,4 +1,4 @@
-package io.github.dependencyanalysis.callgraph.model;
+package io.github.dependencyanalysis.classpath;
 
 /** Origin of code loaded into one module analysis scope. */
 public enum CodeOrigin {

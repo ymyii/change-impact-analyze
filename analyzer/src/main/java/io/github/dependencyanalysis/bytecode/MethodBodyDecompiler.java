@@ -150,7 +150,7 @@ public final class MethodBodyDecompiler {
             final String sourceLabel) {
         Objects.requireNonNull(descriptor, "descriptor");
         return decompileSide(classpathEntry, owner, name, side, sourceLabel,
-                owner + "." + name + descriptor);
+                owner + "." + name + descriptor, null);
     }
 
     /**
@@ -168,7 +168,25 @@ public final class MethodBodyDecompiler {
             final String side,
             final ArtifactCoord artifact) {
         return decompileSide(jar, point.getOwner(), point.getName(), side,
-                artifact.toString(), null);
+                artifact.toString(), null, null);
+    }
+
+    /**
+     * Decompiles one exact effective class entry in memory.
+     *
+     * @param classpathEntry directory or JAR containing the class
+     * @param owner internal binary class name
+     * @param effectiveEntry exact directory-relative or JAR entry
+     * @param sourceLabel diagnostic logical source
+     * @return best-effort complete class source
+     */
+    public DecompiledMethod decompileClass(
+            final Path classpathEntry,
+            final String owner,
+            final String effectiveEntry,
+            final String sourceLabel) {
+        return decompileSide(classpathEntry, owner, "<class>",
+                "classpath", sourceLabel, null, effectiveEntry);
     }
 
     private DecompiledMethod decompileSide(
@@ -177,10 +195,11 @@ public final class MethodBodyDecompiler {
             final String name,
             final String side,
             final String sourceLabel,
-            final String methodId) {
+            final String methodId,
+            final String effectiveEntry) {
         try {
             final byte[] classBytes = readClass(
-                    classpathEntry, owner);
+                    classpathEntry, owner, effectiveEntry);
             final CapturingSaver saver =
                     new CapturingSaver();
             final CapturingLogger logger =
@@ -270,10 +289,11 @@ public final class MethodBodyDecompiler {
 
     private byte[] readClass(
             final Path jar,
-            final String owner)
+            final String owner,
+            final String effectiveEntry)
             throws IOException {
-        final String entryName = owner
-                + IContextSource.CLASS_SUFFIX;
+        final String entryName = effectiveEntry == null
+                ? owner + IContextSource.CLASS_SUFFIX : effectiveEntry;
         if (Files.isDirectory(jar)) {
             final Path classFile = jar.resolve(entryName);
             if (!Files.isRegularFile(classFile)) {

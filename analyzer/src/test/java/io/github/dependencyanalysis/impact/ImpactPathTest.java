@@ -2,7 +2,7 @@ package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
-import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.classpath.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.model.MethodId;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.dependency.DependencyScope;

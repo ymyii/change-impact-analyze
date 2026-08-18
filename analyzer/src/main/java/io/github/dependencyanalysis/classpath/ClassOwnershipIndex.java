@@ -1,6 +1,5 @@
-package io.github.dependencyanalysis.callgraph.scope;
+package io.github.dependencyanalysis.classpath;
 
-import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 
 import java.io.IOException;
@@ -24,7 +23,8 @@ import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 // Wiki: wiki/features/call-graph-engine.md - Canonical classpath winner policy
-/** Binary-name ownership index with deterministic duplicate resolution. */
+// Wiki: wiki/features/repository-dependency-tree-report.md - 冲突类定义
+/** Binary-name ownership index with deterministic conflict resolution. */
 public final class ClassOwnershipIndex {
 
     /** Java Module Descriptor class entry. */
@@ -43,12 +43,36 @@ public final class ClassOwnershipIndex {
     /** External dependency ownership priority. */
     private static final int DEPENDENCY_PRIORITY = 3;
 
+    /** Default impact-analysis Java visibility boundary. */
+    private static final int DEFAULT_JAVA_MAJOR = 8;
+
+    /** Target Java major used for Multi-Release JAR selection. */
+    private final int targetJavaMajor;
+
     /** Indexed classes. */
     private final Map<String, ClassOwnership> classes = new HashMap<>();
 
     /** Repeated definitions retained only for duplicate evidence. */
     private final Map<String, List<ClassOwnership>> repeated =
             new LinkedHashMap<>();
+
+    /** Creates a Java 8 effective classpath index. */
+    public ClassOwnershipIndex() {
+        this(DEFAULT_JAVA_MAJOR);
+    }
+
+    /**
+     * Creates an effective classpath index for one Maven JVM.
+     *
+     * @param javaMajor Maven JVM major version
+     */
+    public ClassOwnershipIndex(final int javaMajor) {
+        if (javaMajor < 1) {
+            throw new IllegalArgumentException(
+                    "Java major version must be positive");
+        }
+        targetJavaMajor = javaMajor;
+    }
 
     /**
      * Adds every class under one classes directory.
@@ -73,7 +97,9 @@ public final class ClassOwnershipIndex {
             final String name = normalizeClassName(
                     directory.relativize(file).toString());
             add(name, origin, ClassSource.path(directory),
-                    digest(Files.readAllBytes(file)));
+                    digest(Files.readAllBytes(file)),
+                    directory.relativize(file).toString()
+                            .replace('\\', '/'));
         }
     }
 
@@ -86,8 +112,29 @@ public final class ClassOwnershipIndex {
      */
     public void addJar(final Path jarPath, final CodeOrigin origin)
             throws IOException {
-        try (JarFile jar = new JarFile(jarPath.toFile(), false)) {
-            addJar(jar, ClassSource.path(jarPath), origin);
+        try (JarFile jar = new JarFile(jarPath.toFile(), false,
+                java.util.zip.ZipFile.OPEN_READ,
+                Runtime.Version.parse(String.valueOf(targetJavaMajor)))) {
+            addJar(jar, ClassSource.path(jarPath), origin, true);
+        }
+    }
+
+    /**
+     * Adds every target-Java-visible class from one dependency JAR.
+     *
+     * @param coordinate logical dependency source
+     * @param jarPath physical JAR path
+     * @param origin code origin
+     * @throws IOException on unreadable entry
+     */
+    public void addJar(
+            final ArtifactCoord coordinate,
+            final Path jarPath,
+            final CodeOrigin origin) throws IOException {
+        try (JarFile jar = new JarFile(jarPath.toFile(), false,
+                java.util.zip.ZipFile.OPEN_READ,
+                Runtime.Version.parse(String.valueOf(targetJavaMajor)))) {
+            addJar(jar, ClassSource.artifact(coordinate), origin, true);
         }
     }
 
@@ -103,25 +150,25 @@ public final class ClassOwnershipIndex {
             final ArtifactCoord coordinate,
             final JarFile jar,
             final CodeOrigin origin) throws IOException {
-        addJar(jar, ClassSource.artifact(coordinate), origin);
+        addJar(jar, ClassSource.artifact(coordinate), origin, false);
     }
 
     private void addJar(
             final JarFile jar,
             final ClassSource source,
-            final CodeOrigin origin) throws IOException {
-        final List<JarEntry> entries = jar.stream()
+            final CodeOrigin origin,
+            final boolean targetAware) throws IOException {
+        final List<JarEntry> entries = effectiveEntries(jar, targetAware)
                     .filter(entry -> !entry.isDirectory())
                     .filter(entry -> entry.getName().endsWith(".class"))
                     .filter(entry -> !isModuleInfoClass(entry.getName()))
-                    .filter(entry -> !entry.getName().startsWith(
-                            "META-INF/versions/"))
                     .sorted(Comparator.comparing(JarEntry::getName))
                     .toList();
             for (JarEntry entry : entries) {
                 try (InputStream input = jar.getInputStream(entry)) {
                     add(normalizeClassName(entry.getName()), origin,
-                            source, digest(input.readAllBytes()));
+                            source, digest(input.readAllBytes()),
+                            entry.getRealName());
                 }
             }
     }
@@ -157,7 +204,7 @@ public final class ClassOwnershipIndex {
                 }
                 try (InputStream input = jar.getInputStream(entry)) {
                     add(name, origin, ClassSource.path(jarPath),
-                            digest(input.readAllBytes()));
+                            digest(input.readAllBytes()), entry.getName());
                 }
             }
         }
@@ -167,10 +214,11 @@ public final class ClassOwnershipIndex {
             final String name,
             final CodeOrigin origin,
             final ClassSource source,
-            final String digest) {
+            final String digest,
+            final String entryName) {
         final ClassOwnership previous = classes.get(name);
         final ClassOwnership candidate = new ClassOwnership(
-                origin, source, digest);
+                origin, source, digest, entryName);
         if (previous != null) {
             final List<ClassOwnership> definitions = repeated
                     .computeIfAbsent(name, ignored -> {
@@ -195,7 +243,9 @@ public final class ClassOwnershipIndex {
         return values.stream().anyMatch(value ->
                 value.getOrigin() == candidate.getOrigin()
                         && value.getSource().equals(candidate.getSource())
-                        && value.getDigest().equals(candidate.getDigest()));
+                        && value.getDigest().equals(candidate.getDigest())
+                        && value.getEntryName().equals(
+                        candidate.getEntryName()));
     }
 
     /**
@@ -216,20 +266,20 @@ public final class ClassOwnershipIndex {
     }
 
     /**
-     * Returns content-conflicting duplicate resolutions.
+     * Returns all class conflict resolutions.
      *
      * @return stable binary-name ordered resolution evidence
      */
-    public List<DuplicateClassResolution> duplicateClassResolutions() {
-        final List<DuplicateClassResolution> result = new ArrayList<>();
+    public List<ClassConflictResolution> classConflictResolutions() {
+        final List<ClassConflictResolution> result = new ArrayList<>();
         for (String name : repeated.keySet()) {
-            final DuplicateClassResolution resolution = resolution(name);
+            final ClassConflictResolution resolution = resolution(name);
             if (resolution != null) {
                 result.add(resolution);
             }
         }
         result.sort(Comparator.comparing(
-                DuplicateClassResolution::getBinaryName));
+                ClassConflictResolution::getBinaryName));
         return List.copyOf(result);
     }
 
@@ -239,7 +289,7 @@ public final class ClassOwnershipIndex {
      * @param name WALA-style or internal binary name
      * @return resolution, or null when the name is not content-conflicting
      */
-    public DuplicateClassResolution duplicateResolutionOf(
+    public ClassConflictResolution classConflictResolutionOf(
             final String name) {
         return resolution(normalizedLookupName(name));
     }
@@ -277,19 +327,18 @@ public final class ClassOwnershipIndex {
         return ownership == null || ownership.getSource().equals(source);
     }
 
-    private DuplicateClassResolution resolution(final String name) {
+    private ClassConflictResolution resolution(final String name) {
         final List<ClassOwnership> definitions = repeated.get(name);
         if (definitions == null) {
             return null;
         }
         final Set<String> digests = new HashSet<>();
         definitions.forEach(value -> digests.add(value.getDigest()));
-        if (digests.size() < 2) {
-            return null;
-        }
         final ClassOwnership winner = classes.get(name);
-        return new DuplicateClassResolution(name, winner, definitions,
-                precedenceReason(winner));
+        final ClassConflictRisk risk = digests.size() > 1
+                ? ClassConflictRisk.HIGH : ClassConflictRisk.LOW;
+        return new ClassConflictResolution(name, winner, definitions,
+                precedenceReason(winner), risk);
     }
 
     private static String precedenceReason(
@@ -326,7 +375,18 @@ public final class ClassOwnershipIndex {
     }
 
     private static boolean isModuleInfoClass(final String value) {
-        return MODULE_INFO_CLASS.equals(value.replace('\\', '/'));
+        final String normalized = value.replace('\\', '/');
+        return MODULE_INFO_CLASS.equals(normalized)
+                || normalized.endsWith("/" + MODULE_INFO_CLASS);
+    }
+
+    private Stream<JarEntry> effectiveEntries(
+            final JarFile jar,
+            final boolean targetAware) {
+        return targetAware && jar.isMultiRelease()
+                ? jar.versionedStream()
+                : jar.stream().filter(entry -> !entry.getName()
+                .startsWith(MULTI_RELEASE_PREFIX));
     }
 
     private static String digest(final byte[] value) {

@@ -27,8 +27,8 @@ import com.ibm.wala.types.TypeReference;
 import io.github.dependencyanalysis.bytecode.AccessTransition;
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
-import io.github.dependencyanalysis.callgraph.scope.ClassOwnership;
-import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.classpath.ClassOwnership;
+import io.github.dependencyanalysis.classpath.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.model.MethodId;
 import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphSession;
 

@@ -1,10 +1,10 @@
 package io.github.dependencyanalysis.callgraph.boundary;
 
-import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.classpath.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.scope.CallGraphChange;
 import io.github.dependencyanalysis.callgraph.scope.CallGraphDependencyScope;
-import io.github.dependencyanalysis.callgraph.scope.ClassOwnership;
-import io.github.dependencyanalysis.callgraph.scope.ClassOwnershipIndex;
+import io.github.dependencyanalysis.classpath.ClassOwnership;
+import io.github.dependencyanalysis.classpath.ClassOwnershipIndex;
 import io.github.dependencyanalysis.callgraph.scope.DependencyBodyPolicy;
 import io.github.dependencyanalysis.callgraph.scope.DependencyScopeMode;
 import com.ibm.wala.analysis.typeInference.TypeAbstraction;

@@ -33,6 +33,7 @@ final class TreeReportCacheSpiller {
                     false, false);
             spillOccurrences(cache, "reactor-selected", key, module,
                     false, true);
+            spillClassConflicts(cache, key, module);
             cache.writeJsonLines("tree-module", key,
                     json -> {
                         json.writeStartObject();
@@ -53,6 +54,43 @@ final class TreeReportCacheSpiller {
                     });
         }
         return prefix;
+    }
+
+    private void spillClassConflicts(
+            final ReportCache cache,
+            final String key,
+            final ModuleTreeResult module) {
+        cache.writeJsonLines("class-conflict-source", key, json -> {
+            int count = 0;
+            for (TreeClassConflict conflict : module.getClassConflicts()) {
+                for (TreeClassConflictCandidate candidate
+                        : conflict.candidates()) {
+                    json.writeStartObject();
+                    json.writeNumberField("schemaVersion", 1);
+                    json.writeStringField("module", module.getCoordinate());
+                    json.writeStringField("binaryName",
+                            conflict.binaryName());
+                    json.writeStringField("risk", conflict.risk().name());
+                    json.writeStringField("origin", candidate.origin().name());
+                    json.writeStringField("source", candidate.source());
+                    json.writeStringField("scope", candidate.scope());
+                    json.writeStringField("digest", candidate.digest());
+                    json.writeStringField("effectiveEntry",
+                            candidate.effectiveEntry());
+                    json.writeBooleanField("winner",
+                            candidate == conflict.winner());
+                    json.writeBooleanField("available",
+                            candidate.decompiled().isAvailable());
+                    if (candidate.decompiled().isAvailable()) {
+                        json.writeStringField("sourceCode",
+                                candidate.decompiled().getSource());
+                    }
+                    json.writeEndObject();
+                    count++;
+                }
+            }
+            return count;
+        });
     }
 
     private void spillOccurrences(

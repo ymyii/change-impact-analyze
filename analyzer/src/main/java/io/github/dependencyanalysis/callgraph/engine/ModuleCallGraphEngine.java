@@ -9,14 +9,15 @@ import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSelectionMetr
 import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSyntheticTypeRegistry;
 import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.jdk.SpringBackendJdkExclusions;
-import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.classpath.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.protocol.invokedynamic.InvokeDynamicBootstrapModelRegistry;
 import io.github.dependencyanalysis.callgraph.protocol.serviceloader.ServiceLoaderProtocolIndex;
 import io.github.dependencyanalysis.callgraph.protocol.serviceloader.ServiceResourceDirectoryModule;
-import io.github.dependencyanalysis.callgraph.scope.ClassOwnership;
-import io.github.dependencyanalysis.callgraph.scope.ClassOwnershipIndex;
-import io.github.dependencyanalysis.callgraph.scope.ClassSource;
-import io.github.dependencyanalysis.callgraph.scope.DuplicateClassResolution;
+import io.github.dependencyanalysis.classpath.ClassOwnership;
+import io.github.dependencyanalysis.classpath.ClassOwnershipIndex;
+import io.github.dependencyanalysis.classpath.ClassSource;
+import io.github.dependencyanalysis.classpath.ClassConflictResolution;
+import io.github.dependencyanalysis.classpath.ClassConflictRisk;
 import io.github.dependencyanalysis.callgraph.scope.DependencyScopeMode;
 import io.github.dependencyanalysis.callgraph.scope.OwnershipFilteredModule;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
@@ -425,7 +426,7 @@ public final class ModuleCallGraphEngine {
         final long initialMemory = usedMemory();
         try {
             final ClassOwnershipIndex ownership = ownership(input);
-            reportDuplicateResolutions(context, ownership);
+            reportClassConflicts(context, ownership);
             final AnalysisScope scope = scope(input, ownership);
             final IClassHierarchy hierarchy = hierarchy(scope);
             final boolean chaChangedPaths = algorithm == CallGraphAlgorithm.CHA
@@ -676,11 +677,11 @@ public final class ModuleCallGraphEngine {
                 ClassSource.artifact(artifact), ownership);
     }
 
-    private void reportDuplicateResolutions(
+    private void reportClassConflicts(
             final DiagnosticContext context,
             final ClassOwnershipIndex ownership) {
-        final List<DuplicateClassResolution> resolutions =
-                ownership.duplicateClassResolutions();
+        final List<ClassConflictResolution> resolutions =
+                ownership.classConflictResolutions();
         if (resolutions.isEmpty()) {
             return;
         }
@@ -690,9 +691,14 @@ public final class ModuleCallGraphEngine {
                         + value.getWinner().getSource())
                 .reduce((left, right) -> left + "; " + right)
                 .orElse("");
+        final long highRisk = resolutions.stream()
+                .filter(value -> value.getRisk() == ClassConflictRisk.HIGH)
+                .count();
         diagnostics.warn(context,
-                "Resolved conflicting duplicate classes by classpath "
+                "Resolved class conflicts by classpath "
                         + "precedence; count=" + resolutions.size()
+                        + "; highRisk=" + highRisk
+                        + "; lowRisk=" + (resolutions.size() - highRisk)
                         + "; winners=" + examples
                         + (resolutions.size() > MAX_DUPLICATE_EXAMPLES
                         ? "; omitted=" + (resolutions.size()

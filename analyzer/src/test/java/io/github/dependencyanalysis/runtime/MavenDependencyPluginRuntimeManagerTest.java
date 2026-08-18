@@ -51,6 +51,11 @@ class MavenDependencyPluginRuntimeManagerTest {
                         + "dependency-analyzer-artifact-path-maven-plugin:"
                         + ARTIFACT_PATH_PLUGIN_VERSION
                         + ":collect-dependency-evidence");
+        assertThat(first.getClasspathEvidenceGoal()).isEqualTo(
+                "io.github.dependencyanalysis:"
+                        + "dependency-analyzer-artifact-path-maven-plugin:"
+                        + ARTIFACT_PATH_PLUGIN_VERSION
+                        + ":collect-classpath-evidence");
         assertThat(first.getRepositories()).hasSize(2);
         assertThat(dependencyJar(first)).isRegularFile();
         assertThat(artifactPathJar(first)).isRegularFile();

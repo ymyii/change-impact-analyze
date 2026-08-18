@@ -29,6 +29,13 @@ public final class MavenDependencyPluginRuntime implements AutoCloseable {
                     + ARTIFACT_PATH_PLUGIN_VERSION
                     + ":collect-dependency-evidence";
 
+    /** Built-in Classpath Evidence Plugin goal. */
+    public static final String CLASSPATH_EVIDENCE_PLUGIN_GOAL =
+            ARTIFACT_PATH_PLUGIN_GROUP + ":"
+                    + ARTIFACT_PATH_PLUGIN_ARTIFACT + ":"
+                    + ARTIFACT_PATH_PLUGIN_VERSION
+                    + ":collect-classpath-evidence";
+
     /** Maven Dependency Plugin group. */
     private static final String PLUGIN_GROUP =
             "org.apache.maven.plugins";
@@ -107,6 +114,11 @@ public final class MavenDependencyPluginRuntime implements AutoCloseable {
     /** @return built-in Dependency Evidence Plugin goal */
     public String getDependencyEvidenceGoal() {
         return DEPENDENCY_EVIDENCE_PLUGIN_GOAL;
+    }
+
+    /** @return built-in Classpath Evidence Plugin goal */
+    public String getClasspathEvidenceGoal() {
+        return CLASSPATH_EVIDENCE_PLUGIN_GOAL;
     }
 
     /** @return Maven arguments including settings overlay */

@@ -113,7 +113,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 
 ## Preflight Boundary
 
-- 校验 path/Git/root POM/output/JDK 8/Maven version/Maven arguments、内嵌 Dependency Plugin `3.6.1` 与 Dependency Evidence Plugin `3.0.0` runtime、workspace/structured evidence capability。
+- 校验path/Git/root POM/output/JDK 8/Maven version/Maven arguments、内嵌Dependency Plugin`3.6.1`与Dependency Evidence Plugin`3.1.0-SNAPSHOT` runtime、workspace/structured evidence capability。
 - Preflight failure 不启动 pipeline，不触碰旧 Report。
 - 完整Dependency Diff后的`dependency-selection` Stage输出candidate/selected/excluded pair、include/exclude数量与耗时；DEBUG逐pattern输出匹配数。JAR Diff生命周期只统计selected pair。单个pattern未命中不是failure，只要整体仍有selected pair即继续。
 - Reactor/leaf mode、Module coordinate collision、physical artifact ambiguity 属于 preparation failure。

@@ -168,6 +168,10 @@ if [ "$algorithm" = cha ]; then
 fi
 ! grep -q '<th>Result refinement algorithms</th>' "$report" \
   || fail "removed result refinement selection remains in report"
+grep -q '<th>Class conflicts</th>' "$report" \
+  || fail "class conflict summary is missing"
+grep -q '<th>High-risk class conflicts</th>' "$report" \
+  || fail "high-risk class conflict summary is missing"
 grep -q '<th>Method body equivalence order</th><td>Decompiled Java first; normalized SSA on miss</td>' "$report" \
   || fail "Java-first method body equivalence order is missing"
 for extension in \

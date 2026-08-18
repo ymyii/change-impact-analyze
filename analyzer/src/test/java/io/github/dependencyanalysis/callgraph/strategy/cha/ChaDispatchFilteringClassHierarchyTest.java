@@ -1,9 +1,9 @@
 package io.github.dependencyanalysis.callgraph.strategy.cha;
 
 import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphInput;
-import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.classpath.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.scope.CallGraphDependencyScope;
-import io.github.dependencyanalysis.callgraph.scope.ClassOwnershipIndex;
+import io.github.dependencyanalysis.classpath.ClassOwnershipIndex;
 import io.github.dependencyanalysis.callgraph.scope.DependencyBodyPolicy;
 import io.github.dependencyanalysis.callgraph.scope.DependencyScopeMode;
 

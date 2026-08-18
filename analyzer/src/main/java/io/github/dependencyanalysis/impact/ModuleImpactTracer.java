@@ -11,11 +11,11 @@ import com.ibm.wala.types.TypeReference;
 
 import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
-import io.github.dependencyanalysis.callgraph.scope.ClassOwnership;
-import io.github.dependencyanalysis.callgraph.scope.ClassOwnershipIndex;
-import io.github.dependencyanalysis.callgraph.scope.ClassSource;
-import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
-import io.github.dependencyanalysis.callgraph.scope.DuplicateClassResolution;
+import io.github.dependencyanalysis.classpath.ClassOwnership;
+import io.github.dependencyanalysis.classpath.ClassOwnershipIndex;
+import io.github.dependencyanalysis.classpath.ClassSource;
+import io.github.dependencyanalysis.classpath.CodeOrigin;
+import io.github.dependencyanalysis.classpath.ClassConflictResolution;
 import io.github.dependencyanalysis.callgraph.model.MethodId;
 import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphSession;
 import io.github.dependencyanalysis.callgraph.topology.StronglyConnectedComponents;
@@ -255,10 +255,10 @@ public final class ModuleImpactTracer {
                         ChangePointDisposition.CHANGE_KIND_NOT_ANALYZED);
                 continue;
             }
-            final ChangePointDisposition duplicateDisposition =
-                    duplicateDisposition(point, session.getOwnership());
-            if (duplicateDisposition != null) {
-                fixedDispositions.put(point, duplicateDisposition);
+            final ChangePointDisposition conflictDisposition =
+                    classConflictDisposition(point, session.getOwnership());
+            if (conflictDisposition != null) {
+                fixedDispositions.put(point, conflictDisposition);
                 continue;
             }
             final ChangePointSeedResolution resolution =
@@ -616,11 +616,11 @@ public final class ModuleImpactTracer {
                 .toList();
     }
 
-    static ChangePointDisposition duplicateDisposition(
+    static ChangePointDisposition classConflictDisposition(
             final BoundChangePoint point,
             final ClassOwnershipIndex ownership) {
-        final DuplicateClassResolution resolution = ownership
-                .duplicateResolutionOf(
+        final ClassConflictResolution resolution = ownership
+                .classConflictResolutionOf(
                         point.getChangePoint().getOwner());
         if (resolution == null) {
             return null;

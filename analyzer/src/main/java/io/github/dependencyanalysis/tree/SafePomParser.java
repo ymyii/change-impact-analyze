@@ -58,55 +58,16 @@ final class SafePomParser {
             final Path repositoryRoot,
             final Path relativePom)
             throws Exception {
-        final DocumentBuilderFactory factory =
-                DocumentBuilderFactory.newInstance();
-        factory.setFeature(
-                "http://apache.org/xml/features/"
-                        + "disallow-doctype-decl", true);
-        factory.setFeature(
-                "http://xml.org/sax/features/"
-                        + "external-general-entities", false);
-        factory.setFeature(
-                "http://xml.org/sax/features/"
-                        + "external-parameter-entities", false);
-        factory.setAttribute(
-                XMLConstants.ACCESS_EXTERNAL_DTD, "");
-        factory.setAttribute(
-                XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
-        factory.setXIncludeAware(false);
-        factory.setExpandEntityReferences(false);
         final Path pom = repositoryRoot.resolve(
                 relativePom).normalize();
-        final DocumentBuilder builder = factory
-                .newDocumentBuilder();
-        builder.setErrorHandler(new ErrorHandler() {
-            @Override
-            public void warning(
-                    final SAXParseException exception) {
-                // Warnings do not invalidate the minimal model.
-            }
-
-            @Override
-            public void error(
-                    final SAXParseException exception)
-                    throws SAXParseException {
-                throw exception;
-            }
-
-            @Override
-            public void fatalError(
-                    final SAXParseException exception)
-                    throws SAXParseException {
-                throw exception;
-            }
-        });
-        final Document document = builder.parse(
-                pom.toFile());
+        final Document document = parseDocument(pom);
         final Element project =
                 document.getDocumentElement();
         final Path projectDir = pom.getParent();
         final Map<String, String> modelProperties =
-                modelProperties(project, projectDir);
+                modelProperties(project, projectDir,
+                        inheritedProperties(repositoryRoot, pom,
+                                project, new HashSet<>()));
         final Element parent = child(
                 project, "parent");
         final String group = firstNonBlank(
@@ -460,14 +421,73 @@ final class SafePomParser {
 
     private Map<String, String> modelProperties(
             final Element project,
-            final Path projectDir) {
+            final Path projectDir,
+            final Map<String, String> inherited) {
         final Map<String, String> result =
                 new HashMap<>();
         System.getProperties().forEach((key, value) ->
                 result.put(key.toString(),
                         value.toString()));
-        final Element pomProperties = child(
-                project, "properties");
+        result.putAll(inherited);
+        result.putAll(pomProperties(project));
+        result.put("basedir", projectDir.toString());
+        result.put("project.basedir",
+                projectDir.toString());
+        result.putAll(properties);
+        return result;
+    }
+
+    private Map<String, String> inheritedProperties(
+            final Path repositoryRoot,
+            final Path pom,
+            final Element project,
+            final Set<Path> visited) throws Exception {
+        final Path normalizedPom = pom.toAbsolutePath().normalize();
+        if (!visited.add(normalizedPom)) {
+            throw new IllegalStateException(
+                    "Local parent POM cycle: " + pom);
+        }
+        final Path parentPom = localParentPom(
+                repositoryRoot, normalizedPom, project);
+        if (parentPom == null) {
+            return Map.of();
+        }
+        final Document parentDocument = parseDocument(parentPom);
+        final Element parentProject = parentDocument.getDocumentElement();
+        final Map<String, String> result = new HashMap<>(
+                inheritedProperties(repositoryRoot, parentPom,
+                        parentProject, visited));
+        result.putAll(pomProperties(parentProject));
+        return result;
+    }
+
+    private Path localParentPom(
+            final Path repositoryRoot,
+            final Path pom,
+            final Element project) {
+        final Element parent = child(project, "parent");
+        if (parent == null) {
+            return null;
+        }
+        final Element relative = child(parent, "relativePath");
+        if (relative != null && relative.getTextContent().trim().isEmpty()) {
+            return null;
+        }
+        final String relativePath = relative == null
+                ? "../pom.xml" : relative.getTextContent().trim();
+        Path candidate = pom.getParent().resolve(relativePath).normalize();
+        if (Files.isDirectory(candidate)) {
+            candidate = candidate.resolve("pom.xml");
+        }
+        final Path root = repositoryRoot.toAbsolutePath().normalize();
+        final Path normalized = candidate.toAbsolutePath().normalize();
+        return normalized.startsWith(root) && Files.isRegularFile(normalized)
+                ? normalized : null;
+    }
+
+    private Map<String, String> pomProperties(final Element project) {
+        final Map<String, String> result = new HashMap<>();
+        final Element pomProperties = child(project, "properties");
         if (pomProperties != null) {
             final NodeList nodes = pomProperties
                     .getChildNodes();
@@ -480,11 +500,45 @@ final class SafePomParser {
                 }
             }
         }
-        result.put("basedir", projectDir.toString());
-        result.put("project.basedir",
-                projectDir.toString());
-        result.putAll(properties);
         return result;
+    }
+
+    private Document parseDocument(final Path pom) throws Exception {
+        final DocumentBuilderFactory factory =
+                DocumentBuilderFactory.newInstance();
+        factory.setFeature(
+                "http://apache.org/xml/features/"
+                        + "disallow-doctype-decl", true);
+        factory.setFeature(
+                "http://xml.org/sax/features/"
+                        + "external-general-entities", false);
+        factory.setFeature(
+                "http://xml.org/sax/features/"
+                        + "external-parameter-entities", false);
+        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+        factory.setXIncludeAware(false);
+        factory.setExpandEntityReferences(false);
+        final DocumentBuilder builder = factory.newDocumentBuilder();
+        builder.setErrorHandler(new ErrorHandler() {
+            @Override
+            public void warning(final SAXParseException exception) {
+                // Warnings do not invalidate the minimal model.
+            }
+
+            @Override
+            public void error(final SAXParseException exception)
+                    throws SAXParseException {
+                throw exception;
+            }
+
+            @Override
+            public void fatalError(final SAXParseException exception)
+                    throws SAXParseException {
+                throw exception;
+            }
+        });
+        return builder.parse(pom.toFile());
     }
 
     private String interpolate(

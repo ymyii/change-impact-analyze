@@ -7,7 +7,7 @@ import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphEngine;
 import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphSession;
 import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSelection;
 import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
-import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.classpath.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
 

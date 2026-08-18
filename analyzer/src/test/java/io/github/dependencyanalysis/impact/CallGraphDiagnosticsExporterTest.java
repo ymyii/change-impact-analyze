@@ -10,7 +10,7 @@ import io.github.dependencyanalysis.callgraph.topology.CallGraphNodeReachability
 import io.github.dependencyanalysis.callgraph.topology.CallGraphNodeSentinelRole;
 import io.github.dependencyanalysis.callgraph.topology.CallGraphPathRootKind;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
-import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.classpath.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
 import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;
 

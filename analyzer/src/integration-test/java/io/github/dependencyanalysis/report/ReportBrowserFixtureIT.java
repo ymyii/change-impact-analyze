@@ -5,7 +5,7 @@ import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.bytecode.MemberDescriptors;
 import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSelection;
 import io.github.dependencyanalysis.callgraph.jdk.JdkModelSelection;
-import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.classpath.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.model.MethodId;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.strategy.WalaReflectionOptions;

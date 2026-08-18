@@ -123,9 +123,9 @@ Surefire/Failsafe 自动将 `test.jdk8.home` 作为 `TEST_JDK8_HOME` 注入 test
 
 Analyzer reactor不构建`plugins/`、`models/jdk`或`models/jdk8`。若local repository缺少对应Plugin repository ZIP或`jdk8-models.version` artifact，dependency resolution必须失败；按model dependency顺序及Plugin入口执行`clean install`。
 
-### Impact Report浏览器门禁
+### Report浏览器门禁
 
-`mvn clean verify`中的`ReportBrowserFixtureIT`先发布`target/playwright-report-fixture/impact.html`及Module、Affected Paths和Schema 5 shards。Playwright只消费该Maven产物；夹具不存在时命令会提示先运行`mvn clean verify`。
+`mvn clean verify`中的`ReportBrowserFixtureIT`先发布`target/playwright-report-fixture/impact.html`及Module、Affected Paths和Schema 5 shards；`TreeReportBrowserFixtureIT`发布`target/playwright-report-fixture/tree/`、Module冲突类表和Schema v1反编译源码shards。Playwright只消费这些Maven产物；任一夹具不存在时命令会提示先运行`mvn clean verify`。
 
 首次安装或锁文件变化后安装Node.js依赖与Chromium：
 
@@ -181,7 +181,7 @@ java -jar target/dependency-analyzer.jar tree --help
 - Analyzer JAR 在 `maven/plugin-repositories/` 下恰有 Maven Dependency Plugin 与 Dependency Evidence Plugin 两个 `repository` ZIP；不存在 loose Plugin JAR/POM/checksum resource。
 - Empty Maven local repository + blocked wildcard mirror 下，packaged Maven 3.6.3 runtime 可执行 `collect-dependency-evidence`。
 - Analyzer integration tests 覆盖空格/中文 cache path、scope-conflict missing `test` binary，以及 Maven 成功/失败后 source repository 无 evidence 中间文件。
-- 最新 duplicate class precedence tests、report tests 与 `PackagedJarCliIT` 全部通过。
+- 最新class conflict precedence、LOW/HIGH、Multi-Release JAR、lazy source shard、report tests与`PackagedJarCliIT`全部通过。
 - Root/两个 subcommand help 列出当前 option；CLI `--version` 与 Maven build metadata 一致。
 - Packaged help只接受`cha`与`k-obj`，后者标记`experimental`；`rta`、`zero-cfa`和`optimized-0-1-cfa`在解析阶段失败。
 - Packaged JAR保留公共JDK model engine、JDK 8 façade与catalog；不包含已删除algorithm class、旧Call Graph根包class或兼容wrapper。
@@ -196,7 +196,7 @@ java -jar target/dependency-analyzer.jar tree --help
 - JDK model artifact resolution failure：先执行`models/jdk`再执行`models/jdk8`的`clean install`，确认root`jdk8-models.version`匹配。
 - Plugin test failure：`plugins/artifact-path-resolver/target/surefire-reports/`。
 - Analyzer unit/integration failure：`target/surefire-reports/`、`target/failsafe-reports/`。
-- `Playwright report fixture is unavailable`：先执行`mvn clean verify`，确认`target/playwright-report-fixture/impact.html`及相邻Module目录存在。
+- `Playwright report fixture is unavailable`：先执行`mvn clean verify`，确认`target/playwright-report-fixture/impact.html`、相邻Module目录及`target/playwright-report-fixture/tree/index.html`存在。
 - Playwright browser executable缺失：执行`npx playwright install chromium`；Linux CI使用`--with-deps chromium`。
 - Playwright失败：检查`target/playwright/html-report/`，以及`target/playwright/test-results/`中的失败截图、`trace.zip`和error context。
 - Checkstyle failure：Maven Console 中的 file/line/check 名称。
@@ -206,7 +206,7 @@ java -jar target/dependency-analyzer.jar tree --help
 ## Configuration
 
 - Analyzer development version：root `revision`。
-- Dependency Evidence Plugin development version：`plugins/pom.xml` 的 `revision`，当前 `3.0.0`。
+- Dependency Evidence Plugin development version：`plugins/pom.xml`的`revision`，当前`3.1.0-SNAPSHOT`。
 - Analyzer test JDK 8：root `test.jdk8.home`；command-line `-Dtest.jdk8.home=...` 优先。
 - Analyzer 使用的 Plugin version：root `artifact-path-plugin.version`。
 - Analyzer使用的JDK 8 model version：root`jdk8-models.version`。

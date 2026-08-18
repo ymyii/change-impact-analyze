@@ -65,6 +65,20 @@ final class TreeDiagnosticEmitter {
                 "Maven collection completed; progress=" + index + "/" + total
                         + "; status=" + result.getStatus()
                         + "; modules=" + result.getModules().size());
+        final long incompleteModules = result.getModules().stream()
+                .filter(module -> !module.getClasspathIssues().isEmpty())
+                .count();
+        final long incompleteIssues = result.getModules().stream()
+                .mapToLong(module -> module.getClasspathIssues().size())
+                .sum();
+        if (incompleteIssues > 0) {
+            log.warn(DiagnosticContext.of("analysis",
+                            "classpath-incomplete")
+                            .with("reactor",
+                                    result.getReactor().getId()),
+                    "Classpath incomplete; modules=" + incompleteModules
+                            + "; issues=" + incompleteIssues);
+        }
     }
 
     void analysisCompleted(final List<TreeAnalysisIssue> issues) {

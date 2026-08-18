@@ -117,6 +117,31 @@ class TreeDiagnosticEmitterTest {
                 .contains("[TRACE][cli][tree][-] trace-message");
     }
 
+    @Test
+    void summarizesIncompleteClasspathEvidence() {
+        final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        final TreeDiagnosticEmitter emitter = emitter(bytes,
+                LogVerbosity.INFO);
+        final Path pom = Path.of("pom.xml");
+        final ModuleTreeResult module = new ModuleTreeResult(
+                pom, "demo:app:1", List.of(), true, "",
+                ModuleAnalysisRole.REQUESTED).withClassAnalysis(
+                List.of(), List.of("classifier output missing",
+                        "source unreadable"));
+        final ReactorTreeResult result = new ReactorTreeResult(
+                new ReactorDescriptor(pom, "demo:app:1",
+                        List.of(pom), List.of()),
+                List.of(module), ReactorStatus.DEGRADED,
+                "incomplete classpath");
+
+        emitter.reactorCompleted(1, 1, result);
+
+        assertThat(bytes.toString(StandardCharsets.UTF_8))
+                .contains("[WARN][analysis][classpath-incomplete]"
+                        + "[reactor=pom.xml] Classpath incomplete;"
+                        + " modules=1; issues=2");
+    }
+
     private TreeDiagnosticEmitter emitter(
             final ByteArrayOutputStream bytes,
             final LogVerbosity verbosity) {

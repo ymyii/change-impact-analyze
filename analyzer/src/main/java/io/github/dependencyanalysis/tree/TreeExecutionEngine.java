@@ -3,6 +3,7 @@ package io.github.dependencyanalysis.tree;
 import io.github.dependencyanalysis.cli.DependencyAnalyzerCli;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
+import io.github.dependencyanalysis.diagnostic.LogVerbosity;
 import io.github.dependencyanalysis.preflight.PreflightContext;
 import io.github.dependencyanalysis.preflight.PreflightReport;
 import io.github.dependencyanalysis.runtime.CommandRunDirectory;
@@ -127,10 +128,32 @@ final class TreeExecutionEngine {
                     console.reactorStarted(index, totalReactors,
                             descriptor.getId());
                     final ReactorTreeResult result = analyzeReactor(
-                            context, descriptor, includedScopes);
+                            context, descriptor, includedScopes,
+                            reportCache.root());
                     final String cachePrefix = spiller.spill(
                             result, reportCache);
-                    reportSession.publish(result);
+                    final DiagnosticContext publishContext =
+                            DiagnosticContext.of("report", "publish")
+                                    .with("reactor", descriptor.getId());
+                    final long conflictCount = result.getModules().stream()
+                            .mapToLong(value -> value
+                                    .getClassConflicts().size()).sum();
+                    diagnostics.startStage(publishContext,
+                            "classConflicts=" + conflictCount);
+                    try {
+                        reportSession.publish(result);
+                        diagnostics.debug(publishContext,
+                                "class conflict shards; count="
+                                        + conflictCount);
+                        tracePublishedShards(publishContext, result,
+                                conflictCount);
+                        diagnostics.endStage(publishContext,
+                                "classConflictShards=" + conflictCount);
+                    } catch (Exception exception) {
+                        diagnostics.failStage(publishContext,
+                                "reason=" + failureMessage(exception));
+                        throw exception;
+                    }
                     reportCache.discard(cachePrefix);
                     console.reactorCompleted(index, totalReactors, result);
                 }
@@ -161,7 +184,8 @@ final class TreeExecutionEngine {
     private ReactorTreeResult analyzeReactor(
             final PreflightContext context,
             final ReactorDescriptor descriptor,
-            final Set<String> includedScopes) {
+            final Set<String> includedScopes,
+            final Path evidenceParent) {
         final RepositorySnapshot snapshot = context.get(
                 TreePreflightService.SNAPSHOT,
                 RepositorySnapshot.class);
@@ -186,7 +210,7 @@ final class TreeExecutionEngine {
                     context.get(TreePreflightService
                                     .DEPENDENCY_PLUGIN_RUNTIME,
                             MavenDependencyPluginRuntime.class),
-                    includedScopes);
+                    includedScopes, evidenceParent);
         } catch (Exception exception) {
             return failed(descriptor,
                     "Reactor analysis failed: "
@@ -205,6 +229,27 @@ final class TreeExecutionEngine {
         return exception.getMessage() == null
                 ? exception.getClass().getSimpleName()
                 : exception.getMessage();
+    }
+
+    private void tracePublishedShards(
+            final DiagnosticContext context,
+            final ReactorTreeResult result,
+            final long total) {
+        if (!diagnostics.getVerbosity().includes(LogVerbosity.TRACE)) {
+            return;
+        }
+        int sequence = 0;
+        for (ModuleTreeResult module : result.getModules()) {
+            for (TreeClassConflict conflict : module.getClassConflicts()) {
+                diagnostics.trace(context, "shard published; progress="
+                        + (sequence + 1) + "/" + total + "; module="
+                        + module.getCoordinate() + "; class="
+                        + conflict.binaryName() + "; file="
+                        + String.format(Locale.ROOT,
+                        "class-conflict-%05d.js", sequence));
+                sequence++;
+            }
+        }
     }
 
     private String reportPath() {

@@ -10,8 +10,9 @@ import io.github.dependencyanalysis.bytecode.SsaComparisonEvidence;
 import io.github.dependencyanalysis.bytecode.SsaComparisonStatus;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.engine.CallGraphStats;
-import io.github.dependencyanalysis.callgraph.scope.ClassOwnership;
-import io.github.dependencyanalysis.callgraph.scope.DuplicateClassResolution;
+import io.github.dependencyanalysis.classpath.ClassOwnership;
+import io.github.dependencyanalysis.classpath.ClassConflictResolution;
+import io.github.dependencyanalysis.classpath.ClassConflictRisk;
 import io.github.dependencyanalysis.callgraph.model.MethodId;
 import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
@@ -359,10 +360,7 @@ public final class PerModuleHtmlReportGenerator {
                 .append(row("Maven Dependency Plugin",
                         "embedded " + context.plugin().getVersion()))
                 .append(concurrencyRows(run))
-                .append(row("Complete dependency changes",
-                        run.getDependencyChanges().size()))
-                .append(row("Conflicting duplicate classes",
-                        duplicateConflictCount(run)))
+                .append(conflictSummaryRows(run))
                 .append(row("Shadowed dependency changes",
                         shadowedChangeCount(run)))
                 .append(row("Impact / structural records",
@@ -408,7 +406,8 @@ public final class PerModuleHtmlReportGenerator {
                 .append("<table><tr><th>Module</th><th>Status</th>")
                 .append("<th>Explanation</th><th>Complete dependency ")
                 .append("changes</th>")
-                .append("<th>Duplicate classes</th>")
+                .append("<th>Class conflicts</th>")
+                .append("<th>High-risk conflicts</th>")
                 .append("<th>Shadowed changes</th>")
                 .append("<th>Impact paths</th><th>Affected methods</th>")
                 .append("</tr>");
@@ -432,7 +431,9 @@ public final class PerModuleHtmlReportGenerator {
                     .append("</td><td>")
                     .append(module.getUnit().getDependencyChanges().size())
                     .append("</td><td>")
-                    .append(duplicateResolutions(module).size())
+                    .append(classConflictResolutions(module).size())
+                    .append("</td><td>")
+                    .append(highRiskClassConflictCount(module))
                     .append("</td><td>")
                     .append(shadowedChangeCount(module))
                     .append("</td><td>")
@@ -444,6 +445,14 @@ public final class PerModuleHtmlReportGenerator {
         body.append("</table></section>");
         appendPreflight(body, preflight);
         });
+    }
+
+    private String conflictSummaryRows(final AnalysisRunResult run) {
+        return row("Complete dependency changes",
+                run.getDependencyChanges().size())
+                + row("Class conflicts", classConflictCount(run))
+                + row("High-risk class conflicts",
+                highRiskClassConflictCount(run));
     }
 
     private void appendSemanticComparisonDisclosure(
@@ -519,8 +528,10 @@ public final class PerModuleHtmlReportGenerator {
                         module.getUnit().getDependencyChanges().size()
                                 + " / "
                                 + module.getUnit().getChangePoints().size()))
-                .append(row("Conflicting duplicate classes",
-                        duplicateResolutions(module).size()))
+                .append(row("Class conflicts",
+                        classConflictResolutions(module).size()))
+                .append(row("High-risk class conflicts",
+                        highRiskClassConflictCount(module)))
                 .append(row("Shadowed dependency changes",
                         shadowedChangeCount(module)))
                 .append(row("Target JDK", runtime.jdkVersion()))
@@ -556,7 +567,7 @@ public final class PerModuleHtmlReportGenerator {
                 .append("</code></li>"));
         body.append("</ul></details></section>");
         appendDependencyBodyBoundary(body, module);
-        appendDuplicateResolutions(body, module);
+        appendClassConflictResolutions(body, module);
         body.append("<section id=\"metrics\"><h2>Runtime metrics</h2>")
                 .append("<table>")
                 .append(row("Entry methods", entrypointCount(module)))
@@ -775,15 +786,15 @@ public final class PerModuleHtmlReportGenerator {
         }
     }
 
-    private void appendDuplicateResolutions(
+    private void appendClassConflictResolutions(
             final HtmlSink body,
             final ModuleAnalysisResult module) {
-        final List<DuplicateClassResolution> resolutions =
-                duplicateResolutions(module);
-        body.append("<section id=\"duplicates\"><h2>Duplicate class ")
+        final List<ClassConflictResolution> resolutions =
+                classConflictResolutions(module);
+        body.append("<section id=\"duplicates\"><h2>Class conflict ")
                 .append("resolution</h2>");
         if (resolutions.isEmpty()) {
-            body.append("<p>No conflicting duplicate class was found.</p>")
+            body.append("<p>No class conflict was found.</p>")
                     .append("</section>");
             return;
         }
@@ -791,13 +802,18 @@ public final class PerModuleHtmlReportGenerator {
                 .append("resolved by classpath precedence. The selected ")
                 .append("winner was used for Call Graph construction; this ")
                 .append("warning does not change Module status.</p>")
-                .append("<table><tr><th>Binary name</th><th>Winner</th>")
+                .append("<table><tr><th>Binary name</th><th>Risk</th>")
+                .append("<th>Winner</th>")
                 .append("<th>Shadowed sources</th><th>Selection</th></tr>");
-        for (DuplicateClassResolution resolution : resolutions) {
+        for (ClassConflictResolution resolution : resolutions) {
             body.append("<tr><td><code>")
                     .append(escape(resolution.getBinaryName()
                             .replace('/', '.')))
-                    .append("</code></td><td>")
+                    .append("</code></td><td><span class=\"badge ")
+                    .append(resolution.getRisk() == ClassConflictRisk.HIGH
+                            ? "warn" : "muted")
+                    .append("\">").append(resolution.getRisk())
+                    .append("</span></td><td>")
                     .append(escape(ownershipLabel(
                             resolution.getWinner())))
                     .append("</td><td>")
@@ -812,7 +828,7 @@ public final class PerModuleHtmlReportGenerator {
         body.append("</table><details><summary>Technical details</summary>")
                 .append("<table><tr><th>Binary name</th><th>Role</th>")
                 .append("<th>Origin</th><th>Logical source</th></tr>");
-        for (DuplicateClassResolution resolution : resolutions) {
+        for (ClassConflictResolution resolution : resolutions) {
             for (ClassOwnership candidate : resolution.getCandidates()) {
                 body.append("<tr><td><code>")
                         .append(escape(resolution.getBinaryName()))
@@ -1362,10 +1378,22 @@ public final class PerModuleHtmlReportGenerator {
                 module.getUnit().getChangePoints().size()).sum();
     }
 
-    private long duplicateConflictCount(final AnalysisRunResult run) {
+    private long classConflictCount(final AnalysisRunResult run) {
         return run.getModuleResults().stream()
-                .mapToLong(module -> duplicateResolutions(module).size())
+                .mapToLong(module -> classConflictResolutions(module).size())
                 .sum();
+    }
+
+    private long highRiskClassConflictCount(final AnalysisRunResult run) {
+        return run.getModuleResults().stream()
+                .mapToLong(this::highRiskClassConflictCount).sum();
+    }
+
+    private long highRiskClassConflictCount(
+            final ModuleAnalysisResult module) {
+        return classConflictResolutions(module).stream()
+                .filter(value -> value.getRisk() == ClassConflictRisk.HIGH)
+                .count();
     }
 
     private long shadowedChangeCount(final AnalysisRunResult run) {
@@ -1380,9 +1408,9 @@ public final class PerModuleHtmlReportGenerator {
                 .count();
     }
 
-    private List<DuplicateClassResolution> duplicateResolutions(
+    private List<ClassConflictResolution> classConflictResolutions(
             final ModuleAnalysisResult module) {
-        return module.getDuplicateClassResolutions();
+        return module.getClassConflictResolutions();
     }
 
     private String ownershipLabel(final ClassOwnership ownership) {
@@ -1406,7 +1434,7 @@ public final class PerModuleHtmlReportGenerator {
         module.getStructuralPaths().stream()
                 .flatMap(path -> path.getNodes().stream())
                 .filter(node -> node.origin()
-                        == io.github.dependencyanalysis.callgraph.model
+                        == io.github.dependencyanalysis.classpath
                         .CodeOrigin.PROJECT)
                 .map(QueryNode::methodId).forEach(methods::add);
         module.getStructuralPaths().stream()
@@ -1701,7 +1729,7 @@ public final class PerModuleHtmlReportGenerator {
         return toc("summary", "Summary", "changed-members",
                 "Changed members", "scope", "Analysis scope",
                 "dependency-body-boundary", "Dependency body boundary",
-                "duplicates", "Duplicate class resolution",
+                "duplicates", "Class conflict resolution",
                 "metrics", "Runtime metrics", "limits", "Limitations");
     }
 

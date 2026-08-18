@@ -33,7 +33,7 @@ code_refs:
 
 本 runbook 使用 Maven 自身的 Versions、Enforcer、Install、Assembly、Shade、Surefire 与 Failsafe 能力完成 version iteration 和 release。Repository 不提供自有 version/release script，也不维护 version contract 或 fingerprint ledger。
 
-当前开发线：Analyzer`3.0.0-SNAPSHOT`；Dependency Evidence Plugin保持`3.0.0`，公共JDK engine与JDK 8 model保持`0.1.0-SNAPSHOT`。本次Analyzer major升级来自默认CHA和统一Evidence public behavior；Plugin与JDK model artifact未改版。四者独立使用Semantic Versioning（SemVer）。
+当前开发线：Analyzer`3.0.0-SNAPSHOT`；Dependency Evidence Plugin`3.1.0-SNAPSHOT`；公共JDK engine与JDK 8 model保持`0.1.0-SNAPSHOT`。Plugin 3.1新增向后兼容的Classpath Evidence Schema v1 goal，现有Dependency Evidence Schema v3 contract不变。四者独立使用Semantic Versioning（SemVer）。
 
 ## Prerequisites
 
@@ -76,7 +76,7 @@ mvn clean verify
 
 ## Stable Release
 
-以下示例发布公共engine/JDK 8 model`0.1.0`、Dependency Evidence Plugin`3.0.0`与Analyzer`2.0.0`。
+以下示例发布公共engine/JDK 8 model`0.1.0`、Dependency Evidence Plugin`3.1.0`与Analyzer`3.0.0`。
 
 ### 1. 切换并安装公共engine与JDK 8 model Stable version
 
@@ -92,7 +92,7 @@ mvn -f models/jdk8/pom.xml -Prelease clean install
 ```sh
 mvn -f plugins/pom.xml versions:set-property \
   -Dproperty=revision \
-  -DnewVersion=3.0.0 \
+  -DnewVersion=3.1.0 \
   -DgenerateBackupPoms=false
 
 mvn -f plugins/pom.xml -Prelease clean install
@@ -103,12 +103,12 @@ mvn -f plugins/pom.xml -Prelease clean install
 ```sh
 mvn versions:set-property \
   -Dproperty=revision \
-  -DnewVersion=2.0.0 \
+  -DnewVersion=3.0.0 \
   -DgenerateBackupPoms=false
 
 mvn versions:set-property \
   -Dproperty=artifact-path-plugin.version \
-  -DnewVersion=3.0.0 \
+  -DnewVersion=3.1.0 \
   -DgenerateBackupPoms=false
 
 mvn versions:set-property \
@@ -134,7 +134,7 @@ jar tf target/dependency-analyzer.jar | \
   grep '^maven/plugin-repositories/.*-repository.zip$'
 ```
 
-必须恰好得到 `maven-dependency-plugin-3.6.1-repository.zip` 与 `dependency-analyzer-artifact-path-maven-plugin-3.0.0-repository.zip`。
+必须恰好得到`maven-dependency-plugin-3.6.1-repository.zip`与`dependency-analyzer-artifact-path-maven-plugin-3.1.0-repository.zip`。
 
 同时确认JAR包含`JdkModels.class`、`Jdk8Models.class`与`jdk8-models.tsv`。
 
@@ -147,8 +147,8 @@ git add -A
 git commit -m "build(release): publish dependency analyzer artifacts"
 git tag -a jdk-models-v0.1.0 -m "JDK Models 0.1.0"
 git tag -a jdk8-models-v0.1.0 -m "JDK 8 Models 0.1.0"
-git tag -a dependency-evidence-plugin-v3.0.0 -m "Dependency Evidence Plugin 3.0.0"
-git tag -a analyzer-v2.0.0 -m "Dependency Analyzer 2.0.0"
+git tag -a dependency-evidence-plugin-v3.1.0 -m "Dependency Evidence Plugin 3.1.0"
+git tag -a analyzer-v3.0.0 -m "Dependency Analyzer 3.0.0"
 ```
 
 Tag 是 release record。是否 push commit/tag 或创建远端 release 由后续明确操作决定。
@@ -158,7 +158,7 @@ Tag 是 release record。是否 push commit/tag 或创建远端 release 由后�
 - Plugin `-Prelease` 只使用 Stable SemVer，生成 JAR 与 attached `repository` ZIP，class major `<=52`。
 - 两个model artifact以独立Stable SemVer构建，JDK 8 model只引用Stable公共engine；flattened consumer POM不保留Snapshot或unresolved parent/property。
 - Analyzer`-Prelease`只使用Stable SemVer、Stable Plugin dependency与Stable JDK 8 model dependency，Surefire/Failsafe全部通过且无skip。
-- Analyzer JAR `--version` 输出 `2.0.0`。
+- Analyzer JAR `--version`输出`3.0.0`。
 - Analyzer JAR 只包含两个 repository ZIP，不包含旧 loose Plugin JAR/POM 或项目生成 checksum。
 - Empty local repository在model与Plugin install前不能构建Analyzer；按公共model、JDK 8 model、Plugin顺序install后可以构建。
 - 四个component tag指向同一release commit。

@@ -62,4 +62,29 @@ class SafePomParserTest {
                         "jdk-module", "os-module",
                         "property-module");
     }
+
+    @Test
+    void inheritsCiFriendlyVersionFromLocalParent() throws Exception {
+        Files.createDirectories(repository.resolve("module"));
+        Files.writeString(repository.resolve("pom.xml"), """
+                <project><modelVersion>4.0.0</modelVersion>
+                  <groupId>test</groupId><artifactId>root</artifactId>
+                  <version>${revision}</version>
+                  <properties><revision>3.1.0-SNAPSHOT</revision></properties>
+                </project>
+                """);
+        Files.writeString(repository.resolve("module/pom.xml"), """
+                <project><modelVersion>4.0.0</modelVersion>
+                  <parent><groupId>test</groupId><artifactId>root</artifactId>
+                    <version>${revision}</version></parent>
+                  <artifactId>module</artifactId>
+                </project>
+                """);
+
+        final PomDescriptor descriptor = new SafePomParser(List.of())
+                .parse(repository, Path.of("module/pom.xml"));
+
+        assertThat(descriptor.getCoordinate())
+                .isEqualTo("test:module:3.1.0-SNAPSHOT");
+    }
 }

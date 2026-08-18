@@ -6,7 +6,7 @@ import com.fasterxml.jackson.core.io.CharacterEscapes;
 import com.fasterxml.jackson.core.io.SerializedString;
 
 /** Shared JSON factory safe for HTML scripts and JavaScript shards. */
-final class ScriptSafeJson {
+public final class ScriptSafeJson {
 
     /** Unicode line separator. */
     private static final int LINE_SEPARATOR = 0x2028;
@@ -22,7 +22,7 @@ final class ScriptSafeJson {
     }
 
     /** @return shared script-safe factory */
-    static JsonFactory factory() {
+    public static JsonFactory factory() {
         return FACTORY;
     }
 

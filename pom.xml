@@ -22,7 +22,7 @@
         <project.build.outputTimestamp>2026-08-04T14:50:44Z</project.build.outputTimestamp>
         <test.jdk8.home>/absolute/path/to/jdk8</test.jdk8.home>
 
-        <artifact-path-plugin.version>3.0.0</artifact-path-plugin.version>
+        <artifact-path-plugin.version>3.1.0-SNAPSHOT</artifact-path-plugin.version>
         <jdk8-models.version>0.1.0-SNAPSHOT</jdk8-models.version>
         <jackson.version>2.21.2</jackson.version>
         <picocli.version>4.7.6</picocli.version>

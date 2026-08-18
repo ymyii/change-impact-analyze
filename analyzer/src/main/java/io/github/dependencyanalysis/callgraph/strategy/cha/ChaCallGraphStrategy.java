@@ -3,7 +3,7 @@ package io.github.dependencyanalysis.callgraph.strategy.cha;
 import io.github.dependencyanalysis.callgraph.boundary.DependencyBodyBoundaryMetadata;
 import io.github.dependencyanalysis.callgraph.local.LocalConstantResolution;
 import io.github.dependencyanalysis.callgraph.local.LocalConstantResolver;
-import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.classpath.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.protocol.ModelKind;
 import io.github.dependencyanalysis.callgraph.protocol.ModelLimitation;
 import io.github.dependencyanalysis.callgraph.protocol.invokedynamic.DynamicCallEvidence;
@@ -14,7 +14,7 @@ import io.github.dependencyanalysis.callgraph.protocol.methodhandle.LocalMethodH
 import io.github.dependencyanalysis.callgraph.protocol.methodhandle.LocalMethodHandleResolution;
 import io.github.dependencyanalysis.callgraph.protocol.serviceloader.ServiceLoaderProtocol;
 import io.github.dependencyanalysis.callgraph.protocol.serviceloader.ServiceLoaderProviderDefinition;
-import io.github.dependencyanalysis.callgraph.scope.ClassOwnership;
+import io.github.dependencyanalysis.classpath.ClassOwnership;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithmStrategy;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphBuildContext;

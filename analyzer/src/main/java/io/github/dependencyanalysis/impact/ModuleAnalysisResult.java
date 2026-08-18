@@ -3,7 +3,7 @@ package io.github.dependencyanalysis.impact;
 import io.github.dependencyanalysis.impact.pruning.ImpactPathPruningSummary;
 
 import io.github.dependencyanalysis.callgraph.engine.CallGraphStats;
-import io.github.dependencyanalysis.callgraph.scope.DuplicateClassResolution;
+import io.github.dependencyanalysis.classpath.ClassConflictResolution;
 import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphSession;
 
 import java.util.ArrayList;
@@ -56,8 +56,8 @@ public final class ModuleAnalysisResult {
     private final Map<BoundChangePoint,
             CodeComparisonEvidence> codeComparisons;
 
-    /** Deterministic duplicate class resolution evidence. */
-    private final List<DuplicateClassResolution> duplicateClassResolutions;
+    /** Deterministic class conflict resolution evidence. */
+    private final List<ClassConflictResolution> classConflictResolutions;
 
     /** Coverage limitations. */
     private final List<String> limitations;
@@ -87,8 +87,8 @@ public final class ModuleAnalysisResult {
         impactPathPruning = Objects.requireNonNull(
                 builder.impactPathPruning, "impactPathPruning");
         codeComparisons = immutableMap(builder.codeComparisons);
-        duplicateClassResolutions = immutable(
-                builder.duplicateClassResolutions);
+        classConflictResolutions = immutable(
+                builder.classConflictResolutions);
         limitations = immutable(builder.limitations);
         elapsedMillis = builder.elapsedMillis;
         stageElapsedMillis = Collections.unmodifiableMap(
@@ -175,9 +175,9 @@ public final class ModuleAnalysisResult {
         return codeComparisons;
     }
 
-    /** @return deterministic conflicting duplicate class resolutions */
-    public List<DuplicateClassResolution> getDuplicateClassResolutions() {
-        return duplicateClassResolutions;
+    /** @return deterministic class conflict resolutions */
+    public List<ClassConflictResolution> getClassConflictResolutions() {
+        return classConflictResolutions;
     }
 
     /** @return coverage limitations */
@@ -213,7 +213,7 @@ public final class ModuleAnalysisResult {
                 .observations(observations)
                 .impactPathPruning(impactPathPruning)
                 .codeComparisons(codeComparisons)
-                .duplicateClassResolutions(duplicateClassResolutions)
+                .classConflictResolutions(classConflictResolutions)
                 .limitations(limitations)
                 .elapsedMillis(elapsedMillis)
                 .stageElapsedMillis(stageElapsedMillis);
@@ -265,8 +265,8 @@ public final class ModuleAnalysisResult {
         private Map<BoundChangePoint, CodeComparisonEvidence>
                 codeComparisons = Map.of();
 
-        /** Duplicate class resolution evidence. */
-        private List<DuplicateClassResolution> duplicateClassResolutions =
+        /** Class conflict resolution evidence. */
+        private List<ClassConflictResolution> classConflictResolutions =
                 List.of();
 
         /** Limitations. */
@@ -396,12 +396,12 @@ public final class ModuleAnalysisResult {
         }
 
         /**
-         * @param values deterministic duplicate class resolutions
+         * @param values deterministic class conflict resolutions
          * @return this builder
          */
-        public Builder duplicateClassResolutions(
-                final List<DuplicateClassResolution> values) {
-            duplicateClassResolutions = List.copyOf(values);
+        public Builder classConflictResolutions(
+                final List<ClassConflictResolution> values) {
+            classConflictResolutions = List.copyOf(values);
             return this;
         }
 

@@ -1,7 +1,7 @@
 package io.github.dependencyanalysis.callgraph.strategy.cha;
 
 import io.github.dependencyanalysis.callgraph.boundary.DependencyBodyBoundary;
-import io.github.dependencyanalysis.callgraph.scope.ClassOwnershipIndex;
+import io.github.dependencyanalysis.classpath.ClassOwnershipIndex;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphStrategyRequest;
 
 import java.util.Objects;

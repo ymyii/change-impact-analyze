@@ -214,7 +214,9 @@ build/dependency-tree/
 ├─ index.html
 └─ dependency-report/
    ├─ reactors/
-   │  └─ <reactor-base>.html
+   │  ├─ <reactor-base>.html
+   │  └─ <reactor-base>-class-conflict-data/
+   │     └─ class-conflict-00000.js
    └─ assets/
       ├─ report.css
       └─ report.js
@@ -227,7 +229,9 @@ build/dependency-tree/
 1. Repository Index：确认 metadata、Preflight、Reactor/Module/Dependency 总数和整体状态。
 2. Reactors 表：定位 `DEGRADED` 或 `FAILED` Reactor。
 3. Reactor page：查看问题表、Cross-module conflicts 和 Module tabs。
-4. Module tab：查看 Internal conflicts 与 Maven-style verbose dependency tree。
+4. Module tab：先查看冲突类，再查看Internal conflicts与Maven-style verbose dependency tree。
+
+`tree`会先在选中Reactor范围执行Maven `compile`。源码shard不会随页面初始加载；只有点击“查看反编译代码”才从相邻data directory读取。
 
 ## 5. impact 操作指南
 
@@ -405,7 +409,7 @@ java -jar /path/to/dependency-analyzer.jar \
   --output build/payment-runtime-dependencies
 ```
 
-默认 scope 为 `compile,runtime,provided,test,system`。
+默认scope为`compile,runtime,provided,test,system`。`--scopes`同时控制dependency tree、版本冲突与external/Reactor dependency冲突类扫描；当前Module的主类始终纳入。
 
 ### 6.4 高级覆盖 Maven Dependency Plugin version
 
@@ -485,7 +489,7 @@ dependency-analyzer tree \
 | `-p` | `--path <dir>` | No | current directory | No | Git repository 与报告分析范围。 |
 | `-r` | `--ref <local-ref>` | No | current checkout | No | 单个 tree snapshot 的 local Git ref。 |
 | `-o` | `--output <dir>` | Yes | — | No | Offline HTML report directory。 |
-| `-s` | `--scopes <csv>` | No | `compile,runtime,provided,test,system` | No | 纳入 dependency tree、统计和报告的 scope。 |
+| `-s` | `--scopes <csv>` | No | `compile,runtime,provided,test,system` | No | 纳入dependency tree、版本冲突和external/Reactor dependency冲突类扫描的scope。 |
 | `-d` | `--dependency-plugin-version <version>` | No | 内嵌 `3.6.1` | No | Maven Dependency Plugin 高级 override。 |
 
 Global `--java-home` 对 `tree` 仅设置 Maven subprocess 的
@@ -609,7 +613,7 @@ NONE
 - Preflight 检查与实际 Maven/JDK runtime。
 - dependency change、Impact、Structural 和 affected method 汇总。
 - effective Call Graph Algorithm、JDK Method Model、dependency scope。
-- Coverage limitation、duplicate class resolution、SSA evidence 和 Decompiled Java evidence。
+- Coverage limitation、Class conflict resolution、SSA evidence和Decompiled Java evidence。
 
 #### Module Index
 
@@ -673,7 +677,7 @@ Module status：
 Repository Index 展示：
 
 - repository/ref/commit/dirty、analysis path、Maven runtime、scope 和 Maven arguments。
-- Reactor、Module、Dependency、Internal conflict、Cross-module conflict 汇总。
+- Reactor、Module、Dependency、Internal conflict、Cross-module conflict、Class conflicts和High-risk class conflicts汇总。
 - Command Preflight。
 - Reactor status 和已发布 page 链接。
 
@@ -682,10 +686,13 @@ Reactor page 展示：
 - Reactor 与 Module metadata。
 - Reactor/Module issue。
 - Reactor-level Cross-module conflicts。
+- 每个Module的冲突类表：Class、Risk、Winner、Shadowed sources、Selection、Decompiled code。
 - 每个 Module 的 Internal conflicts。
 - Maven-style verbose dependency tree。
 
-报告完全离线，可直接通过 `file://` 打开。
+冲突类表支持大小写不敏感检索、`LOW`/`HIGH` Risk filter、Class/Risk/Winner排序和10/50/100分页。默认`HIGH`优先，再按binary name。点击“查看反编译代码”后默认展示winner，可切换shadowed source；同一时间最多展开一行。检索、filter、sort、分页或Module tab变化会关闭并释放当前源码。Shard缺失或损坏时显示文件名与Retry；反编译本身失败时显示`Unavailable`，finding仍保留。
+
+报告完全离线，可直接通过`file://`打开；源码只通过文本节点渲染，不作为HTML执行。
 
 ### 8.4 tree status 与增量发布
 
@@ -799,16 +806,20 @@ Experimental `k-obj` 提供不同的 receiver context，但更高的 `k` 可能�
 
 双Stage比较只用于ChangePoint collection，不构建baseline Call Graph，也不证明整条业务路径或完整runtime behavior等价。反编译源码仅保存在当前command的`report-cache`，发布成功或失败后删除，不跨command复用；cache以`ssaExecuted=false/NOT_EXECUTED/JAVA_TEXT_IDENTICAL_SHORT_CIRCUIT`区分短路和SSA `UNKNOWN`。HTML与显式diagnostics只保存不含源码的状态、原因、hash、class version、耗时、executed/skipped和suppression reason。
 
-### 9.6 Duplicate class
+### 9.6 冲突类
 
-同一 binary name 存在内容不同的多个定义时，Analyzer 按固定 classpath precedence 选择 winner 并输出 warning。该 warning 本身：
+同一binary name在一个Module实际classpath中存在两个及以上定义时即为冲突类。全部candidate class bytes的SHA-256一致为`LOW`；存在两个不同摘要为`HIGH`。两种风险都展示，不因摘要一致而过滤。
+
+Winner precedence固定为`PROJECT > REACTOR_DEPENDENCY > DEPENDENCY`，同一层按Maven classpath顺序。`tree`不扫描JDK；`impact`的JDK 8 scope保留更高的JDK parent precedence。该finding本身：
 
 - 不阻断 Module。
 - 不自动形成 Coverage limitation。
 - 不改变 exit code。
-- shadowed changed definition 不生成 Affected Path。
+- shadowed changed definition不生成Affected Path；即使内容一致仍按`SHADOWED_BY_DUPLICATE`处理。
 
-应结合 Module 的 Duplicate class resolution、status 和独立 Coverage limitation 判断结果。
+`tree`扫描当前Module output、选中Reactor dependency output和`--scopes`纳入的external dependency。Multi-Release JAR按Maven JVM major只读取实际可见entry；`module-info.class`排除。`impact`的Class conflict resolution增加Risk列并采用同一分类。
+
+`tree`只执行`compile`，不会执行`test-compile`或`package`，因此不会生成`test-classes`或attached classifier artifact。只能由这些phase生成的Reactor classifier不会读取旧产物：Reactor标记为`DEGRADED`并在问题表记录classpath incomplete。反编译失败只显示`Unavailable`，不改变status或exit code。
 
 ### 9.7 tree 的版本冲突口径
 
@@ -892,11 +903,11 @@ Command-generated workspace、temporary evidence 和 settings overlay 位于 con
   `--jdk-model none`；也可改用默认 CHA。
 - 影响：失败 Module 不自动降级，其他 Module 继续。
 
-### 10.7 Duplicate class warning
+### 10.7 Class conflict warning
 
 - 现象：Console 显示
-  `Resolved conflicting duplicate classes by classpath precedence`。
-- 检查：Module Index 的 Duplicate class resolution，确认 winner、shadowed source 和 precedence reason。
+  `Resolved class conflicts by classpath precedence`。
+- 检查：Module Index的Class conflict resolution，确认Risk、winner、shadowed source和precedence reason。
 - 处理：修复 target project 的重复 classpath；同时检查独立 Module status 和 Coverage limitation。
 - 影响：warning 本身不阻断、不改变 status 或 exit code；shadowed definition 不生成 Affected Path。
 
@@ -915,7 +926,14 @@ Command-generated workspace、temporary evidence 和 settings overlay 位于 con
 - 处理：修复 malformed POM、缺失 active Module POM、repository 外 module path、Plugin goal resolution 或 Maven Module failure。
 - 影响：其他 Reactor 继续；最终 exit code 为 `2`，已发布 page 保留。
 
-### 10.10 Config dir runtime 损坏
+### 10.10 Reactor 为 DEGRADED 且 classpath incomplete
+
+- 现象：问题表包含`INCOMPLETE_CLASSPATH`，冲突类结果可能不完整。
+- 检查：Console中的classpath evidence warning，以及依赖是否为Reactor classifier、custom output directory是否由`compile`生成。
+- 处理：调整project使主class output在`compile`后可用；若依赖必须通过`test-compile`或`package`生成classifier，将其作为可解析的external artifact提供后重试。
+- 影响：现有dependency tree与已扫描finding保留，最终exit code为`2`；工具不会读取旧classifier产物。
+
+### 10.11 Config dir runtime 损坏
 
 - 现象：内嵌 Maven 或 Plugin runtime 检查失败。
 - 检查：Console 中 completion marker、component 和 version evidence。

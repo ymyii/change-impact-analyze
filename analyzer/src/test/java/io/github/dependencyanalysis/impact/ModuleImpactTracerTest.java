@@ -8,8 +8,8 @@ import io.github.dependencyanalysis.bytecode.ChangePoint;
 import io.github.dependencyanalysis.bytecode.ChangePointKind;
 import io.github.dependencyanalysis.bytecode.JvmAccess;
 import io.github.dependencyanalysis.callgraph.strategy.CallGraphAlgorithm;
-import io.github.dependencyanalysis.callgraph.scope.ClassOwnershipIndex;
-import io.github.dependencyanalysis.callgraph.model.CodeOrigin;
+import io.github.dependencyanalysis.classpath.ClassOwnershipIndex;
+import io.github.dependencyanalysis.classpath.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.model.MethodId;
 import io.github.dependencyanalysis.callgraph.entrypoint.EntrypointSelection;
 import io.github.dependencyanalysis.callgraph.engine.ModuleCallGraphEngine;
@@ -63,10 +63,10 @@ class ModuleImpactTracerTest {
     private static final int RECEIVER_EXAMPLE_LIMIT = 10;
 
     @Test
-    void classifiesOnlyLoserChangePointAsShadowed() throws Exception {
+    void classifiesIdenticalLoserChangePointAsShadowed() throws Exception {
         final Path winner = temporary.resolve("project");
         write(winner, new byte[]{0});
-        final Path loser = jar(new byte[]{1});
+        final Path loser = jar(new byte[]{0});
         final ArtifactCoord loserArtifact = new ArtifactCoord(
                 "example", "dependency", "jar", "2");
         final ClassOwnershipIndex ownership = new ClassOwnershipIndex();
@@ -75,10 +75,13 @@ class ModuleImpactTracerTest {
             ownership.addJar(loserArtifact, handle, CodeOrigin.DEPENDENCY);
         }
 
-        assertThat(ModuleImpactTracer.duplicateDisposition(
+        assertThat(ModuleImpactTracer.classConflictDisposition(
                 bound(loserArtifact), ownership))
                 .isEqualTo(ChangePointDisposition.SHADOWED_BY_DUPLICATE);
-        assertThat(ModuleImpactTracer.duplicateDisposition(
+        assertThat(ownership.classConflictResolutions()).singleElement()
+                .satisfies(value -> assertThat(value.getRisk().name())
+                        .isEqualTo("LOW"));
+        assertThat(ModuleImpactTracer.classConflictDisposition(
                 bound(new ArtifactCoord(
                         "example", "other", "jar", "2")), ownership))
                 .isNull();

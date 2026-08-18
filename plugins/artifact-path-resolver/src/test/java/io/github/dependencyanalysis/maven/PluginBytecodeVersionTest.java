@@ -18,8 +18,16 @@ class PluginBytecodeVersionTest {
 
     @Test
     void pluginClassesTargetJavaEight() throws Exception {
-        final String resource = "/"
-                + CollectDependencyEvidenceMojo.class.getName()
+        for (Class<?> pluginClass : new Class<?>[]{
+                CollectDependencyEvidenceMojo.class,
+                CollectClasspathEvidenceMojo.class}) {
+            assertJavaEight(pluginClass);
+        }
+    }
+
+    private void assertJavaEight(final Class<?> pluginClass)
+            throws Exception {
+        final String resource = "/" + pluginClass.getName()
                 .replace('.', '/') + ".class";
         try (InputStream input = getClass().getResourceAsStream(resource);
              DataInputStream data = new DataInputStream(input)) {

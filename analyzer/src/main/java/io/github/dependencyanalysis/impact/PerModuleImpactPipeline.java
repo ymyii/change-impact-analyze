@@ -1395,8 +1395,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                                             + "declared model")
                             .session(session)
                             .changePointEvidence(input.evidence())
-                            .duplicateClassResolutions(
-                                    session.getDuplicateClassResolutions())
+                            .classConflictResolutions(
+                                    session.getClassConflictResolutions())
                             .impactPaths(query.getPaths())
                             .structuralPaths(query.getStructuralPaths())
                             .dispositions(query.getDispositions())

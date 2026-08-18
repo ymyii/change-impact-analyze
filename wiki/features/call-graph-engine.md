@@ -129,7 +129,7 @@ Strategy 完成 fixed point 后返回 `CallGraphStrategyResult`。Engine 冻结 
 
 - Entrypoint 只来自当前 Module `target/classes` immutable index；interface、annotation、private nested class和 private/abstract method不作为 root。
 - 每个 JVM parameter slot使用一个 declared-type candidate；interface/abstract reference使用共享 synthetic placeholder。
-- ownership precedence 为 `JDK > PROJECT > REACTOR_DEPENDENCY > DEPENDENCY`，duplicate class只保留稳定 winner。
+- ownership precedence为`JDK > PROJECT > REACTOR_DEPENDENCY > DEPENDENCY`；同名class全部保留`ClassConflictResolution`证据并按摘要标记`LOW`/`HIGH`，Call Graph只暴露稳定winner。
 - 每个 Module 独立拥有 scope、hierarchy、cache 和 graph，不共享可变 WALA state。
 - topology capture只在显式diagnostics时执行；Schema 13保存node identity、Context、rank、path、source/IR snapshot、scope、boundary metadata、固定SSA/decompiled Java状态、`jdkDeclaredDispatchPrunedTargetCount`与最多10条stable example、caller-local Impact Path edge裁剪证据及独立ChangePoint collection证据；decompiled source不进入diagnostics。
 - `StronglyConnectedComponents`是全项目canonical SCC实现：使用调用方提供的incoming/outgoing adjacency与stable comparator，采用iterative traversal并返回稳定排序组件。`CallGraphTopologyAnalyzer`的cycle识别与Impact root selection必须复用该utility，禁止维护平行SCC算法。

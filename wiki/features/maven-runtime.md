@@ -47,7 +47,7 @@ code_refs:
 
 ## Summary
 
-Maven Runtime 为 `impact` 和 `tree` 提供 `3.6.3 <= Maven version < 4.0.0` executable。未指定 `--maven` 时从 Analyzer JAR 离线准备 Apache Maven 3.6.3。工具控制的两个 Plugin 分别来自独立 Maven repository ZIP：Maven Dependency Plugin `3.6.1` 服务 `tree`，Dependency Evidence Plugin `3.0.0` 服务 `impact`。
+Maven Runtime为`impact`和`tree`提供`3.6.3 <= Maven version < 4.0.0` executable。未指定`--maven`时从Analyzer JAR离线准备Apache Maven 3.6.3。工具控制的两个Plugin分别来自独立Maven repository ZIP：Maven Dependency Plugin`3.6.1`服务`tree`的verbose dependency tree；Dependency Evidence Plugin`3.1.0-SNAPSHOT`服务`impact` Schema v3和`tree` Classpath Evidence Schema v1。
 
 ## Design Decisions
 
