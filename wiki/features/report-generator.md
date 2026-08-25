@@ -8,6 +8,8 @@ relations:
     desc: "Root Impact Path、Structural Reference Path 与 affected methods"
   - path: "wiki/features/cli-preflight-diagnostics.md"
     desc: "Console-only Diagnostic 与显式 topology JSON 边界"
+  - path: "wiki/features/repository-dependency-tree-report.md"
+    desc: "Tree Reactor Schema v1、全量依赖与Module按需渲染"
   - path: "wiki/runbooks/build-test-package.md"
     desc: "离线HTML的Maven静态门禁与Playwright浏览器门禁"
 code_refs:
@@ -17,6 +19,14 @@ code_refs:
     desc: "Impact/Structural path分片加载、全局搜索、分页与Java diff展开"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/report/AffectedPathReportDataWriter.java"
     desc: "Schema 5 relation/range projection、4 MiB分片与manifest生成"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/report/offline/OfflineShardWriter.java"
+    desc: "Impact与Tree共享的4 MiB callback shard writer和descriptor"
+  - path: "analyzer/src/main/resources/io/github/dependencyanalysis/report/report-common.js"
+    desc: "可配置callback loader、range规范化与求交"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeReportDataWriter.java"
+    desc: "Tree Reactor Schema v1、catalog/range与payload shard投影"
+  - path: "analyzer/src/main/resources/io/github/dependencyanalysis/tree/tree-report.js"
+    desc: "Tree全量依赖和唯一活动Module的动态浏览器入口"
   - path: "analyzer/src/main/resources/io/github/dependencyanalysis/report/changed-members.js"
     desc: "全部changed member指标排序、筛选与分页"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
@@ -45,13 +55,15 @@ code_refs:
 
 ## Summary
 
-`impact`生成英文offline HTML：一个Overall Index，以及每个非`SKIPPED` Module的Module Index和Affected Paths。Report只消费detached immutable result，不读取live WALA对象、exact Context、graph node ID或terminal evidence。
+`impact`生成英文offline HTML：一个Overall Index，以及每个非`SKIPPED` Module的Module Index和Affected Paths。`tree`生成Repository Index与按Reactor拆分的中文离线页面。两种Report只消费detached immutable result，并共享file-local callback shard writer、descriptor和可配置loader。
 
-Affected Paths只展示Impact与Structural记录。一行是唯一`(impactPath, changedMember)`关系；path、member、method、dependency upgrade与code diff按确定性整数ID规范化，避免`rows × payload`重复。主HTML只保存Schema 5 manifest与source catalog，浏览器按需加载本地JavaScript分片并只连接、保留和渲染当前页数据。
+Affected Paths只展示Impact与Structural记录。一行是唯一`(impactPath, changedMember)`关系；path、member、method、dependency upgrade与code diff按确定性整数ID规范化，避免`rows × payload`重复。Impact主HTML继续使用Schema 5 manifest、原文件名和`window.__CIA_AFFECTED_PATH_SHARD__`。Tree Reactor主HTML使用独立Schema v1 manifest与`window.__CIA_TREE_REPORT_SHARD__`。两者均按需加载本地JavaScript分片并只保留、渲染当前页重数据。
 
 ## Design Decisions
 
 - Report交付边界是可直接通过`file://`打开的完整离线目录；真实浏览器验收不得用HTTP server改变origin、加载或路径语义。
+- `OfflineShardWriter`统一script-safe JSON callback、descriptor、UTF-8字节上限、单record超限和确定性文件名。调用方配置Schema、callback、record cap与逻辑边界；Impact Schema 5的文件名和callback行为保持不变。
+- `report-common.js`的loader以callback name参数隔离Impact与Tree；每个payload验证Schema、kind、shard ID、record数量与连续ID，失败后允许Retry。
 - Maven静态/Schema门禁与Playwright浏览器门禁独立必跑。`mvn clean verify`发布确定性Report夹具，Playwright只消费该夹具，不在Node.js流程中重复执行分析。
 - 浏览器门禁固定使用Chromium桌面与小屏幕viewports，以语义、可访问性、计算样式和几何断言作为稳定合同；不维护像素截图baseline。
 
@@ -110,6 +122,8 @@ Affected Paths只展示Impact与Structural记录。一行是唯一`(impactPath, 
 
 ## 规范化分片数据
 
+Impact与Tree共用分片传输机制但不共用业务Schema。共享层不理解path、dependency、Module或class source，只负责callback文件、record边界、descriptor与安全序列化。
+
 Affected Paths使用以下关系型Schema，所有entity按stable key排序后分配整数ID：
 
 - `index(pathId, type, searchText, affectedMethods, rowStart, rowCount)`：完整path搜索文本、结构化affected method值与row range定位。
@@ -121,6 +135,8 @@ Affected Paths使用以下关系型Schema，所有entity按stable key排序后�
 - `diffs(id, unifiedDiff)`：只保存可展开的Java unified diff，每个可用changed member最多一次。
 
 Schema 5 manifest内嵌于`*-impact.html`，保存Impact/Structural/All row range、按字典序排列的changed-member source catalog和分片descriptor。`source-index(id, rowStart, rowCount)`把每个source映射到连续row ranges；member自身保存其relation row ranges。相邻`<module-base>-impact-data/`按index、source-index、rows、paths、methods、members、dependencies、diffs分类。每个普通分片的UTF-8目标上限为4 MiB，单记录超过上限时独占分片。分片通过预注册callback与本地`script src`加载，兼容直接`file://`打开，不依赖`fetch`、backend或network。Module Index独立内嵌带显式`source`、完整签名与diff ID的`dependencyUpgrades`、`changedMembers`及`memberMetrics(memberId, impact, structural)`；diff payload仍只位于共享diff shard。SSA与decompiled Java compact evidence位于HTML technical table及显式diagnostics JSON，不进入浏览器path relation数据。
+
+Tree Reactor Schema v1在相邻`<reactor-base>-data/`保存dependency ranges/index/rows、internal conflicts、class conflicts、class sources与dependency trees。其业务合同、页面交互和性能边界由[Repository Dependency Tree Report](repository-dependency-tree-report.md)定义。共享writer重构不改变Impact Schema 5的字段、文件前缀、callback或浏览器行为。
 
 `PerModuleHtmlReportGenerator`显式接收`DiagnosticLog`。每个Module在DEBUG输出row/path、各kind shard数量、总shard数量、总字节、最大shard和oversized数量；TRACE为每个shard输出kind、`current/total` progress、record数量和UTF-8字节数。Report `publish` Stage继续负责整体started/completed/failed。
 
@@ -157,7 +173,7 @@ Affected Paths分片禁止保存exact WALA Context、graph node ID、terminal me
 - Java Renderer通过UTF-8 `Writer`写入同filesystem staging，再原子替换command-owned output。
 - 页面不使用CDN、网络请求、外部asset或浏览器持久化存储。
 - `HtmlReportUsabilityVerifier`递归验证页面导航、本地资源、table ID、JSON Schema、`noscript`、sticky header、wrapper、badge与focus CSS。
-- `ReportBrowserFixtureIT`在`mvn clean verify`中把确定性真实Report发布到`target/playwright-report-fixture/`；该build artifact不进入Analyzer JAR或Git。
+- `ReportBrowserFixtureIT`与`TreeReportBrowserFixtureIT`在`mvn clean verify`中把确定性真实Report发布到`target/playwright-report-fixture/`；该build artifact不进入Analyzer JAR或Git。
 - Playwright通过`file://`运行Chromium `1280×800`与`390×844`两个project，验证DOM事件、懒加载、Retry、键盘/ARIA和响应式几何；失败截图、Trace与HTML report只写入`target/playwright/`。
 - Dense fixture应验证HTML按unique entities和ID relations增长，2,500+ members首次只渲染20行。
 
@@ -174,6 +190,7 @@ Affected Paths分片禁止保存exact WALA Context、graph node ID、terminal me
 - Given超大Affected Paths；When发布Report；Then主HTML只含Schema 5 manifest与source catalog，各普通分片不超过4 MiB，单记录oversize可审计，空查询不预加载member/dependency/path/diff，分页与diff展开只加载当前所需重数据。
 - Given非空全局查询；When扫描多个index/member/dependency shard；Then页面显示进度、取消旧查询，并对四个指定列返回大小写不敏感的OR结果。Given本地shard失败；Then展示可重试错误且不伪造空结果。
 - Given一行含多个Affected application methods；When选择其中任一完整签名；Then该行进入结果。Given输入非候选精确值；Then保留最近一次成功DOM并显示错误。
+- Given共享writer用于Impact；When生成Affected Paths；ThenSchema仍为5，文件名与`window.__CIA_AFFECTED_PATH_SHARD__`不变。Given用于Tree；Then使用独立Schema v1 callback且不能相互接收payload。
 
 ### Non-Functional
 

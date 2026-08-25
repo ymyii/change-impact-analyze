@@ -11,7 +11,9 @@ import io.github.dependencyanalysis.runtime.ReportCache;
 import io.github.dependencyanalysis.report.ScriptSafeJson;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -31,7 +33,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-// Wiki: wiki/features/repository-dependency-tree-report.md - HTML renderer
+// Wiki: wiki/features/repository-dependency-tree-report.md - Core Flow
 /** Renders safe, offline repository dependency reports. */
 public final class TreeReportRenderer {
 
@@ -49,7 +51,8 @@ public final class TreeReportRenderer {
             h1{margin:0 0 8px}
             h2{margin-top:28px}.muted{color:var(--muted)}
             .card{background:var(--card);border:1px solid var(--line);
-            border-radius:10px;padding:18px;margin:14px 0;overflow-x:auto}
+            border-radius:10px;padding:18px;margin:14px 0;overflow-x:auto;
+            min-width:0;max-width:100%}
             table{border-collapse:collapse;width:100%;background:var(--card)}
             th,td{border:1px solid var(--line);padding:8px;vertical-align:top}
             th{background:#eef1f6;text-align:left}
@@ -83,8 +86,78 @@ public final class TreeReportRenderer {
             border-color:#175cd3;color:#fff;font-weight:700}
             .source-switches button:focus-visible{outline:3px solid #84adff;
             outline-offset:2px}
+            .table-scroll{overflow-x:auto;border:1px solid var(--line);
+            border-radius:8px;min-width:0;max-width:100%}
+            .table-scroll table{margin:0;min-width:980px}
+            .report-control{display:grid;gap:4px;min-width:150px;
+            max-width:100%}
+            .report-control.grow{flex:1 1 240px}.report-control input,
+            .report-control select{width:100%}
+            #dependency-analysis{overflow:visible}
+            .dependency-filter-form{display:grid;gap:12px;margin:12px 0;
+            min-width:0;max-width:100%}
+            .dependency-filter-primary{display:grid;gap:12px;
+            grid-template-columns:minmax(180px,280px)
+            repeat(2,minmax(260px,420px));align-items:start;
+            justify-content:start;min-width:0}
+            .dependency-filter-primary>.report-control{min-width:0}
+            .dependency-filter-secondary{display:flex;gap:8px;
+            align-items:end;flex-wrap:wrap;min-width:0}
+            .dependency-filter-secondary>.report-control{flex:0 1 160px}
+            .dependency-filter-buttons{display:flex;gap:8px;
+            align-items:center;align-self:end}
+            .combobox{position:relative;min-width:0;max-width:100%}
+            .combobox input{width:100%;padding-right:42px}
+            .combobox-toggle{position:absolute;z-index:2;top:1px;right:1px;
+            bottom:1px;width:36px;padding:0;border:0;
+            border-left:1px solid var(--line);border-radius:0 5px 5px 0;
+            background:transparent;display:flex;align-items:center;
+            justify-content:center;color:var(--muted)}
+            .combobox-toggle::before{content:"";width:8px;height:8px;
+            border-right:2px solid currentColor;
+            border-bottom:2px solid currentColor;
+            transform:translateY(-2px) rotate(45deg);
+            transition:transform .15s ease}
+            .combobox-toggle[aria-expanded=true]::before{
+            transform:translateY(2px) rotate(225deg)}
+            .combobox-options{position:absolute;
+            z-index:10;top:calc(100% + 4px);left:0;right:0;max-height:280px;
+            overflow:auto;list-style:none;margin:0;padding:4px;background:#fff;
+            border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px
+            #1018281f}.combobox-options li{display:flex;align-items:center;
+            justify-content:space-between;gap:8px;padding:7px;border-radius:6px;
+            cursor:pointer;overflow-wrap:anywhere}.combobox-options li[aria-selected=true]{
+            background:#eef4ff;color:#175cd3}.version-count{display:inline-flex;
+            align-items:center;justify-content:center;min-width:22px;height:22px;
+            padding:0 5px;border-radius:999px;background:#b42318;color:#fff;
+            font-size:11px;font-weight:700;flex:none}.candidate-status{margin:4px 0 0}
+            .module-analysis-card{overflow:visible}
+            .module-selector-control{width:min(720px,100%);min-width:0}
+            .module-panel{margin-top:14px;min-width:0;max-width:100%}
+            .module-panel>.card{overflow-x:auto}.error{color:var(--fail)}
+            button:focus-visible,input:focus-visible,select:focus-visible,
+            a:focus-visible{outline:3px solid #84adff;outline-offset:2px}
+            @media(max-width:1100px){.dependency-filter-primary{
+            grid-template-columns:repeat(2,minmax(0,1fr));max-width:860px}
+            .dependency-search-control{grid-column:1/-1;max-width:420px}}
+            @media(max-width:700px){main{padding:12px}.card{padding:12px}
+            .dependency-filter-primary{grid-template-columns:minmax(0,1fr)}
+            .dependency-search-control{grid-column:auto;max-width:none}
+            .dependency-filter-secondary{display:grid;
+            grid-template-columns:minmax(0,1fr)}
+            .dependency-filter-secondary>.report-control{min-width:0}
+            .pager{margin-left:0;width:100%}.combobox-options{position:fixed;
+            left:12px;right:12px;top:auto;max-height:42vh}}
             a{color:#175cd3}
             """;
+
+    /** Shared local report behavior used by Impact and Tree. */
+    private static final String REPORT_COMMON_JAVASCRIPT = resource(
+            "/io/github/dependencyanalysis/report/report-common.js");
+
+    /** Tree Reactor dynamic report behavior. */
+    private static final String TREE_JAVASCRIPT = resource(
+            "/io/github/dependencyanalysis/tree/tree-report.js");
 
     /** Local report interaction script. */
     private static final String JAVASCRIPT = """
@@ -306,7 +379,9 @@ public final class TreeReportRenderer {
             Files.writeString(assets.resolve("report.css"),
                     CSS, StandardCharsets.UTF_8);
             Files.writeString(assets.resolve("report.js"),
-                    JAVASCRIPT, StandardCharsets.UTF_8);
+                    TREE_JAVASCRIPT, StandardCharsets.UTF_8);
+            Files.writeString(assets.resolve("report-common.js"),
+                    REPORT_COMMON_JAVASCRIPT, StandardCharsets.UTF_8);
             writeIndex(staging.resolve("index.html"), metadata, List.of(),
                     totalReactors, TreeReportState.RUNNING, "", false);
             replaceOwnedOutputs(
@@ -332,10 +407,11 @@ public final class TreeReportRenderer {
         final Path page = output.resolve(
                 "dependency-report/reactors")
                 .resolve(filename);
-        writeReactor(page, result, groupingCache);
+        final TreeReportDataWriter.TreeReportData data =
+                writeReactor(page, result, groupingCache);
         final ReactorReportSummary summary =
                 ReactorReportSummary.from(filename,
-                        result);
+                        result, data.multiVersionDependencyCount());
         final List<ReactorReportSummary> checkpoint =
                 new ArrayList<>(summaries);
         checkpoint.add(summary);
@@ -381,7 +457,7 @@ public final class TreeReportRenderer {
                 .append("<th>status</th><th>module</th>")
                 .append("<th>dependency</th>")
                 .append("<th>internal conflicts</th>")
-                .append("<th>cross-module conflicts</th>")
+                .append("<th>multi-version dependencies</th>")
                 .append("<th>class conflicts</th>")
                 .append("<th>high-risk class conflicts</th>")
                 .append("<th>reason</th></tr>");
@@ -404,7 +480,7 @@ public final class TreeReportRenderer {
                     .append("</td><td>")
                     .append(summary.getInternalConflictCount())
                     .append("</td><td>")
-                    .append(summary.getCrossModuleConflictCount())
+                    .append(summary.getMultiVersionDependencyCount())
                     .append("</td><td>")
                     .append(summary.getClassConflictCount())
                     .append("</td><td>")
@@ -471,8 +547,8 @@ public final class TreeReportRenderer {
                 ReactorReportSummary::getDependencyCount).sum();
         final long internalConflicts = summaries.stream().mapToLong(
                 ReactorReportSummary::getInternalConflictCount).sum();
-        final long crossModuleConflicts = summaries.stream().mapToLong(
-                ReactorReportSummary::getCrossModuleConflictCount).sum();
+        final long multiVersionDependencies = summaries.stream().mapToLong(
+                ReactorReportSummary::getMultiVersionDependencyCount).sum();
         final long classConflicts = summaries.stream().mapToLong(
                 ReactorReportSummary::getClassConflictCount).sum();
         final long highRiskClassConflicts = summaries.stream().mapToLong(
@@ -482,7 +558,7 @@ public final class TreeReportRenderer {
                 + "<thead><tr><th>Status</th><th>Progress</th>"
                 + "<th>Reactors</th><th>Modules</th>"
                 + "<th>Dependencies</th><th>Internal conflicts</th>"
-                + "<th>Cross-module conflicts</th>"
+                + "<th>Multi-version dependencies</th>"
                 + "<th>Class conflicts</th>"
                 + "<th>High-risk class conflicts</th>"
                 + "<th>Failure reason</th></tr></thead><tbody><tr><td class=\""
@@ -490,7 +566,7 @@ public final class TreeReportRenderer {
                 + "/" + total + "</td><td>" + processed
                 + "</td><td>" + modules + "</td><td>"
                 + dependencies + "</td><td>" + internalConflicts
-                + "</td><td>" + crossModuleConflicts
+                + "</td><td>" + multiVersionDependencies
                 + "</td><td>" + classConflicts
                 + "</td><td>" + highRiskClassConflicts
                 + "</td><td>" + escape(failureReason)
@@ -504,18 +580,27 @@ public final class TreeReportRenderer {
                 + escape(value) + "</code></td></tr>";
     }
 
-    private void writeReactor(
+    private TreeReportDataWriter.TreeReportData writeReactor(
             final Path target,
             final ReactorTreeResult reactor,
             final Path groupingCache) throws IOException {
-        final Map<ModuleTreeResult, List<ConflictRow>> internal =
-                internalConflictRows(reactor, groupingCache);
-        final List<ConflictRow> crossModule =
-                crossModuleConflictRows(reactor, groupingCache);
         final List<IssueRow> issues = issueRows(reactor);
-        final ClassConflictShardManifest classData =
-                writeClassConflictData(target, reactor);
+        final String pageName = target.getFileName().toString();
+        final String base = pageName.endsWith(".html")
+                ? pageName.substring(0,
+                pageName.length() - ".html".length()) : pageName;
+        final String directoryName = base + "-data";
+        final Path dataDirectory = target.resolveSibling(directoryName);
+        final Path staging = Files.createTempDirectory(
+                target.getParent(), ".tree-report-data-");
+        final TreeReportDataWriter.TreeReportData data;
         try {
+            data = new TreeReportDataWriter().write(reactor,
+                    staging, directoryName, groupingCache);
+            if (Files.exists(dataDirectory)) {
+                deleteTree(dataDirectory);
+            }
+            move(staging, dataDirectory);
             writePageAtomically(target, reactor.getReactor().getCoordinate(),
                     "../assets/", body -> {
             body.append("<p><a href=\"../../index.html\">")
@@ -527,27 +612,27 @@ public final class TreeReportRenderer {
                 .append("\">")
                 .append(reactor.getStatus())
                 .append("</span></p>")
-                .append(reactorMetadata(reactor,
-                        internal.values().stream()
-                                .mapToLong(List::size).sum(),
-                        crossModule.size(), issues.size()))
-                .append(moduleMetadata(reactor, internal,
-                        crossModule))
+                .append(reactorMetadata(reactor, data, issues.size()))
+                .append(moduleMetadata(reactor, data))
                 .append(issueTable(issues));
-        appendConflictTable(body, "跨模块依赖冲突",
-                crossModule, true);
-        appendModuleTabs(body, reactor.getModules(), internal, classData);
+        appendDependencyAnalysis(body, data.manifest());
+        appendModuleAnalysis(body, data.manifest());
+        body.append("<script id=\"tree-report-manifest\" ")
+                .append("type=\"application/json\">")
+                .append(data.manifest().toJson())
+                .append("</script>");
             });
         } catch (IOException | RuntimeException exception) {
-            deleteTree(classData.directory());
+            deleteTree(staging);
+            deleteTree(dataDirectory);
             throw exception;
         }
+        return data;
     }
 
     private String reactorMetadata(
             final ReactorTreeResult reactor,
-            final long internalConflictCount,
-            final long crossModuleConflictCount,
+            final TreeReportDataWriter.TreeReportData data,
             final int issueCount) {
         final long dependencyCount = reactor.getModules()
                 .stream().mapToLong(module -> module
@@ -555,6 +640,9 @@ public final class TreeReportRenderer {
         final HtmlSink value = HtmlSink.memory();
         final long classConflicts = classConflictCount(reactor);
         final long highRisk = highRiskClassConflictCount(reactor);
+        final long internalConflictCount = data.manifest().modules().stream()
+                .mapToLong(TreeReportManifest.ModuleDescriptor
+                        ::internalCount).sum();
         value.append("<section class=\"card\">")
                 .append("<h2>Reactor metadata</h2><table>")
                 .append("<thead><tr><th>Coordinate</th>")
@@ -562,7 +650,7 @@ public final class TreeReportRenderer {
                 .append("<th>Status</th><th>Modules</th>")
                 .append("<th>Dependencies</th>")
                 .append("<th>Internal conflicts</th>")
-                .append("<th>Cross-module conflicts</th>")
+                .append("<th>Multi-version dependencies</th>")
                 .append("<th>Class conflicts</th>")
                 .append("<th>High-risk class conflicts</th>")
                 .append("<th>Issues</th></tr></thead><tbody><tr><td><code>")
@@ -579,7 +667,8 @@ public final class TreeReportRenderer {
                 .append(reactor.getModules().size())
                 .append("</td><td>").append(dependencyCount)
                 .append("</td><td>").append(internalConflictCount)
-                .append("</td><td>").append(crossModuleConflictCount)
+                .append("</td><td>")
+                .append(data.multiVersionDependencyCount())
                 .append("</td><td>").append(classConflicts)
                 .append("</td><td>").append(highRisk)
                 .append("</td><td>").append(issueCount)
@@ -589,24 +678,21 @@ public final class TreeReportRenderer {
 
     private String moduleMetadata(
             final ReactorTreeResult reactor,
-            final Map<ModuleTreeResult,
-                    List<ConflictRow>> internal,
-            final List<ConflictRow> crossModule) {
+            final TreeReportDataWriter.TreeReportData data) {
         final HtmlSink value = HtmlSink.memory();
         value.append("<section class=\"card\"><h2>Module metadata</h2>")
                 .append("<table><thead><tr><th>Module</th><th>POM</th>")
                 .append("<th>Status</th><th>Dependencies</th>")
                 .append("<th>Internal conflicts</th>")
-                .append("<th>Cross-module conflicts</th>")
+                .append("<th>Multi-version dependencies</th>")
                 .append("<th>Class conflicts</th>")
                 .append("<th>High-risk class conflicts</th>")
                 .append("<th>Issues</th></tr></thead>")
                 .append("<tbody>");
-        for (ModuleTreeResult module : reactor.getModules()) {
-            final long crossCount = crossModule.stream()
-                    .filter(row -> row.modules()
-                            .contains(module.getCoordinate()))
-                    .count();
+        for (int index = 0; index < reactor.getModules().size(); index++) {
+            final ModuleTreeResult module = reactor.getModules().get(index);
+            final TreeReportManifest.ModuleDescriptor descriptor =
+                    data.manifest().modules().get(index);
             final int issueCount = moduleIssueCount(module);
             final String status = moduleStatus(module);
             value.append("<tr><td><code>")
@@ -618,8 +704,9 @@ public final class TreeReportRenderer {
                     .append(status).append("</td><td>")
                     .append(module.getOccurrences().size())
                     .append("</td><td>")
-                    .append(internal.get(module).size())
-                    .append("</td><td>").append(crossCount)
+                    .append(descriptor.internalCount())
+                    .append("</td><td>")
+                    .append(descriptor.multiVersionDependencies())
                     .append("</td><td>")
                     .append(module.getClassConflicts().size())
                     .append("</td><td>")
@@ -629,6 +716,118 @@ public final class TreeReportRenderer {
         }
         return value.append("</tbody></table></section>")
                 .toString();
+    }
+
+    private void appendDependencyAnalysis(
+            final HtmlSink body,
+            final TreeReportManifest manifest) {
+        body.append("<section class=\"card\" id=\"dependency-analysis\">")
+                .append("<h2>跨模块依赖分析</h2>")
+                .append("<form class=\"dependency-filter-form\" ")
+                .append("id=\"dependency-controls\">")
+                .append("<div class=\"dependency-filter-primary\">")
+                .append("<label class=\"report-control ")
+                .append("dependency-search-control\">")
+                .append("检索 <input id=\"dependency-search\" ")
+                .append("type=\"search\"></label>");
+        appendCombobox(body, "dependency-filter", "Dependency", false,
+                "dependency-combobox-control");
+        appendCombobox(body, "dependency-module-filter", "Module", false,
+                "dependency-combobox-control");
+        body.append("</div><div class=\"dependency-filter-secondary\">");
+        body.append("<label class=\"report-control\">Scope ")
+                .append("<select id=\"dependency-scope-filter\">")
+                .append("<option value=\"\">全部</option>");
+        for (TreeReportManifest.ScopeDescriptor scope : manifest.scopes()) {
+            body.append("<option value=\"")
+                    .append(escape(scope.value())).append("\">")
+                    .append(escape(scope.value())).append("</option>");
+        }
+        body.append("</select></label><label class=\"report-control\">")
+                .append("每页 <select id=\"dependency-page-size\">")
+                .append("<option>10</option><option>50</option>")
+                .append("<option>100</option></select></label>")
+                .append("<div class=\"dependency-filter-buttons\">")
+                .append("<button type=\"submit\">检索</button>")
+                .append("<button type=\"button\" id=\"dependency-clear\">")
+                .append("清空</button></div></div></form>")
+                .append("<p id=\"dependency-result-summary\" class=\"muted\" ")
+                .append("aria-live=\"polite\">Loading…</p>")
+                .append("<div class=\"table-scroll\"><table ")
+                .append("id=\"dependency-table\"><thead><tr>")
+                .append(dynamicHeader("Dependency", "dependency"))
+                .append(dynamicHeader("Scope", "scope"))
+                .append(dynamicHeader("Module", "module"))
+                .append(dynamicHeader("Dependency chain", "chain"))
+                .append(dynamicHeader("Original version", "originalVersion"))
+                .append(dynamicHeader("Resolved version", "resolvedVersion"))
+                .append("</tr></thead><tbody id=\"dependency-rows\">")
+                .append("</tbody></table></div>")
+                .append("<div class=\"controls\"><span class=\"pager\">")
+                .append("<button id=\"dependency-previous\" type=\"button\">")
+                .append("上一页</button> <span id=\"dependency-position\">")
+                .append("</span> <button id=\"dependency-next\" ")
+                .append("type=\"button\">下一页</button></span></div>")
+                .append("<noscript><p class=\"WARN\">依赖浏览需要启用 ")
+                .append("JavaScript，汇总信息仍可用。</p></noscript></section>");
+    }
+
+    private void appendModuleAnalysis(
+            final HtmlSink body,
+            final TreeReportManifest manifest) {
+        body.append("<section class=\"card module-analysis-card\" ")
+                .append("id=\"module-analysis\"><h2>Module 分析</h2>");
+        if (manifest.modules().isEmpty()) {
+            body.append("<p class=\"muted\">该 Reactor 没有 active Module。</p>")
+                    .append("</section>");
+            return;
+        }
+        appendCombobox(body, "module-selector", "Module", true,
+                "module-selector-control");
+        body.append("<div id=\"module-panel\" class=\"module-panel\" ")
+                .append("aria-live=\"polite\">Loading…</div>")
+                .append("<noscript><p class=\"WARN\">Module 分析需要启用 ")
+                .append("JavaScript。</p></noscript></section>");
+    }
+
+    private void appendCombobox(
+            final HtmlSink body,
+            final String id,
+            final String label,
+            final boolean required,
+            final String controlClass) {
+        body.append("<div class=\"report-control ")
+                .append(controlClass).append("\"><label for=\"")
+                .append(id).append("-input\">")
+                .append(escape(label)).append("</label>")
+                .append("<div class=\"combobox\" data-combobox=\"")
+                .append(id).append("\"><input id=\"")
+                .append(id).append("-input\" type=\"text\" role=\"combobox\" ")
+                .append("autocomplete=\"off\" aria-autocomplete=\"list\" ")
+                .append("aria-expanded=\"false\" aria-controls=\"")
+                .append(id).append("-options\"")
+                .append(required ? " aria-required=\"true\"" : "")
+                .append("><button id=\"").append(id)
+                .append("-toggle\" class=\"combobox-toggle\" ")
+                .append("type=\"button\" aria-label=\"展开 ")
+                .append(escape(label)).append(" 候选\" ")
+                .append("aria-expanded=\"false\" aria-controls=\"")
+                .append(id).append("-options\" data-label=\"")
+                .append(escape(label)).append("\"></button><ul id=\"")
+                .append(id)
+                .append("-options\" class=\"combobox-options\" ")
+                .append("role=\"listbox\" hidden></ul></div>")
+                .append("<p id=\"").append(id)
+                .append("-status\" class=\"muted candidate-status\" ")
+                .append("aria-live=\"polite\"></p></div>");
+    }
+
+    private String dynamicHeader(
+            final String label,
+            final String key) {
+        return "<th><button class=\"sortable\" type=\"button\" "
+                + "data-dependency-sort=\"" + key + "\">"
+                + label + "</button></th>";
     }
 
     private ClassConflictShardManifest writeClassConflictData(
@@ -1258,22 +1457,6 @@ public final class TreeReportRenderer {
         return result;
     }
 
-    private List<ConflictRow> crossModuleConflictRows(
-            final ReactorTreeResult reactor,
-            final Path groupingCache) throws IOException {
-        final List<ConflictRow> rows = new ArrayList<>();
-        final List<CrossModuleVersionIssue> issues = groupingCache == null
-                ? new CrossModuleVersionAnalyzer().analyze(reactor)
-                : new CrossModuleVersionAnalyzer().analyze(
-                        reactor, groupingCache);
-        for (CrossModuleVersionIssue issue : issues) {
-            rows.add(crossModuleConflict(issue));
-        }
-        rows.sort(Comparator.comparing(ConflictRow::module)
-                .thenComparing(ConflictRow::dependency));
-        return rows;
-    }
-
     private ConflictRow moduleConflict(
             final ModuleTreeResult module,
             final VersionMediationIssue issue) {
@@ -1303,44 +1486,6 @@ public final class TreeReportRenderer {
                         String.join(", ", scopeValues),
                         issue.getSelectedVersion(),
                         text.toString()));
-    }
-
-    private ConflictRow crossModuleConflict(
-            final CrossModuleVersionIssue issue) {
-        final Set<String> modules = new LinkedHashSet<>();
-        final Set<String> scopes = new LinkedHashSet<>();
-        final Set<String> versions = new LinkedHashSet<>();
-        final HtmlSink html = HtmlSink.memory();
-        final HtmlSink text = HtmlSink.memory();
-        appendEvidenceTableStart(html, true);
-        issue.getVersions().forEach(version -> {
-            modules.add(version.getModule());
-            scopes.add(version.getScope());
-            versions.add(version.getVersion());
-            for (VersionPath path : version.getPaths()) {
-                for (VersionEvidence source
-                        : path.getEvidence()) {
-                    appendEvidenceRow(html, text, source,
-                            version.getModule(), path, true);
-                }
-            }
-        });
-        html.append("</tbody></table>");
-        final List<String> moduleValues = modules.stream()
-                .sorted().toList();
-        final List<String> scopeValues = scopes.stream()
-                .sorted().toList();
-        final String module = String.join(", ", moduleValues);
-        final String scope = String.join(", ", scopeValues);
-        final String version = versions.stream().sorted()
-                .collect(java.util.stream.Collectors
-                        .joining(", "));
-        return new ConflictRow("CROSS_MODULE_RESOLUTION",
-                module, moduleValues, issue.getKey().toString(),
-                scope, scopeValues, version, html.toString(),
-                conflictSearch("CROSS_MODULE_RESOLUTION",
-                        module, issue.getKey().toString(), scope,
-                        version, text.toString()));
     }
 
     private void appendEvidenceTableStart(
@@ -1668,6 +1813,8 @@ public final class TreeReportRenderer {
             content.write(output);
             output.append("</main><script src=\"")
                     .append(assetPrefix)
+                    .append("report-common.js\"></script><script src=\"")
+                    .append(assetPrefix)
                     .append("report.js\"></script></body></html>");
         } catch (java.io.UncheckedIOException exception) {
             throw exception.getCause();
@@ -1678,6 +1825,20 @@ public final class TreeReportRenderer {
     @FunctionalInterface
     private interface PageBody {
         void write(HtmlSink output);
+    }
+
+    private static String resource(final String path) {
+        try (InputStream input = TreeReportRenderer.class
+                .getResourceAsStream(path)) {
+            if (input == null) {
+                throw new IllegalStateException(
+                        "Missing report resource: " + path);
+            }
+            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException exception) {
+            throw new UncheckedIOException(
+                    "Failed to read report resource: " + path, exception);
+        }
     }
 
     /** Append facade that converts checked Writer failures to one runtime. */

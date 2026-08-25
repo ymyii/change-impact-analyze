@@ -249,28 +249,30 @@ class PackagedJarCliIT {
                 .content().contains("SUCCESS")
                 .contains("<th>analysis path</th>"
                         + "<td><code>.</code></td>");
-        assertThat(readOnlyReactorPage(treeReport))
+        final Path treeReactorPage = onlyReactorPagePath(treeReport);
+        assertThat(Files.readString(treeReactorPage))
                 .contains("FULL_REACTOR")
                 .contains("test:module:jar:1")
-                .contains("test:library:jar:1")
                 .contains("test:unrelated:jar:1");
+        assertThat(readReactorShards(treeReactorPage))
+                .contains("test:library:jar:1");
         HtmlReportUsabilityVerifier.verifyTree(treeReport);
         assertThat(scoped.exitCode)
                 .as(scoped.output).isZero();
         assertThat(scopedReport.resolve("index.html"))
                 .content().contains("module")
                 .contains("SUCCESS");
-        final String scopedPage = readOnlyReactorPage(
-                scopedReport);
+        final Path scopedReactorPage = onlyReactorPagePath(scopedReport);
+        final String scopedPage = Files.readString(scopedReactorPage);
         assertThat(scopedPage)
                 .contains("SINGLE_MODULE")
                 .contains("test:module:jar:1")
-                .contains("test:library:jar:1")
-                .contains(">module</button>")
+                .contains("data-combobox=\"module-selector\"")
                 .doesNotContain("test:root:pom:1</h2>")
-                .doesNotContain(">library</button>",
-                        ">unrelated</button>",
-                        "test:unrelated:jar:1");
+                .doesNotContain("test:unrelated:jar:1");
+        assertThat(readReactorShards(scopedReactorPage))
+                .contains("test:library:jar:1")
+                .doesNotContain("test:unrelated:jar:1");
         HtmlReportUsabilityVerifier.verifyTree(scopedReport);
     }
 
@@ -294,11 +296,19 @@ class PackagedJarCliIT {
                 .contains("High-risk class conflicts</th>");
         final String page = readOnlyReactorPage(report);
         assertThat(page)
+                .contains("<h2>Module 分析</h2>")
+                .doesNotContain("fixture.conflict.ReactorHigh")
+                .doesNotContain(repository.toString())
+                .doesNotContain(temporary.resolve(
+                        "class-conflict-artifacts").toString());
+        final Path reactorPage = onlyReactorPagePath(report);
+        final String data = readReactorShards(reactorPage);
+        assertThat(data)
                 .contains("fixture.conflict.ReactorHigh")
                 .contains("fixture.conflict.ExternalLow")
                 .contains("fixture.conflict.ExternalHigh")
-                .contains(">LOW</span>")
-                .contains(">HIGH</span>")
+                .contains("\"risk\":\"LOW\"")
+                .contains("\"risk\":\"HIGH\"")
                 .contains("PROJECT — test:application:jar:1")
                 .contains("REACTOR_DEPENDENCY — test:library:jar:1")
                 .contains("DEPENDENCY — fixture.external:conflict-a:jar:1")
@@ -306,14 +316,15 @@ class PackagedJarCliIT {
                 .doesNotContain(repository.toString())
                 .doesNotContain(temporary.resolve(
                         "class-conflict-artifacts").toString());
-        final Path reactorPage = onlyReactorPagePath(report);
         final Path dataDirectory = reactorPage.resolveSibling(
                 reactorPage.getFileName().toString().replace(
-                        ".html", "-class-conflict-data"));
+                        ".html", "-data"));
         try (java.util.stream.Stream<Path> shards =
                      Files.list(dataDirectory)) {
             final List<Path> files = shards.toList();
-            assertThat(files).hasSize(3);
+            assertThat(files).anySatisfy(path -> assertThat(path
+                            .getFileName().toString())
+                    .startsWith("class-conflicts-"));
             assertThat(files).anySatisfy(path -> assertThat(path)
                     .content().contains("sourceCode", "ExternalLow"));
             assertThat(files).allSatisfy(path -> assertThat(path)
@@ -405,7 +416,7 @@ class PackagedJarCliIT {
     }
 
     @Test
-    void jarReportsManagedAndCrossModuleVersionEvidence()
+    void jarReportsManagedAndMultiVersionDependencyData()
             throws Exception {
         final Path repository = createManagedConflictRepository();
         final Path fakeMaven = fakeManagedConflictMaven();
@@ -428,32 +439,29 @@ class PackagedJarCliIT {
                 .contains("<h2>Summary</h2>")
                 .contains("<th>Status</th><th>Progress</th>")
                 .contains("<th>Internal conflicts</th>")
-                .contains("<th>Cross-module conflicts</th>")
+                .contains("<th>Multi-version dependencies</th>")
                 .contains("<h2>Reactors</h2>");
         final String page = readOnlyReactorPage(report);
         assertThat(page)
-                .contains("<h3>跨模块依赖冲突</h3>")
+                .contains("<h2>跨模块依赖分析</h2>")
                 .contains("<h2>Module 分析</h2>")
-                .contains("<h3>模块内部依赖冲突</h3>")
-                .contains("role=\"tablist\"")
-                .contains("role=\"tab\"")
-                .contains("role=\"tabpanel\"")
-                .contains(">module-a</button>")
-                .contains(">module-b</button>")
-                .contains("DEPENDENCY_PATH")
-                .contains("DEPENDENCY_MANAGEMENT")
-                .contains("<th>Source</th><th>Dependency chain</th>")
-                .contains("<th>Source</th><th>Module</th>")
-                .contains("<th>Original version</th><th>Scope</th>")
-                .contains("DEPENDENCY_MANAGEMENT</code></td><td></td>")
-                .contains("<pre class=\"dependency-tree\">")
-                .contains("version managed from 1")
-                .contains("omitted for duplicate")
-                .contains("+- fixture:duplicate-only:jar:1:compile\n"
-                        + "\\- fixture:duplicate-only:jar:1:compile "
-                        + "(omitted for duplicate)")
+                .contains("role=\"combobox\"")
+                .contains("data-combobox=\"dependency-filter\"")
+                .contains("data-combobox=\"module-selector\"")
+                .contains("Dependency chain")
+                .contains("Original version")
+                .contains("Resolved version")
                 .contains("test:module-a:jar:1")
                 .contains("test:module-b:jar:1")
+                .doesNotContain("DEPENDENCY_PATH")
+                .doesNotContain("<pre class=\"dependency-tree\">")
+                .doesNotContain("<details");
+        assertThat(readReactorShards(onlyReactorPagePath(report)))
+                .contains("DEPENDENCY_PATH")
+                .contains("DEPENDENCY_MANAGEMENT")
+                .contains("version managed from 1")
+                .contains("omitted for duplicate")
+                .contains("fixture:duplicate-only:jar:1:compile")
                 .contains("fixture:middle:jar:1:compile")
                 .contains("fixture:shared:jar:2:compile")
                 .contains("fixture:shared:jar:3:compile")
@@ -1025,6 +1033,22 @@ class PackagedJarCliIT {
                             .endsWith(".html"))
                     .findFirst().orElseThrow();
         }
+    }
+
+    private String readReactorShards(final Path reactorPage)
+            throws Exception {
+        final String filename = reactorPage.getFileName().toString();
+        final Path directory = reactorPage.resolveSibling(
+                filename.substring(0,
+                        filename.length() - ".html".length()) + "-data");
+        final StringBuilder result = new StringBuilder();
+        try (java.util.stream.Stream<Path> files = Files.list(directory)) {
+            for (Path file : files.filter(Files::isRegularFile)
+                    .sorted().toList()) {
+                result.append(Files.readString(file));
+            }
+        }
+        return result.toString();
     }
 
     private ProcessResult runJar(

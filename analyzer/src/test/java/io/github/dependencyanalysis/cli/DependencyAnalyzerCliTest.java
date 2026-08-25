@@ -354,6 +354,25 @@ class DependencyAnalyzerCliTest {
     }
 
     @Test
+    void treeScopesExcludeTestByDefaultAndAllowExplicitOptIn() {
+        final CommandLine defaultCommand = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli());
+        final CommandLine explicitCommand = DependencyAnalyzerCli
+                .newCommandLine(new DependencyAnalyzerCli());
+
+        final CommandLine.ParseResult defaultResult = defaultCommand
+                .parseArgs("tree", "--output", "report");
+        final CommandLine.ParseResult explicitResult = explicitCommand
+                .parseArgs("tree", "--output", "report",
+                        "--scopes", "compile,test");
+
+        assertThat(treeScopes(defaultResult))
+                .isEqualTo("compile,runtime,provided,system");
+        assertThat(treeScopes(explicitResult))
+                .isEqualTo("compile,test");
+    }
+
+    @Test
     void removedResultRefinementOptionIsRejected() {
         final CommandLine command = DependencyAnalyzerCli
                 .newCommandLine(new DependencyAnalyzerCli());
@@ -466,6 +485,11 @@ class DependencyAnalyzerCliTest {
     private Integer kObjDepth(final CommandLine.ParseResult result) {
         return result.subcommand().commandSpec()
                 .findOption("--k-obj-depth").getValue();
+    }
+
+    private String treeScopes(final CommandLine.ParseResult result) {
+        return result.subcommand().commandSpec()
+                .findOption("--scopes").getValue();
     }
 
     private WalaReflectionOptions reflectionOptions(

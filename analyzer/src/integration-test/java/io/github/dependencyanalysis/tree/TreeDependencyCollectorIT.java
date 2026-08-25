@@ -227,6 +227,10 @@ class TreeDependencyCollectorIT {
                   <modelVersion>4.0.0</modelVersion>
                   <groupId>test</groupId><artifactId>root</artifactId>
                   <version>1</version><packaging>pom</packaging>
+                  <properties>
+                    <maven.compiler.source>8</maven.compiler.source>
+                    <maven.compiler.target>8</maven.compiler.target>
+                  </properties>
                   <modules><module>support</module>
                     <module>app</module></modules>
                 </project>
@@ -235,6 +239,22 @@ class TreeDependencyCollectorIT {
                 modulePom("support", ""));
         write(repository.resolve("app/pom.xml"),
                 modulePom("app", dependency("support", "test")));
+        write(repository.resolve(
+                        "support/src/main/java/sample/Duplicate.java"),
+                """
+                        package sample;
+                        public class Duplicate {
+                            public int value() { return 1; }
+                        }
+                        """);
+        write(repository.resolve(
+                        "app/src/main/java/sample/Duplicate.java"),
+                """
+                        package sample;
+                        public class Duplicate {
+                            public int value() { return 2; }
+                        }
+                        """);
         initialize(repository);
         final MavenRuntimeDescriptor runtime =
                 new MavenRuntimeManager().prepare(null,
@@ -252,12 +272,43 @@ class TreeDependencyCollectorIT {
                             snapshot, inventory,
                             inventory.getReactors().get(0), runtime,
                             List.of(), Set.of("compile"), "3.6.1");
+            final ReactorTreeResult explicitTest =
+                    new TreeDependencyCollector().collect(
+                            snapshot, inventory,
+                            inventory.getReactors().get(0), runtime,
+                            List.of(), Set.of("test"), "3.6.1");
 
             assertThat(result.getStatus()).isEqualTo(
                     ReactorStatus.SUCCESS);
             assertThat(result.getModules())
                     .extracting(ModuleTreeResult::getPom)
                     .containsExactly(Path.of("app/pom.xml"));
+            assertThat(result.getModules()).flatExtracting(
+                            ModuleTreeResult::getOccurrences)
+                    .noneSatisfy(item -> assertThat(item.getKey()
+                            .getArtifactId()).isEqualTo("support"));
+            assertThat(result.getModules()).flatExtracting(
+                            ModuleTreeResult::getClassConflicts)
+                    .isEmpty();
+            assertThat(explicitTest.getStatus()).isEqualTo(
+                    ReactorStatus.SUCCESS);
+            assertThat(explicitTest.getModules()).flatExtracting(
+                            ModuleTreeResult::getOccurrences)
+                    .singleElement().satisfies(item -> {
+                        assertThat(item.getKey().getArtifactId())
+                                .isEqualTo("support");
+                        assertThat(item.getEffectiveScope())
+                                .isEqualTo("test");
+                    });
+            assertThat(explicitTest.getModules()).flatExtracting(
+                            ModuleTreeResult::getClassConflicts)
+                    .singleElement().satisfies(conflict -> {
+                        assertThat(conflict.binaryName())
+                                .isEqualTo("sample/Duplicate");
+                        assertThat(conflict.candidates())
+                                .extracting(TreeClassConflictCandidate::scope)
+                                .containsExactly("", "test");
+                    });
         }
     }
 

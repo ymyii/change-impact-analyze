@@ -9,7 +9,7 @@ import java.util.Objects;
  * User-facing resolution evidence for one Module-class relation.
  *
  * @param binaryName internal binary class name
- * @param risk digest-derived risk
+ * @param risk decompiled-text risk with digest fallback
  * @param winner selected candidate
  * @param candidates all candidates in classpath order
  * @param selection stable selection reason

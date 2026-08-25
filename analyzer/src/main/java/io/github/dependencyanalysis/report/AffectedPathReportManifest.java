@@ -2,6 +2,8 @@ package io.github.dependencyanalysis.report;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 
+import io.github.dependencyanalysis.report.offline.OfflineShardDescriptor;
+
 import java.io.IOException;
 import java.io.StringWriter;
 import java.util.List;
@@ -21,7 +23,7 @@ record AffectedPathReportManifest(
         long impactRows,
         long structuralRows,
         List<SourceDescriptor> sources,
-        Map<String, List<ShardDescriptor>> shards) {
+        Map<String, List<OfflineShardDescriptor>> shards) {
 
     /** Serializes the browser manifest. */
     String toJson() {
@@ -45,10 +47,10 @@ record AffectedPathReportManifest(
             }
             json.writeEndArray();
             json.writeObjectFieldStart("shards");
-            for (Map.Entry<String, List<ShardDescriptor>> entry
+            for (Map.Entry<String, List<OfflineShardDescriptor>> entry
                     : shards.entrySet()) {
                 json.writeArrayFieldStart(entry.getKey());
-                for (ShardDescriptor descriptor : entry.getValue()) {
+                for (OfflineShardDescriptor descriptor : entry.getValue()) {
                     json.writeStartObject();
                     json.writeNumberField("id", descriptor.id());
                     json.writeStringField("file", descriptor.file());
@@ -89,22 +91,4 @@ record AffectedPathReportManifest(
         json.writeEndObject();
     }
 
-    /**
-     * One deterministic shard reference.
-     *
-     * @param id kind-local shard ID
-     * @param file page-relative local file
-     * @param firstId first record ID
-     * @param lastId last record ID
-     * @param records record count
-     * @param bytes UTF-8 file bytes
-     */
-    record ShardDescriptor(
-            int id,
-            String file,
-            int firstId,
-            int lastId,
-            int records,
-            long bytes) {
-    }
 }

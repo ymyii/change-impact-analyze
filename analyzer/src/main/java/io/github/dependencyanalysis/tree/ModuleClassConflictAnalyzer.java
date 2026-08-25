@@ -3,6 +3,7 @@ package io.github.dependencyanalysis.tree;
 import io.github.dependencyanalysis.bytecode.DecompiledMethod;
 import io.github.dependencyanalysis.bytecode.MethodBodyDecompiler;
 import io.github.dependencyanalysis.classpath.ClassConflictResolution;
+import io.github.dependencyanalysis.classpath.ClassConflictRisk;
 import io.github.dependencyanalysis.classpath.ClassOwnership;
 import io.github.dependencyanalysis.classpath.ClassOwnershipIndex;
 import io.github.dependencyanalysis.classpath.ClassSource;
@@ -145,14 +146,16 @@ final class ModuleClassConflictAnalyzer {
                 }
             }
             if (winner != null && candidates.size() >= 2) {
+                final ClassConflictRisk risk = risk(
+                        resolution, candidates);
                 conflicts.add(new TreeClassConflict(
-                        resolution.getBinaryName(), resolution.getRisk(),
+                        resolution.getBinaryName(), risk,
                         winner, candidates,
                         resolution.getPrecedenceReason()));
                 if (diagnostics != null) {
                     diagnostics.debug(decompileContext, "conflict; class="
                             + resolution.getBinaryName() + "; risk="
-                            + resolution.getRisk() + "; candidates="
+                            + risk + "; candidates="
                             + candidates.size());
                 }
             }
@@ -175,6 +178,21 @@ final class ModuleClassConflictAnalyzer {
                     + "; uniqueDigests=" + byDigest.size());
         }
         return new Analysis(conflicts, issues);
+    }
+
+    private ClassConflictRisk risk(
+            final ClassConflictResolution resolution,
+            final List<TreeClassConflictCandidate> candidates) {
+        if (candidates.size() != resolution.getCandidates().size()
+                || candidates.stream().anyMatch(candidate ->
+                !candidate.decompiled().isAvailable())) {
+            return resolution.getRisk();
+        }
+        final String reference = candidates.get(0)
+                .decompiled().getSource();
+        return candidates.stream().skip(1).anyMatch(candidate ->
+                !reference.equals(candidate.decompiled().getSource()))
+                ? ClassConflictRisk.HIGH : ClassConflictRisk.LOW;
     }
 
     private void scanEntries(

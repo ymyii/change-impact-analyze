@@ -48,7 +48,7 @@ export const test = base.extend<Fixtures>({
         }
         const treePath = resolve(treeReactorDirectory, treeName);
         const treeShardDirectory = resolve(treeReactorDirectory,
-            treeName.slice(0, -".html".length) + "-class-conflict-data");
+            treeName.slice(0, -".html".length) + "-data");
         await use({
             root,
             modulePath,
@@ -126,6 +126,8 @@ export async function openTree(
     report: ReportCopy
 ): Promise<void> {
     await page.goto(report.treeUrl);
+    await expect(page.locator("#dependency-position"))
+        .toContainText("1-10 / 2626");
     await expect(page.locator("[data-class-position]").first())
         .toContainText("1-10 / 12");
 }

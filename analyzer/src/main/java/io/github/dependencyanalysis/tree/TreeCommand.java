@@ -47,7 +47,7 @@ public final class TreeCommand
 
     /** Scope CSV. */
     @Option(names = {"-s", "--scopes"},
-            defaultValue = "compile,runtime,provided,test,system",
+            defaultValue = "compile,runtime,provided,system",
             description = "Included dependency scopes.")
     private String scopes;
 

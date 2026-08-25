@@ -1,7 +1,5 @@
 package io.github.dependencyanalysis.report;
 
-import com.fasterxml.jackson.core.JsonGenerator;
-
 import io.github.dependencyanalysis.classpath.CodeOrigin;
 import io.github.dependencyanalysis.callgraph.model.MethodId;
 import io.github.dependencyanalysis.impact.BoundChangePoint;
@@ -15,10 +13,11 @@ import io.github.dependencyanalysis.impact.QueryNode;
 import io.github.dependencyanalysis.impact.StructuralReferencePath;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
+import io.github.dependencyanalysis.report.offline.OfflineShardDescriptor;
+import io.github.dependencyanalysis.report.offline.OfflineShardWriter;
+import io.github.dependencyanalysis.report.offline.OfflineShardWriter.JsonRecord;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -41,17 +40,13 @@ final class AffectedPathReportDataWriter {
     /** Browser report data schema. */
     private static final int SCHEMA_VERSION = 5;
 
-    /** JavaScript callback installed by the Affected Paths page. */
-    private static final String CALLBACK =
-            "window.__CIA_AFFECTED_PATH_SHARD__(";
-
-    /** Shard suffix bytes after the record array. */
-    private static final int SHARD_SUFFIX_BYTES = 5;
-
     /** Command diagnostic destination. */
     private final DiagnosticLog diagnostics;
 
-    /** Maximum target bytes for a normal shard. */
+    /** Shared bounded offline shard writer. */
+    private final OfflineShardWriter shardWriter;
+
+    /** Maximum target bytes for one normal shard. */
     private final int maxShardBytes;
 
     /**
@@ -68,6 +63,8 @@ final class AffectedPathReportDataWriter {
             throw new IllegalArgumentException("shardBytes must be positive");
         }
         maxShardBytes = shardBytes;
+        shardWriter = new OfflineShardWriter(SCHEMA_VERSION,
+                "window.__CIA_AFFECTED_PATH_SHARD__", shardBytes);
     }
 
     /**
@@ -89,7 +86,7 @@ final class AffectedPathReportDataWriter {
                         module.getModuleId().stableKey());
         diagnostics.debug(context, "started");
         final Projection projection = project(module);
-        final Map<String, List<AffectedPathReportManifest.ShardDescriptor>>
+        final Map<String, List<OfflineShardDescriptor>>
                 descriptors = new LinkedHashMap<>();
         final ShardMetrics metrics = new ShardMetrics();
         descriptors.put("index", writeShards("index",
@@ -132,7 +129,7 @@ final class AffectedPathReportDataWriter {
                 + projection.paths().size() + "; shardCounts="
                 + shardCounts + "; shards=" + metrics.shards
                 + "; bytes=" + metrics.bytes
-                + "; maxShardBytes=" + metrics.maximum
+                + "; maxShardBytes=" + maxShardBytes
                 + "; oversizedShards=" + metrics.oversized);
         final AffectedPathReportManifest manifest =
                 new AffectedPathReportManifest(
@@ -446,7 +443,7 @@ final class AffectedPathReportDataWriter {
         return ReportSignatures.structuralOwner(path.getReference());
     }
 
-    private List<AffectedPathReportManifest.ShardDescriptor> writeShards(
+    private List<OfflineShardDescriptor> writeShards(
             final String kind,
             final int count,
             final IntFunction<JsonRecord> records,
@@ -454,89 +451,18 @@ final class AffectedPathReportDataWriter {
             final String relativeDirectory,
             final DiagnosticContext context,
             final ShardMetrics metrics) throws IOException {
-        final List<AffectedPathReportManifest.ShardDescriptor> result =
-                new ArrayList<>();
-        final List<byte[]> pending = new ArrayList<>();
-        int pendingBytes = 0;
-        int firstId = 0;
-        for (int id = 0; id < count; id++) {
-            final byte[] record = serialize(records.apply(id));
-            final int wrapper = wrapperBytes(kind, result.size());
-            final int separator = pending.isEmpty() ? 0 : 1;
-            if (!pending.isEmpty() && wrapper + pendingBytes
-                    + separator + record.length > maxShardBytes) {
-                result.add(flush(kind, result.size(), firstId,
-                        pending, new ShardWriteContext(directory,
-                                relativeDirectory, metrics)));
-                pending.clear();
-                pendingBytes = 0;
-                firstId = id;
-            }
-            pending.add(record);
-            pendingBytes += record.length + (pending.size() == 1 ? 0 : 1);
-        }
-        if (!pending.isEmpty()) {
-            result.add(flush(kind, result.size(), firstId,
-                    pending, new ShardWriteContext(directory,
-                            relativeDirectory, metrics)));
-        }
+        final List<OfflineShardDescriptor> result = shardWriter.write(
+                kind, count, records, directory, relativeDirectory);
         for (int index = 0; index < result.size(); index++) {
-            final AffectedPathReportManifest.ShardDescriptor descriptor =
-                    result.get(index);
+            final OfflineShardDescriptor descriptor = result.get(index);
+            metrics.add(descriptor.bytes(),
+                    descriptor.bytes() > maxShardBytes);
             diagnostics.trace(context, "written; kind=" + kind
                     + "; progress=" + (index + 1) + "/" + result.size()
                     + "; records=" + descriptor.records() + "; bytes="
                     + descriptor.bytes());
         }
         return List.copyOf(result);
-    }
-
-    private AffectedPathReportManifest.ShardDescriptor flush(
-            final String kind,
-            final int shardId,
-            final int firstId,
-            final List<byte[]> records,
-            final ShardWriteContext context) throws IOException {
-        final ByteArrayOutputStream output = new ByteArrayOutputStream();
-        output.write(prefix(kind, shardId));
-        for (int index = 0; index < records.size(); index++) {
-            if (index > 0) {
-                output.write(',');
-            }
-            output.write(records.get(index));
-        }
-        output.write("]});\n".getBytes(StandardCharsets.UTF_8));
-        final byte[] bytes = output.toByteArray();
-        final String file = kind + "-" + String.format(
-                java.util.Locale.ROOT, "%05d", shardId) + ".js";
-        Files.write(context.directory().resolve(file), bytes);
-        context.metrics().add(bytes.length, bytes.length > maxShardBytes);
-        return new AffectedPathReportManifest.ShardDescriptor(
-                shardId, context.relativeDirectory() + "/" + file,
-                firstId, firstId + records.size() - 1,
-                records.size(), bytes.length);
-    }
-
-    private int wrapperBytes(final String kind, final int shardId) {
-        return prefix(kind, shardId).length + SHARD_SUFFIX_BYTES;
-    }
-
-    private byte[] prefix(final String kind, final int shardId) {
-        return (CALLBACK + "{\"schemaVersion\":" + SCHEMA_VERSION
-                + ",\"kind\":\"" + kind + "\",\"shardId\":"
-                + shardId + ",\"records\":[")
-                .getBytes(StandardCharsets.UTF_8);
-    }
-
-    private byte[] serialize(final JsonRecord record) {
-        final ByteArrayOutputStream output = new ByteArrayOutputStream();
-        try (JsonGenerator json = ScriptSafeJson.factory()
-                .createGenerator(output)) {
-            record.write(json);
-        } catch (IOException exception) {
-            throw new java.io.UncheckedIOException(exception);
-        }
-        return output.toByteArray();
     }
 
     private JsonRecord indexRecord(final PathProjection value) {
@@ -659,12 +585,6 @@ final class AffectedPathReportDataWriter {
         };
     }
 
-    /** One JSON object writer. */
-    @FunctionalInterface
-    private interface JsonRecord {
-        void write(JsonGenerator json) throws IOException;
-    }
-
     /** Mutable write metrics. */
     private static final class ShardMetrics {
         /** Total shards. */
@@ -684,19 +604,6 @@ final class AffectedPathReportDataWriter {
                 oversized++;
             }
         }
-    }
-
-    /**
-     * Immutable output state shared while flushing one shard.
-     *
-     * @param directory physical shard directory
-     * @param relativeDirectory page-relative shard directory
-     * @param metrics mutable aggregate metrics
-     */
-    private record ShardWriteContext(
-            Path directory,
-            String relativeDirectory,
-            ShardMetrics metrics) {
     }
 
     private record Projection(

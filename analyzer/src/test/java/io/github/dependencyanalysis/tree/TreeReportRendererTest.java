@@ -39,11 +39,11 @@ class TreeReportRendererTest {
     /** Move number used to inject second-target commit failure. */
     private static final int REPORT_COMMIT_MOVE = 4;
 
+    /** Move number used to inject incremental index checkpoint failure. */
+    private static final int INDEX_CHECKPOINT_MOVE = 5;
+
     /** Reactor count used to verify a fresh run checkpoint. */
     private static final int FRESH_RUN_REACTORS = 3;
-
-    /** Conflict components rendered for two modules and one reactor. */
-    private static final int CONFLICT_COMPONENTS = 3;
 
     /** Temporary output parent. */
     @TempDir
@@ -93,36 +93,28 @@ class TreeReportRendererTest {
         final String page = Files.readString(
                 onlyReactorPage(output));
         assertThat(page)
-                .contains("<pre class=\"dependency-tree\">")
-                .contains("g:root:jar:1\n\\- g:parent:jar:1\n")
-                .contains("   +- g&lt;script&gt;:leaf:jar:1:compile\n")
-                .contains("   \\- g:other:jar:1:compile ")
-                .contains("(omitted for conflict with 1)")
+                .contains("<h2>跨模块依赖分析</h2>")
+                .contains("<h2>Module 分析</h2>")
+                .contains("id=\"tree-report-manifest\"")
+                .doesNotContain("<pre class=\"dependency-tree\">")
                 .doesNotContain("<details")
                 .doesNotContain("data-expand")
                 .doesNotContain("data-collapse")
                 .doesNotContain("data-dep-scope")
                 .doesNotContain("data-dep-status")
                 .doesNotContain("<script>g");
-        final String tree = dependencyTree(page);
-        assertThat(tree)
-                .doesNotContain("<button")
-                .doesNotContain("<a")
-                .doesNotContain("<details")
-                .doesNotContain("title=")
-                .doesNotContain("onclick");
-        assertThat(page.indexOf("g:root:jar:1"))
-                .isLessThan(page.indexOf("g:parent:jar:1"));
-        assertThat(page.indexOf("g:parent:jar:1"))
-                .isLessThan(page.indexOf(
-                        "g&lt;script&gt;:leaf:jar:1"));
+        assertThat(allShardContent(pageDataDirectory(
+                onlyReactorPage(output))))
+                .contains("g:root:jar:1\\n\\\\- g:parent:jar:1\\n")
+                .contains("   +- g\\u003cscript\\u003e:leaf:jar:1:compile")
+                .contains("   \\\\- g:other:jar:1:compile ")
+                .contains("(omitted for conflict with 1)")
+                .doesNotContain("<script>g");
         assertThat(output.resolve(
                 "dependency-report/assets/report.js"))
-                .content().contains("data-conflicts")
-                .contains("data-module-tabs")
-                .doesNotContain("matchesStatus")
-                .doesNotContain("dataset.depStatus")
-                .doesNotContain("data-expand");
+                .content().contains("recordsForIds(\"dependency-trees\"")
+                .contains("textContent")
+                .doesNotContain("innerHTML");
     }
 
     @Test
@@ -152,11 +144,12 @@ class TreeReportRendererTest {
                                 List.of(selected, duplicate),
                                 ""))))), output);
 
-        assertThat(onlyReactorPage(output)).content()
-                .contains("g:root:jar:1\n"
-                        + "+- g:shared:jar:1:compile\n"
-                        + "\\- g:shared:jar:1:compile "
-                        + "(omitted for duplicate)\n");
+        assertThat(allShardContent(pageDataDirectory(
+                onlyReactorPage(output))))
+                .contains("g:root:jar:1\\n"
+                        + "+- g:shared:jar:1:compile\\n"
+                        + "\\\\- g:shared:jar:1:compile "
+                        + "(omitted for duplicate)\\n");
     }
 
     @Test
@@ -178,11 +171,11 @@ class TreeReportRendererTest {
                 List.of(module("g:root:1", List.of(occurrence), ""))))),
                 output);
 
-        final String tree = dependencyTree(Files.readString(
+        final String tree = allShardContent(pageDataDirectory(
                 onlyReactorPage(output)));
         assertThat(tree)
-                .startsWith("g:root:jar:1\n")
-                .contains("\\- g:leaf:jar:3:compile "
+                .contains("g:root:jar:1\\n")
+                .contains("\\\\- g:leaf:jar:3:compile "
                         + "(version managed from 1; "
                         + "scope managed from test; optional; "
                         + "omitted for conflict with 3; "
@@ -245,18 +238,19 @@ class TreeReportRendererTest {
         new TreeReportRenderer().render(
                 result(List.of(reactor)), output);
 
-        assertThat(onlyReactorPage(output))
-                .content()
+        final Path page = onlyReactorPage(output);
+        assertThat(page).content()
                 .contains("<h2>问题</h2>")
                 .contains("REACTOR_ANALYSIS")
                 .contains("MODULE_ANALYSIS")
                 .contains("pom.xml: Maven &lt;failed&gt;")
                 .contains("Maven &lt;failed&gt;")
-                .contains("未发现 dependency。")
-                .contains("Dependency tree 未生成。")
                 .doesNotContain("<pre class=\"dependency-tree\"></pre>")
                 .doesNotContain("failure diagnostics")
                 .doesNotContain("Maven <failed>");
+        assertThat(allShardContent(pageDataDirectory(page)))
+                .contains("\"failure\":\"Maven \\u003cfailed\\u003e\"")
+                .contains("\"text\":\"\"");
     }
 
     @Test
@@ -283,16 +277,13 @@ class TreeReportRendererTest {
                 .contains("<h2>Module metadata</h2>")
                 .contains("<th>Dependencies</th>")
                 .contains("<th>Internal conflicts</th>")
-                .contains("<th>Cross-module conflicts</th>")
+                .contains("<th>Multi-version dependencies</th>")
                 .contains("g:requested:1")
                 .contains("g:dependency:1")
                 .contains("g:root:1")
-                .contains("role=\"tablist\"")
-                .contains("role=\"tab\"")
-                .contains("role=\"tabpanel\"")
-                .contains(">requested</button>")
-                .contains(">dependency</button>")
-                .contains(">root</button>")
+                .contains("data-combobox=\"module-selector\"")
+                .contains("role=\"combobox\"")
+                .doesNotContain("role=\"tablist\"")
                 .doesNotContain("REQUESTED</")
                 .doesNotContain("DEPENDENCY</")
                 .doesNotContain("REACTOR_ROOT_SCOPE")
@@ -302,7 +293,7 @@ class TreeReportRendererTest {
     }
 
     @Test
-    void disambiguatesDuplicateTabLabelsAndUsesStableIds()
+    void usesFullCoordinatesInSearchableModuleCatalog()
             throws Exception {
         final ModuleTreeResult first = module(
                 "g1:shared:1", List.of(), "");
@@ -311,31 +302,19 @@ class TreeReportRendererTest {
         final ModuleTreeResult third = module(
                 "g1:shared:2", List.of(), "");
         final Path firstOutput = temporary.resolve("tabs-first");
-        final Path secondOutput = temporary.resolve("tabs-second");
-
         new TreeReportRenderer().render(result(List.of(reactor(
                 "pom.xml", ReactorStatus.SUCCESS, "",
                 List.of(first, second, third)))), firstOutput);
-        new TreeReportRenderer().render(result(List.of(reactor(
-                "pom.xml", ReactorStatus.SUCCESS, "",
-                List.of(third, second, first)))), secondOutput);
 
         final String firstPage = Files.readString(
                 onlyReactorPage(firstOutput));
-        final String secondPage = Files.readString(
-                onlyReactorPage(secondOutput));
         assertThat(firstPage)
-                .contains("title=\"g1:shared:1\">g1:shared:1</button>")
-                .contains("title=\"g2:shared:1\">g2:shared</button>")
-                .contains("title=\"g1:shared:2\">g1:shared:2</button>")
-                .contains("aria-selected=\"true\" tabindex=\"0\"")
-                .contains("aria-selected=\"false\" tabindex=\"-1\"")
-                .contains("role=\"tabpanel\"")
-                .contains(" hidden><h2>g2:shared:1</h2>");
-        assertThat(tabId(firstPage, "g1:shared:1"))
-                .isEqualTo(tabId(secondPage, "g1:shared:1"));
-        assertThat(tabId(firstPage, "g2:shared:1"))
-                .isEqualTo(tabId(secondPage, "g2:shared:1"));
+                .contains("data-combobox=\"module-selector\"")
+                .contains("\"coordinate\":\"g1:shared:1\"")
+                .contains("\"coordinate\":\"g2:shared:1\"")
+                .contains("\"coordinate\":\"g1:shared:2\"")
+                .contains("aria-autocomplete=\"list\"")
+                .contains("aria-required=\"true\"");
     }
 
     @Test
@@ -369,28 +348,28 @@ class TreeReportRendererTest {
         final String page = Files.readString(
                 onlyReactorPage(output));
         assertThat(page)
-                .containsOnlyOnce("<h3>跨模块依赖冲突</h3>")
-                .containsOnlyOnce("data-default-sort=\"module\"")
-                .containsOnlyOnce("data-conflict-module")
-                .contains("data-conflict-search")
-                .contains("data-conflict-scope")
-                .contains("data-conflict-sort=\"module\"")
-                .contains("data-conflict-sort=\"dependency\"")
+                .containsOnlyOnce("<h2>跨模块依赖分析</h2>")
+                .contains("class=\"dependency-filter-form\"")
+                .contains("class=\"dependency-filter-primary\"")
+                .contains("class=\"dependency-filter-secondary\"")
+                .contains("data-combobox=\"dependency-filter\"")
+                .contains("data-combobox=\"dependency-module-filter\"")
+                .contains("id=\"dependency-filter-toggle\"")
+                .contains("id=\"dependency-module-filter-toggle\"")
+                .contains("id=\"module-selector-toggle\"")
+                .contains("aria-label=\"展开 Dependency 候选\"")
+                .contains("id=\"dependency-scope-filter\"")
+                .contains("data-dependency-sort=\"module\"")
+                .contains("data-dependency-sort=\"dependency\"")
                 .contains("<option>10</option>")
                 .contains("<option>50</option>")
                 .contains("<option>100</option>")
-                .contains("<table class=\"evidence-table\">")
-                .contains("<th>Source</th><th>Dependency chain</th>")
-                .contains("<th>Source</th><th>Module</th>")
-                .contains("<th>Original version</th><th>Scope</th>")
-                .contains("DEPENDENCY_PATH")
-                .contains("DEPENDENCY_MANAGEMENT")
-                .contains("g:a:jar:1 → g:shared:jar:3")
-                .contains("g:b:jar:1 → g:shared:jar:2")
-                .contains("<code>DEPENDENCY_MANAGEMENT</code></td>")
-                .contains("<td></td><td><code>3</code></td>")
-                .contains("g:a:jar:1 → g:shared:jar:2 2 runtime")
-                .contains("g:a:jar:1 → g:shared:jar:3 1 compile")
+                .contains("Dependency chain")
+                .contains("Original version")
+                .contains("Resolved version")
+                .contains("\"resolvedVersionCount\":2")
+                .doesNotContain("DEPENDENCY_PATH")
+                .doesNotContain("g:a:jar:1 → g:shared:jar:3")
                 .doesNotContain("<th>Status</th><th>Reason</th>")
                 .doesNotContain("Module 内 version mediation")
                 .doesNotContain("跨 Module resolved version 差异");
@@ -398,28 +377,32 @@ class TreeReportRendererTest {
                 .contains("<td><code>g:a:1</code></td>"
                         + "<td><code>g-a-1/pom.xml</code></td>"
                         + "<td class=\"SUCCESS\">SUCCESS</td>"
-                        + "<td>2</td><td>1</td><td>1</td><td>0</td>")
+                        + "<td>2</td><td>1</td><td>1</td>"
+                        + "<td>0</td><td>0</td><td>0</td>")
                 .contains("<td><code>g:b:1</code></td>"
                         + "<td><code>g-b-1/pom.xml</code></td>"
                         + "<td class=\"SUCCESS\">SUCCESS</td>"
-                        + "<td>1</td><td>0</td><td>1</td><td>0</td>");
-        assertThat(count(page, "data-conflict-component"))
-                .isEqualTo(CONFLICT_COMPONENTS);
-        assertThat(count(page, "<h3>模块内部依赖冲突</h3>"))
-                .isEqualTo(2);
+                        + "<td>1</td><td>0</td><td>1</td>"
+                        + "<td>0</td><td>0</td><td>0</td>");
+        assertThat(allShardContent(pageDataDirectory(
+                onlyReactorPage(output))))
+                .contains("DEPENDENCY_PATH")
+                .contains("DEPENDENCY_MANAGEMENT")
+                .contains("g:a:jar:1 → g:shared:jar:3")
+                .contains("g:b:jar:1 → g:shared:jar:2");
         assertThat(output.resolve(
                 "dependency-report/assets/report.js"))
                 .content()
-                .contains("querySelectorAll('[data-conflict-component]')")
-                .contains("component.querySelector")
-                .contains("filter(Boolean)")
-                .contains("split('|').includes(module.value)")
-                .contains("split('|').includes(scope.value)")
+                .contains("createCombobox")
+                .contains("slice(0, 50)")
+                .contains("intersectRanges")
+                .contains("Loading dependency index")
+                .contains("dependencyGeneration")
+                .contains("recordsForIds(")
                 .contains("localeCompare")
                 .contains("Math.ceil")
-                .contains("page=0")
-                .contains("ArrowRight")
-                .contains("ArrowLeft")
+                .contains("ArrowDown")
+                .contains("ArrowUp")
                 .contains("Home")
                 .contains("End");
         assertThat(output.resolve("index.html"))
@@ -429,9 +412,8 @@ class TreeReportRendererTest {
                 .contains("<h2>Summary</h2>")
                 .contains("<th>Status</th><th>Progress</th>")
                 .contains("<th>Internal conflicts</th>")
-                .contains("<th>Cross-module conflicts</th>")
-                .contains("<td>1/1</td><td>1</td><td>2</td>"
-                        + "<td>3</td><td>1</td><td>1</td>");
+                .contains("<th>Multi-version dependencies</th>")
+                .contains("<td>3</td><td>1</td><td>1</td>");
     }
 
     @Test
@@ -447,15 +429,12 @@ class TreeReportRendererTest {
         final String page = Files.readString(
                 onlyReactorPage(output));
         assertThat(page)
-                .contains("<h3>跨模块依赖冲突</h3>")
-                .contains("<h3>模块内部依赖冲突</h3>")
-                .contains("data-conflict-sort=\"version\"")
-                .contains("<tbody></tbody>")
-                .doesNotContain("data-conflict-controls")
-                .doesNotContain("data-conflict-search")
+                .contains("<h2>跨模块依赖分析</h2>")
+                .contains("<h2>Module 分析</h2>")
+                .contains("<tbody id=\"dependency-rows\"></tbody>")
+                .contains("\"dependencyRows\":0")
+                .contains("\"dependencies\":[]")
                 .doesNotContain("<h2>问题</h2>");
-        assertThat(count(page, "data-conflict-component"))
-                .isEqualTo(2);
     }
 
     @Test
@@ -572,7 +551,7 @@ class TreeReportRendererTest {
         final TreeReportRenderer renderer =
                 new TreeReportRenderer((source, target) -> {
                     if (moves.incrementAndGet()
-                            == REPORT_COMMIT_MOVE) {
+                            == INDEX_CHECKPOINT_MOVE) {
                         throw new IOException(
                                 "injected index checkpoint failure");
                     }
@@ -659,32 +638,36 @@ class TreeReportRendererTest {
         final Path pagePath = onlyReactorPage(output);
         final String page = Files.readString(pagePath);
         assertThat(page)
-                .contains("<h3>冲突类</h3>")
-                .contains("Class</button>", "Risk</button>", "Winner")
-                .contains("Shadowed sources", "Selection", "Decompiled code")
-                .contains("sample.Duplicate", "HIGH")
-                .contains("data-view-class-code")
+                .contains("<h2>Module 分析</h2>")
+                .contains("data-combobox=\"module-selector\"")
+                .doesNotContain("sample.Duplicate", "HIGH")
+                .doesNotContain("data-view-class-code")
                 .doesNotContain("package sample; class Duplicate {}")
                 .doesNotContain(secretProject.toString(), secretJar.toString());
         assertThat(output.resolve(
                 "dependency-report/assets/report.css")).content()
-                .contains(".source-switches button[aria-pressed=true]");
+                .contains(".source-switches button[aria-pressed=true]")
+                .contains(".combobox-toggle[aria-expanded=true]")
+                .contains(".dependency-filter-primary")
+                .contains("@media(max-width:1100px)");
         assertThat(output.resolve(
                 "dependency-report/assets/report.js")).content()
-                .contains("button.setAttribute('aria-pressed'")
-                .contains("panel.append(nav,pre);select(index)");
-        final Path data = pagePath.resolveSibling(pagePath.getFileName()
-                .toString().replace(".html", "-class-conflict-data"));
+                .contains("setAttribute(\"aria-pressed\"")
+                .contains("panel.replaceChildren(nav, pre)")
+                .contains("recordsForIds(\"class-sources\"");
+        final Path data = pageDataDirectory(pagePath);
         try (Stream<Path> files = Files.list(data)) {
             final List<Path> shards = files.toList();
-            assertThat(shards).hasSize(1);
-            final Path shard = shards.get(0);
-            assertThat(shard).content()
-                    .contains("schemaVersion", "sourceCode",
-                            "package sample; class Duplicate {}")
-                    .doesNotContain(secretProject.toString(),
-                            secretJar.toString());
+            assertThat(shards.stream().map(value -> value.getFileName()
+                            .toString()))
+                    .anyMatch(value -> value.startsWith("class-conflicts-"))
+                    .anyMatch(value -> value.startsWith("class-sources-"));
         }
+        assertThat(allShardContent(data))
+                .contains("sample.Duplicate", "HIGH", "sourceCode",
+                        "package sample; class Duplicate {}")
+                .doesNotContain(secretProject.toString(),
+                        secretJar.toString());
         assertThat(output.resolve("index.html")).content()
                 .contains("Class conflicts</th>")
                 .contains("High-risk class conflicts</th>");
@@ -824,28 +807,20 @@ class TreeReportRendererTest {
         }
     }
 
-    private int count(
-            final String value,
-            final String token) {
-        return (value.length() - value.replace(token, "").length())
-                / token.length();
+    private Path pageDataDirectory(final Path page) {
+        final String filename = page.getFileName().toString();
+        return page.resolveSibling(filename.substring(
+                0, filename.length() - ".html".length()) + "-data");
     }
 
-    private String dependencyTree(final String page) {
-        final String opening = "<pre class=\"dependency-tree\">";
-        final int start = page.indexOf(opening) + opening.length();
-        return page.substring(start, page.indexOf("</pre>", start));
-    }
-
-    private String tabId(
-            final String page,
-            final String coordinate) {
-        final String title = " title=\"" + coordinate + "\"";
-        final int titleStart = page.indexOf(title);
-        final int idStart = page.lastIndexOf(
-                "id=\"module-tab-", titleStart)
-                + "id=\"".length();
-        return page.substring(idStart,
-                page.indexOf('"', idStart));
+    private String allShardContent(final Path directory) throws Exception {
+        final StringBuilder result = new StringBuilder();
+        try (Stream<Path> files = Files.list(directory)) {
+            for (Path file : files.filter(Files::isRegularFile)
+                    .sorted().toList()) {
+                result.append(Files.readString(file));
+            }
+        }
+        return result.toString();
     }
 }

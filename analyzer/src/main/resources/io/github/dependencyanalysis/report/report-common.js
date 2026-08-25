@@ -145,7 +145,8 @@
         return diffRow;
     }
 
-    function createShardLoader(manifest, validRecord, recordId) {
+    function createShardLoader(manifest, validRecord, recordId,
+        callbackName = "__CIA_AFFECTED_PATH_SHARD__") {
         const requests = new Map();
         const pending = new Map();
 
@@ -169,10 +170,10 @@
                 && id <= value.lastId);
         }
 
-        window.__CIA_AFFECTED_PATH_SHARD__ = payload => {
+        window[callbackName] = payload => {
             const current = document.currentScript;
             const key = current && current.dataset
-                ? current.dataset.ciaAffectedPathShard : "";
+                ? current.dataset.ciaOfflineShard : "";
             const waiter = pending.get(key);
             if (!waiter) {
                 return;
@@ -207,15 +208,15 @@
                 script = document.createElement("script");
                 script.src = descriptor.file;
                 script.async = true;
-                script.dataset.ciaAffectedPathShard = key;
+                script.dataset.ciaOfflineShard = key;
                 script.onload = () => {
                     if (!waiter.registered) {
                         reject(shardError(
-                            `Affected path shard did not register: ${descriptor.file}`));
+                            `Report shard did not register: ${descriptor.file}`));
                     }
                 };
                 script.onerror = () => reject(shardError(
-                    `Affected path shard could not be loaded: ${descriptor.file}`));
+                    `Report shard could not be loaded: ${descriptor.file}`));
                 document.head.append(script);
             }).finally(() => {
                 pending.delete(key);

@@ -1,5 +1,6 @@
 import {copyFile, readFile, unlink, writeFile} from "node:fs/promises";
-import {basename, dirname, resolve} from "node:path";
+import {basename, resolve} from "node:path";
+import {readdir} from "node:fs/promises";
 import {
     expect,
     observeBrowser,
@@ -12,7 +13,7 @@ test("loads one class source lazily and switches logical sources",
         const diagnostics = observeBrowser(page);
         const shards: string[] = [];
         page.on("request", request => {
-            if (request.url().includes("-class-conflict-data/")) {
+            if (request.url().includes("-data/class-sources-")) {
                 shards.push(basename(new URL(request.url()).pathname));
             }
         });
@@ -84,7 +85,7 @@ test("filters, sorts, paginates, closes source, and stays responsive",
         await component.locator("[data-view-class-code]").first().click();
         await expect(page.locator(".class-code-row")).toHaveCount(1);
 
-        await component.locator("[data-risk-filter]").selectOption("LOW");
+        await component.locator("[data-class-filter]").selectOption("LOW");
         await expect(page.locator(".class-code-row")).toHaveCount(0);
         await expect(component.locator("[data-class-position]"))
             .toContainText("1-6 / 6");
@@ -92,7 +93,7 @@ test("filters, sorts, paginates, closes source, and stays responsive",
             "[data-class-conflict-row]:visible [data-view-class-code]");
         await expect(visibleRisk).toHaveCount(6);
 
-        await component.locator("[data-risk-filter]").selectOption("");
+        await component.locator("[data-class-filter]").selectOption("");
         await component.locator("[data-class-search]").fill("conflict11");
         await expect(component.locator("[data-class-position]"))
             .toContainText("1-1 / 1");
@@ -100,7 +101,7 @@ test("filters, sorts, paginates, closes source, and stays responsive",
             .toContainText("fixture.Conflict11");
 
         await component.locator("[data-class-search]").fill("");
-        await component.locator("[data-class-sort=class]").click();
+        await component.locator("[data-class-sort=className]").click();
         await component.locator("[data-class-next]").click();
         await expect(component.locator("[data-class-position]"))
             .toContainText("11-12 / 12");
@@ -108,9 +109,15 @@ test("filters, sorts, paginates, closes source, and stays responsive",
         await expect(component.locator("[data-class-position]"))
             .toContainText("1-12 / 12");
 
-        const secondTab = page.getByRole("tab", {name: "library"});
-        await secondTab.press("Enter");
-        await expect(secondTab).toHaveAttribute("aria-selected", "true");
+        const module = page.locator(
+            '[data-combobox="module-selector"] input');
+        await module.fill("io.browserfixture:library:1.0.0");
+        await module.press("Enter");
+        await expect(module).toHaveValue("io.browserfixture:library:1.0.0");
+        await expect(page.locator("#module-panel > h3"))
+            .toHaveText("io.browserfixture:library:1.0.0");
+        await expect(page.locator("[data-class-position]"))
+            .toContainText("1-1 / 1");
         const overflow = await page.evaluate(() => ({
             documentWidth: document.documentElement.scrollWidth,
             viewportWidth: document.documentElement.clientWidth
@@ -132,16 +139,18 @@ test("shows Unavailable and retries a missing source shard",
 
         await component.locator("[data-class-search]").fill("conflict00");
         const row = component.locator("[data-class-conflict-row]:visible");
-        const shard = await row.getAttribute("data-shard");
-        expect(shard).not.toBeNull();
-        const shardPath = resolve(dirname(report.treePath), shard!);
+        const entries = await readdir(report.treeShardDirectory);
+        const shard = entries.find(name => name
+            .startsWith("class-sources-00000"));
+        expect(shard).toBeDefined();
+        const shardPath = resolve(report.treeShardDirectory, shard!);
         const backup = resolve(report.root, "class-conflict-backup.js");
         await copyFile(shardPath, backup);
         await unlink(shardPath);
 
         await row.locator("[data-view-class-code]").click();
         await expect(page.locator(".class-code-panel"))
-            .toContainText(`Unable to load ${shard}`);
+            .toContainText(`Report shard could not be loaded`);
         const original = await readFile(backup);
         await writeFile(shardPath, original);
         await page.getByRole("button", {name: "Retry"}).click();

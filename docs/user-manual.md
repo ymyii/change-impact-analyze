@@ -215,10 +215,11 @@ build/dependency-tree/
 └─ dependency-report/
    ├─ reactors/
    │  ├─ <reactor-base>.html
-   │  └─ <reactor-base>-class-conflict-data/
-   │     └─ class-conflict-00000.js
+   │  └─ <reactor-base>-data/
+   │     └─ *.js
    └─ assets/
       ├─ report.css
+      ├─ report-common.js
       └─ report.js
 ```
 
@@ -228,10 +229,10 @@ build/dependency-tree/
 
 1. Repository Index：确认 metadata、Preflight、Reactor/Module/Dependency 总数和整体状态。
 2. Reactors 表：定位 `DEGRADED` 或 `FAILED` Reactor。
-3. Reactor page：查看问题表、Cross-module conflicts 和 Module tabs。
-4. Module tab：先查看冲突类，再查看Internal conflicts与Maven-style verbose dependency tree。
+3. Reactor page：在“跨模块依赖分析”中筛选全部dependency occurrence，查看版本徽标与requested/resolved version。
+4. Module分析card：选择Module后查看冲突类、Internal conflicts与Maven-style verbose dependency tree。
 
-`tree`会先在选中Reactor范围执行Maven `compile`。源码shard不会随页面初始加载；只有点击“查看反编译代码”才从相邻data directory读取。
+`tree`会先在选中Reactor范围执行Maven `compile`。依赖、Module内容和源码按需读取；源码只有点击“查看反编译代码”后才加载。
 
 ## 5. impact 操作指南
 
@@ -399,7 +400,7 @@ java -jar /path/to/dependency-analyzer.jar tree \
 - leaf的Maven session包含`-am`上游依赖，但Report只有入口Module；上游仍可作为`REACTOR_DEPENDENCY`进入classpath。
 - 没有匹配祖先时按`STANDALONE`执行当前POM，不附加`-pl/-am`。非祖先aggregator不会被自动发现；相关依赖可能转为Maven repository解析，或因artifact不可用而失败。
 - Git root下其他POM不会被枚举。Ignored POM、Git submodule内POM、symlink逃逸和Git root外module被拒绝。
-- `packaging=pom`且存在active child的pure aggregator只作为execution context，不生成Module tab；单POM project和非`pom` aggregator仍生成Module结果。
+- `packaging=pom`且存在active child的pure aggregator只作为execution context，不生成Module分析条目；单POM project和非`pom` aggregator仍生成Module结果。
 
 ### 6.3 激活 profile 并限制 scope
 
@@ -412,7 +413,7 @@ java -jar /path/to/dependency-analyzer.jar \
   --output build/payment-runtime-dependencies
 ```
 
-默认scope为`compile,runtime,provided,test,system`。`--scopes`同时控制dependency tree、版本冲突与external/Reactor dependency冲突类扫描；当前Module的主类始终纳入。
+默认scope为`compile,runtime,provided,system`，不分析`test` dependency。需要恢复原行为时，在`--scopes`中显式加入`test`。`--scopes`同时控制dependency tree、版本冲突与external/Reactor dependency冲突类扫描；当前Module的主类始终纳入。Maven执行期间仍可能解析被过滤的`test` dependency，但它们不进入分析结果。
 
 ### 6.4 高级覆盖 Maven Dependency Plugin version
 
@@ -492,7 +493,7 @@ dependency-analyzer tree \
 | `-p` | `--path <dir>` | No | current directory | No | Git repository内、直接包含readable POM的Maven project目录。 |
 | `-r` | `--ref <local-ref>` | No | current checkout | No | 单个tree snapshot的local Git ref；同一relative path必须含POM。 |
 | `-o` | `--output <dir>` | Yes | — | No | Offline HTML report directory。 |
-| `-s` | `--scopes <csv>` | No | `compile,runtime,provided,test,system` | No | 纳入dependency tree、版本冲突和external/Reactor dependency冲突类扫描的scope。 |
+| `-s` | `--scopes <csv>` | No | `compile,runtime,provided,system` | No | 纳入dependency tree、版本冲突和external/Reactor dependency冲突类扫描的scope。 |
 | `-d` | `--dependency-plugin-version <version>` | No | 内嵌 `3.6.1` | No | Maven Dependency Plugin 高级 override。 |
 
 Global `--java-home` 对 `tree` 仅设置 Maven subprocess 的
@@ -680,7 +681,7 @@ Module status：
 Repository Index 展示：
 
 - repository/ref/commit/dirty、analysis path、Maven runtime、scope 和 Maven arguments。
-- Reactor、Module、Dependency、Internal conflict、Cross-module conflict、Class conflicts和High-risk class conflicts汇总。
+- Reactor、Module、Dependency、Internal conflict、Multi-version dependencies、Class conflicts和High-risk class conflicts汇总。
 - Command Preflight。
 - Reactor status 和已发布 page 链接。
 
@@ -688,14 +689,19 @@ Reactor page 展示：
 
 - Reactor与Module metadata；Analysis mode明确为`FULL_REACTOR`、`SINGLE_MODULE`或`STANDALONE`。
 - Reactor/Module issue。
-- Reactor-level Cross-module conflicts。
-- 每个Module的冲突类表：Class、Risk、Winner、Shadowed sources、Selection、Decompiled code。
-- 每个 Module 的 Internal conflicts。
-- Maven-style verbose dependency tree。
+- “跨模块依赖分析”展示全部selected和omitted dependency occurrence。固定列为Dependency、Scope、Module、Dependency chain、Original version、Resolved version。
+- Dependency和Module支持输入过滤的单选筛选，输入框右侧提供明确的展开按钮；Scope为精确筛选。全字段检索在六列中任一命中即可，四类条件按AND组合。
+- Dependency候选旁的红色数字徽标表示整个Reactor中该Dependency的distinct非空resolved version数量，包括值`1`。徽标同时提供可读文本，不只依赖颜色。
+- 全量依赖表支持六列排序与10/50/100分页。候选超过50时只显示前50项，并提示继续输入缩小范围。
+- Module分析位于一个完整card内；顶部选择Module后，下方同时切换coordinate、冲突类、Internal conflicts和Maven-style verbose dependency tree。
 
-冲突类表支持大小写不敏感检索、`LOW`/`HIGH` Risk filter、Class/Risk/Winner排序和10/50/100分页。点击“查看反编译代码”后Winner按钮默认active；切换Shadowed source后只有新按钮保持active，源码同步更新。Active状态使用持久`aria-pressed=true`样式，并保留键盘focus。Shard schema保持v1；同一时间最多展开一行。
+Dependency与Module筛选支持Enter选中、Escape关闭、Arrow Up/Down、Home和End导航；清空可选筛选恢复“全部”。Module初始选择第一个候选。切换Module时保留该Module的轻量筛选和分页状态；切回时恢复，但已展开源码不会恢复。
 
-报告完全离线，可直接通过`file://`打开；源码只通过文本节点渲染，不作为HTML执行。
+“跨模块依赖分析”的筛选区在宽屏采用双行紧凑布局：检索、Dependency和Module位于第一行，Scope、每页及操作按钮位于第二行。中等屏幕先将检索独占一行，小屏幕再按单列排列；控件不会随宽表被过度拉伸。
+
+冲突类与Internal conflicts同样只显示当前页，支持大小写不敏感检索、筛选、排序和10/50/100分页。点击“查看反编译代码”后Winner按钮默认active；切换Shadowed source后只有新按钮保持active，源码同步更新。Active状态使用持久`aria-pressed=true`样式，并保留键盘focus；同一时间最多展开一行。
+
+报告完全离线，可直接通过`file://`打开。dependency、Module内容、dependency tree和反编译源码按需加载，避免大型报告初次打开时一次性创建全部内容。文件缺失或损坏时页面显示Retry；恢复报告文件后可重试。空dependency、空Module、Module failure和JavaScript禁用均有明确提示。桌面和小屏幕的宽表只在表格区域内横向滚动。
 
 ### 8.4 tree status 与增量发布
 
@@ -810,7 +816,7 @@ Experimental `k-obj` 提供不同的 receiver context，但更高的 `k` 可能�
 
 ### 9.6 冲突类
 
-同一binary name在一个Module实际classpath中存在两个及以上定义时即为冲突类。全部candidate class bytes的SHA-256一致为`LOW`；存在两个不同摘要为`HIGH`。两种风险都展示，不因摘要一致而过滤。
+同一binary name在一个Module实际classpath中存在两个及以上定义时即为冲突类。`tree`对全部candidate完成反编译后，对仅规范化换行的完整文本执行`String.equals`精确比较，不额外忽略空白、comment或import差异：文本全部一致为`LOW`，至少两份不同为`HIGH`。任一candidate反编译失败、classpath binding缺失或证据不完整时，回退到class bytes的SHA-256判断：摘要全部一致为`LOW`，存在不同摘要为`HIGH`。两种风险都展示，不因内容一致而过滤冲突finding。
 
 Winner precedence固定为`PROJECT > REACTOR_DEPENDENCY > DEPENDENCY`，同一层按Maven classpath顺序。`tree`不扫描JDK；`impact`的JDK 8 scope保留更高的JDK parent precedence。该finding本身：
 
@@ -819,11 +825,11 @@ Winner precedence固定为`PROJECT > REACTOR_DEPENDENCY > DEPENDENCY`，同一�
 - 不改变 exit code。
 - shadowed changed definition不生成Affected Path；即使内容一致仍按`SHADOWED_BY_DUPLICATE`处理。
 
-`tree`扫描当前Module output、选中Reactor dependency output和`--scopes`纳入的external dependency。Multi-Release JAR按Maven JVM major只读取实际可见entry；`module-info.class`排除。`impact`的Class conflict resolution增加Risk列并采用同一分类。
+`tree`扫描当前Module output、选中Reactor dependency output和`--scopes`纳入的external dependency。Multi-Release JAR按Maven JVM major只读取实际可见entry；`module-info.class`排除。`impact`的Class conflict resolution仍始终按candidate class bytes的SHA-256分类，不使用`tree`的反编译文本优先规则。
 
 `tree`只执行`compile`，不会执行`test-compile`或`package`，因此不会生成`test-classes`或attached classifier artifact。只能由这些phase生成的Reactor classifier不会读取旧产物：Reactor标记为`DEGRADED`并在问题表记录classpath incomplete。反编译失败只显示`Unavailable`，不改变status或exit code。
 
-### 9.7 tree 的版本冲突口径
+### 9.7 tree 的版本与全量依赖口径
 
 Dependency identity 使用 Maven conflict key：
 
@@ -838,11 +844,14 @@ Internal conflict：
 - 至少存在两个不同 version source 才形成冲突。
 - `omitted for duplicate` 单独出现不等于版本冲突。
 
-Cross-module conflict：
+跨Module版本识别：
 
 - 只比较 selected occurrence。
-- 同一 conflict key 在同一 Reactor 的不同 Module 中 resolved 到不同 version 时成立。
-- 结果只进入 Reactor-level Cross-module conflicts，不复制到每个 Module。
+- 同一 conflict key 在整个 Reactor 中distinct、非空resolved version数量大于`1`时，计入`Multi-version dependencies`。
+- Dependency筛选候选旁的红色徽标显示该数量；值`1`同样显示，便于区分单版本与多版本。
+- Reactor汇总按DependencyKey去重计数；Module汇总只统计该Module中实际selected且Reactor级为多版本的DependencyKey。
+
+“跨模块依赖分析”不只展示版本问题，而是展示分析范围内全部selected与omitted occurrence，每条保留完整DependencyKey、effective Scope、Module coordinate、Dependency chain、requested original version和selected resolved version。相同DependencyKey、Module或chain不会合并。
 
 分析只覆盖实际进入 resolved dependency tree 的 dependency。不会列出未被使用的完整
 `dependencyManagement`、imported Bill of Materials（BOM，物料清单）、build/report Plugin、extension 或 Plugin dependency tree。

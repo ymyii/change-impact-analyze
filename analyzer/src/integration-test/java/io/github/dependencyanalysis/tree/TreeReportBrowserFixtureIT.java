@@ -28,6 +28,12 @@ class TreeReportBrowserFixtureIT {
     /** Conflicts required to exercise the default ten-row page. */
     private static final int CONFLICT_COUNT = 12;
 
+    /** Modules required to exercise a large searchable catalog. */
+    private static final int MODULE_COUNT = 101;
+
+    /** Dependency occurrences contributed by each Module. */
+    private static final int DEPENDENCIES_PER_MODULE = 26;
+
     @Test
     void publishesDeterministicOfflineTreeBrowserFixture() throws Exception {
         final Path projectRoot = Path.of(System.getProperty(
@@ -47,9 +53,15 @@ class TreeReportBrowserFixtureIT {
                     .endsWith(".html")).toList()).hasSize(1);
         }
         try (Stream<Path> files = Files.walk(reactors)) {
-            assertThat(files.filter(path -> path.getFileName().toString()
-                    .endsWith(".js")).count()).isEqualTo(
-                            CONFLICT_COUNT + 1L);
+            final List<String> names = files.filter(path -> path.getFileName()
+                            .toString().endsWith(".js"))
+                    .map(path -> path.getFileName().toString()).toList();
+            assertThat(names)
+                    .anyMatch(name -> name.startsWith("dependency-rows-"))
+                    .anyMatch(name -> name.startsWith("dependency-ranges-"))
+                    .anyMatch(name -> name.startsWith("class-conflicts-"))
+                    .anyMatch(name -> name.startsWith("class-sources-"))
+                    .anyMatch(name -> name.startsWith("dependency-trees-"));
         }
     }
 
@@ -58,24 +70,43 @@ class TreeReportBrowserFixtureIT {
         for (int index = 0; index < CONFLICT_COUNT; index++) {
             conflicts.add(conflict(index, projectRoot));
         }
-        final ModuleTreeResult application = new ModuleTreeResult(
-                Path.of("application/pom.xml"),
-                "io.browserfixture:application:1.0.0", List.of(),
-                true, "", ModuleAnalysisRole.REQUESTED)
-                .withClassAnalysis(conflicts, List.of());
-        final ModuleTreeResult library = new ModuleTreeResult(
-                Path.of("library/pom.xml"),
-                "io.browserfixture:library:1.0.0", List.of(),
-                true, "", ModuleAnalysisRole.DEPENDENCY)
-                .withClassAnalysis(List.of(conflict(
+        final List<ModuleTreeResult> modules = new ArrayList<>();
+        for (int moduleIndex = 0; moduleIndex < MODULE_COUNT; moduleIndex++) {
+            final String name = moduleIndex == 0 ? "application"
+                    : moduleIndex == 1 ? "library"
+                    : String.format("module-%03d", moduleIndex);
+            final String coordinate = "io.browserfixture:" + name + ":1.0.0";
+            final List<DependencyOccurrence> occurrences =
+                    new ArrayList<>();
+            for (int dependencyIndex = 0;
+                 dependencyIndex < DEPENDENCIES_PER_MODULE;
+                 dependencyIndex++) {
+                occurrences.add(occurrence(moduleIndex,
+                        dependencyIndex, coordinate));
+            }
+            ModuleTreeResult module = new ModuleTreeResult(
+                    Path.of(name, "pom.xml"), coordinate, occurrences,
+                    true, "", moduleIndex == 0
+                    ? ModuleAnalysisRole.REQUESTED
+                    : ModuleAnalysisRole.DEPENDENCY);
+            if (moduleIndex == 0) {
+                module = module.withClassAnalysis(conflicts, List.of());
+            } else if (moduleIndex == 1) {
+                module = module.withClassAnalysis(List.of(conflict(
                         CONFLICT_COUNT, projectRoot)), List.of());
+            }
+            modules.add(module);
+        }
+        final List<Path> reactorPoms = new ArrayList<>();
+        reactorPoms.add(Path.of("pom.xml"));
+        modules.stream().map(ModuleTreeResult::getPom)
+                .forEach(reactorPoms::add);
         final ReactorDescriptor descriptor = new ReactorDescriptor(
                 Path.of("pom.xml"), "io.browserfixture:root:1.0.0",
-                List.of(Path.of("pom.xml"), Path.of("application/pom.xml"),
-                        Path.of("library/pom.xml")),
+                reactorPoms,
                 List.of(Path.of("application/pom.xml")), List.of());
         final ReactorTreeResult reactor = new ReactorTreeResult(
-                descriptor, List.of(application, library),
+                descriptor, modules,
                 ReactorStatus.SUCCESS, "");
         final RepositorySnapshot snapshot = new RepositorySnapshot(
                 projectRoot, projectRoot, "current checkout", "fixture",
@@ -88,6 +119,35 @@ class TreeReportBrowserFixtureIT {
                         "collect-classpath-evidence"),
                 Set.of("compile", "runtime"),
                 new PreflightReport(List.of()), List.of(reactor));
+    }
+
+    private DependencyOccurrence occurrence(
+            final int moduleIndex,
+            final int dependencyIndex,
+            final String moduleCoordinate) {
+        final int artifactIndex = (moduleIndex + dependencyIndex) % 75;
+        final String artifact = String.format(
+                "dependency-%03d", artifactIndex);
+        final DependencyKey key = new DependencyKey(
+                "org.browserfixture", artifact, "jar", "");
+        final boolean selected = dependencyIndex
+                != DEPENDENCIES_PER_MODULE - 1;
+        final String requestedVersion = selected ? "1.0.0" : "0.9.0";
+        final String resolvedVersion = moduleIndex % 2 == 0
+                ? "1.0.0" : "2.0.0";
+        final String scope = dependencyIndex % 3 == 0
+                ? "runtime" : dependencyIndex % 3 == 1
+                ? "test" : "compile";
+        return new DependencyOccurrence(key,
+                new OccurrenceVersions(requestedVersion, "",
+                        requestedVersion, resolvedVersion),
+                new OccurrenceScopes(scope, ""), null,
+                new OccurrenceSelection(selected,
+                        selected ? "" : "conflict"),
+                List.of(moduleCoordinate,
+                        "org.browserfixture:middle:jar:1.0.0",
+                        "org.browserfixture:" + artifact
+                                + ":jar:" + requestedVersion), false);
     }
 
     private TreeClassConflict conflict(

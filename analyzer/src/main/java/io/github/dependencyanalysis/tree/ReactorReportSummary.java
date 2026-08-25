@@ -29,8 +29,8 @@ public final class ReactorReportSummary {
     /** Internal module conflict count. */
     private final long internalConflictCount;
 
-    /** Cross-module conflict count. */
-    private final long crossModuleConflictCount;
+    /** Dependency keys with multiple selected resolved versions. */
+    private final long multiVersionDependencyCount;
 
     /** Module-class conflict relation count. */
     private final long classConflictCount;
@@ -40,7 +40,8 @@ public final class ReactorReportSummary {
 
     private ReactorReportSummary(
             final String pageFilename,
-            final ReactorTreeResult result) {
+            final ReactorTreeResult result,
+            final long multiVersionDependencies) {
         filename = pageFilename;
         id = result.getReactor().getId();
         coordinate = result.getReactor().getCoordinate();
@@ -53,8 +54,7 @@ public final class ReactorReportSummary {
         internalConflictCount = result.getModules().stream()
                 .mapToLong(item -> new ModuleVersionAnalyzer()
                         .analyze(item).size()).sum();
-        crossModuleConflictCount = new CrossModuleVersionAnalyzer()
-                .analyze(result).size();
+        multiVersionDependencyCount = multiVersionDependencies;
         classConflictCount = result.getModules().stream().mapToLong(
                 value -> value.getClassConflicts().size()).sum();
         highRiskClassConflictCount = result.getModules().stream()
@@ -68,13 +68,15 @@ public final class ReactorReportSummary {
      *
      * @param pageFilename filename
      * @param result reactor result
+     * @param multiVersionDependencies multi-version dependency count
      * @return lightweight summary
      */
     static ReactorReportSummary from(
             final String pageFilename,
-            final ReactorTreeResult result) {
+            final ReactorTreeResult result,
+            final long multiVersionDependencies) {
         return new ReactorReportSummary(pageFilename,
-                result);
+                result, multiVersionDependencies);
     }
 
     /** @return filename */
@@ -117,9 +119,9 @@ public final class ReactorReportSummary {
         return internalConflictCount;
     }
 
-    /** @return cross-module conflict count */
-    public long getCrossModuleConflictCount() {
-        return crossModuleConflictCount;
+    /** @return multi-version dependency count */
+    public long getMultiVersionDependencyCount() {
+        return multiVersionDependencyCount;
     }
 
     /** @return Module-class conflict relation count */

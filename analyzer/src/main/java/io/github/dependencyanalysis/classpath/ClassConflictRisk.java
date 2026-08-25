@@ -1,11 +1,11 @@
 package io.github.dependencyanalysis.classpath;
 
-/** Risk of one duplicate binary class name. */
+/** Risk of one duplicate binary class name under selected evidence. */
 public enum ClassConflictRisk {
 
-    /** Every candidate has identical class bytes. */
+    /** Every compared candidate representation is identical. */
     LOW,
 
-    /** At least two candidates have different class bytes. */
+    /** At least two compared candidate representations are different. */
     HIGH
 }

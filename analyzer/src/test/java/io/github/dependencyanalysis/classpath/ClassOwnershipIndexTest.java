@@ -59,6 +59,8 @@ class ClassOwnershipIndexTest {
                             .isEqualTo("sample/Duplicate");
                     assertThat(resolution.getWinner().getOrigin())
                             .isEqualTo(CodeOrigin.PROJECT);
+                    assertThat(resolution.getRisk())
+                            .isEqualTo(ClassConflictRisk.HIGH);
                     assertThat(resolution.getLosers()).singleElement()
                             .extracting(ClassOwnership::getSource)
                             .isEqualTo(ClassSource.path(second));

@@ -1,7 +1,5 @@
 package io.github.dependencyanalysis.tree;
 
-import io.github.dependencyanalysis.reactor.ReactorDescriptor;
-
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -169,87 +167,6 @@ class VersionAnalyzersTest {
     }
 
     @Test
-    void reportsSelectedCrossModuleDivergence() {
-        final DependencyKey key = new DependencyKey(
-                "g", "a", "jar", "");
-        final ReactorDescriptor descriptor =
-                new ReactorDescriptor(Path.of("pom.xml"),
-                        "g:r:1", List.of(
-                        Path.of("pom.xml")), List.of());
-        final ReactorTreeResult reactor =
-                new ReactorTreeResult(descriptor,
-                        List.of(module("one",
-                                        occurrence(key, "1", "1",
-                                                true,
-                                                List.of("one", "a"))),
-                                module("two",
-                                        occurrence(key, "2", "2",
-                                                true,
-                                                List.of("two", "a")))),
-                        ReactorStatus.SUCCESS, "");
-
-        assertThat(new CrossModuleVersionAnalyzer()
-                .analyze(reactor)).singleElement()
-                .satisfies(issue -> assertThat(
-                        issue.getVersions()).hasSize(2));
-    }
-
-    @Test
-    void crossModuleIssueRetainsAllPathAndManagementEvidence() {
-        final DependencyKey key = new DependencyKey(
-                "g", "managed", "jar", "");
-        final ReactorDescriptor descriptor =
-                new ReactorDescriptor(Path.of("pom.xml"),
-                        "g:r:1", List.of(
-                        Path.of("pom.xml")), List.of());
-        final ModuleTreeResult one = module("one",
-                occurrence(key, "1", "2", "1", "2",
-                        true, List.of("one", "managed")),
-                occurrenceWithScope(key, "3", "3", "2",
-                        false, List.of("one", "other"),
-                        "runtime"));
-        final ModuleTreeResult two = module("two",
-                occurrence(key, "4", "4", true,
-                        List.of("two", "direct")));
-        final ReactorTreeResult reactor =
-                new ReactorTreeResult(descriptor,
-                        List.of(one, two),
-                        ReactorStatus.SUCCESS, "");
-
-        assertThat(new CrossModuleVersionAnalyzer()
-                .analyze(reactor)).singleElement()
-                .satisfies(issue -> {
-                    assertThat(issue.getVersions())
-                            .extracting(CrossModuleVersion::getVersion)
-                            .containsExactly("2", "4");
-                    final CrossModuleVersion first =
-                            issue.getVersions().get(0);
-                    assertThat(first.getPaths())
-                            .extracting(VersionPath::getPath)
-                            .containsExactly(
-                                    List.of("one", "managed"),
-                                    List.of("one", "other"));
-                    assertThat(first.getPaths().get(0)
-                            .getEvidence())
-                            .extracting(VersionEvidence::getSource)
-                            .containsExactly(
-                                    VersionEvidenceSource
-                                            .DEPENDENCY_PATH,
-                                    VersionEvidenceSource
-                                            .DEPENDENCY_MANAGEMENT);
-                    assertThat(first.getPaths())
-                            .extracting(
-                                    VersionPath::getResolvedVersion,
-                                    VersionPath::getScope)
-                            .containsExactly(
-                                    org.assertj.core.groups.Tuple
-                                            .tuple("2", "compile"),
-                                    org.assertj.core.groups.Tuple
-                                            .tuple("2", "runtime"));
-                });
-    }
-
-    @Test
     void externalGroupingSpillsAndMergesWithBoundedFanIn()
             throws Exception {
         final List<DependencyOccurrence> occurrences = new ArrayList<>();
@@ -333,21 +250,4 @@ class VersionAnalyzersTest {
                 path, false);
     }
 
-    private DependencyOccurrence occurrenceWithScope(
-            final DependencyKey key,
-            final String requested,
-            final String effective,
-            final String selectedVersion,
-            final boolean selected,
-            final List<String> path,
-            final String scope) {
-        return new DependencyOccurrence(
-                key, new OccurrenceVersions(
-                requested, "", effective,
-                selectedVersion),
-                new OccurrenceScopes(scope, ""),
-                null, new OccurrenceSelection(
-                selected, selected ? "" : "conflict"),
-                path, false);
-    }
 }
