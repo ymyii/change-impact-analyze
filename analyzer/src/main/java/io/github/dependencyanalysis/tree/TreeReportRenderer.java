@@ -63,7 +63,6 @@ public final class TreeReportRenderer {
             pre.dependency-tree{margin:10px 0 0;padding:14px;overflow:auto;
             border:1px solid var(--line);border-radius:6px;background:#f8f9fc;
             font:13px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace}
-            .evidence-table th,.evidence-table td{padding:5px;font-size:12px}
             .controls{display:flex;gap:8px;align-items:center;
             flex-wrap:wrap;margin:12px 0}
             input,select,button{padding:7px;border:1px solid var(--line);
@@ -88,7 +87,7 @@ public final class TreeReportRenderer {
             outline-offset:2px}
             .table-scroll{overflow-x:auto;border:1px solid var(--line);
             border-radius:8px;min-width:0;max-width:100%}
-            .table-scroll table{margin:0;min-width:980px}
+            .table-scroll table{margin:0;min-width:1180px}
             .report-control{display:grid;gap:4px;min-width:150px;
             max-width:100%}
             .report-control.grow{flex:1 1 240px}.report-control input,
@@ -127,14 +126,28 @@ public final class TreeReportRenderer {
             #1018281f}.combobox-options li{display:flex;align-items:center;
             justify-content:space-between;gap:8px;padding:7px;border-radius:6px;
             cursor:pointer;overflow-wrap:anywhere}.combobox-options li[aria-selected=true]{
-            background:#eef4ff;color:#175cd3}.version-count{display:inline-flex;
+            background:#eef4ff;color:#175cd3}.combobox-option-label{min-width:0;
+            overflow-wrap:anywhere}.version-counts{display:inline-flex;gap:5px;
+            align-items:center;flex:none}.version-count{display:inline-flex;
             align-items:center;justify-content:center;min-width:22px;height:22px;
             padding:0 5px;border-radius:999px;background:#b42318;color:#fff;
-            font-size:11px;font-weight:700;flex:none}.candidate-status{margin:4px 0 0}
+            font-size:11px;font-weight:700;flex:none}.unique-version-count{
+            display:inline-flex;align-items:center;justify-content:center;
+            min-height:22px;padding:1px 7px;border:1px solid #98a2b3;
+            border-radius:999px;background:#f2f4f7;color:#344054;
+            font-size:11px;font-weight:600;white-space:nowrap}.candidate-status{
+            margin:4px 0 0}.resolution-cell{min-width:230px}.resolution-source{
+            display:inline-flex;padding:2px 7px;border-radius:999px;
+            background:#eef4ff;color:#175cd3;font-weight:600}
+            .resolution-detail{display:block;margin-top:5px;color:var(--muted);
+            overflow-wrap:anywhere}.module-dependency-filter-primary{
+            grid-template-columns:minmax(180px,280px) minmax(260px,420px)}
             .module-analysis-card{overflow:visible}
             .module-selector-control{width:min(720px,100%);min-width:0}
             .module-panel{margin-top:14px;min-width:0;max-width:100%}
-            .module-panel>.card{overflow-x:auto}.error{color:var(--fail)}
+            .module-panel>.card{overflow-x:auto}
+            .module-panel>.card[data-internal-component]{overflow:visible}
+            .error{color:var(--fail)}
             button:focus-visible,input:focus-visible,select:focus-visible,
             a:focus-visible{outline:3px solid #84adff;outline-offset:2px}
             @media(max-width:1100px){.dependency-filter-primary{
@@ -158,117 +171,6 @@ public final class TreeReportRenderer {
     /** Tree Reactor dynamic report behavior. */
     private static final String TREE_JAVASCRIPT = resource(
             "/io/github/dependencyanalysis/tree/tree-report.js");
-
-    /** Local report interaction script. */
-    private static final String JAVASCRIPT = """
-            (()=>{let active=null;let retained=null;const pending=new Map();
-            window.__ciaClassConflictPayload=data=>{const accept=pending.get(
-            data&&data.id);if(accept){pending.delete(data.id);accept(data);}};
-            const closeCode=()=>{if(!active)return;active.button.setAttribute(
-            'aria-expanded','false');active.detail.remove();active.script?.remove();
-            pending.delete(active.id);active=null;retained=null;};
-            const showFailure=(panel,file,retry)=>{panel.textContent='';const text=
-            document.createElement('p');text.textContent=`Unable to load ${file}`;
-            const button=document.createElement('button');button.type='button';
-            button.textContent='Retry';button.onclick=retry;panel.append(text,button);};
-            const showCandidate=(panel,data,index)=>{panel.textContent='';const nav=
-            document.createElement('div');nav.className='source-switches';const pre=
-            document.createElement('pre');const buttons=[];const select=selected=>{
-            buttons.forEach((button,i)=>button.setAttribute('aria-pressed',String(
-            i===selected)));const candidate=data.candidates[selected];pre.textContent=
-            candidate.available?candidate.sourceCode:'Unavailable';};data.candidates
-            .forEach((candidate,i)=>{
-            const button=document.createElement('button');button.type='button';
-            button.textContent=(candidate.winner?'Winner — ':'Shadowed — ')+
-            candidate.source;button.onclick=()=>select(i);buttons.push(button);
-            nav.append(button);});panel.append(nav,pre);select(index);};
-            const openCode=row=>{closeCode();const button=row.querySelector(
-            '[data-view-class-code]');const detail=document.createElement('tr');
-            detail.className='class-code-row';const cell=document.createElement('td');
-            cell.colSpan=6;const panel=document.createElement('div');
-            panel.className='class-code-panel';panel.setAttribute('role','status');
-            panel.textContent='Loading…';cell.append(panel);detail.append(cell);
-            row.after(detail);button.setAttribute('aria-expanded','true');const id=
-            row.dataset.payloadId;active={button,detail,id,script:null};const load=()=>{
-            panel.textContent='Loading…';const script=document.createElement('script');
-            active.script=script;script.onerror=()=>{script.remove();pending.delete(id);
-            showFailure(panel,row.dataset.shard,load);};pending.set(id,data=>{
-            script.remove();if(!active||active.id!==id)return;if(!data||
-            data.schemaVersion!==1||!Array.isArray(data.candidates)){
-            showFailure(panel,row.dataset.shard,load);return;}retained=data;
-            const winner=Math.max(0,data.candidates.findIndex(value=>value.winner));
-            showCandidate(panel,data,winner);});script.src=row.dataset.shard;
-            document.head.append(script);};load();};
-            document.querySelectorAll('[data-class-conflict-component]')
-            .forEach(component=>{const table=component.querySelector(
-            '[data-class-conflicts]');const body=table.tBodies[0];const rows=[...body
-            .querySelectorAll('[data-class-conflict-row]')];if(!rows.length)return;
-            const search=component.querySelector('[data-class-search]');const risk=
-            component.querySelector('[data-risk-filter]');const size=component
-            .querySelector('[data-class-page-size]');const previous=component
-            .querySelector('[data-class-previous]');const next=component.querySelector(
-            '[data-class-next]');const position=component.querySelector(
-            '[data-class-position]');let page=0;let sort='riskOrder';let direction=1;
-            const value=(row,key)=>row.dataset[key]||'';const render=()=>{closeCode();
-            const query=search.value.trim().toLowerCase();const filtered=rows.filter(
-            row=>(!query||value(row,'classConflictText').includes(query))&&(!risk.value||
-            value(row,'risk')===risk.value));filtered.sort((left,right)=>{const primary=
-            value(left,sort).localeCompare(value(right,sort));return direction*(primary||
-            value(left,'class').localeCompare(value(right,'class')));});rows.forEach(row=>
-            row.classList.add('hidden'));filtered.forEach(row=>body.append(row));const count=
-            Number(size.value);const pages=Math.max(1,Math.ceil(filtered.length/count));
-            page=Math.min(page,pages-1);const start=page*count;const end=Math.min(start+
-            count,filtered.length);filtered.slice(start,end).forEach(row=>row.classList
-            .remove('hidden'));position.textContent=filtered.length?`${start+1}-${end} / ${
-            filtered.length}`:'0 / 0';previous.disabled=page===0;next.disabled=page>=pages-1;};
-            [search,risk,size].forEach(control=>control.addEventListener(control===search?
-            'input':'change',()=>{page=0;render();}));previous.onclick=()=>{page--;render();};
-            next.onclick=()=>{page++;render();};component.querySelectorAll(
-            '[data-class-sort]').forEach(button=>button.onclick=()=>{const key=button
-            .dataset.classSort;direction=sort===key?-direction:1;sort=key;page=0;render();});
-            rows.forEach(row=>row.querySelector('[data-view-class-code]').onclick=()=>{
-            if(active&&active.button===row.querySelector('[data-view-class-code]'))
-            closeCode();else openCode(row);});render();});
-            document.querySelectorAll('[data-conflict-component]').forEach(component=>{
-            const table=component.querySelector('[data-conflicts]');if(!table)return;const
-            body=table.tBodies[0];const rows=[...body.children].filter(row=>row.tagName===
-            'TR');if(!rows.length)return;const search=component.querySelector(
-            '[data-conflict-search]');const module=component.querySelector(
-            '[data-conflict-module]');const scope=component.querySelector(
-            '[data-conflict-scope]');const size=component.querySelector('[data-page-size]');
-            const previous=component.querySelector('[data-page-previous]');const next=
-            component.querySelector('[data-page-next]');const position=component
-            .querySelector('[data-page-position]');let page=0;let sort=table.dataset
-            .defaultSort;let direction=1;const value=(row,key)=>row.dataset[key]||'';
-            const render=()=>{const query=search.value.trim().toLowerCase();const filtered=
-            rows.filter(row=>(!query||value(row,'conflictText').includes(query))&&(!module||
-            !module.value||value(row,'modules').split('|').includes(module.value))&&(!scope||
-            !scope.value||value(row,'scopes').split('|').includes(scope.value)));filtered
-            .sort((left,right)=>direction*value(left,sort).localeCompare(value(right,sort)));
-            rows.forEach(row=>row.classList.add('hidden'));filtered.forEach(row=>body.append(
-            row));const count=Number(size.value);const pages=Math.max(1,Math.ceil(filtered
-            .length/count));page=Math.min(page,pages-1);const start=page*count;const end=Math
-            .min(start+count,filtered.length);filtered.slice(start,end).forEach(row=>row
-            .classList.remove('hidden'));position.textContent=filtered.length?`${start+1}-${
-            end} / ${filtered.length}`:'0 / 0';previous.disabled=page===0;next.disabled=page>=
-            pages-1;};[search,module,scope,size].filter(Boolean).forEach(control=>control
-            .addEventListener(control===search?'input':'change',()=>{page=0;render();}));
-            previous.onclick=()=>{page--;render();};next.onclick=()=>{page++;render();};
-            component.querySelectorAll('[data-conflict-sort]').forEach(button=>button
-            .onclick=()=>{const key=button.dataset.conflictSort;direction=sort===key?
-            -direction:1;sort=key;page=0;render();});render();});
-            document.querySelectorAll('[data-module-tabs]').forEach(tabs=>{const buttons=
-            [...tabs.querySelectorAll('[role=tab]')];const activate=(button,focus)=>{
-            closeCode();buttons.forEach(candidate=>{const selected=candidate===button;
-            candidate.setAttribute('aria-selected',String(selected));candidate.tabIndex=
-            selected?0:-1;tabs.querySelector('#'+candidate.getAttribute('aria-controls'))
-            .hidden=!selected;});if(focus)button.focus();};buttons.forEach((button,index)=>{
-            button.onclick=()=>activate(button,false);button.onkeydown=event=>{let target=
-            index;if(event.key==='ArrowRight')target=(index+1)%buttons.length;else if(event
-            .key==='ArrowLeft')target=(index-1+buttons.length)%buttons.length;else if(event
-            .key==='Home')target=0;else if(event.key==='End')target=buttons.length-1;else
-            return;event.preventDefault();activate(buttons[target],true);};});});})();
-            """;
 
     /** File move operation, injectable for rollback tests. */
     private final MoveOperation moveOperation;
@@ -642,7 +544,7 @@ public final class TreeReportRenderer {
         final long highRisk = highRiskClassConflictCount(reactor);
         final long internalConflictCount = data.manifest().modules().stream()
                 .mapToLong(TreeReportManifest.ModuleDescriptor
-                        ::internalCount).sum();
+                        ::internalConflictCount).sum();
         value.append("<section class=\"card\">")
                 .append("<h2>Reactor metadata</h2><table>")
                 .append("<thead><tr><th>Coordinate</th>")
@@ -704,7 +606,7 @@ public final class TreeReportRenderer {
                     .append(status).append("</td><td>")
                     .append(module.getOccurrences().size())
                     .append("</td><td>")
-                    .append(descriptor.internalCount())
+                    .append(descriptor.internalConflictCount())
                     .append("</td><td>")
                     .append(descriptor.multiVersionDependencies())
                     .append("</td><td>")
@@ -761,6 +663,8 @@ public final class TreeReportRenderer {
                 .append(dynamicHeader("Dependency chain", "chain"))
                 .append(dynamicHeader("Original version", "originalVersion"))
                 .append(dynamicHeader("Resolved version", "resolvedVersion"))
+                .append(dynamicHeader("Resolution source",
+                        "resolutionSource"))
                 .append("</tr></thead><tbody id=\"dependency-rows\">")
                 .append("</tbody></table></div>")
                 .append("<div class=\"controls\"><span class=\"pager\">")

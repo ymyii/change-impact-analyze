@@ -59,9 +59,13 @@ class TreeReportBrowserFixtureIT {
             assertThat(names)
                     .anyMatch(name -> name.startsWith("dependency-rows-"))
                     .anyMatch(name -> name.startsWith("dependency-ranges-"))
+                    .anyMatch(name -> name.startsWith(
+                            "module-dependency-catalog-"))
                     .anyMatch(name -> name.startsWith("class-conflicts-"))
                     .anyMatch(name -> name.startsWith("class-sources-"))
                     .anyMatch(name -> name.startsWith("dependency-trees-"));
+            assertThat(names).noneMatch(name ->
+                    name.startsWith("internal-conflicts-"));
         }
     }
 
@@ -135,12 +139,15 @@ class TreeReportBrowserFixtureIT {
         final String requestedVersion = selected ? "1.0.0" : "0.9.0";
         final String resolvedVersion = moduleIndex % 2 == 0
                 ? "1.0.0" : "2.0.0";
+        final boolean managed = dependencyIndex == 0;
         final String scope = dependencyIndex % 3 == 0
                 ? "runtime" : dependencyIndex % 3 == 1
                 ? "test" : "compile";
         return new DependencyOccurrence(key,
-                new OccurrenceVersions(requestedVersion, "",
-                        requestedVersion, resolvedVersion),
+                new OccurrenceVersions(managed ? "0.8.0" : requestedVersion,
+                        managed ? "0.8.0" : "",
+                        managed ? resolvedVersion : requestedVersion,
+                        resolvedVersion),
                 new OccurrenceScopes(scope, ""), null,
                 new OccurrenceSelection(selected,
                         selected ? "" : "conflict"),

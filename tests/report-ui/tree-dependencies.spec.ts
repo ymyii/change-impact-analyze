@@ -20,13 +20,17 @@ test("renders only current pages and combines searchable exact filters",
         await openTree(page, report);
         await expect(page.locator("#dependency-rows > tr")).toHaveCount(10);
         await expect(page.locator("[data-class-conflict-row]")).toHaveCount(10);
+        await expect(page.locator("[data-module-dependency-row]"))
+            .toHaveCount(10);
         expect(requests).toContain("dependency-rows-00000.js");
         expect(requests).toContain("class-conflicts-00000.js");
         expect(requests).toContain("dependency-trees-00000.js");
+        expect(requests.some(name => name.startsWith(
+            "module-dependency-catalog-"))).toBe(true);
         expect(requests.some(name => name.startsWith("dependency-index-")))
             .toBe(false);
         expect(requests).not.toContain("dependency-trees-00001.js");
-        await expect(page.locator(".combobox-toggle")).toHaveCount(3);
+        await expect(page.locator(".combobox-toggle")).toHaveCount(4);
 
         const dependency = page.locator(
             '[data-combobox="dependency-filter"] input');
@@ -60,6 +64,11 @@ test("renders only current pages and combines searchable exact filters",
         await expect(option.locator(".version-count")).toHaveText("2");
         await expect(option.locator(".version-count"))
             .toHaveAttribute("aria-label", "2 resolved versions");
+        await expect(option.locator(".unique-version-count"))
+            .toHaveText("4 unique");
+        await expect(option.locator(".unique-version-count"))
+            .toHaveAttribute("aria-label",
+                "4 unique original/resolved versions");
         await dependency.press("Enter");
         await expect(page.locator("#dependency-result-summary"))
             .toContainText(/Showing 1–10 of \d+/);
@@ -82,6 +91,33 @@ test("renders only current pages and combines searchable exact filters",
         await expect(filteredRow)
             .toContainText("io.browserfixture:application:1.0.0");
         await expect(filteredRow).toContainText("0.9.0");
+        await expect(filteredRow).toContainText("Conflict mediation");
+
+        const internal = page.locator("[data-internal-component]");
+        const internalDependency = internal.locator(
+            '[data-combobox="module-dependency-filter"] input');
+        await internalDependency.fill(
+            "org.browserfixture:dependency-025:jar:");
+        const internalOption = internal.locator("[role=option]").first();
+        await expect(internalOption.locator(".version-count"))
+            .toHaveText("0");
+        await expect(internalOption.locator(".unique-version-count"))
+            .toHaveText("2 unique");
+        await internalDependency.press("Enter");
+        await expect(internal.locator("[data-internal-position]"))
+            .toContainText("1-1 / 1");
+        await expect(internal.locator("[data-module-dependency-row]"))
+            .toContainText("Conflict mediation");
+        await internal.locator("[data-internal-clear]").click();
+        await internal.locator("[data-internal-search]")
+            .fill("Dependency management");
+        await internal.locator("form").evaluate(form =>
+            (form as HTMLFormElement).requestSubmit());
+        await expect(internal.locator("[data-internal-position]"))
+            .toContainText("1-1 / 1");
+        await internal.locator("[data-internal-sort=resolutionSource]")
+            .click();
+        await internal.locator("[data-internal-clear]").click();
 
         await page.locator("#dependency-clear").click();
         await expect(page.locator("#dependency-position"))
@@ -89,6 +125,8 @@ test("renders only current pages and combines searchable exact filters",
         await page.locator("[data-dependency-sort=resolvedVersion]").click();
         await expect(page.locator("#dependency-result-summary"))
             .toContainText("Showing 1–10 of 2626");
+        await page.locator("[data-dependency-sort=resolutionSource]")
+            .click();
         expect(requests.filter(name => name
             .startsWith("dependency-index-"))).toHaveLength(3);
         expect(diagnostics.pageErrors).toEqual([]);
@@ -119,12 +157,21 @@ test("keeps the dependency filters compact across responsive breakpoints",
                 module: rect("#dependency-module-filter-input"),
                 secondary: rect(".dependency-filter-secondary"),
                 moduleSelector: rect(".module-selector-control"),
-                table: rect("#dependency-analysis .table-scroll")
+                table: rect("#dependency-analysis .table-scroll"),
+                internalPrimary: rect(
+                    ".module-dependency-filter-primary"),
+                internalSearch: rect("[data-internal-search]"),
+                internalDependency: rect(
+                    "#module-dependency-filter-input"),
+                internalTable: rect(
+                    "[data-internal-component] .table-scroll")
             };
         });
 
         await page.setViewportSize({width: 1920, height: 1080});
         await openTree(page, report);
+        await expect(page.locator("[data-module-dependency-row]"))
+            .toHaveCount(10);
         const wide = await readLayout();
         expect(wide.documentWidth).toBeLessThanOrEqual(wide.viewport);
         expect(wide.card.right).toBeLessThanOrEqual(wide.viewport);
@@ -138,6 +185,11 @@ test("keeps the dependency filters compact across responsive breakpoints",
         expect(wide.secondary.top).toBeGreaterThan(wide.primary.bottom);
         expect(wide.moduleSelector.width).toBeLessThanOrEqual(721);
         expect(wide.table.right).toBeLessThanOrEqual(wide.viewport);
+        expect(wide.internalSearch.width).toBeLessThanOrEqual(281);
+        expect(wide.internalDependency.width).toBeLessThanOrEqual(421);
+        expect(Math.abs(wide.internalSearch.top
+            - wide.internalDependency.top)).toBeLessThanOrEqual(1);
+        expect(wide.internalTable.right).toBeLessThanOrEqual(wide.viewport);
 
         await page.setViewportSize({width: 900, height: 900});
         const medium = await readLayout();
@@ -146,6 +198,8 @@ test("keeps the dependency filters compact across responsive breakpoints",
         expect(Math.abs(medium.dependency.top - medium.module.top))
             .toBeLessThanOrEqual(1);
         expect(medium.secondary.top).toBeGreaterThan(medium.primary.bottom);
+        expect(medium.internalDependency.top)
+            .toBeGreaterThan(medium.internalSearch.bottom);
 
         await page.setViewportSize({width: 390, height: 844});
         const small = await readLayout();
@@ -154,6 +208,9 @@ test("keeps the dependency filters compact across responsive breakpoints",
         expect(small.module.top).toBeGreaterThan(small.dependency.bottom);
         expect(small.secondary.top).toBeGreaterThan(small.primary.bottom);
         expect(small.table.right).toBeLessThanOrEqual(small.viewport);
+        expect(small.internalDependency.top)
+            .toBeGreaterThan(small.internalSearch.bottom);
+        expect(small.internalTable.right).toBeLessThanOrEqual(small.viewport);
     });
 
 test("switches one Module card, restores light state, and ignores stale loads",
@@ -179,6 +236,12 @@ test("switches one Module card, restores light state, and ignores stale loads",
         await page.locator("[data-class-search]").fill("conflict11");
         await expect(page.locator("[data-class-position]"))
             .toContainText("1-1 / 1");
+        await page.locator("[data-internal-search]")
+            .fill("Dependency management");
+        await page.locator("[data-internal-component] form").evaluate(form =>
+            (form as HTMLFormElement).requestSubmit());
+        await expect(page.locator("[data-internal-position]"))
+            .toContainText("1-1 / 1");
 
         await selector.fill("io.browserfixture:module-100:1.0.0");
         await selector.press("Enter");
@@ -196,8 +259,37 @@ test("switches one Module card, restores light state, and ignores stale loads",
             .toHaveValue("conflict11");
         await expect(page.locator("[data-class-position]"))
             .toContainText("1-1 / 1");
+        await expect(page.locator("[data-internal-search]"))
+            .toHaveValue("Dependency management");
+        await expect(page.locator("[data-internal-position]"))
+            .toContainText("1-1 / 1");
         await expect(page.locator("#module-panel > h3"))
             .toHaveCount(1);
+    });
+
+test("retries a corrupt Module Dependency catalog independently",
+    async ({page, report}) => {
+        const entries = await readdir(report.treeShardDirectory);
+        const shard = entries.find(name => name
+            .startsWith("module-dependency-catalog-00000"));
+        expect(shard).toBeDefined();
+        const shardPath = resolve(report.treeShardDirectory, shard!);
+        const backup = resolve(report.root, "module-catalog-backup.js");
+        await copyFile(shardPath, backup);
+        await writeFile(shardPath,
+            "window.__CIA_TREE_REPORT_SHARD__({schemaVersion:99,"
+            + "kind:'module-dependency-catalog',shardId:0,records:[]});");
+
+        await page.goto(report.treeUrl);
+        await expect(page.locator("#dependency-position"))
+            .toContainText("1-10 / 2626");
+        const internal = page.locator("[data-internal-component]");
+        await expect(internal).toContainText("Invalid");
+        await expect(page.locator("#dependency-rows > tr")).toHaveCount(10);
+        await writeFile(shardPath, await readFile(backup));
+        await internal.getByRole("button", {name: "Retry"}).click();
+        await expect(internal.locator("[data-module-dependency-row]"))
+            .toHaveCount(10);
     });
 
 test("retries a corrupt dependency shard without executing report data",

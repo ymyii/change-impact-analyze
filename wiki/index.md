@@ -26,7 +26,7 @@ code_refs: []
 - Summary: 用户或内嵌Maven、双repository ZIP、command-scoped settings overlay，以及与实际Maven JVM/settings一致的profile activation。
 
 ### [Repository Dependency Tree Report](features/repository-dependency-tree-report.md)
-- Summary: 单入口Maven evidence生成Tree Schema v1；全量dependency occurrence、带展开标志的响应式筛选与唯一活动Module card通过本地shard按需渲染。
+- Summary: 单入口Maven evidence生成Tree Schema v2；Reactor/Module全量dependency occurrence、双版本徽标与Resolution source通过本地shard按需渲染。
 
 ### [Git Workspace Management](features/git-workspace-management.md)
 - Summary: `impact`/`tree`保持Git-relative入口POM路径，使用UUID workspace/tmp、owner lock、stale recovery与detached worktree cleanup。
@@ -56,7 +56,7 @@ code_refs: []
 - Summary: ChangePoint收集期固定执行decompiled Java first、normalized SSA on miss的短路过滤；下游仅消费effective ChangePoint，CHA query按caller-local事实生成确定性代表路径。
 
 ### [Report Generator](features/report-generator.md)
-- Summary: Impact Schema 5与Tree Schema v1共享安全shard writer和可配置loader；离线交互由Java门禁与双viewport `file://` Playwright共同约束。
+- Summary: Impact Schema 5与Tree Schema v2共享安全shard writer和可配置loader；离线交互由Java门禁与双viewport `file://` Playwright共同约束。
 
 ## Rules
 

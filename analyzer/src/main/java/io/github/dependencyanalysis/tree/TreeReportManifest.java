@@ -58,8 +58,11 @@ record TreeReportManifest(
             json.writeStringField("failure", module.failure());
             range(json, "dependencyRange", module.dependencyStart(),
                     module.dependencyCount());
-            range(json, "internalConflictRange", module.internalStart(),
-                    module.internalCount());
+            range(json, "dependencyCatalogRange",
+                    module.dependencyCatalogStart(),
+                    module.dependencyCatalogCount());
+            json.writeNumberField("internalConflictCount",
+                    module.internalConflictCount());
             range(json, "classConflictRange", module.classStart(),
                     module.classCount());
             json.writeNumberField("treeId", module.treeId());
@@ -79,6 +82,8 @@ record TreeReportManifest(
             json.writeStringField("value", dependency.value());
             json.writeNumberField("resolvedVersionCount",
                     dependency.resolvedVersionCount());
+            json.writeNumberField("uniqueVersionCount",
+                    dependency.uniqueVersionCount());
             json.writeNumberField("firstRangeId",
                     dependency.firstRangeId());
             json.writeNumberField("rangeCount", dependency.rangeCount());
@@ -140,8 +145,9 @@ record TreeReportManifest(
      * @param failure Module failure text
      * @param dependencyStart first dependency row ID
      * @param dependencyCount dependency row count
-     * @param internalStart first internal conflict ID
-     * @param internalCount internal conflict count
+     * @param dependencyCatalogStart first Module Dependency catalog ID
+     * @param dependencyCatalogCount Module Dependency catalog count
+     * @param internalConflictCount internal conflict count
      * @param classStart first class conflict ID
      * @param classCount class conflict count
      * @param treeId dependency tree record ID
@@ -155,8 +161,9 @@ record TreeReportManifest(
             String failure,
             int dependencyStart,
             int dependencyCount,
-            int internalStart,
-            int internalCount,
+            int dependencyCatalogStart,
+            int dependencyCatalogCount,
+            int internalConflictCount,
             int classStart,
             int classCount,
             int treeId,
@@ -169,6 +176,7 @@ record TreeReportManifest(
      * @param id stable DependencyKey ID
      * @param value complete DependencyKey
      * @param resolvedVersionCount distinct selected version count
+     * @param uniqueVersionCount distinct original/resolved version count
      * @param firstRangeId first exact-filter range ID
      * @param rangeCount exact-filter range count
      */
@@ -176,6 +184,7 @@ record TreeReportManifest(
             int id,
             String value,
             int resolvedVersionCount,
+            int uniqueVersionCount,
             int firstRangeId,
             int rangeCount) {
     }

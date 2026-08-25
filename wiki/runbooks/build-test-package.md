@@ -125,7 +125,7 @@ Analyzer reactor不构建`plugins/`、`models/jdk`或`models/jdk8`。若local re
 
 ### Report浏览器门禁
 
-`mvn clean verify`中的`ReportBrowserFixtureIT`先发布`target/playwright-report-fixture/impact.html`及Module、Affected Paths和Schema 5 shards；`TreeReportBrowserFixtureIT`发布`target/playwright-report-fixture/tree/`、Module冲突类表和Schema v1反编译源码shards。Playwright只消费这些Maven产物；任一夹具不存在时命令会提示先运行`mvn clean verify`。
+`mvn clean verify`中的`ReportBrowserFixtureIT`先发布`target/playwright-report-fixture/impact.html`及Module、Affected Paths和Schema 5 shards；`TreeReportBrowserFixtureIT`发布`target/playwright-report-fixture/tree/`、Module全量依赖与冲突类表、Schema v2本地shards。Playwright只消费这些Maven产物；任一夹具不存在时命令会提示先运行`mvn clean verify`。
 
 首次安装或锁文件变化后安装Node.js依赖与Chromium：
 

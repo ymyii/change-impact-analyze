@@ -24,7 +24,7 @@ import java.util.stream.Collectors;
 final class TreeReportDataWriter {
 
     /** Tree Reactor browser data schema. */
-    static final int SCHEMA_VERSION = 1;
+    static final int SCHEMA_VERSION = 2;
 
     /** Four MiB normal shard target. */
     static final int MAX_SHARD_BYTES = 4 * 1024 * 1024;
@@ -88,12 +88,13 @@ final class TreeReportDataWriter {
                         projection.dependencyRows().get(id)),
                 directory, relativeDirectory,
                 projection.moduleRowStarts()::contains));
-        descriptors.put("internal-conflicts", pageShards.write(
-                "internal-conflicts", projection.internalConflicts().size(),
-                id -> internalConflictRecord(
-                        projection.internalConflicts().get(id)),
+        descriptors.put("module-dependency-catalog", pageShards.write(
+                "module-dependency-catalog",
+                projection.moduleDependencies().size(),
+                id -> moduleDependencyRecord(
+                        projection.moduleDependencies().get(id)),
                 directory, relativeDirectory,
-                projection.moduleInternalStarts()::contains));
+                projection.moduleDependencyStarts()::contains));
         descriptors.put("class-conflicts", pageShards.write(
                 "class-conflicts", projection.classConflicts().size(),
                 id -> classConflictRecord(
@@ -129,6 +130,8 @@ final class TreeReportDataWriter {
                 dependencyIds(modules);
         final Map<DependencyKey, Set<String>> resolvedVersions =
                 resolvedVersions(modules);
+        final Map<DependencyKey, Set<String>> uniqueVersions =
+                uniqueVersions(modules);
         final Set<DependencyKey> multiVersion = resolvedVersions.entrySet()
                 .stream().filter(entry -> entry.getValue().size() > 1)
                 .map(Map.Entry::getKey).collect(Collectors.toSet());
@@ -139,11 +142,11 @@ final class TreeReportDataWriter {
         final Map<Integer, List<Integer>> rowsByDependency = new TreeMap<>();
         final Map<String, List<Integer>> rowsByScope = new TreeMap<>();
         final List<ModuleDraft> moduleDrafts = new ArrayList<>();
-        final List<InternalConflict> internalConflicts = new ArrayList<>();
+        final List<ModuleDependency> moduleDependencies = new ArrayList<>();
         final List<ClassConflict> classConflicts = new ArrayList<>();
         final List<ClassSource> classSources = new ArrayList<>();
         final Set<Integer> moduleRowStarts = new LinkedHashSet<>();
-        final Set<Integer> moduleInternalStarts = new LinkedHashSet<>();
+        final Set<Integer> moduleDependencyStarts = new LinkedHashSet<>();
         final Set<Integer> moduleClassStarts = new LinkedHashSet<>();
         final Set<Integer> classSourceStarts = new LinkedHashSet<>();
 
@@ -151,6 +154,10 @@ final class TreeReportDataWriter {
             final ModuleTreeResult module = modules.get(moduleId);
             final int dependencyStart = dependencyRows.size();
             moduleRowStarts.add(dependencyStart);
+            final Map<Integer, Set<String>> moduleResolvedVersions =
+                    new TreeMap<>();
+            final Map<Integer, Set<String>> moduleUniqueVersions =
+                    new TreeMap<>();
             for (DependencyOccurrence occurrence : module.getOccurrences()) {
                 final int rowId = dependencyRows.size();
                 final int dependencyId = dependencyIds.get(
@@ -161,23 +168,41 @@ final class TreeReportDataWriter {
                 final String scope = occurrence.getEffectiveScope();
                 final String original = occurrence.getRequestedVersion();
                 final String resolved = occurrence.getSelectedVersion();
+                final Resolution resolution = resolution(occurrence);
                 final String search = String.join(" ", dependency, scope,
-                        module.getCoordinate(), chain, original, resolved)
+                        module.getCoordinate(), chain, original, resolved,
+                        resolution.source(), resolution.detail())
                         .toLowerCase(Locale.ROOT);
                 dependencyRows.add(new DependencyRow(rowId, dependencyId,
-                        moduleId, scope, chain, original, resolved, search));
+                        moduleId, scope, chain, original, resolved,
+                        resolution.source(), resolution.detail(), search));
                 rowsByDependency.computeIfAbsent(dependencyId,
                         ignored -> new ArrayList<>()).add(rowId);
                 rowsByScope.computeIfAbsent(scope,
                         ignored -> new ArrayList<>()).add(rowId);
+                moduleUniqueVersions.computeIfAbsent(dependencyId,
+                        ignored -> new TreeSet<>());
+                if (occurrence.isSelected()) {
+                    addVersion(moduleResolvedVersions, dependencyId,
+                            occurrence.getSelectedVersion());
+                }
+                addVersion(moduleUniqueVersions, dependencyId,
+                        occurrence.getRequestedVersion());
+                addVersion(moduleUniqueVersions, dependencyId,
+                        occurrence.getSelectedVersion());
             }
-            final int internalStart = internalConflicts.size();
-            moduleInternalStarts.add(internalStart);
-            for (VersionMediationIssue issue : internalIssues(
-                    module, groupingCache)) {
-                internalConflicts.add(internalConflict(
-                        internalConflicts.size(), moduleId, issue));
+            final int moduleDependencyStart = moduleDependencies.size();
+            moduleDependencyStarts.add(moduleDependencyStart);
+            for (Map.Entry<Integer, Set<String>> entry
+                    : moduleUniqueVersions.entrySet()) {
+                moduleDependencies.add(new ModuleDependency(
+                        moduleDependencies.size(), moduleId, entry.getKey(),
+                        moduleResolvedVersions.getOrDefault(
+                                entry.getKey(), Set.of()).size(),
+                        entry.getValue().size()));
             }
+            final int internalConflictCount = internalIssues(
+                    module, groupingCache).size();
             final int classStart = classConflicts.size();
             moduleClassStarts.add(classStart);
             appendClassConflicts(module, moduleId,
@@ -189,7 +214,9 @@ final class TreeReportDataWriter {
                     module.getCoordinate(), module.getPom().toString(),
                     module.getFailure(), dependencyStart,
                     dependencyRows.size() - dependencyStart,
-                    internalStart, internalConflicts.size() - internalStart,
+                    moduleDependencyStart,
+                    moduleDependencies.size() - moduleDependencyStart,
+                    internalConflictCount,
                     classStart, classConflicts.size() - classStart,
                     moduleMultiVersionCounts.getOrDefault(moduleId, 0)));
         }
@@ -208,6 +235,8 @@ final class TreeReportDataWriter {
                             entry.getKey().toString(),
                             resolvedVersions.getOrDefault(
                                     entry.getKey(), Set.of()).size(),
+                            uniqueVersions.getOrDefault(
+                                    entry.getKey(), Set.of()).size(),
                             first, ranges.size() - first));
                 });
         final List<TreeReportManifest.ScopeDescriptor> scopes =
@@ -223,10 +252,10 @@ final class TreeReportDataWriter {
         return new Projection(List.copyOf(dependencyRows),
                 List.copyOf(ranges), List.copyOf(dependencies),
                 List.copyOf(scopes), descriptors,
-                List.copyOf(internalConflicts),
+                List.copyOf(moduleDependencies),
                 List.copyOf(classConflicts), List.copyOf(classSources),
                 Set.copyOf(moduleRowStarts),
-                Set.copyOf(moduleInternalStarts),
+                Set.copyOf(moduleDependencyStarts),
                 Set.copyOf(moduleClassStarts),
                 Set.copyOf(classSourceStarts), multiVersion.size(),
                 Map.copyOf(moduleMultiVersionCounts));
@@ -258,6 +287,30 @@ final class TreeReportDataWriter {
         return result;
     }
 
+    private Map<DependencyKey, Set<String>> uniqueVersions(
+            final List<ModuleTreeResult> modules) {
+        final Map<DependencyKey, Set<String>> result = new TreeMap<>();
+        for (ModuleTreeResult module : modules) {
+            for (DependencyOccurrence occurrence : module.getOccurrences()) {
+                addVersion(result, occurrence.getKey(),
+                        occurrence.getRequestedVersion());
+                addVersion(result, occurrence.getKey(),
+                        occurrence.getSelectedVersion());
+            }
+        }
+        return result;
+    }
+
+    private <K> void addVersion(
+            final Map<K, Set<String>> versions,
+            final K key,
+            final String version) {
+        if (!version.isBlank()) {
+            versions.computeIfAbsent(key, ignored -> new TreeSet<>())
+                    .add(version);
+        }
+    }
+
     private Map<Integer, Integer> moduleMultiVersionCounts(
             final List<ModuleTreeResult> modules,
             final Set<DependencyKey> multiVersion) {
@@ -282,30 +335,66 @@ final class TreeReportDataWriter {
                 : new ModuleVersionAnalyzer().analyze(module, groupingCache);
     }
 
-    private InternalConflict internalConflict(
-            final int id,
-            final int moduleId,
-            final VersionMediationIssue issue) {
-        final List<Evidence> evidence = new ArrayList<>();
-        final Set<String> scopes = new TreeSet<>();
-        for (VersionPath path : issue.getPaths()) {
-            scopes.add(path.getScope());
-            for (VersionEvidence source : path.getEvidence()) {
-                evidence.add(new Evidence(source.getSource().name(),
-                        source.getSource()
-                                == VersionEvidenceSource.DEPENDENCY_MANAGEMENT
-                                ? "" : String.join(" → ", path.getPath()),
-                        source.getVersion(), path.getScope()));
-            }
+    private Resolution resolution(final DependencyOccurrence occurrence) {
+        final List<String> sources = new ArrayList<>();
+        final List<String> details = new ArrayList<>();
+        final String requested = version(occurrence.getRequestedVersion());
+        final String effective = version(occurrence.getEffectiveVersion());
+        final String selected = version(occurrence.getSelectedVersion());
+        final boolean managed = !occurrence.getManagedFromVersion().isBlank();
+        if (managed) {
+            sources.add("Dependency management");
+            details.add("requested " + requested
+                    + " → effective " + effective);
         }
-        final String scope = String.join(", ", scopes);
-        final String search = (issue.getKey() + " " + scope + " "
-                + issue.getSelectedVersion() + " " + evidence.stream()
-                .map(Evidence::searchText).collect(Collectors.joining(" ")))
-                .toLowerCase(Locale.ROOT);
-        return new InternalConflict(id, moduleId, issue.getKey().toString(),
-                scope, issue.getSelectedVersion(), List.copyOf(evidence),
-                search);
+        if (occurrence.isSelected()) {
+            if (!managed) {
+                sources.add("Direct selection");
+                details.add(occurrence.getRequestedVersion().equals(
+                        occurrence.getSelectedVersion())
+                        ? "requested " + requested + " selected directly"
+                        : "requested " + requested
+                        + " → selected " + selected);
+            } else if (!occurrence.getEffectiveVersion().equals(
+                    occurrence.getSelectedVersion())) {
+                details.add("reported resolved " + selected);
+            }
+        } else {
+            appendOmissionResolution(occurrence, sources, details,
+                    effective, selected);
+        }
+        return new Resolution(String.join(" → ", sources),
+                String.join("; ", details));
+    }
+
+    private void appendOmissionResolution(
+            final DependencyOccurrence occurrence,
+            final List<String> sources,
+            final List<String> details,
+            final String effective,
+            final String selected) {
+        final String reason = occurrence.getOmittedReason();
+        if (reason.equals("conflict")) {
+            sources.add("Conflict mediation");
+            details.add("effective " + effective
+                    + " → selected " + selected);
+        } else if (reason.equals("duplicate")) {
+            sources.add("Duplicate mediation");
+            details.add("resolved " + selected
+                    + " reused from an earlier duplicate");
+        } else if (reason.equals("cycle")) {
+            sources.add("Cycle omission");
+            details.add("reported " + selected
+                    + "; cycle omitted");
+        } else {
+            sources.add("Maven omission");
+            details.add("reported " + selected + (reason.isBlank()
+                    ? "; omitted" : "; " + reason));
+        }
+    }
+
+    private String version(final String value) {
+        return value.isBlank() ? "—" : value;
     }
 
     private void appendClassConflicts(
@@ -399,6 +488,10 @@ final class TreeReportDataWriter {
             json.writeStringField("chain", value.chain());
             json.writeStringField("originalVersion", value.original());
             json.writeStringField("resolvedVersion", value.resolved());
+            json.writeStringField("resolutionSource",
+                    value.resolutionSource());
+            json.writeStringField("resolutionDetail",
+                    value.resolutionDetail());
             json.writeStringField("searchText", value.search());
             json.writeEndObject();
         };
@@ -415,31 +508,25 @@ final class TreeReportDataWriter {
             json.writeStringField("chain", value.chain());
             json.writeStringField("originalVersion", value.original());
             json.writeStringField("resolvedVersion", value.resolved());
+            json.writeStringField("resolutionSource",
+                    value.resolutionSource());
+            json.writeStringField("resolutionDetail",
+                    value.resolutionDetail());
             json.writeEndObject();
         };
     }
 
-    private OfflineShardWriter.JsonRecord internalConflictRecord(
-            final InternalConflict value) {
+    private OfflineShardWriter.JsonRecord moduleDependencyRecord(
+            final ModuleDependency value) {
         return json -> {
             json.writeStartObject();
             json.writeNumberField("id", value.id());
             json.writeNumberField("moduleId", value.moduleId());
-            json.writeStringField("dependency", value.dependency());
-            json.writeStringField("scope", value.scope());
-            json.writeStringField("resolvedVersion", value.resolved());
-            json.writeStringField("searchText", value.search());
-            json.writeArrayFieldStart("evidence");
-            for (Evidence evidence : value.evidence()) {
-                json.writeStartObject();
-                json.writeStringField("source", evidence.source());
-                json.writeStringField("chain", evidence.chain());
-                json.writeStringField("originalVersion",
-                        evidence.original());
-                json.writeStringField("scope", evidence.scope());
-                json.writeEndObject();
-            }
-            json.writeEndArray();
+            json.writeNumberField("dependencyId", value.dependencyId());
+            json.writeNumberField("resolvedVersionCount",
+                    value.resolvedVersionCount());
+            json.writeNumberField("uniqueVersionCount",
+                    value.uniqueVersionCount());
             json.writeEndObject();
         };
     }
@@ -671,11 +758,11 @@ final class TreeReportDataWriter {
             List<TreeReportManifest.DependencyDescriptor> dependencies,
             List<TreeReportManifest.ScopeDescriptor> scopes,
             List<TreeReportManifest.ModuleDescriptor> modules,
-            List<InternalConflict> internalConflicts,
+            List<ModuleDependency> moduleDependencies,
             List<ClassConflict> classConflicts,
             List<ClassSource> classSources,
             Set<Integer> moduleRowStarts,
-            Set<Integer> moduleInternalStarts,
+            Set<Integer> moduleDependencyStarts,
             Set<Integer> moduleClassStarts,
             Set<Integer> classSourceStarts,
             int multiVersionDependencyCount,
@@ -690,15 +777,17 @@ final class TreeReportDataWriter {
             String failure,
             int dependencyStart,
             int dependencyCount,
-            int internalStart,
-            int internalCount,
+            int dependencyCatalogStart,
+            int dependencyCatalogCount,
+            int internalConflictCount,
             int classStart,
             int classCount,
             int multiVersionDependencies) {
         TreeReportManifest.ModuleDescriptor descriptor() {
             return new TreeReportManifest.ModuleDescriptor(id, label,
                     coordinate, pom, failure, dependencyStart,
-                    dependencyCount, internalStart, internalCount,
+                    dependencyCount, dependencyCatalogStart,
+                    dependencyCatalogCount, internalConflictCount,
                     classStart, classCount, id,
                     multiVersionDependencies);
         }
@@ -712,30 +801,23 @@ final class TreeReportDataWriter {
             String chain,
             String original,
             String resolved,
+            String resolutionSource,
+            String resolutionDetail,
             String search) {
     }
 
     private record Range(int id, int start, int count) {
     }
 
-    private record InternalConflict(
+    private record ModuleDependency(
             int id,
             int moduleId,
-            String dependency,
-            String scope,
-            String resolved,
-            List<Evidence> evidence,
-            String search) {
+            int dependencyId,
+            int resolvedVersionCount,
+            int uniqueVersionCount) {
     }
 
-    private record Evidence(
-            String source,
-            String chain,
-            String original,
-            String scope) {
-        String searchText() {
-            return String.join(" ", source, chain, original, scope);
-        }
+    private record Resolution(String source, String detail) {
     }
 
     private record ClassConflict(

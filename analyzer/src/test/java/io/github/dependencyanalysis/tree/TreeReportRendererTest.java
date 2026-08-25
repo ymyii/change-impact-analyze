@@ -367,7 +367,10 @@ class TreeReportRendererTest {
                 .contains("Dependency chain")
                 .contains("Original version")
                 .contains("Resolved version")
+                .contains("Resolution source")
+                .contains("\"schemaVersion\":2")
                 .contains("\"resolvedVersionCount\":2")
+                .contains("\"uniqueVersionCount\":3")
                 .doesNotContain("DEPENDENCY_PATH")
                 .doesNotContain("g:a:jar:1 → g:shared:jar:3")
                 .doesNotContain("<th>Status</th><th>Reason</th>")
@@ -386,10 +389,12 @@ class TreeReportRendererTest {
                         + "<td>0</td><td>0</td><td>0</td>");
         assertThat(allShardContent(pageDataDirectory(
                 onlyReactorPage(output))))
-                .contains("DEPENDENCY_PATH")
-                .contains("DEPENDENCY_MANAGEMENT")
+                .contains("Dependency management")
+                .contains("Conflict mediation")
                 .contains("g:a:jar:1 → g:shared:jar:3")
-                .contains("g:b:jar:1 → g:shared:jar:2");
+                .contains("g:b:jar:1 → g:shared:jar:2")
+                .doesNotContain("DEPENDENCY_PATH")
+                .doesNotContain("internal-conflicts");
         assertThat(output.resolve(
                 "dependency-report/assets/report.js"))
                 .content()
@@ -404,7 +409,12 @@ class TreeReportRendererTest {
                 .contains("ArrowDown")
                 .contains("ArrowUp")
                 .contains("Home")
-                .contains("End");
+                .contains("End")
+                .contains("模块内部依赖分析")
+                .contains("module-dependency-filter")
+                .contains("module-dependency-catalog")
+                .contains("Resolution source")
+                .doesNotContain("internal-conflicts");
         assertThat(output.resolve("index.html"))
                 .content()
                 .contains("<h2>Metadata</h2>")

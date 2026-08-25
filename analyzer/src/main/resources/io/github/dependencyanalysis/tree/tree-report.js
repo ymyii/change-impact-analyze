@@ -11,7 +11,7 @@
         throw new Error("Shared report behavior is unavailable");
     }
     const manifest = JSON.parse(manifestNode.textContent || "{}");
-    if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.modules)
+    if (manifest.schemaVersion !== 2 || !Array.isArray(manifest.modules)
             || !Array.isArray(manifest.dependencies)
             || !Array.isArray(manifest.scopes) || !manifest.shards) {
         const status = document.createElement("p");
@@ -45,16 +45,22 @@
         if (kind === "dependency-index") {
             return Number.isInteger(value.dependencyId)
                 && Number.isInteger(value.moduleId)
+                && typeof value.resolutionSource === "string"
+                && typeof value.resolutionDetail === "string"
                 && typeof value.searchText === "string";
         }
         if (kind === "dependency-rows") {
             return Number.isInteger(value.dependencyId)
                 && Number.isInteger(value.moduleId)
-                && typeof value.chain === "string";
+                && typeof value.chain === "string"
+                && typeof value.resolutionSource === "string"
+                && typeof value.resolutionDetail === "string";
         }
-        if (kind === "internal-conflicts") {
+        if (kind === "module-dependency-catalog") {
             return Number.isInteger(value.moduleId)
-                && Array.isArray(value.evidence);
+                && Number.isInteger(value.dependencyId)
+                && Number.isInteger(value.resolvedVersionCount)
+                && Number.isInteger(value.uniqueVersionCount);
         }
         if (kind === "class-conflicts") {
             return Number.isInteger(value.moduleId)
@@ -208,13 +214,18 @@
                 option.id = `${root.dataset.combobox}-option-${index}`;
                 option.setAttribute("role", "option");
                 option.setAttribute("aria-selected", "false");
-                option.append(element("span", "", label(item)));
-                if (options.badge) {
-                    const count = options.badge(item);
-                    const badge = element("span", "version-count", String(count));
-                    badge.setAttribute("aria-label", `${count} resolved versions`);
-                    badge.title = `${count} resolved versions`;
-                    option.append(badge);
+                option.append(element("span", "combobox-option-label",
+                    label(item)));
+                if (options.badges) {
+                    const badges = element("span", "version-counts");
+                    options.badges(item).forEach(value => {
+                        const badge = element("span", value.className,
+                            value.text);
+                        badge.setAttribute("aria-label", value.label);
+                        badge.title = value.label;
+                        badges.append(badge);
+                    });
+                    option.append(badges);
                 }
                 option.addEventListener("mousedown", event => {
                     event.preventDefault();
@@ -314,13 +325,13 @@
         };
     }
 
-    async function catalogRanges(catalog, generation) {
+    async function catalogRanges(catalog, isCurrent) {
         if (!catalog || !catalog.rangeCount) {
             return [];
         }
         const records = await shards.recordsForIds("dependency-ranges",
             ids(catalog.firstRangeId, catalog.rangeCount));
-        if (generation !== dependencyGeneration) {
+        if (!isCurrent()) {
             return null;
         }
         return common.normalizeRanges([...records.values()].map(value => ({
@@ -328,7 +339,7 @@
         })));
     }
 
-    async function allDependencyIndexes(generation, status) {
+    async function allDependencyIndexes(isCurrent, status) {
         if (dependencyIndexes) {
             return dependencyIndexes;
         }
@@ -339,7 +350,7 @@
                 + ` of ${descriptors.length}…`;
             const values = await shards.loadShard("dependency-index",
                 descriptors[index]);
-            if (generation !== dependencyGeneration) {
+            if (!isCurrent()) {
                 return null;
             }
             result.push(...values);
@@ -355,7 +366,33 @@
         if (key === "module") {
             return modules.get(row.moduleId).coordinate;
         }
+        if (key === "resolutionSource") {
+            return `${row.resolutionSource} ${row.resolutionDetail}`;
+        }
         return row[key] || "";
+    }
+
+    function versionBadges(item) {
+        return [{
+            className: "version-count",
+            text: String(item.resolvedVersionCount),
+            label: `${item.resolvedVersionCount} resolved versions`
+        }, {
+            className: "unique-version-count",
+            text: `${item.uniqueVersionCount} unique`,
+            label: `${item.uniqueVersionCount} unique original/resolved versions`
+        }];
+    }
+
+    function resolutionCell(row) {
+        const cell = element("td", "resolution-cell");
+        cell.append(element("span", "resolution-source",
+            row.resolutionSource || "—"));
+        if (row.resolutionDetail) {
+            cell.append(element("span", "resolution-detail",
+                row.resolutionDetail));
+        }
+        return cell;
     }
 
     const dependencyState = {page: 0, size: 10, sort: "", direction: 1};
@@ -374,7 +411,7 @@
             name: "Dependency filter", required: false,
             label: item => item.value,
             search: item => item.value,
-            badge: item => item.resolvedVersionCount,
+            badges: versionBadges,
             onSelect: () => { dependencyState.page = 0; renderDependencies(); }
         });
     const dependencyModuleCombo = createCombobox(
@@ -390,7 +427,8 @@
         let ranges = [{start: 0, count: manifest.dependencyRows}];
         const dependency = dependencyCombo.value();
         if (dependency) {
-            const values = await catalogRanges(dependency, generation);
+            const values = await catalogRanges(dependency,
+                () => generation === dependencyGeneration);
             if (!values) {
                 return null;
             }
@@ -404,7 +442,8 @@
         const scope = manifest.scopes.find(value =>
             value.value === dependencyScope.value);
         if (scope) {
-            const values = await catalogRanges(scope, generation);
+            const values = await catalogRanges(scope,
+                () => generation === dependencyGeneration);
             if (!values) {
                 return null;
             }
@@ -413,7 +452,8 @@
         const query = dependencySearch.value.trim().toLowerCase();
         if (query || dependencyState.sort) {
             const indexes = await allDependencyIndexes(
-                generation, dependencyStatus);
+                () => generation === dependencyGeneration,
+                dependencyStatus);
             if (!indexes) {
                 return null;
             }
@@ -469,6 +509,7 @@
                             ? "dependency-cell" : "", value || "—");
                         tr.append(td);
                     });
+                tr.append(resolutionCell(row));
                 fragment.append(tr);
             });
             dependencyBody.replaceChildren(fragment);
@@ -543,6 +584,7 @@
                 classSort: "", classDirection: 1,
                 internalPage: 0, internalSize: 10,
                 internalSearch: "", internalScope: "",
+                internalDependencyId: null,
                 internalSort: "", internalDirection: 1
             });
         }
@@ -726,10 +768,14 @@
     function internalTable() {
         const tableWrap = element("div", "table-scroll");
         const table = element("table");
+        table.dataset.moduleDependencies = "";
         const head = element("thead");
         const row = element("tr");
         [["Dependency", "dependency"], ["Scope", "scope"],
-            ["Resolved version", "resolvedVersion"]]
+            ["Dependency chain", "chain"],
+            ["Original version", "originalVersion"],
+            ["Resolved version", "resolvedVersion"],
+            ["Resolution source", "resolutionSource"]]
             .forEach(([label, key]) => {
                 const header = element("th");
                 const button = element("button", "sortable", label);
@@ -738,7 +784,6 @@
                 header.append(button);
                 row.append(header);
             });
-        row.append(element("th", "", "Evidence"));
         head.append(row);
         const body = element("tbody");
         table.append(head, body);
@@ -746,22 +791,97 @@
         return {tableWrap, body};
     }
 
-    function evidenceTable(values) {
-        const table = element("table", "evidence-table");
-        const head = element("thead");
-        const header = element("tr");
-        ["Source", "Dependency chain", "Original version", "Scope"]
-            .forEach(value => header.append(element("th", "", value)));
-        head.append(header);
-        const body = element("tbody");
+    function comboboxControl(id, label) {
+        const control = element("div",
+            "report-control dependency-combobox-control");
+        const labelNode = element("label", "", label);
+        labelNode.htmlFor = `${id}-input`;
+        const root = element("div", "combobox");
+        root.dataset.combobox = id;
+        const input = element("input");
+        input.id = `${id}-input`;
+        input.type = "text";
+        input.setAttribute("role", "combobox");
+        input.setAttribute("autocomplete", "off");
+        input.setAttribute("aria-autocomplete", "list");
+        input.setAttribute("aria-expanded", "false");
+        input.setAttribute("aria-controls", `${id}-options`);
+        const toggle = element("button", "combobox-toggle");
+        toggle.id = `${id}-toggle`;
+        toggle.type = "button";
+        toggle.dataset.label = label;
+        toggle.setAttribute("aria-label", `展开 ${label} 候选`);
+        toggle.setAttribute("aria-expanded", "false");
+        toggle.setAttribute("aria-controls", `${id}-options`);
+        const list = element("ul", "combobox-options");
+        list.id = `${id}-options`;
+        list.setAttribute("role", "listbox");
+        list.hidden = true;
+        const status = element("p", "muted candidate-status");
+        status.id = `${id}-status`;
+        status.setAttribute("aria-live", "polite");
+        root.append(input, toggle, list);
+        control.append(labelNode, root, status);
+        return {control, root};
+    }
+
+    function selectControl(label, values, selected) {
+        const control = element("select");
         values.forEach(value => {
-            const row = element("tr");
-            [value.source, value.chain, value.originalVersion, value.scope]
-                .forEach(item => row.append(element("td", "", item || "—")));
-            body.append(row);
+            const option = element("option", "", value.label);
+            option.value = value.value;
+            control.append(option);
         });
-        table.append(head, body);
-        return table;
+        control.value = selected;
+        const wrapper = element("label", "report-control", label);
+        wrapper.append(control);
+        return {wrapper, control};
+    }
+
+    function internalComponent(state) {
+        const form = element("form",
+            "dependency-filter-form module-dependency-filter-form");
+        const primary = element("div",
+            "dependency-filter-primary module-dependency-filter-primary");
+        const search = element("input");
+        search.type = "search";
+        search.dataset.internalSearch = "";
+        search.value = state.internalSearch;
+        const searchControl = element("label",
+            "report-control dependency-search-control", "检索");
+        searchControl.append(search);
+        const dependencyControl = comboboxControl(
+            "module-dependency-filter", "Dependency");
+        primary.append(searchControl, dependencyControl.control);
+
+        const secondary = element("div", "dependency-filter-secondary");
+        const scope = selectControl("Scope", [{value: "", label: "全部"},
+            ...manifest.scopes.map(value => ({
+                value: value.value, label: value.value}))],
+        state.internalScope);
+        scope.control.dataset.internalFilter = "";
+        const size = selectControl("每页", [10, 50, 100].map(value => ({
+            value: String(value), label: String(value)})),
+        String(state.internalSize));
+        size.control.dataset.internalPageSize = "";
+        const buttons = element("div", "dependency-filter-buttons");
+        const submit = element("button", "", "检索");
+        submit.type = "submit";
+        const clear = element("button", "", "清空");
+        clear.type = "button";
+        clear.dataset.internalClear = "";
+        buttons.append(submit, clear);
+        secondary.append(scope.wrapper, size.wrapper, buttons);
+        form.append(primary, secondary);
+
+        const summary = element("p", "muted", "Loading dependencies…");
+        summary.dataset.internalSummary = "";
+        summary.setAttribute("aria-live", "polite");
+        const table = internalTable();
+        const page = pager("internal");
+        return {form, search, dependencyRoot: dependencyControl.root,
+            scope: scope.control, size: size.control, clear, summary,
+            table, pager: page};
     }
 
     async function renderClassSection(module, state, nodes, generation) {
@@ -820,47 +940,210 @@
             state.classSize, result.total);
     }
 
-    async function renderInternalSection(module, state, nodes, generation) {
-        const query = state.internalSearch.toLowerCase();
-        const options = {query, filter: state.internalScope,
-            sort: state.internalSort, direction: state.internalDirection,
-            page: state.internalPage, size: state.internalSize,
-            predicate: value => (!query || value.searchText.includes(query))
-                && (!state.internalScope || value.scope.split(", ")
-                    .includes(state.internalScope)),
-            value: (value, key) => String(value[key] || "")};
-        let result = await sectionResult("internal-conflicts",
-            module.internalConflictRange, state, options, generation);
+    async function internalResult(module, state, combo, generation, status) {
+        const isCurrent = () => generation === moduleGeneration;
+        let ranges = [module.dependencyRange];
+        const dependency = combo.value();
+        if (dependency) {
+            const values = await catalogRanges(
+                dependencies.get(dependency.id), isCurrent);
+            if (!values) {
+                return null;
+            }
+            ranges = common.intersectRanges(ranges, values);
+        }
+        const scope = manifest.scopes.find(value =>
+            value.value === state.internalScope);
+        if (scope) {
+            const values = await catalogRanges(scope, isCurrent);
+            if (!values) {
+                return null;
+            }
+            ranges = common.intersectRanges(ranges, values);
+        }
+        const query = state.internalSearch.trim().toLowerCase();
+        if (query || state.internalSort) {
+            const indexes = await allDependencyIndexes(isCurrent, status);
+            if (!indexes) {
+                return null;
+            }
+            const filtered = indexes.filter(value => rangesContain(ranges,
+                value.id) && (!query || value.searchText.includes(query)));
+            if (state.internalSort) {
+                filtered.sort((left, right) => state.internalDirection
+                    * dependencySortValue(left, state.internalSort)
+                        .localeCompare(dependencySortValue(
+                            right, state.internalSort)));
+            }
+            const start = state.internalPage * state.internalSize;
+            return {total: filtered.length,
+                pageIds: new Set(filtered.slice(start,
+                    start + state.internalSize).map(value => value.id))};
+        }
+        const total = rangeCount(ranges);
+        return {total, pageIds: pageIds(ranges,
+            state.internalPage * state.internalSize, state.internalSize)};
+    }
+
+    async function renderInternalSection(
+        module, state, nodes, generation) {
+        nodes.summary.textContent = "Loading dependencies…";
+        let result = await internalResult(module, state,
+            nodes.combo, generation, nodes.summary);
         if (!result || generation !== moduleGeneration) {
             return;
         }
         const pages = Math.max(1, Math.ceil(result.total / state.internalSize));
         if (state.internalPage >= pages) {
             state.internalPage = pages - 1;
-            options.page = state.internalPage;
-            result = await sectionResult("internal-conflicts",
-                module.internalConflictRange, state, options, generation);
+            result = await internalResult(module, state,
+                nodes.combo, generation, nodes.summary);
         }
-        const records = result.records || await shards.recordsForIds(
-            "internal-conflicts", result.ids);
+        if (!result || generation !== moduleGeneration) {
+            return;
+        }
+        const records = await shards.recordsForIds(
+            "dependency-rows", result.pageIds);
         if (generation !== moduleGeneration) {
             return;
         }
         const fragment = document.createDocumentFragment();
-        result.ids.forEach(id => {
+        result.pageIds.forEach(id => {
             const value = records.get(id);
             const row = element("tr");
-            row.append(element("td", "dependency-cell", value.dependency),
-                element("td", "", value.scope || "—"),
-                element("td", "", value.resolvedVersion || "—"));
-            const evidence = element("td");
-            evidence.append(evidenceTable(value.evidence));
-            row.append(evidence);
+            row.dataset.moduleDependencyRow = "";
+            [dependencies.get(value.dependencyId).value, value.scope,
+                value.chain, value.originalVersion, value.resolvedVersion]
+                .forEach((item, index) => row.append(element("td",
+                    index === 0 || index === 2 ? "dependency-cell" : "",
+                    item || "—")));
+            row.append(resolutionCell(value));
             fragment.append(row);
         });
         nodes.body.replaceChildren(fragment);
+        const start = result.total
+            ? state.internalPage * state.internalSize + 1 : 0;
+        const end = Math.min(result.total,
+            (state.internalPage + 1) * state.internalSize);
+        nodes.summary.textContent = result.total
+            ? `Showing ${start}–${end} of ${result.total}`
+            : "当前 Module 未发现 dependency。";
         updatePager(nodes.pager, state.internalPage,
             state.internalSize, result.total);
+    }
+
+    async function initializeInternalSection(
+        module, state, section, generation) {
+        const load = async () => {
+            const title = element("h3", "", "模块内部依赖分析");
+            const loading = element("p", "muted",
+                "Loading Dependency candidates…");
+            section.replaceChildren(title, loading);
+            try {
+                const range = module.dependencyCatalogRange;
+                const records = await shards.recordsForIds(
+                    "module-dependency-catalog",
+                    ids(range.start, range.count));
+                if (generation !== moduleGeneration) {
+                    return;
+                }
+                const choices = [...records.values()]
+                    .sort((left, right) => left.dependencyId
+                        - right.dependencyId)
+                    .map(value => ({
+                        id: value.dependencyId,
+                        value: dependencies.get(value.dependencyId).value,
+                        resolvedVersionCount: value.resolvedVersionCount,
+                        uniqueVersionCount: value.uniqueVersionCount
+                    }));
+                const component = internalComponent(state);
+                section.replaceChildren(title, component.form,
+                    component.summary, component.table.tableWrap,
+                    component.pager.wrap);
+                let rerender;
+                const combo = createCombobox(component.dependencyRoot,
+                    choices, {
+                        name: "Module Dependency filter", required: false,
+                        label: item => item.value,
+                        search: item => item.value,
+                        badges: versionBadges,
+                        onSelect: item => {
+                            state.internalDependencyId = item ? item.id : null;
+                            state.internalPage = 0;
+                            rerender();
+                        }
+                    });
+                const selected = choices.find(value =>
+                    value.id === state.internalDependencyId);
+                if (selected) {
+                    combo.select(selected, false);
+                } else {
+                    state.internalDependencyId = null;
+                }
+                const nodes = {combo, summary: component.summary,
+                    body: component.table.body, pager: component.pager};
+                rerender = () => renderInternalSection(
+                    module, state, nodes, generation)
+                    .catch(error => {
+                        if (generation === moduleGeneration) {
+                            showRetry(component.summary, error.message,
+                                rerender);
+                        }
+                    });
+                component.form.addEventListener("submit", event => {
+                    event.preventDefault();
+                    state.internalSearch = component.search.value;
+                    state.internalPage = 0;
+                    rerender();
+                });
+                component.scope.addEventListener("change", event => {
+                    state.internalScope = event.target.value;
+                    state.internalPage = 0;
+                    rerender();
+                });
+                component.size.addEventListener("change", event => {
+                    state.internalSize = Number(event.target.value);
+                    state.internalPage = 0;
+                    rerender();
+                });
+                component.clear.addEventListener("click", () => {
+                    component.search.value = "";
+                    component.scope.value = "";
+                    combo.clear(false);
+                    state.internalSearch = "";
+                    state.internalScope = "";
+                    state.internalDependencyId = null;
+                    state.internalPage = 0;
+                    state.internalSort = "";
+                    state.internalDirection = 1;
+                    rerender();
+                });
+                component.table.tableWrap.querySelectorAll(
+                    "[data-internal-sort]").forEach(button =>
+                    button.addEventListener("click", () => {
+                        const key = button.dataset.internalSort;
+                        state.internalDirection = state.internalSort === key
+                            ? -state.internalDirection : 1;
+                        state.internalSort = key;
+                        state.internalPage = 0;
+                        rerender();
+                    }));
+                component.pager.previous.addEventListener("click", () => {
+                    state.internalPage -= 1;
+                    rerender();
+                });
+                component.pager.next.addEventListener("click", () => {
+                    state.internalPage += 1;
+                    rerender();
+                });
+                rerender();
+            } catch (error) {
+                if (generation === moduleGeneration) {
+                    showRetry(loading, error.message, load);
+                }
+            }
+        };
+        await load();
     }
 
     async function renderModule(module) {
@@ -889,19 +1172,11 @@
         classControls.section.append(classNodes.tableWrap, classPager.wrap);
         content.append(classControls.section);
 
-        const internalControls = controls("模块内部依赖冲突", "internal", {
-            label: "Scope", options: [{value: "", label: "全部"},
-                ...manifest.scopes.map(value => ({
-                    value: value.value, label: value.value}))]
-        });
-        internalControls.search.value = state.internalSearch;
-        internalControls.filter.value = state.internalScope;
-        internalControls.size.value = String(state.internalSize);
-        const internalNodes = internalTable();
-        const internalPager = pager("internal");
-        internalControls.section.append(internalNodes.tableWrap,
-            internalPager.wrap);
-        content.append(internalControls.section);
+        const internalSection = element("section", "card");
+        internalSection.dataset.internalComponent = "";
+        internalSection.append(element("h3", "", "模块内部依赖分析"),
+            element("p", "muted", "Loading Dependency candidates…"));
+        content.append(internalSection);
 
         const treeSection = element("section", "card");
         treeSection.append(element("h3", "", "Dependency tree"));
@@ -947,45 +1222,8 @@
             rerenderClass();
         });
 
-        const rerenderInternal = () => renderInternalSection(module, state,
-            {body: internalNodes.body, pager: internalPager}, generation)
-            .catch(error => showRetry(internalPager.position,
-                error.message, rerenderInternal));
-        internalControls.search.addEventListener("input", event => {
-            state.internalSearch = event.target.value;
-            state.internalPage = 0;
-            rerenderInternal();
-        });
-        internalControls.filter.addEventListener("change", event => {
-            state.internalScope = event.target.value;
-            state.internalPage = 0;
-            rerenderInternal();
-        });
-        internalControls.size.addEventListener("change", event => {
-            state.internalSize = Number(event.target.value);
-            state.internalPage = 0;
-            rerenderInternal();
-        });
-        internalNodes.tableWrap.querySelectorAll("[data-internal-sort]")
-            .forEach(button => button.addEventListener("click", () => {
-                const key = button.dataset.internalSort;
-                state.internalDirection = state.internalSort === key
-                    ? -state.internalDirection : 1;
-                state.internalSort = key;
-                state.internalPage = 0;
-                rerenderInternal();
-            }));
-        internalPager.previous.addEventListener("click", () => {
-            state.internalPage -= 1;
-            rerenderInternal();
-        });
-        internalPager.next.addEventListener("click", () => {
-            state.internalPage += 1;
-            rerenderInternal();
-        });
-
         rerenderClass();
-        rerenderInternal();
+        initializeInternalSection(module, state, internalSection, generation);
         try {
             const record = (await shards.recordsForIds("dependency-trees",
                 new Set([module.treeId]))).get(module.treeId);

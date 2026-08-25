@@ -689,19 +689,19 @@ Reactor page 展示：
 
 - Reactor与Module metadata；Analysis mode明确为`FULL_REACTOR`、`SINGLE_MODULE`或`STANDALONE`。
 - Reactor/Module issue。
-- “跨模块依赖分析”展示全部selected和omitted dependency occurrence。固定列为Dependency、Scope、Module、Dependency chain、Original version、Resolved version。
-- Dependency和Module支持输入过滤的单选筛选，输入框右侧提供明确的展开按钮；Scope为精确筛选。全字段检索在六列中任一命中即可，四类条件按AND组合。
-- Dependency候选旁的红色数字徽标表示整个Reactor中该Dependency的distinct非空resolved version数量，包括值`1`。徽标同时提供可读文本，不只依赖颜色。
-- 全量依赖表支持六列排序与10/50/100分页。候选超过50时只显示前50项，并提示继续输入缩小范围。
-- Module分析位于一个完整card内；顶部选择Module后，下方同时切换coordinate、冲突类、Internal conflicts和Maven-style verbose dependency tree。
+- “跨模块依赖分析”展示全部selected和omitted dependency occurrence。固定列为Dependency、Scope、Module、Dependency chain、Original version、Resolved version、Resolution source。
+- Dependency和Module支持输入过滤的单选筛选，输入框右侧提供明确的展开按钮；Scope为精确筛选。全字段检索在七列中任一命中即可，四类条件按AND组合。
+- Dependency候选旁的红色数字徽标表示整个Reactor中该Dependency的distinct非空resolved version数量；中性色`N unique`徽标表示全部occurrence的original/resolved非空版本并集。相同值只计一次，两个徽标均显示`0`或`1`并提供可读说明。
+- 全量依赖表支持七列排序与10/50/100分页。候选超过50时只显示前50项，并提示继续输入缩小范围。
+- Module分析位于一个完整card内；顶部选择Module后，下方同时切换coordinate、冲突类、模块内部依赖分析和Maven-style verbose dependency tree。模块内部依赖分析展示当前Module的全部selected与omitted occurrence，列与跨模块表一致但不含Module，并提供Module范围的Dependency双徽标、Scope、检索、排序和分页。
 
 Dependency与Module筛选支持Enter选中、Escape关闭、Arrow Up/Down、Home和End导航；清空可选筛选恢复“全部”。Module初始选择第一个候选。切换Module时保留该Module的轻量筛选和分页状态；切回时恢复，但已展开源码不会恢复。
 
 “跨模块依赖分析”的筛选区在宽屏采用双行紧凑布局：检索、Dependency和Module位于第一行，Scope、每页及操作按钮位于第二行。中等屏幕先将检索独占一行，小屏幕再按单列排列；控件不会随宽表被过度拉伸。
 
-冲突类与Internal conflicts同样只显示当前页，支持大小写不敏感检索、筛选、排序和10/50/100分页。点击“查看反编译代码”后Winner按钮默认active；切换Shadowed source后只有新按钮保持active，源码同步更新。Active状态使用持久`aria-pressed=true`样式，并保留键盘focus；同一时间最多展开一行。
+冲突类与模块内部依赖分析同样只显示当前页。Resolution source说明resolved version由Direct selection、Dependency management、Conflict mediation、Duplicate mediation、Cycle omission或其他Maven omission得到；多步处理按发生顺序展示版本转换。该列不推断具体定义版本的POM、BOM或冲突winner path。点击“查看反编译代码”后Winner按钮默认active；切换Shadowed source后只有新按钮保持active，源码同步更新。Active状态使用持久`aria-pressed=true`样式，并保留键盘focus；同一时间最多展开一行。
 
-报告完全离线，可直接通过`file://`打开。dependency、Module内容、dependency tree和反编译源码按需加载，避免大型报告初次打开时一次性创建全部内容。文件缺失或损坏时页面显示Retry；恢复报告文件后可重试。空dependency、空Module、Module failure和JavaScript禁用均有明确提示。桌面和小屏幕的宽表只在表格区域内横向滚动。
+报告完全离线，可直接通过`file://`打开。dependency、当前Module的Dependency候选与当前页内容、dependency tree和反编译源码按需加载，避免大型报告初次打开时一次性创建全部内容。文件缺失或损坏时页面显示Retry；恢复报告文件后可重试。空dependency、空Module、Module failure和JavaScript禁用均有明确提示。桌面和小屏幕的宽表只在表格区域内横向滚动。
 
 ### 8.4 tree status 与增量发布
 
@@ -849,9 +849,10 @@ Internal conflict：
 - 只比较 selected occurrence。
 - 同一 conflict key 在整个 Reactor 中distinct、非空resolved version数量大于`1`时，计入`Multi-version dependencies`。
 - Dependency筛选候选旁的红色徽标显示该数量；值`1`同样显示，便于区分单版本与多版本。
+- 中性色`N unique`徽标独立统计selected与omitted occurrence的requested original version和selected resolved version并集，不改变`Multi-version dependencies`判定。
 - Reactor汇总按DependencyKey去重计数；Module汇总只统计该Module中实际selected且Reactor级为多版本的DependencyKey。
 
-“跨模块依赖分析”不只展示版本问题，而是展示分析范围内全部selected与omitted occurrence，每条保留完整DependencyKey、effective Scope、Module coordinate、Dependency chain、requested original version和selected resolved version。相同DependencyKey、Module或chain不会合并。
+“跨模块依赖分析”和“模块内部依赖分析”都不只展示版本问题，而是展示各自范围内全部selected与omitted occurrence，每条保留完整DependencyKey、effective Scope、Module coordinate（仅跨模块表）、Dependency chain、requested original version、selected resolved version和Resolution source。相同DependencyKey、Module或chain不会合并。
 
 分析只覆盖实际进入 resolved dependency tree 的 dependency。不会列出未被使用的完整
 `dependencyManagement`、imported Bill of Materials（BOM，物料清单）、build/report Plugin、extension 或 Plugin dependency tree。

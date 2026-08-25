@@ -32,10 +32,10 @@ final class HtmlReportUsabilityVerifier {
             + "\\\"schemaVersion\\\":5,\\\"kind\\\":\\\"([a-z-]+)\\\","
             + "\\\"shardId\\\":([0-9]+),\\\"records\\\":\\[");
 
-    /** Canonical Tree Schema 1 shard header matcher. */
+    /** Canonical Tree Schema 2 shard header matcher. */
     private static final Pattern TREE_SHARD_HEADER = Pattern.compile(
             "^window\\.__CIA_TREE_REPORT_SHARD__\\(\\{"
-            + "\\\"schemaVersion\\\":1,\\\"kind\\\":\\\"([a-z-]+)\\\","
+            + "\\\"schemaVersion\\\":2,\\\"kind\\\":\\\"([a-z-]+)\\\","
             + "\\\"shardId\\\":([0-9]+),\\\"records\\\":\\[");
 
     /** Non-empty title matcher. */
@@ -180,7 +180,7 @@ final class HtmlReportUsabilityVerifier {
         }
         if (html.contains("id=\"tree-report-manifest\"")) {
             assertThat(html).as("Tree Reactor contract in %s", page)
-                    .contains("\"schemaVersion\":1")
+                    .contains("\"schemaVersion\":2")
                     .contains("<h2>跨模块依赖分析</h2>")
                     .contains("class=\"dependency-filter-form\"")
                     .contains("data-combobox=\"dependency-filter\"")
@@ -192,6 +192,7 @@ final class HtmlReportUsabilityVerifier {
                     .contains("Dependency chain")
                     .contains("Original version")
                     .contains("Resolved version")
+                    .contains("Resolution source")
                     .contains("<noscript>");
         }
     }
