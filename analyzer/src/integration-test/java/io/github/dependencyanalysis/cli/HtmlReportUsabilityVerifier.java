@@ -38,6 +38,13 @@ final class HtmlReportUsabilityVerifier {
             + "\\\"schemaVersion\\\":2,\\\"kind\\\":\\\"([a-z-]+)\\\","
             + "\\\"shardId\\\":([0-9]+),\\\"records\\\":\\[");
 
+    /** Canonical Tree Diff Schema 1 shard header matcher. */
+    private static final Pattern TREE_DIFF_SHARD_HEADER = Pattern.compile(
+            "^window\\.__CIA_TREE_DIFF_REPORT_SHARD__\\(\\{"
+            + "\\\"schema\\\":\\\"tree-diff-report\\\","
+            + "\\\"schemaVersion\\\":1,\\\"kind\\\":\\\"([a-z-]+)\\\","
+            + "\\\"shardId\\\":([0-9]+),\\\"records\\\":\\[");
+
     /** Non-empty title matcher. */
     private static final Pattern TITLE = Pattern.compile(
             "(?is)<title(?:\\s[^>]*)?>(.*?)</title>");
@@ -195,6 +202,20 @@ final class HtmlReportUsabilityVerifier {
                     .contains("Resolution source")
                     .contains("<noscript>");
         }
+        if (html.contains("id=\"tree-diff-manifest\"")) {
+            assertThat(html).as("Tree Diff contract in %s", page)
+                    .contains("\"schema\":\"tree-diff-report\"")
+                    .contains("\"version\":1")
+                    .contains("<html lang=\"en\">")
+                    .contains("data-combobox=\"module-selector\"")
+                    .contains("data-combobox=\"dependency-selector\"")
+                    .contains("Version changed")
+                    .contains("Resolved version unchanged")
+                    .contains("Dependency tree comparison")
+                    .contains("<th scope=\"col\">Actions</th>")
+                    .contains("Direct dependency")
+                    .contains("<noscript>");
+        }
     }
 
     private static void verifyShard(
@@ -202,7 +223,10 @@ final class HtmlReportUsabilityVerifier {
             final String content) {
         final boolean tree = content.startsWith(
                 "window.__CIA_TREE_REPORT_SHARD__(");
-        final Matcher header = (tree ? TREE_SHARD_HEADER : SHARD_HEADER)
+        final boolean treeDiff = content.startsWith(
+                "window.__CIA_TREE_DIFF_REPORT_SHARD__(");
+        final Matcher header = (tree ? TREE_SHARD_HEADER
+                : treeDiff ? TREE_DIFF_SHARD_HEADER : SHARD_HEADER)
                 .matcher(content);
         assertThat(header.find()).as("Offline shard header in %s", file)
                 .isTrue();
@@ -213,6 +237,8 @@ final class HtmlReportUsabilityVerifier {
                 .isEqualTo(expectedName);
         assertThat(content).as(file.toString())
                 .startsWith(tree ? "window.__CIA_TREE_REPORT_SHARD__("
+                        : treeDiff
+                        ? "window.__CIA_TREE_DIFF_REPORT_SHARD__("
                         : "window.__CIA_AFFECTED_PATH_SHARD__(")
                 .contains("\"records\":[")
                 .endsWith("]});\n");

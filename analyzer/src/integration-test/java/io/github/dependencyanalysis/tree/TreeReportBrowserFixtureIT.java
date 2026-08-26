@@ -44,6 +44,9 @@ class TreeReportBrowserFixtureIT {
         Files.createDirectories(fixtureRoot);
 
         new TreeReportRenderer().render(treeResult(projectRoot), fixtureRoot);
+        publishTreeDiffFixture(projectRoot,
+                projectRoot.resolve(
+                        "target/playwright-report-fixture/tree-diff"));
 
         assertThat(fixtureRoot.resolve("index.html")).isRegularFile();
         final Path reactors = fixtureRoot.resolve(
@@ -67,6 +70,174 @@ class TreeReportBrowserFixtureIT {
             assertThat(names).noneMatch(name ->
                     name.startsWith("internal-conflicts-"));
         }
+        assertThat(projectRoot.resolve("target/playwright-report-fixture/"
+                + "tree-diff/index.html")).isRegularFile();
+    }
+
+    private void publishTreeDiffFixture(
+            final Path projectRoot,
+            final Path fixtureRoot) throws Exception {
+        final List<TreeDiffModuleResult> modules = new ArrayList<>();
+        TreeDiffMetrics reactorMetrics = TreeDiffMetrics.ZERO;
+        for (int moduleIndex = 0; moduleIndex < MODULE_COUNT; moduleIndex++) {
+            final String name = moduleIndex == 0 ? "application"
+                    : moduleIndex == 1 ? "library"
+                    : String.format("module-%03d", moduleIndex);
+            final String coordinate = "io.browserfixture:" + name + ":1.0.0";
+            final List<TreeDependencyDiffRecord> dependencies =
+                    new ArrayList<>();
+            final TreeDiffMetrics.Builder metrics =
+                    new TreeDiffMetrics.Builder();
+            for (int dependencyIndex = 0;
+                 dependencyIndex < DEPENDENCIES_PER_MODULE;
+                 dependencyIndex++) {
+                final String artifact = String.format("dependency-%03d",
+                        (moduleIndex + dependencyIndex) % 75);
+                final DependencyKey key = new DependencyKey(
+                        "org.browserfixture", artifact, "jar", "");
+                final TreeDependencyBaseChangeType type = switch (
+                        dependencyIndex % 4) {
+                    case 0 -> TreeDependencyBaseChangeType.VERSION_CHANGED;
+                    case 1 -> TreeDependencyBaseChangeType.ADDED;
+                    case 2 -> TreeDependencyBaseChangeType.REMOVED;
+                    default -> TreeDependencyBaseChangeType
+                            .RESOLVED_UNCHANGED;
+                };
+                final boolean scopeChanged = dependencyIndex % 8 == 0;
+                final TreeDiffPathKey pathKey = new TreeDiffPathKey(
+                        List.of(key));
+                final TreeDiffPathOccurrence beforePath =
+                        new TreeDiffPathOccurrence(pathKey,
+                                coordinate + "\n└─ org.browserfixture:"
+                                        + artifact + ":jar:1.0.0:compile",
+                                "1.0.0", dependencyIndex == 0
+                                ? "0.9.0" : "", "compile", true);
+                final TreeDiffPathOccurrence afterPath =
+                        new TreeDiffPathOccurrence(pathKey,
+                                coordinate + "\n└─ org.browserfixture:"
+                                        + artifact + ":jar:2.0.0:"
+                                        + (scopeChanged
+                                        ? "runtime" : "compile"),
+                                type == TreeDependencyBaseChangeType
+                                        .VERSION_CHANGED ? "2.0.0" : "1.0.0",
+                                dependencyIndex == 0 ? "1.5.0" : "",
+                                scopeChanged ? "runtime" : "compile", true);
+                final TreeDiffSideDependency before = type
+                        == TreeDependencyBaseChangeType.ADDED ? null
+                        : new TreeDiffSideDependency(key, "1.0.0",
+                        "compile", true, new java.util.TreeMap<>(
+                        java.util.Map.of(pathKey, beforePath)));
+                final TreeDiffSideDependency after = type
+                        == TreeDependencyBaseChangeType.REMOVED ? null
+                        : new TreeDiffSideDependency(key,
+                        type == TreeDependencyBaseChangeType.VERSION_CHANGED
+                                ? "2.0.0" : "1.0.0",
+                        scopeChanged ? "runtime" : "compile", true,
+                        new java.util.TreeMap<>(java.util.Map.of(
+                                pathKey, afterPath)));
+                final TreeChainChangeType chainType = before == null
+                        ? TreeChainChangeType.ADDED
+                        : after == null ? TreeChainChangeType.REMOVED
+                        : TreeChainChangeType.UNCHANGED;
+                final List<TreeDiffChainRow> chains = dependencyIndex == 0
+                        ? denseChainRows(coordinate, key, beforePath,
+                        afterPath) : List.of(new TreeDiffChainRow(
+                        before == null ? null : beforePath,
+                        after == null ? null : afterPath,
+                        chainType));
+                dependencies.add(new TreeDependencyDiffRecord(key,
+                        before, after, type,
+                        before != null && after != null && scopeChanged,
+                        chains));
+                metrics.add(type,
+                        before != null && after != null && scopeChanged);
+            }
+            final TreeDiffMetrics moduleMetrics = metrics.build();
+            reactorMetrics = reactorMetrics.plus(moduleMetrics);
+            final ModuleTreeResult baselineTree = diffTreeModule(
+                    moduleIndex, name, coordinate);
+            final ModuleTreeResult targetTree = diffTreeModule(
+                    moduleIndex + 1, name, coordinate);
+            modules.add(new TreeDiffModuleResult(
+                    name + "/pom.xml", coordinate, coordinate,
+                    TreeDiffSideState.PRESENT,
+                    TreeDiffSideState.PRESENT,
+                    TreeDiffComparisonStatus.COMPARABLE,
+                    moduleMetrics, dependencies, baselineTree,
+                    targetTree, List.of()));
+        }
+        final TreeDiffReactorResult reactor = new TreeDiffReactorResult(
+                "pom.xml", "io.browserfixture:root:1.0.0",
+                "io.browserfixture:root:1.0.0",
+                TreeDiffSideState.PRESENT, TreeDiffSideState.PRESENT,
+                TreeDiffComparisonStatus.COMPARABLE, modules,
+                reactorMetrics, List.of());
+        final MavenRuntimeDescriptor runtime = new MavenRuntimeDescriptor(
+                MavenRuntimeSource.EMBEDDED, projectRoot.resolve("mvn"),
+                MavenVersion.parse("3.9.11"), null, projectRoot);
+        final TreeDiffReportMetadata metadata =
+                new TreeDiffReportMetadata(
+                        new TreeDiffSideMetadata("git-ref", "main",
+                                "0123456789abcdef", false),
+                        new TreeDiffSideMetadata("current-workspace",
+                                "Current workspace",
+                                "fedcba9876543210", true),
+                        projectRoot, Path.of(""),
+                        Set.of("compile", "runtime"), runtime,
+                        "3.6.1", List.of());
+        final TreeDiffReportSession session =
+                new TreeDiffReportRenderer().start(metadata, 1, fixtureRoot);
+        session.publish(reactor);
+        session.complete();
+    }
+
+    private List<TreeDiffChainRow> denseChainRows(
+            final String coordinate,
+            final DependencyKey dependency,
+            final TreeDiffPathOccurrence baseline,
+            final TreeDiffPathOccurrence target) {
+        final List<TreeDiffChainRow> chains = new ArrayList<>();
+        for (int index = 0; index < 12; index++) {
+            final DependencyKey bridge = new DependencyKey(
+                    "org.browserfixture", String.format("bridge-%03d", index),
+                    "jar", "");
+            final TreeDiffPathKey pathKey = new TreeDiffPathKey(
+                    List.of(bridge, dependency));
+            chains.add(new TreeDiffChainRow(
+                    new TreeDiffPathOccurrence(pathKey,
+                            coordinate + "\n+- org.browserfixture:"
+                                    + bridge.getArtifactId()
+                                    + ":jar:1.0.0:compile\n"
+                                    + "\\- org.browserfixture:"
+                                    + dependency.getArtifactId()
+                                    + ":jar:1.0.0:compile",
+                            baseline.resolvedVersion(),
+                            baseline.managedFromVersion(), "compile", false),
+                    new TreeDiffPathOccurrence(pathKey,
+                            coordinate + "\n+- org.browserfixture:"
+                                    + bridge.getArtifactId()
+                                    + ":jar:1.1.0:runtime\n"
+                                    + "\\- org.browserfixture:"
+                                    + dependency.getArtifactId()
+                                    + ":jar:2.0.0:runtime",
+                            target.resolvedVersion(),
+                            target.managedFromVersion(), "runtime", false),
+                    TreeChainChangeType.UNCHANGED));
+        }
+        return chains;
+    }
+
+    private ModuleTreeResult diffTreeModule(
+            final int moduleIndex,
+            final String name,
+            final String coordinate) {
+        final List<DependencyOccurrence> occurrences = new ArrayList<>();
+        for (int index = 0; index < 48; index++) {
+            occurrences.add(occurrence(moduleIndex,
+                    index % DEPENDENCIES_PER_MODULE, coordinate));
+        }
+        return new ModuleTreeResult(Path.of(name, "pom.xml"), coordinate,
+                occurrences, true, "", ModuleAnalysisRole.REQUESTED);
     }
 
     private TreeRepositoryResult treeResult(final Path projectRoot) {

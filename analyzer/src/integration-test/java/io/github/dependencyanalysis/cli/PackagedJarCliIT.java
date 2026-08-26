@@ -164,6 +164,10 @@ class PackagedJarCliIT {
                 "impact", "--help");
         final ProcessResult treeHelp = runJar(
                 "tree", "--help");
+        final ProcessResult treeAnalyzeHelp = runJar(
+                "tree", "analyze", "--help");
+        final ProcessResult treeDiffHelp = runJar(
+                "tree", "diff", "--help");
         final ProcessResult version = runJar("--version");
         final ProcessResult oldRoot = runJar(
                 "--baseline", "HEAD",
@@ -200,11 +204,22 @@ class PackagedJarCliIT {
                         + "(experimental); default: cha.");
         assertThat(treeHelp.exitCode).isZero();
         assertThat(treeHelp.output)
+                .contains("analyze")
+                .contains("diff");
+        assertThat(treeAnalyzeHelp.exitCode).isZero();
+        assertThat(treeAnalyzeHelp.output)
                 .contains("-p, --path")
                 .contains("-r, --ref")
                 .contains("-o, --output")
                 .contains("-s, --scopes")
                 .contains("-d, --dependency-plugin-version");
+        assertThat(treeDiffHelp.exitCode).isZero();
+        assertThat(treeDiffHelp.output)
+                .contains("-p, --path")
+                .contains("-b, --baseline")
+                .contains("-t, --target")
+                .contains("-o, --output")
+                .doesNotContain("--ref");
         assertThat(version.exitCode).isZero();
         assertThat(version.output)
                 .contains(ANALYZER_VERSION);
@@ -227,19 +242,26 @@ class PackagedJarCliIT {
                 "tree-report");
         final Path scopedReport = temporary.resolve(
                 "scoped-tree-report");
+        final Path diffReport = temporary.resolve(
+                "tree-diff-report");
 
         final ProcessResult tree = runJar(
-                "tree", "-m", maven.toString(),
+                "tree", "analyze", "-m", maven.toString(),
                 "-c", temporary.resolve("tree-config")
                         .toString(),
                 "-p", repository.toString(),
                 "-o", treeReport.toString());
         final ProcessResult scoped = runJar(
-                "-m", maven.toString(), "tree",
+                "-m", maven.toString(), "tree", "analyze",
                 "-p", repository.resolve("module")
                         .toString(),
                 "-o", scopedReport.toString(),
                 "-d", "3.6.1");
+        final ProcessResult diff = runJar(
+                "tree", "diff", "-m", maven.toString(),
+                "-c", temporary.resolve("tree-diff-config").toString(),
+                "-p", repository.toString(), "-b", "HEAD",
+                "-o", diffReport.toString(), "-d", "3.6.1");
 
         assertThat(tree.exitCode).as(tree.output).isZero();
         assertThat(tree.output)
@@ -274,6 +296,28 @@ class PackagedJarCliIT {
                 .contains("test:library:jar:1")
                 .doesNotContain("test:unrelated:jar:1");
         HtmlReportUsabilityVerifier.verifyTree(scopedReport);
+        assertThat(diff.exitCode).as(diff.output).isZero();
+        assertThat(diffReport.resolve("index.html")).content()
+                .contains("Dependency Tree Diff")
+                .contains("SUCCESS")
+                .contains("Current workspace");
+        assertThat(readOnlyTreeDiffReactorPage(diffReport))
+                .contains("tree-diff-report")
+                .contains("Dependency tree comparison")
+                .contains("<th scope=\"col\">Actions</th>");
+        HtmlReportUsabilityVerifier.verifyTree(diffReport);
+    }
+
+    private String readOnlyTreeDiffReactorPage(final Path report)
+            throws Exception {
+        final Path reactors = report.resolve(
+                "tree-diff-report/reactors");
+        try (java.util.stream.Stream<Path> files = Files.list(reactors)) {
+            final Path page = files.filter(path -> path.getFileName()
+                            .toString().endsWith(".html"))
+                    .findFirst().orElseThrow();
+            return Files.readString(page);
+        }
     }
 
     @Test
@@ -283,7 +327,7 @@ class PackagedJarCliIT {
         final Path report = temporary.resolve("class-conflict-report");
 
         final ProcessResult result = runJar(
-                "-v", "tree", "-m", maven.toString(),
+                "-v", "tree", "analyze", "-m", maven.toString(),
                 "-c", temporary.resolve("class-conflict-config").toString(),
                 "-p", repository.toString(), "-o", report.toString());
 
@@ -424,7 +468,7 @@ class PackagedJarCliIT {
                 "managed-conflict-report");
 
         final ProcessResult result = runJar(
-                "tree", "-m", fakeMaven.toString(),
+                "tree", "analyze", "-m", fakeMaven.toString(),
                 "-c", temporary.resolve("managed-config")
                         .toString(),
                 "-p", repository.toString(),
@@ -487,7 +531,7 @@ class PackagedJarCliIT {
                 "blocked-tree-report");
 
         final ProcessResult result = runJar(
-                "tree", "-p", temporary.resolve(
+                "tree", "analyze", "-p", temporary.resolve(
                         "missing").toString(),
                 "-o", output.toString());
 
@@ -519,7 +563,7 @@ class PackagedJarCliIT {
         final Path fakeMaven = fakeFailingMaven();
 
         final ProcessResult result = runJar(
-                "tree", "-m", fakeMaven.toString(),
+                "tree", "analyze", "-m", fakeMaven.toString(),
                 "-p", repository.toString(),
                 "-o", output.toString(),
                 "-d", "3.6.1");
@@ -592,7 +636,7 @@ class PackagedJarCliIT {
 
         final ProcessResult result = runJar(
                 "-m", maven.toString(),
-                "tree", "-p", repository.toString(),
+                "tree", "analyze", "-p", repository.toString(),
                 "-o", output.toString(),
                 "-d", "3.6.1");
 

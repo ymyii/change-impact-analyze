@@ -17,6 +17,9 @@ public final class WorkspaceSideInfo {
     /** Resolved commit hash. */
     private final String commit;
 
+    /** Dirty state captured before analysis. */
+    private final boolean dirty;
+
     /** True if a temporary worktree was created. */
     private final boolean whetherTemporary;
 
@@ -25,6 +28,7 @@ public final class WorkspaceSideInfo {
         this.side = b.side;
         this.path = b.path;
         this.commit = b.commit;
+        this.dirty = b.dirty;
         this.whetherTemporary = b.whetherTemporary;
     }
 
@@ -55,6 +59,11 @@ public final class WorkspaceSideInfo {
         return commit;
     }
 
+    /** @return dirty state captured before analysis */
+    public boolean isDirty() {
+        return dirty;
+    }
+
     /**
      * Returns whether this workspace is a
      * temporary worktree.
@@ -71,6 +80,7 @@ public final class WorkspaceSideInfo {
                 + "side=" + side
                 + ", path=" + path
                 + ", commit='" + commit + '\''
+                + ", dirty=" + dirty
                 + ", whetherTemporary="
                 + whetherTemporary
                 + '}';
@@ -89,6 +99,9 @@ public final class WorkspaceSideInfo {
 
         /** Commit hash. */
         private String commit;
+
+        /** Dirty state. */
+        private boolean dirty;
 
         /** Whether temporary. */
         private boolean whetherTemporary;
@@ -125,6 +138,17 @@ public final class WorkspaceSideInfo {
         public Builder commit(
                 final String value) {
             this.commit = value;
+            return this;
+        }
+
+        /**
+         * Sets the dirty state captured before analysis.
+         *
+         * @param value dirty state
+         * @return this builder
+         */
+        public Builder dirty(final boolean value) {
+            dirty = value;
             return this;
         }
 

@@ -90,7 +90,7 @@ Maven 选择顺序：
 /opt/apache-maven/bin/mvn -version
 java -jar /path/to/dependency-analyzer.jar \
   --maven /opt/apache-maven/bin/mvn \
-  tree --output build/dependency-tree
+  tree analyze --output build/dependency-tree
 ```
 
 Windows 应指向 `mvn.cmd`，例如
@@ -192,7 +192,7 @@ Affected Paths 为空不等于已经证明没有业务影响。还应检查 Modu
 ### 4.2 执行
 
 ```sh
-java -jar /path/to/dependency-analyzer.jar tree \
+java -jar /path/to/dependency-analyzer.jar tree analyze \
   --path . \
   --output build/dependency-tree
 ```
@@ -377,7 +377,7 @@ java -jar /path/to/dependency-analyzer.jar \
 ### 6.1 分析指定 local ref
 
 ```sh
-java -jar /path/to/dependency-analyzer.jar tree \
+java -jar /path/to/dependency-analyzer.jar tree analyze \
   --path . \
   --ref release-2.0 \
   --output build/release-dependencies
@@ -388,7 +388,7 @@ java -jar /path/to/dependency-analyzer.jar tree \
 ### 6.2 分析指定Maven project scope
 
 ```sh
-java -jar /path/to/dependency-analyzer.jar tree \
+java -jar /path/to/dependency-analyzer.jar tree analyze \
   --path services/payment \
   --output build/payment-dependencies
 ```
@@ -407,7 +407,7 @@ java -jar /path/to/dependency-analyzer.jar tree \
 ```sh
 java -jar /path/to/dependency-analyzer.jar \
   --maven-arg=-Pproduction \
-  tree \
+  tree analyze \
   --path services/payment \
   --scopes compile,runtime \
   --output build/payment-runtime-dependencies
@@ -418,12 +418,38 @@ java -jar /path/to/dependency-analyzer.jar \
 ### 6.4 高级覆盖 Maven Dependency Plugin version
 
 ```sh
-java -jar /path/to/dependency-analyzer.jar tree \
+java -jar /path/to/dependency-analyzer.jar tree analyze \
   --dependency-plugin-version 3.6.1 \
   --output build/dependency-tree
 ```
 
 通常无需指定。覆盖版本必须在 Preflight 中通过完整 evidence capability check，否则 command 被阻断，避免生成不完整的冲突结论。
+
+### 6.5 比较两个 dependency tree
+
+比较 baseline local Git commit-ish 与 current workspace：
+
+```sh
+java -jar /path/to/dependency-analyzer.jar tree diff \
+  --path services/payment \
+  --baseline main \
+  --output build/payment-dependency-diff
+```
+
+比较两个 local Git commit-ish：
+
+```sh
+java -jar /path/to/dependency-analyzer.jar tree diff \
+  --path . \
+  --baseline release-1.1 \
+  --target release-1.2 \
+  --scopes compile,runtime \
+  --output build/release-dependency-diff
+```
+
+baseline与显式target都必须能够peel为commit；Analyzer不执行fetch。省略`--target`时直接分析current workspace，未提交修改参与比较，dirty状态在Maven执行前记录。两侧Reactor与Module结构必须一致；结构不一致显示`STRUCTURE_MISMATCH`，不会把整个Module误报为dependency新增或删除。
+
+旧的`tree --ref ...`语法已移除，应迁移为`tree analyze --ref ...`。
 
 ## 7. 命令参考
 
@@ -483,18 +509,37 @@ dependency-analyzer impact \
 ### 7.4 tree options
 
 ```text
-dependency-analyzer tree \
+dependency-analyzer tree analyze \
+  --output <dir> \
+  [options]
+
+dependency-analyzer tree diff \
+  --baseline <local-commit-ish> \
   --output <dir> \
   [options]
 ```
 
+两个操作共用：
+
 | Short | Long | Required | Default | Repeatable | 说明 |
 |---:|---|:---:|---|:---:|---|
 | `-p` | `--path <dir>` | No | current directory | No | Git repository内、直接包含readable POM的Maven project目录。 |
-| `-r` | `--ref <local-ref>` | No | current checkout | No | 单个tree snapshot的local Git ref；同一relative path必须含POM。 |
 | `-o` | `--output <dir>` | Yes | — | No | Offline HTML report directory。 |
 | `-s` | `--scopes <csv>` | No | `compile,runtime,provided,system` | No | 纳入dependency tree、版本冲突和external/Reactor dependency冲突类扫描的scope。 |
 | `-d` | `--dependency-plugin-version <version>` | No | 内嵌 `3.6.1` | No | Maven Dependency Plugin 高级 override。 |
+
+`tree analyze`独有：
+
+| Short | Long | Required | Default | Repeatable | 说明 |
+|---:|---|:---:|---|:---:|---|
+| `-r` | `--ref <local-commit-ish>` | No | current checkout | No | 单个tree snapshot的local Git commit-ish；同一relative path必须含POM。 |
+
+`tree diff`独有：
+
+| Short | Long | Required | Default | Repeatable | 说明 |
+|---:|---|:---:|---|:---:|---|
+| `-b` | `--baseline <local-commit-ish>` | Yes | — | No | baseline；必须能够peel为commit。 |
+| `-t` | `--target <local-commit-ish>` | No | current workspace | No | target；提供时创建detached worktree。 |
 
 Global `--java-home` 对 `tree` 仅设置 Maven subprocess 的
 `JAVA_HOME`；`tree` 不要求 JDK 8。
@@ -703,7 +748,25 @@ Dependency与Module筛选支持Enter选中、Escape关闭、Arrow Up/Down、Home
 
 报告完全离线，可直接通过`file://`打开。dependency、当前Module的Dependency候选与当前页内容、dependency tree和反编译源码按需加载，避免大型报告初次打开时一次性创建全部内容。文件缺失或损坏时页面显示Retry；恢复报告文件后可重试。空dependency、空Module、Module failure和JavaScript禁用均有明确提示。桌面和小屏幕的宽表只在表格区域内横向滚动。
 
-### 8.4 tree status 与增量发布
+### 8.4 tree diff 报告
+
+`tree diff`输出`index.html`与`tree-diff-report/reactors/`下的独立Reactor页面。Index展示baseline/target commit、current workspace dirty状态、scope、Maven runtime、Reactor状态与五项DependencyKey汇总指标。
+
+Reactor页面使用英文界面。Module summary固定展示Module、Status和五项指标，不提供Actions；用户只在Module detail的Module selector中切换Module。DependencyKey级六列主表保留Actions，用于按需展开四列dependency chain子表。基础变更类型为`Version changed`、`Added`、`Removed`或`Resolved version unchanged`；`Scope changed`可叠加。direct dependency使用`Yes`、`No`和`—`显示双侧事实，不产生额外类型或指标。
+
+chain通过忽略version/scope的完整有序PathKey配对；`Managed from <version>`只作为chain版本证据。chain结构的`Added`、`Removed`和`Unchanged`不进入Module或Index指标。子表使用比主表更紧凑的独立分页控件。页面占满可用viewport宽度，只保留小幅安全边距；dependency tree按完整文本高度展示，不产生纵向滚动，长行可在单侧tree区域横向滚动。页面只创建当前Module、当前主表页、最多一个chain子表页和最多50个筛选候选，可直接通过`file://`打开。
+
+状态与exit code：
+
+| Report state | 条件 | Exit code |
+|---|---|---:|
+| `SUCCESS` | 全部Module可比较且采集成功。 | `0` |
+| `COMPLETED_WITH_ISSUES` | 至少一个Module可比较，同时存在结构或采集问题。 | `2` |
+| `FAILED` | 没有可比较Module，或report pipeline/publication失败。 | `2` |
+
+参数、Git ref、映射path或runtime Preflight失败返回`1`且不执行dependency collection。`STRUCTURE_MISMATCH`与`UNAVAILABLE`都不会推导整Module dependency新增/删除。已完整发布的Reactor page在后续失败时保留。
+
+### 8.5 tree analyze status 与增量发布
 
 Command-level Preflight 失败返回 exit code `1`，不清理或覆盖旧报告。Preflight 成功后：
 
@@ -725,7 +788,7 @@ Reactor status：
 | `DEGRADED` | 报告可用，但存在不完整 evidence 或非阻塞 issue。 |
 | `FAILED` | Reactor 无法形成完整结果。 |
 
-### 8.5 Preflight status 与 decision
+### 8.6 Preflight status 与 decision
 
 Status：
 
@@ -856,6 +919,8 @@ Internal conflict：
 
 分析只覆盖实际进入 resolved dependency tree 的 dependency。不会列出未被使用的完整
 `dependencyManagement`、imported Bill of Materials（BOM，物料清单）、build/report Plugin、extension 或 Plugin dependency tree。
+
+`tree diff`沿用同一`groupId + artifactId + type + classifier` identity，但在单个Module内按唯一DependencyKey聚合。resolved version与effective scope都是标量；版本分类只比较resolved version，scope变化是独立叠加事实。directness由该侧任一条PathKey长度为1聚合。PathKey排除Module根并保留中间节点顺序，忽略version与scope，仅用于chain结构配对，不改变DependencyKey级分类和指标。
 
 ### 9.8 Maven settings 与数据隔离
 

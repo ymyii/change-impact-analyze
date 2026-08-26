@@ -16,8 +16,6 @@ import io.github.dependencyanalysis.runtime.ReportCache;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -272,12 +270,6 @@ final class TreeExecutionEngine {
     }
 
     private Set<String> parseScopes(final String value) {
-        final Set<String> result = new LinkedHashSet<>();
-        Arrays.stream(value.split(","))
-                .map(String::trim)
-                .filter(item -> !item.isBlank())
-                .map(item -> item.toLowerCase(Locale.ROOT))
-                .forEach(result::add);
-        return result;
+        return TreeScopeParser.parse(value);
     }
 }

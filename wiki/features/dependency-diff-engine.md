@@ -1,5 +1,5 @@
 ---
-title: "Dependency Diff Engine"
+title: "Impact Dependency Diff Engine"
 type: feature
 relations:
   - path: "wiki/architecture/dependency-analysis-pipelines.md"
@@ -10,6 +10,8 @@ relations:
     desc: "VERSION_CHANGED coordinate 由 command-scoped repository 打开 JAR"
   - path: "wiki/features/bytecode-diff-engine.md"
     desc: "VERSION_CHANGED 依赖变动最终供 Bytecode Diff Engine 执行 bytecode diff"
+  - path: "wiki/features/repository-dependency-tree-diff.md"
+    desc: "区分Impact artifact去重diff与Tree occurrence-aware依赖树diff"
 code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/DependencyDiffEngine.java"
     desc: "依赖变动对比引擎主实现"
@@ -19,11 +21,11 @@ code_refs:
     desc: "变动类型枚举"
 ---
 
-# Feature: Dependency Diff Engine
+# Feature: Impact Dependency Diff Engine
 
 ## Summary
 
-Dependency Diff Engine 对比 baseline 和 target 的 resolved dependency tree，按模块维度生成 `DependencyChange` 列表。它识别新增、移除和版本变更三类依赖变动，并输出稳定排序的不可变结果。
+Impact Dependency Diff Engine对比baseline和target的resolved dependency tree，按模块维度生成供JAR选择与bytecode分析消费的`DependencyChange`列表。它识别新增、移除和版本变更三类artifact变动，并输出稳定排序的不可变结果；它不负责`tree diff`的scope、directness、occurrence或PathKey语义。
 
 ## Design Decisions
 
@@ -87,3 +89,4 @@ Dependency Diff Engine 对比 baseline 和 target 的 resolved dependency tree�
 - Dependency Diff Engine 不解析 Maven、不过滤 scope，也不访问 JAR。
 - `DependencyChange` 是后续 coordinate repository、Bytecode Diff Engine 和 Report Generator 的共享 logical 数据合同，不包含 dependency JAR path。
 - API risk 判断只基于依赖 scope，不推断调用路径或实际业务影响。
+- `tree diff`使用`tree.TreeDiffEngine`及独立领域模型；不得把本引擎的DFS去重与整Module新增/删除语义复用到Tree Report。

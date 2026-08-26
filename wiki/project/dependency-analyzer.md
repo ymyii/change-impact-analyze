@@ -7,7 +7,9 @@ relations:
   - path: "wiki/features/maven-runtime.md"
     desc: "内嵌 Maven 与两个 Plugin repository 的 runtime 行为"
   - path: "wiki/features/repository-dependency-tree-report.md"
-    desc: "tree单入口Maven scope与离线Report行为"
+    desc: "tree analyze单侧Maven scope与离线Report行为"
+  - path: "wiki/features/repository-dependency-tree-diff.md"
+    desc: "tree diff双侧workspace、依赖差异语义与离线Report行为"
   - path: "wiki/rules/process-command-resolution.md"
     desc: "外部命令执行的跨平台约束"
   - path: "wiki/rules/release-versioning.md"
@@ -44,7 +46,11 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/reactor/ReactorInventoryBuilder.java"
     desc: "impact/tree共享的Maven reactor scope resolver"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
-    desc: "tree pipeline 编排"
+    desc: "tree父命令与analyze/diff分派"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeAnalyzeCommand.java"
+    desc: "单侧repository dependency tree分析入口"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeDiffCommand.java"
+    desc: "baseline/target dependency tree比较入口"
   - path: "benchmarks/impact-medium/run-suite.sh"
     desc: "单scope CHA-only benchmark suite"
 ---
@@ -53,7 +59,7 @@ code_refs:
 
 ## Summary
 
-Dependency Analyzer是Java 17 + Maven + picocli CLI。`impact`使用显式完整JDK 8比较dependency升级前后的bytecode与业务调用影响；`tree`从一个直接包含POM的Maven project目录解析reactor scope，生成offline HTML dependency tree report。
+Dependency Analyzer是Java 17 + Maven + picocli CLI。`impact`使用显式完整JDK 8比较dependency升级前后的bytecode与业务调用影响；`tree analyze`从一个直接包含POM的Maven project目录解析reactor scope并生成单侧offline HTML dependency tree report；`tree diff`比较本地Git baseline与ref或当前工作区target的dependency tree。
 
 Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer，`plugins/pom.xml`只聚合内置Maven Plugin，`models/jdk/pom.xml`与`models/jdk8/pom.xml`分别构建公共engine和JDK 8 catalog/façade。独立artifact通过Maven local repository按dependency顺序交付，不加入root`<modules>`。
 
@@ -68,6 +74,8 @@ Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer
 - CHA固定`jdk-model none`、不应用WALA ReflectionOptions且不遍历JDK body；JDK声明的virtual/interface dispatch不扩展到非JDK实现。`k-obj`默认`jdk8`并可显式`none`。Analyzer仍将JDK model class/catalog打入uber JAR。
 - SSA equivalence固定在JAR Diff阶段启用；CHA固定执行caller-local `cha-local-receiver-inference` Impact Path pruning extension。不存在result refinement CLI selection或关闭分支。
 - 两个subcommand共享Maven runtime、preflight Schema和中立reactor scope resolver，但分别组装检查DAG；pipeline只消费typed scope与preflight decision。
+- `tree`是只负责帮助与分派的父命令。两个子命令共享tree维度参数；`tree analyze`使用`--ref`，`tree diff`使用必填`--baseline`与可选`--target`，不保留直接执行旧`tree`分析的兼容分支。
+- `tree diff`要求两侧Reactor与Module结构一致；结构单侧缺失形成`STRUCTURE_MISMATCH`，不推导整Module依赖新增或删除。diff只复用compile加dependency tree采集，不执行classpath evidence或class conflict分析。
 
 ## Module Map
 
@@ -78,7 +86,7 @@ Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer
 - `analyzer/src/main/java/io/github/dependencyanalysis/reactor/` - 安全POM解析、profile activation、active module graph、祖先aggregator与不可变scope模型。
 - `analyzer/src/main/java/io/github/dependencyanalysis/impact/` - `impact` command、Call Graph input/reason adapter、evidence绑定、pipeline和影响追踪domain。
 - `analyzer/src/main/java/io/github/dependencyanalysis/impact/pruning/` - 固定CHA caller-local Impact Path edge extension contract、receiver resolver与统一summary；Static Single Assignment（SSA，静态单赋值）equivalence位于`bytecode/`。
-- `analyzer/src/main/java/io/github/dependencyanalysis/tree/` - Git snapshot、dependency collection、version analysis和HTML report。
+- `analyzer/src/main/java/io/github/dependencyanalysis/tree/` - `tree`父命令、单侧/双侧Git workspace、dependency collection、occurrence-aware diff、version analysis和HTML report。
 - `analyzer/src/main/java/io/github/dependencyanalysis/callgraph/` - 仅保留package边界；production class按engine、strategy、protocol、jdk、entrypoint、scope、boundary、topology、model与local职责进入子包。
 - `analyzer/src/main/java/io/github/dependencyanalysis/callgraph/strategy/{cha,kobj}/` - 互相隔离的CHA与`k-obj`实现；动态协议adapter只位于`kobj`子包。
 - `analyzer/src/main/java/io/github/dependencyanalysis/{build,dependency,bytecode,jar,report,workspace}/` - `impact` pipeline的其他稳定阶段实现。
@@ -100,7 +108,9 @@ Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer
 
 - `DependencyAnalyzerCli.main()` - JVM 和 Root CLI 入口。
 - `ImpactCommand.call()` - dependency upgrade impact 分析入口。
-- `TreeCommand.call()` - repository dependency tree report 入口。
+- `TreeCommand.call()` - `tree`父命令帮助与子命令分派入口。
+- `TreeAnalyzeCommand.call()` - repository dependency tree analyze入口。
+- `TreeDiffCommand.call()` - baseline/target dependency tree diff入口。
 - `plugins/pom.xml` - Plugin bootstrap/install 入口。
 - `pom.xml` - Analyzer build/test/package 入口。
 

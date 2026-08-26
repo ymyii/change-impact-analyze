@@ -45,6 +45,35 @@ class DependencyAnalyzerCliTest {
     }
 
     @Test
+    void treeRequiresAnOperationAndRejectsOldAnalyzeSyntax() {
+        final CommandLine command = DependencyAnalyzerCli.newCommandLine(
+                new DependencyAnalyzerCli());
+
+        assertThat(command.execute("tree")).isEqualTo(1);
+        assertThat(command.execute("tree", "--output", "report"))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void treeOperationOptionsStayIsolated() {
+        final CommandLine analyze = DependencyAnalyzerCli.newCommandLine(
+                new DependencyAnalyzerCli());
+        final CommandLine diff = DependencyAnalyzerCli.newCommandLine(
+                new DependencyAnalyzerCli());
+        final CommandLine missingBaseline =
+                DependencyAnalyzerCli.newCommandLine(
+                        new DependencyAnalyzerCli());
+
+        assertThat(analyze.execute("tree", "analyze", "--baseline",
+                "HEAD", "--output", "report")).isEqualTo(1);
+        assertThat(diff.execute("tree", "diff", "--ref", "HEAD",
+                "--baseline", "HEAD", "--output", "report"))
+                .isEqualTo(1);
+        assertThat(missingBaseline.execute("tree", "diff",
+                "--output", "report")).isEqualTo(1);
+    }
+
+    @Test
     void oldRootInvocationIsRejected() {
         final int code = DependencyAnalyzerCli
                 .newCommandLine(
@@ -103,12 +132,20 @@ class DependencyAnalyzerCliTest {
                 new StringWriter();
         final StringWriter treeText =
                 new StringWriter();
+        final StringWriter analyzeText =
+                new StringWriter();
+        final StringWriter diffText =
+                new StringWriter();
 
         command.usage(new PrintWriter(rootText));
         command.getSubcommands().get("impact")
                 .usage(new PrintWriter(impactText));
         command.getSubcommands().get("tree")
                 .usage(new PrintWriter(treeText));
+        command.getSubcommands().get("tree").getSubcommands()
+                .get("analyze").usage(new PrintWriter(analyzeText));
+        command.getSubcommands().get("tree").getSubcommands()
+                .get("diff").usage(new PrintWriter(diffText));
 
         assertThat(rootText.toString())
                 .contains("-m, --maven")
@@ -144,11 +181,22 @@ class DependencyAnalyzerCliTest {
                 .contains("Maximum concurrent Analyzer operations; default: "
                         + "half of available processors.");
         assertThat(treeText.toString())
+                .contains("analyze")
+                .contains("diff")
+                .doesNotContain("--ref");
+        assertThat(analyzeText.toString())
                 .contains("-p, --path")
                 .contains("-r, --ref")
                 .contains("-o, --output")
                 .contains("-s, --scopes")
                 .contains("-d, --dependency-plugin-version");
+        assertThat(diffText.toString())
+                .contains("-p, --path")
+                .contains("-b, --baseline")
+                .contains("-t, --target")
+                .contains("-o, --output")
+                .contains("-s, --scopes")
+                .doesNotContain("--ref");
     }
 
     @Test
@@ -361,9 +409,10 @@ class DependencyAnalyzerCliTest {
                 .newCommandLine(new DependencyAnalyzerCli());
 
         final CommandLine.ParseResult defaultResult = defaultCommand
-                .parseArgs("tree", "--output", "report");
+                .parseArgs("tree", "analyze", "--output", "report");
         final CommandLine.ParseResult explicitResult = explicitCommand
-                .parseArgs("tree", "--output", "report",
+                .parseArgs("tree", "diff", "--baseline", "HEAD",
+                        "--output", "report",
                         "--scopes", "compile,test");
 
         assertThat(treeScopes(defaultResult))
@@ -488,7 +537,7 @@ class DependencyAnalyzerCliTest {
     }
 
     private String treeScopes(final CommandLine.ParseResult result) {
-        return result.subcommand().commandSpec()
+        return result.subcommand().subcommand().commandSpec()
                 .findOption("--scopes").getValue();
     }
 

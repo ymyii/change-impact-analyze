@@ -6,6 +6,8 @@ relations:
     desc: "impact/tree pipeline 与 exit code"
   - path: "wiki/features/report-generator.md"
     desc: "Preflight保留、HTML Diagnostics删除与显式topology JSON边界"
+  - path: "wiki/features/repository-dependency-tree-diff.md"
+    desc: "Tree Diff双侧状态、阶段进度、审计字段与退出码"
   - path: "wiki/features/jdk-method-models.md"
     desc: "algorithm相关--jdk-model默认值、关闭语义与严格失败"
   - path: "wiki/features/bytecode-diff-engine.md"
@@ -36,7 +38,9 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactPreflightService.java"
     desc: "impact入口POM、Maven activation与workspace门禁"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreePreflightService.java"
-    desc: "tree snapshot入口POM与reactor scope门禁"
+    desc: "tree analyze snapshot入口POM与reactor scope门禁"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeDiffExecutionEngine.java"
+    desc: "tree diff参数、双侧workspace/runtime/scope门禁与终态"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/reactor/ReactorInventoryBuilder.java"
     desc: "共享scope preparation failure边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/diagnostic/DiagnosticContext.java"
@@ -57,7 +61,7 @@ code_refs:
 
 ## Summary
 
-CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer 唯一日志 façade；`impact`/`tree` 的业务日志统一写入 stderr，并使用稳定五段 prefix。控制流程只使用`stage`和`phase`：Stage是具有开始、完成、失败与耗时的执行边界；Phase是Stage内可选的算法活动。全局 verbosity 默认为 `INFO`，`-v` 选择 `DEBUG`，`-vv` 选择 `TRACE`；只有 `TRACE` 启动异步 Runtime Metrics。
+CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer 唯一日志 façade；`impact`、`tree analyze`与`tree diff`的业务日志统一写入stderr，并使用稳定五段prefix。控制流程只使用`stage`和`phase`：Stage是具有开始、完成、失败与耗时的执行边界；Phase是Stage内可选的算法活动。全局verbosity默认为`INFO`，`-v`选择`DEBUG`，`-vv`选择`TRACE`；只有`TRACE`启动异步Runtime Metrics。
 
 ## Design Decisions
 
@@ -69,13 +73,14 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 
 ## Actors / Entrypoints
 
-- `dependency-analyzer impact`和`tree`通过root verbosity选择Console可见性；Preflight、Maven subprocess、JAR diff、Module analysis与Report共享同一`DiagnosticLog`。
+- `dependency-analyzer impact`、`tree analyze`和`tree diff`通过root verbosity选择Console可见性；Preflight、Maven subprocess、差异分析、Module analysis与Report共享同一`DiagnosticLog`。
 
 ## Behavior Contract
 
 - INFO保留稳定进度、warning和error；DEBUG增加分析决策、完整Maven output与异常stack；TRACE再增加细粒度evidence和Runtime Metrics。
 - 全部Diagnostic line只进入Console；HTML不保留event snapshot，也不渲染Diagnostics section。
-- `impact`与`tree`的analysis directory必须直接包含readable`pom.xml`。Scope diagnostic明确输出`FULL_REACTOR`、`SINGLE_MODULE`或`STANDALONE`及execution root。
+- 三个分析入口的analysis directory必须直接包含readable`pom.xml`。Scope diagnostic明确输出`FULL_REACTOR`、`SINGLE_MODULE`或`STANDALONE`及execution root；Tree Diff分别审计baseline/target ref、resolved commit、dirty状态和mapped analysis path。
+- Tree Diff全可比较时返回`0`；CLI/preflight失败返回`1`；局部结构/采集问题、没有可比较Module或pipeline/publication失败返回`2`，并用`SUCCESS`、`COMPLETED_WITH_ISSUES`、`FAILED`区分终态。
 
 ## Core Flow
 

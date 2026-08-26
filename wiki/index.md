@@ -10,12 +10,12 @@ code_refs: []
 ## Project
 
 ### [Dependency Analyzer](project/dependency-analyzer.md)
-- Summary: 四个独立Maven reactor；Java 17 Analyzer内嵌Java 8 Plugin与JDK 8 Method Model；`impact`与`tree`共享单入口reactor scope resolver。
+- Summary: 四个独立Maven reactor；Java 17 Analyzer内嵌Java 8 Plugin与JDK 8 Method Model；`impact`、`tree analyze`与`tree diff`共享bounded reactor scope resolver。
 
 ## Architecture
 
 ### [Dependency Analysis Pipelines](architecture/dependency-analysis-pipelines.md)
-- Summary: 中立reactor层统一`tree`/`impact`入口scope；Impact保持per-Module Call Graph编排，tree以单次Maven session生成dependency与classpath evidence。
+- Summary: 中立reactor层统一三个分析入口；Impact保持per-Module Call Graph编排，Tree Analyze执行单侧enrichment，Tree Diff按Reactor流式采集双侧dependency并增量发布。
 
 ## Features
 
@@ -26,10 +26,13 @@ code_refs: []
 - Summary: 用户或内嵌Maven、双repository ZIP、command-scoped settings overlay，以及与实际Maven JVM/settings一致的profile activation。
 
 ### [Repository Dependency Tree Report](features/repository-dependency-tree-report.md)
-- Summary: 单入口Maven evidence生成Tree Schema v2；Reactor/Module全量dependency occurrence、双版本徽标与Resolution source通过本地shard按需渲染。
+- Summary: `tree analyze`以单侧Maven evidence生成Tree Schema v2；Reactor/Module全量dependency occurrence、双版本徽标与Resolution source通过本地shard按需渲染。
+
+### [Repository Dependency Tree Diff](features/repository-dependency-tree-diff.md)
+- Summary: `tree diff`比较commit-ish baseline与ref或当前工作区target；按DependencyKey分类、PathKey配对chain，并以独立Schema v1按Reactor增量发布离线报告。
 
 ### [Git Workspace Management](features/git-workspace-management.md)
-- Summary: `impact`/`tree`保持Git-relative入口POM路径，使用UUID workspace/tmp、owner lock、stale recovery与detached worktree cleanup。
+- Summary: `impact`与`tree diff`复用双侧worktree/current workspace生命周期，`tree analyze`使用单侧snapshot；三者保持Git-relative入口POM路径和owned UUID清理边界。
 
 ### [Maven Build Runner](features/maven-build-runner.md)
 - Summary: 只编译target；入口aggregator完整compile、owned leaf使用`-pl/-am`、standalone直接执行，baseline与target分别规划scope。
@@ -37,8 +40,8 @@ code_refs: []
 ### [Structured Dependency Evidence Collection](features/dependency-evidence-collection.md)
 - Summary: Plugin 3.1提供impact Schema v3与tree Classpath Evidence Schema v1；两者复用owner、路径边界与原子发布且只写command cache。
 
-### [Dependency Diff Engine](features/dependency-diff-engine.md)
-- Summary: 对比 baseline/target resolved dependency tree，生成稳定排序的 dependency changes。
+### [Impact Dependency Diff Engine](features/dependency-diff-engine.md)
+- Summary: 为Impact对比baseline/target resolved artifact并生成稳定`DependencyChange`；不承载Tree occurrence、scope、directness或PathKey语义。
 
 ### [Coordinate JAR Repository](features/jar-locator.md)
 - Summary: `ArtifactCoord` 是 dependency JAR logical identity；repository deterministic 选择 Resolver binding，并以 tracked `JarLease` 隔离 physical handle。
@@ -56,7 +59,7 @@ code_refs: []
 - Summary: ChangePoint收集期固定执行decompiled Java first、normalized SSA on miss的短路过滤；下游仅消费effective ChangePoint，CHA query按caller-local事实生成确定性代表路径。
 
 ### [Report Generator](features/report-generator.md)
-- Summary: Impact Schema 5与Tree Schema v2共享安全shard writer和可配置loader；离线交互由Java门禁与双viewport `file://` Playwright共同约束。
+- Summary: Impact Schema 5、Tree Analyze Schema v2与Tree Diff Schema v1共享安全callback shard边界；离线交互由Java门禁与双viewport `file://` Playwright共同约束。
 
 ## Rules
 
@@ -76,7 +79,7 @@ code_refs: []
 - Summary: 按职责分包、单向依赖、algorithm隔离、无兼容壳与测试镜像production package，由ArchUnit持续强制。
 
 ### [Code and Concept Reuse](rules/code-concept-reuse.md)
-- Summary: 同一含义复用统一概念，同一职责与不变量复用canonical implementation；新增抽象必须具有明确语义边界和所有者。
+- Summary: 遵循KISS、YAGNI与DRY；复用canonical概念和实现，只编码当前可到达状态，不为明确领域不变量排除的理论情况增加防御分支。
 
 ### [User Manual Maintenance](rules/user-manual-maintenance.md)
 - Summary: 用户手册必须是可与Analyzer JAR独立交付的用户任务闭包，并随CLI、runtime、Report、状态和限制同步维护。
@@ -84,7 +87,7 @@ code_refs: []
 ## Runbooks
 
 ### [Build, Test, Package](runbooks/build-test-package.md)
-- Summary: 四reactor顺序bootstrap、artifact-first Maven gate、uber JAR/CLI smoke，以及独立必跑的Chromium双viewport Report gate。
+- Summary: 四reactor顺序bootstrap、artifact-first Maven gate、uber JAR与三个分析入口smoke，以及包含Tree Diff的Chromium双viewport Report gate。
 
 ### [JDK Models Build and Test](runbooks/jdk-models-build-test.md)
 - Summary: 公共JDK engine与JDK 8 model的顺序构建、exact catalog/fixed-point/Packaging验收、metrics与failure entrypoint。

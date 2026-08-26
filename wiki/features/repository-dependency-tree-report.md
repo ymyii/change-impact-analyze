@@ -14,13 +14,19 @@ relations:
     desc: "共享reactor scope与Maven compile mode"
   - path: "wiki/features/git-workspace-management.md"
     desc: "Current checkout 和 local-ref snapshot"
+  - path: "wiki/features/repository-dependency-tree-diff.md"
+    desc: "双侧Tree Diff复用的bounded scope、dependency-only采集与视觉基础"
   - path: "wiki/features/report-generator.md"
     desc: "Impact/Tree共享的offline shard writer、loader与浏览器门禁"
   - path: "wiki/rules/process-command-resolution.md"
     desc: "Git/Maven process 执行约束"
 code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
-    desc: "Public tree CLI option 与metrics session入口"
+    desc: "tree父命令与analyze/diff分派"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeCommonOptions.java"
+    desc: "两个tree子命令共享的path、output、scope与Plugin version"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeAnalyzeCommand.java"
+    desc: "tree analyze ref option、metrics session与单侧执行入口"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeExecutionEngine.java"
     desc: "Preflight、串行Reactor processing、cache与Report生命周期"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/reactor/ReactorInventoryBuilder.java"
@@ -61,7 +67,7 @@ code_refs:
 
 ## Summary
 
-`tree`从current checkout或local ref中的单个入口POM解析`FULL_REACTOR`、`SINGLE_MODULE`或`STANDALONE` scope。一次Maven session依次执行`compile`、verbose dependency tree和Classpath Evidence collection。Report为可直接通过`file://`打开的离线目录；Reactor HTML只内嵌轻量catalog与Tree Reactor Report Data Schema v2 manifest，dependency occurrence、当前Module候选、源码和dependency tree按需从相邻`<reactor-base>-data/`加载。
+`tree analyze`从current checkout或local ref中的单个入口POM解析`FULL_REACTOR`、`SINGLE_MODULE`或`STANDALONE` scope。一次Maven session依次执行`compile`、verbose dependency tree和Classpath Evidence collection。Report为可直接通过`file://`打开的离线目录；Reactor HTML只内嵌轻量catalog与Tree Reactor Report Data Schema v2 manifest，dependency occurrence、当前Module候选、源码和dependency tree按需从相邻`<reactor-base>-data/`加载。
 
 “跨模块依赖分析”逐行展示Reactor范围内全部selected与omitted occurrence，不去重；“模块内部依赖分析”使用相同occurrence语义并限制在当前Module。Dependency与Module使用带展开标志的可输入单选combobox，并在宽屏保持紧凑双行布局。Dependency候选同时显示selected occurrence的resolved-version数量和全部occurrence的original/resolved unique-version数量；前者继续驱动`Multi-version dependencies`，后者只提供观察范围。
 
@@ -82,10 +88,11 @@ code_refs:
 - 所有动态内容通过`textContent`、`DocumentFragment`和DOM API构造，不把Report数据解释为HTML。
 - Impact与Tree共享`OfflineShardWriter`及可配置callback loader；Impact继续使用Schema 5、原文件名和`window.__CIA_AFFECTED_PATH_SHARD__`，Tree使用Schema v2和`window.__CIA_TREE_REPORT_SHARD__`。
 - 命令cache仍位于UUID command-owned目录，不进入最终artifact；Reactor page和Index checkpoint成功后释放完整Reactor结果。
+- `tree`自身不执行分析；直接调用只输出父命令帮助并返回`1`。旧`tree [options]`不保留兼容执行路径，单侧分析必须显式使用`tree analyze`。
 
 ## Actors / Entrypoints
 
-- 用户执行`dependency-analyzer tree [-p|--path <dir>] [-r|--ref <local-ref>] -o|--output <dir> ...`。
+- 用户执行`dependency-analyzer tree analyze [-p|--path <dir>] [-r|--ref <local-ref>] -o|--output <dir> ...`。
 - CI归档`<output>/index.html`和`<output>/dependency-report/`。
 - 用户从Repository Index进入Reactor page，再通过全量依赖表或Module card定位证据。
 
@@ -140,7 +147,7 @@ Resolution source将这些字段投影为稳定步骤：无management的selected
 
 ## Core Flow
 
-1. `TreeExecutionEngine`完成Command Preflight、snapshot、Maven runtime与入口scope准备；失败不改动旧Report。
+1. `TreeAnalyzeCommand`继承Root option并组合`TreeCommonOptions`；`TreeExecutionEngine`完成Command Preflight、snapshot、Maven runtime与入口scope准备，失败不改动旧Report。
 2. 每个Reactor执行一次Maven collection，逐行解析DependencyOccurrence并收集Classpath Evidence。
 3. Module version与class conflict分析完成后，`TreeReportDataWriter`投影Reactor/Module catalog、ranges、occurrence rows、sources与trees；Internal conflict只保留汇总计数，不生成专用展示row。
 4. 共享writer在staging目录写script-safe callback shards；`TreeReportRenderer`写轻量HTML shell与manifest。
@@ -188,6 +195,6 @@ Resolution source将这些字段投影为稳定步骤：无management的selected
 ## Implementation Boundaries
 
 - `tree`CLI、DependencyOccurrence domain、scope、exit code与incremental publication contract不因浏览器Schema改变。
-- Tree Reactor Report Data Schema v2只用于新生成Report；旧Schema v1 artifact无需迁移，重新执行`tree`生成完整v2目录。
+- Tree Reactor Report Data Schema v2只用于新生成Report；旧Schema v1 artifact无需迁移，重新执行`tree analyze`生成完整v2目录。Tree Diff使用独立Schema v1，不改变本Schema含义。
 - Renderer不执行Git、Maven或dependency analysis；browser不回调Analyzer。
 - Java tests负责Schema、projection、range、escaping与publication合同；Playwright负责真实`file://`事件、加载时序、ARIA和布局合同。

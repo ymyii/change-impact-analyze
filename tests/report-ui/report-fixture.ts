@@ -17,6 +17,9 @@ export type ReportCopy = {
     treePath: string;
     treeShardDirectory: string;
     treeUrl: string;
+    treeDiffPath: string;
+    treeDiffShardDirectory: string;
+    treeDiffUrl: string;
 };
 
 type Fixtures = {
@@ -49,6 +52,18 @@ export const test = base.extend<Fixtures>({
         const treePath = resolve(treeReactorDirectory, treeName);
         const treeShardDirectory = resolve(treeReactorDirectory,
             treeName.slice(0, -".html".length) + "-data");
+        const treeDiffReactorDirectory = resolve(
+            root, "tree-diff", "tree-diff-report", "reactors");
+        const treeDiffEntries = await readdir(treeDiffReactorDirectory);
+        const treeDiffName = treeDiffEntries.find(name =>
+            name.endsWith(".html"));
+        if (!treeDiffName) {
+            throw new Error("Copied report fixture has no Tree Diff page.");
+        }
+        const treeDiffPath = resolve(
+            treeDiffReactorDirectory, treeDiffName);
+        const treeDiffShardDirectory = resolve(treeDiffReactorDirectory,
+            treeDiffName.slice(0, -".html".length) + "-data");
         await use({
             root,
             modulePath,
@@ -59,7 +74,10 @@ export const test = base.extend<Fixtures>({
             affectedUrl: pathToFileURL(affectedPath).href,
             treePath,
             treeShardDirectory,
-            treeUrl: pathToFileURL(treePath).href
+            treeUrl: pathToFileURL(treePath).href,
+            treeDiffPath,
+            treeDiffShardDirectory,
+            treeDiffUrl: pathToFileURL(treeDiffPath).href
         });
     }
 });
@@ -130,6 +148,15 @@ export async function openTree(
         .toContainText("1-10 / 2626");
     await expect(page.locator("[data-class-position]").first())
         .toContainText("1-10 / 12");
+}
+
+export async function openTreeDiff(
+    page: Page,
+    report: ReportCopy
+): Promise<void> {
+    await page.goto(report.treeDiffUrl);
+    await expect(page.locator("#dependency-range"))
+        .toContainText("1–10 of 26");
 }
 
 export async function dispatchChange(locator: Locator): Promise<void> {

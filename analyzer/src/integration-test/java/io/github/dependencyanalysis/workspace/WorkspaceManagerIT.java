@@ -130,6 +130,22 @@ class WorkspaceManagerIT {
     }
 
     @Test
+    void annotatedTagsPeelToCommits() throws Exception {
+        git("tag", "-a", "release-first", firstCommit,
+                "-m", "release first");
+        try (WorkspaceManager manager = new WorkspaceManager(
+                repoDir, diag)) {
+            final WorkspaceResult result = manager.prepare(
+                    "release-first", "HEAD");
+
+            assertThat(result.getBaseline().getCommit())
+                    .isEqualTo(firstCommit);
+            assertThat(result.getTarget().getCommit())
+                    .isEqualTo(secondCommit);
+        }
+    }
+
+    @Test
     void commandOwnedWorktreesStayInsideRunDirectory()
             throws Exception {
         final Path runRoot = tempDir.resolve(
@@ -175,7 +191,9 @@ class WorkspaceManagerIT {
         try (WorkspaceManager mgr =
                 new WorkspaceManager(
                         repoDir, diag)) {
-            mgr.prepare(firstCommit, null);
+            final WorkspaceResult result = mgr.prepare(
+                    firstCommit, null);
+            assertThat(result.getTarget().isDirty()).isTrue();
             assertThat(Files.exists(
                     repoDir.resolve(
                             "dirty.txt")))

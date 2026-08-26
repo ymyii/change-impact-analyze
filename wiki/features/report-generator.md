@@ -10,6 +10,8 @@ relations:
     desc: "Console-only Diagnostic 与显式 topology JSON 边界"
   - path: "wiki/features/repository-dependency-tree-report.md"
     desc: "Tree Reactor Schema v2、全量依赖与Module按需渲染"
+  - path: "wiki/features/repository-dependency-tree-diff.md"
+    desc: "Tree Diff Schema v1、双侧表格、chain与tree pair按需渲染"
   - path: "wiki/runbooks/build-test-package.md"
     desc: "离线HTML的Maven静态门禁与Playwright浏览器门禁"
 code_refs:
@@ -27,6 +29,12 @@ code_refs:
     desc: "Tree Reactor Schema v2、catalog/range与payload shard投影"
   - path: "analyzer/src/main/resources/io/github/dependencyanalysis/tree/tree-report.js"
     desc: "Tree全量依赖和唯一活动Module的动态浏览器入口"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeDiffReportDataWriter.java"
+    desc: "Tree Diff Schema v1 catalog、range与callback shard投影"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeDiffReportRenderer.java"
+    desc: "Tree Diff Index、Reactor shell、asset与原子发布"
+  - path: "analyzer/src/main/resources/io/github/dependencyanalysis/tree/tree-diff-report.js"
+    desc: "Tree Diff Module切换、筛选、分页、chain与tree按需加载"
   - path: "analyzer/src/main/resources/io/github/dependencyanalysis/report/changed-members.js"
     desc: "全部changed member指标排序、筛选与分页"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
@@ -55,9 +63,9 @@ code_refs:
 
 ## Summary
 
-`impact`生成英文offline HTML：一个Overall Index，以及每个非`SKIPPED` Module的Module Index和Affected Paths。`tree`生成Repository Index与按Reactor拆分的中文离线页面。两种Report只消费detached immutable result，并共享file-local callback shard writer、descriptor和可配置loader。
+`impact`生成英文offline HTML：一个Overall Index，以及每个非`SKIPPED` Module的Module Index和Affected Paths。`tree analyze`生成中文Repository Index与Reactor页面；`tree diff`生成英文Repository Index与Reactor页面。三种Report只消费detached immutable result，并共享file-local callback shard writer与descriptor；Tree Analyze和Impact复用可配置loader，Tree Diff使用同等校验合同的独立业务loader。
 
-Affected Paths只展示Impact与Structural记录。一行是唯一`(impactPath, changedMember)`关系；path、member、method、dependency upgrade与code diff按确定性整数ID规范化，避免`rows × payload`重复。Impact主HTML继续使用Schema 5 manifest、原文件名和`window.__CIA_AFFECTED_PATH_SHARD__`。Tree Reactor主HTML使用独立Schema v2 manifest与`window.__CIA_TREE_REPORT_SHARD__`。两者均按需加载本地JavaScript分片并只保留、渲染当前页重数据。
+Affected Paths只展示Impact与Structural记录。一行是唯一`(impactPath, changedMember)`关系；path、member、method、dependency upgrade与code diff按确定性整数ID规范化，避免`rows × payload`重复。Impact主HTML使用Schema 5和`window.__CIA_AFFECTED_PATH_SHARD__`；Tree Analyze使用Schema v2和`window.__CIA_TREE_REPORT_SHARD__`；Tree Diff使用Schema v1和`window.__CIA_TREE_DIFF_REPORT_SHARD__`。三者按Schema与callback隔离，均按需加载本地JavaScript分片并只保留、渲染当前页重数据。
 
 ## Design Decisions
 
@@ -66,10 +74,12 @@ Affected Paths只展示Impact与Structural记录。一行是唯一`(impactPath, 
 - `report-common.js`的loader以callback name参数隔离Impact与Tree；每个payload验证Schema、kind、shard ID、record数量与连续ID，失败后允许Retry。
 - Maven静态/Schema门禁与Playwright浏览器门禁独立必跑。`mvn clean verify`发布确定性Report夹具，Playwright只消费该夹具，不在Node.js流程中重复执行分析。
 - 浏览器门禁固定使用Chromium桌面与小屏幕viewports，以语义、可访问性、计算样式和几何断言作为稳定合同；不维护像素截图baseline。
+- Tree Diff Reactor页面以`moduleId`、`dependencyId`、`rowId`和`chainRowId`连续整数寻址。Module、Dependency、基础change type与`scopeChanged`预计算range只用于当前Reactor，browser不构建全量row DOM。
 
 ## Actors / Entrypoints
 
 - `impact`用户从Overall打开Module Index，再进入Affected Paths进行搜索、筛选、分页和Java diff审查。
+- `tree analyze`用户从Repository Index进入单侧依赖与冲突类证据；`tree diff`用户进入Reactor双侧Module、dependency、chain和tree comparison。
 - Java Report tests验证projection、Schema、escaping与静态HTML合同；Playwright验证`file://`下的真实DOM事件、异步shard和响应式布局。
 
 ## Core Flow
@@ -138,6 +148,8 @@ Schema 5 manifest内嵌于`*-impact.html`，保存Impact/Structural/All row rang
 
 Tree Reactor Schema v2在相邻`<reactor-base>-data/`保存dependency ranges/index/rows、Module Dependency catalog、class conflicts、class sources与dependency trees。Module内dependency表复用全局row/index并以Module range约束；Internal conflicts只保留metadata汇总，不生成专用payload shard。其业务合同、页面交互和性能边界由[Repository Dependency Tree Report](repository-dependency-tree-report.md)定义。共享writer不改变Impact Schema 5的字段、文件前缀、callback或浏览器行为。
 
+Tree Diff Schema v1在相邻`<reactor-base>-data/`保存Module summary、Module Dependency关系、Dependency catalog、依赖级主表row、chain row和双侧tree pair。Reactor HTML只内嵌轻量Module catalog与descriptor；Dependency catalog按当前Module加载，主表range按Module、Dependency、基础change type与`scopeChanged`求交。Module summary没有Actions，Module detail selector是唯一Module切换入口；chain row只在主表Actions展开时加载，同一时间保留一个chain table；每个tree pair独占shard。其状态、分类、PathKey与页面行为由[Repository Dependency Tree Diff](repository-dependency-tree-diff.md)定义。
+
 `PerModuleHtmlReportGenerator`显式接收`DiagnosticLog`。每个Module在DEBUG输出row/path、各kind shard数量、总shard数量、总字节、最大shard和oversized数量；TRACE为每个shard输出kind、`current/total` progress、record数量和UTF-8字节数。Report `publish` Stage继续负责整体started/completed/failed。
 
 Affected Paths分片禁止保存exact WALA Context、graph node ID、terminal mechanism/location/detail、descriptor/hash/access、SSA reason、observation、ASM text、decompiled source或raw comparison reason。ChangePoint collection分阶段证据的descriptor/hash/status/reason只在专用审计表和显式Schema 13 diagnostics中展示。Manifest与shard payload通过Jackson script-safe escaping写入，manifest解析后删除data script节点。
@@ -167,14 +179,15 @@ Affected Paths分片禁止保存exact WALA Context、graph node ID、terminal me
 - 数字列右对齐并使用tabular numerals；method/member/path使用等宽字体；状态和`ChangePointKind`使用带文本的高对比度badge。
 - `.table-action`固定horizontal writing mode、nowrap与最小宽度；`View Java diff`和`Hide Java diff`不得被压缩为竖列。
 - 小屏幕的长标题与breadcrumb使用`overflow-wrap:anywhere`留在viewport内，表格横向溢出只由`.table-scroll`承接；`aria-live`播报结果，表头和控件保持键盘可访问；状态不只依赖颜色。
+- Tree Diff主内容不设最大宽度，桌面与小屏分别保留16px和9px安全边距；chain table使用独立的紧凑次级toolbar/pager。双侧dependency tree按文本内容完整撑开且不产生纵向滚动，长行由各自`pre`横向滚动。
 
 ## Publication与验证
 
 - Java Renderer通过UTF-8 `Writer`写入同filesystem staging，再原子替换command-owned output。
 - 页面不使用CDN、网络请求、外部asset或浏览器持久化存储。
 - `HtmlReportUsabilityVerifier`递归验证页面导航、本地资源、table ID、JSON Schema、`noscript`、sticky header、wrapper、badge与focus CSS。
-- `ReportBrowserFixtureIT`与`TreeReportBrowserFixtureIT`在`mvn clean verify`中把确定性真实Report发布到`target/playwright-report-fixture/`；该build artifact不进入Analyzer JAR或Git。
-- Playwright通过`file://`运行Chromium `1280×800`与`390×844`两个project，验证DOM事件、懒加载、Retry、键盘/ARIA和响应式几何；失败截图、Trace与HTML report只写入`target/playwright/`。
+- `ReportBrowserFixtureIT`与`TreeReportBrowserFixtureIT`在`mvn clean verify`中把确定性Impact、Tree Analyze和Tree Diff Report发布到`target/playwright-report-fixture/`；该build artifact不进入Analyzer JAR或Git。
+- Playwright通过`file://`运行Chromium `1280×800`与`390×844`两个project，并用`1920×1080`场景验证Tree Diff宽屏利用率；门禁覆盖DOM事件、懒加载、Retry、键盘/ARIA和响应式几何，失败截图、Trace与HTML report只写入`target/playwright/`。
 - Dense fixture应验证HTML按unique entities和ID relations增长，2,500+ members首次只渲染20行。
 
 ## Acceptance Criteria
@@ -190,7 +203,10 @@ Affected Paths分片禁止保存exact WALA Context、graph node ID、terminal me
 - Given超大Affected Paths；When发布Report；Then主HTML只含Schema 5 manifest与source catalog，各普通分片不超过4 MiB，单记录oversize可审计，空查询不预加载member/dependency/path/diff，分页与diff展开只加载当前所需重数据。
 - Given非空全局查询；When扫描多个index/member/dependency shard；Then页面显示进度、取消旧查询，并对四个指定列返回大小写不敏感的OR结果。Given本地shard失败；Then展示可重试错误且不伪造空结果。
 - Given一行含多个Affected application methods；When选择其中任一完整签名；Then该行进入结果。Given输入非候选精确值；Then保留最近一次成功DOM并显示错误。
-- Given共享writer用于Impact；When生成Affected Paths；ThenSchema仍为5，文件名与`window.__CIA_AFFECTED_PATH_SHARD__`不变。Given用于Tree；Then使用独立Schema v2 callback且不能相互接收payload。
+- Given共享writer用于Impact；When生成Affected Paths；ThenSchema仍为5，文件名与`window.__CIA_AFFECTED_PATH_SHARD__`不变。Given用于Tree Analyze或Tree Diff；Then分别使用Schema v2或Schema v1 callback，三类payload不能相互接收。
+- GivenTree Diff Module有26条依赖且页大小为10；When首屏；Then只创建10条主表row，不加载chain shard。Given展开第二条依赖；Then只保留一个chain table。
+- GivenTree Diff Reactor page；When用户切换Module；Then只使用Module detail selector，summary保持七列无Actions。Givenchain展开；Then次级分页控件与主表视觉层级不同但功能完整。
+- GivenTree Diff固定界面；When生成Index与Reactor page；Then使用英文文案和`lang=en`。Given宽屏或长dependency tree；Then内容占满可用宽度且tree无纵向滚动。
 
 ### Non-Functional
 

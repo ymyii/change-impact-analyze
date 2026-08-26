@@ -52,7 +52,7 @@ class DependencyAnalyzerCliIT {
 
         final int code = command().execute(
                 "--maven", maven.toString(),
-                "tree", "--path",
+                "tree", "analyze", "--path",
                 repository.toString(),
                 "--output", output.toString(),
                 "--dependency-plugin-version", "3.6.1");
@@ -75,7 +75,7 @@ class DependencyAnalyzerCliIT {
                 "out-short");
 
         final int code = command().execute(
-                "tree", "-m", maven.toString(),
+                "tree", "analyze", "-m", maven.toString(),
                 "-p", repository.toString(),
                 "-o", output.toString(),
                 "-s", "compile,runtime",

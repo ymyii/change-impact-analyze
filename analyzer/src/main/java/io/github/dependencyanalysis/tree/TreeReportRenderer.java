@@ -1557,14 +1557,7 @@ public final class TreeReportRenderer {
     }
 
     private String filename(final String id) {
-        String slug = id.replace("pom.xml", "")
-                .replaceAll("[^A-Za-z0-9]+", "-")
-                .replaceAll("^-|-$", "")
-                .toLowerCase(Locale.ROOT);
-        if (slug.isBlank()) {
-            slug = "root";
-        }
-        return slug + "-" + stableHash(id) + ".html";
+        return TreeReportFileName.of(id);
     }
 
     private String stableHash(final String value) {

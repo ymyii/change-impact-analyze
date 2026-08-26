@@ -11,7 +11,9 @@ relations:
   - path: "wiki/features/maven-build-runner.md"
     desc: "共享reactor scope到Maven compile的执行合同"
   - path: "wiki/features/repository-dependency-tree-report.md"
-    desc: "tree入口scope与报告边界"
+    desc: "tree analyze单侧入口scope与报告边界"
+  - path: "wiki/features/repository-dependency-tree-diff.md"
+    desc: "tree diff双侧workspace、结构配对与增量报告边界"
   - path: "wiki/features/report-generator.md"
     desc: "冻结结果到 HTML 的消费边界"
   - path: "wiki/rules/package-boundaries.md"
@@ -42,7 +44,11 @@ code_refs:
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/CallGraphCoverageMapper.java"
     desc: "Call Graph typed finding 到业务 reason 的转换"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeExecutionEngine.java"
-    desc: "Tree preflight、Reactor processing 与发布执行边界"
+    desc: "Tree Analyze preflight、Reactor processing与发布执行边界"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeDiffExecutionEngine.java"
+    desc: "Tree Diff双侧scope、逐Reactor采集、diff与发布执行边界"
+  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeDiffEngine.java"
+    desc: "Tree Module结构校验与occurrence-aware依赖差异领域边界"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/pruning/cha/ChaImpactPathPruningEngine.java"
     desc: "固定顺序、fail-open的CHA Impact Path裁剪引擎"
   - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/pruning/ImpactPathPruningSummary.java"
@@ -53,9 +59,9 @@ code_refs:
 
 ## Summary
 
-Root CLI 分发 `impact` 与 `tree`。`impact` 只编译 target，并为每个 relevant Module 构建一张 selected Call Graph；baseline 提供dependency evidence与old artifact。默认组合为`cha + changed-paths + jdk-model none`，Static Single Assignment（SSA，静态单赋值）与decompiled Java equivalence固定启用；CHA固定执行caller-local `cha-local-receiver-inference` Impact Path裁剪extension。`k-obj`是显式选择的实验性algorithm。
+Root CLI 分发 `impact` 与`tree`父命令，后者再分派`tree analyze`和`tree diff`。`impact`只编译target，并为每个relevant Module构建一张selected Call Graph；baseline提供dependency evidence与old artifact。默认组合为`cha + changed-paths + jdk-model none`，Static Single Assignment（SSA，静态单赋值）与decompiled Java equivalence固定启用；CHA固定执行caller-local `cha-local-receiver-inference` Impact Path裁剪extension。`k-obj`是显式选择的实验性algorithm。
 
-`impact`与`tree`先通过中立`reactor` package把一个入口POM解析为`FULL_REACTOR`、`SINGLE_MODULE`或`STANDALONE`。Resolver只读取入口active module graph和文件系统祖先aggregator，不依赖任一命令package，也不执行repository-wide discovery。`ImpactCommand`分别对baseline和target workspace规划scope；`TreeCommand`对current/ref snapshot规划一个scope。后续Call Graph、dependency tree与Report pipeline消费同一边界模型。
+三个分析入口都通过中立`reactor` package把入口POM解析为`FULL_REACTOR`、`SINGLE_MODULE`或`STANDALONE`。Resolver只读取入口active module graph和文件系统祖先aggregator，不依赖任一命令package，也不执行repository-wide discovery。`ImpactCommand`分别对baseline和target workspace规划scope；`TreeAnalyzeCommand`对current/ref snapshot规划一个scope；`TreeDiffCommand`对两侧分别规划scope，再按ReactorKey与ModuleKey验证结构并比较。后续Call Graph、dependency tree与Report pipeline消费同一边界模型。
 
 ## Key Terms
 
@@ -64,6 +70,7 @@ Root CLI 分发 `impact` 与 `tree`。`impact` 只编译 target，并为每个 r
 - Reverse BFS binding：`QueryNode -> ChangePointTerminal`辅助索引；只为Reverse BFS导航，不替代`BoundChangePoint` resolution事实。
 - Finalization：把coverage、query和stage metrics组装成Module结果，并在Report cache前移除live WALA对象。
 - Reactor scope：入口POM、active module closure、execution root、requested Module和scope mode组成的不可变边界。Git root只提供映射与eligibility，不代表分析范围。
+- Tree side：Tree Diff中的baseline或target workspace及其独立inventory、collection和ReportCache namespace；side不是跨运行缓存身份。
 
 ## Architecture Decisions
 
@@ -83,14 +90,21 @@ Evidence阶段不复制node集合、不并发调用`CGNode.getIR()`。并发只�
 
 入口aggregator优先限定自身active subtree；leaf只沿祖先链查找owner并选择最外层匹配aggregator；无owner时standalone。该结构决策保证同一`--path`不会因命令不同而产生不同Maven session边界，也禁止通过Git root全仓枚举补偿非祖先aggregator布局。
 
+### Tree Diff按Reactor流式持有双侧结果
+
+Tree Diff不先收集全仓库两侧结果。每个Reactor依次采集baseline和target、校验Module结构、生成差异、完整发布page/data directory并释放重数据，再处理下一个Reactor。该结构限制峰值内存，允许局部问题保留已完成页面，也要求Reactor之间不使用领域ID寻址。
+
 ## Package Dependency Direction
 
 ```mermaid
 flowchart LR
-  CLI["cli / impact command"] --> Impact["impact pipeline + domain"]
+  CLI["cli / commands"] --> Impact["impact pipeline + domain"]
   CLI --> Reactor["reactor scope resolver"]
   Reactor --> Impact
-  Reactor --> Tree["tree pipeline"]
+  Reactor --> TreeAnalyze["tree analyze pipeline"]
+  Reactor --> TreeDiff["tree diff pipeline"]
+  TreeDiff --> TreeDomain["tree diff domain"]
+  TreeDomain --> TreeReport["tree diff report"]
   Impact --> Engine["callgraph.engine"]
   Engine --> Strategy["callgraph.strategy"]
   Strategy --> CHA["strategy.cha"]
@@ -136,6 +150,25 @@ flowchart TD
   Snapshot --> Compare["cached body diff + on-demand non-body comparison"]
   Compare --> Report["stream HTML + atomic publication"]
 ```
+
+## Tree Flow
+
+```mermaid
+flowchart TD
+  Path["current checkout path"] --> Scope["Git-relative bounded reactor scope"]
+  Scope --> AnalyzeChoice{"tree mode"}
+  AnalyzeChoice -->|"analyze"| Snapshot["current checkout or ref snapshot"]
+  Snapshot --> AnalyzeCollect["compile + dependency tree + classpath evidence"]
+  AnalyzeCollect --> AnalyzeReport["Tree Schema v2 incremental report"]
+  AnalyzeChoice -->|"diff"| Workspaces["baseline worktree + target ref/current workspace"]
+  Workspaces --> SideScopes["independent side inventories"]
+  SideScopes --> Pair["ReactorKey + ModuleKey structure pairing"]
+  Pair --> Collect["per-side compile + dependency tree"]
+  Collect --> Diff["DependencyKey aggregation + PathKey pairing"]
+  Diff --> DiffReport["Tree Diff Schema v1 checkpoint report"]
+```
+
+Tree Analyze的classpath evidence、version mediation和class conflict enrichment不进入Tree Diff。Tree Diff复用dependency-only collector与共享Maven runtime，避免执行完整Analyze collector后丢弃证据，也不通过mode flag合并不同职责。
 
 ## Call Graph Boundary
 
@@ -187,5 +220,6 @@ flowchart TD
 - 入口POM缺失、active module缺失或越界、cycle、重复/不可解析coordinate和settings parse failure属于全局preparation failure，不回退repository扫描。Call Graph、Evidence、Query或finalization失败转换为该Module的typed failure，后续Module继续。
 - 方法体反编译不可用是候选级fail-open；command-owned cache基础设施或完整性失败是全局fail-fast。
 - `ChangePointEvidenceIndex`在binding与resolution不一致时fail-fast，禁止生成缺少terminal事实的路径。
-- Tree command-level preflight失败不替换旧Report；Reactor collection失败记录issue并继续；renderer/publisher失败由`TreeExecutionEngine`关闭Report session并返回失败状态。
+- Tree Analyze command-level preflight失败不替换旧Report；Reactor collection失败记录issue并继续；renderer/publisher失败由`TreeExecutionEngine`关闭Report session并返回失败状态。
+- Tree Diff preflight失败不替换旧Report。单侧采集失败形成`UNAVAILABLE`，结构单侧缺失形成`STRUCTURE_MISMATCH`；至少一个Module可比较时继续后续Reactor并最终为`COMPLETED_WITH_ISSUES`，没有可比较Module或pipeline/publication失败时为`FAILED`。两类非成功终态都保留此前原子发布的页面。
 - 线程中断继续传播；不把partial Evidence index发布为completed Module结果。

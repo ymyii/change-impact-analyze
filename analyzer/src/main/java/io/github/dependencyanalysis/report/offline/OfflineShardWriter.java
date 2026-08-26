@@ -25,6 +25,9 @@ public final class OfflineShardWriter {
     /** Browser schema version. */
     private final int schemaVersion;
 
+    /** Optional browser schema name. */
+    private final String schemaName;
+
     /** JavaScript callback including the opening parenthesis. */
     private final String callback;
 
@@ -45,7 +48,23 @@ public final class OfflineShardWriter {
             final int version,
             final String callbackName,
             final int shardBytes) {
-        this(version, callbackName, shardBytes, Integer.MAX_VALUE);
+        this(null, version, callbackName, shardBytes, Integer.MAX_VALUE);
+    }
+
+    /**
+     * Creates a writer that emits a schema name and version.
+     *
+     * @param name browser schema name
+     * @param version browser schema version
+     * @param callbackName callback expression without parentheses
+     * @param shardBytes maximum target bytes for one normal shard
+     */
+    public OfflineShardWriter(
+            final String name,
+            final int version,
+            final String callbackName,
+            final int shardBytes) {
+        this(name, version, callbackName, shardBytes, Integer.MAX_VALUE);
     }
 
     /**
@@ -57,6 +76,24 @@ public final class OfflineShardWriter {
      * @param shardRecords maximum records in one shard
      */
     public OfflineShardWriter(
+            final int version,
+            final String callbackName,
+            final int shardBytes,
+            final int shardRecords) {
+        this(null, version, callbackName, shardBytes, shardRecords);
+    }
+
+    /**
+     * Creates a schema-named writer with a record-count cap.
+     *
+     * @param name browser schema name, nullable for legacy schemas
+     * @param version browser schema version
+     * @param callbackName callback expression without parentheses
+     * @param shardBytes maximum target bytes for one normal shard
+     * @param shardRecords maximum records in one shard
+     */
+    public OfflineShardWriter(
+            final String name,
             final int version,
             final String callbackName,
             final int shardBytes,
@@ -77,7 +114,12 @@ public final class OfflineShardWriter {
             throw new IllegalArgumentException(
                     "Shard records must be positive");
         }
+        if (name != null && !name.matches("[a-z][a-z0-9-]*")) {
+            throw new IllegalArgumentException(
+                    "Invalid schema name: " + name);
+        }
         schemaVersion = version;
+        schemaName = name;
         callback = callbackName + "(";
         maxShardBytes = shardBytes;
         maxShardRecords = shardRecords;
@@ -190,7 +232,10 @@ public final class OfflineShardWriter {
     }
 
     private byte[] prefix(final String kind, final int shardId) {
-        return (callback + "{\"schemaVersion\":" + schemaVersion
+        final String schema = schemaName == null ? ""
+                : "\"schema\":\"" + schemaName + "\",";
+        return (callback + "{" + schema
+                + "\"schemaVersion\":" + schemaVersion
                 + ",\"kind\":\"" + kind + "\",\"shardId\":"
                 + shardId + ",\"records\":[")
                 .getBytes(StandardCharsets.UTF_8);

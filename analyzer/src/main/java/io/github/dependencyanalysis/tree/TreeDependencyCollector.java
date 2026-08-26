@@ -3,7 +3,6 @@ package io.github.dependencyanalysis.tree;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.reactor.ReactorDescriptor;
-import io.github.dependencyanalysis.reactor.ReactorScopeMode;
 import io.github.dependencyanalysis.reactor.RepositoryInventory;
 import io.github.dependencyanalysis.runtime
         .MavenDependencyPluginRuntime;
@@ -23,7 +22,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -146,11 +144,10 @@ public final class TreeDependencyCollector {
                 new ArrayList<>();
         final List<String> reasons =
                 new ArrayList<>();
-        final String outputName =
-                "dependency-analyzer-"
-                        + UUID.randomUUID() + ".txt";
-        final Map<Path, Path> outputs = outputs(
-                snapshot, reactor, outputName);
+        final String outputName = DependencyTreeCollectionSupport
+                .outputName();
+        final Map<Path, Path> outputs = DependencyTreeCollectionSupport
+                .outputs(snapshot, reactor, outputName);
         EvidenceRun evidenceRun = null;
         MavenExecutionResult execution = null;
         Exception executionFailure = null;
@@ -218,7 +215,7 @@ public final class TreeDependencyCollector {
             reasons.add("Classpath evidence parsing failed: "
                     + message(exception));
         } finally {
-            cleanup(outputs.values());
+            DependencyTreeCollectionSupport.cleanup(outputs.values());
             cleanupEvidence(evidenceRun);
         }
         final ReactorStatus status = failed
@@ -242,15 +239,10 @@ public final class TreeDependencyCollector {
         final List<String> reasons = new ArrayList<>();
         boolean failed = false;
         boolean degraded = false;
-        final List<Path> initialPoms = inventory.analysisPoms(
-                reactor, reactor.getScopeMode()
-                        == ReactorScopeMode.FULL_REACTOR
-                        ? reactor.getActivePoms()
-                        : reactor.getRequestedPoms());
-        final ModuleAnalysisRole initialRole = reactor.getScopeMode()
-                == ReactorScopeMode.FULL_REACTOR
-                ? ModuleAnalysisRole.REACTOR_ROOT_SCOPE
-                : ModuleAnalysisRole.REQUESTED;
+        final List<Path> initialPoms = DependencyTreeCollectionSupport
+                .analysisPoms(inventory, reactor);
+        final ModuleAnalysisRole initialRole =
+                DependencyTreeCollectionSupport.analysisRole(reactor);
         final ModuleCollectionContext context = new ModuleCollectionContext(
                 inventory, outputs, evidenceByPom, reactorKeys,
                 scopes, complete);
@@ -270,23 +262,20 @@ public final class TreeDependencyCollector {
             final ModuleAnalysisRole role,
             final ModuleCollectionContext context) {
         try {
-            final Path output = context.outputs().get(pom);
-            if (!Files.isRegularFile(output) || Files.size(output) == 0L) {
-                throw new IllegalStateException(
-                        "Dependency tree output is unavailable");
-            }
-            final ParsedModuleTree parsed;
-            try (java.io.BufferedReader reader = Files.newBufferedReader(
-                    output, StandardCharsets.UTF_8)) {
-                parsed = new DependencyTextParser().parse(
-                        reader, context.reactorKeys(), context.scopes());
+            final ModuleTreeResult dependency =
+                    DependencyTreeCollectionSupport.parseModule(
+                            pom, role, context.inventory(),
+                            context.outputs().get(pom),
+                            context.reactorKeys(), context.scopes(),
+                            context.complete());
+            if (!dependency.getFailure().isBlank()) {
+                return dependency;
             }
             final ModuleClassConflictAnalyzer.Analysis classes =
                     analyzeClasses(pom, context.inventory(),
                             context.evidenceByPom().get(pom));
-            return new ModuleTreeResult(pom, parsed.getRootCoordinate(),
-                    parsed.getOccurrences(), context.complete(), "", role)
-                    .withClassAnalysis(classes.conflicts(), classes.issues());
+            return dependency.withClassAnalysis(
+                    classes.conflicts(), classes.issues());
         } catch (Exception exception) {
             return new ModuleTreeResult(pom,
                     context.inventory().coordinateOf(pom),
@@ -311,30 +300,6 @@ public final class TreeDependencyCollector {
         }
     }
 
-    private Map<Path, Path> outputs(
-            final RepositorySnapshot snapshot,
-            final ReactorDescriptor reactor,
-            final String outputName) {
-        final Map<Path, Path> result =
-                new LinkedHashMap<>();
-        for (Path pom : reactor.getActivePoms()) {
-            final Path target = snapshot.getRoot()
-                    .resolve(pom).getParent()
-                    .resolve("target");
-            if (!reactor.requiresProjectSelection()) {
-                try {
-                    Files.createDirectories(target);
-                } catch (Exception exception) {
-                    throw new IllegalStateException(
-                            "Unable to prepare module output: "
-                                    + pom, exception);
-                }
-            }
-            result.put(pom, target.resolve(outputName));
-        }
-        return result;
-    }
-
     private MavenExecutionResult executeReactor(
             final RepositorySnapshot snapshot,
             final RepositoryInventory inventory,
@@ -343,29 +308,10 @@ public final class TreeDependencyCollector {
             final MavenDependencyPluginRuntime pluginRuntime,
             final MavenCollectionSpec spec)
             throws Exception {
-        final Path pom = snapshot.getRoot()
-                .resolve(reactor.getRootPom());
-        final List<String> arguments =
-                new ArrayList<>(pluginRuntime
-                        .getMavenArguments());
-        arguments.add("-B");
-        arguments.add("-f");
-        arguments.add(pom.toString());
-        if (reactor.requiresProjectSelection()) {
-            arguments.add("-pl");
-            arguments.add(String.join(",",
-                    projectSelectors(reactor)));
-            arguments.add("-am");
-        }
-        arguments.add("compile");
-        arguments.add(pluginRuntime.getGoal());
+        final List<String> arguments = DependencyTreeCollectionSupport
+                .arguments(snapshot, reactor, pluginRuntime,
+                        spec.outputName());
         arguments.add(pluginRuntime.getClasspathEvidenceGoal());
-        arguments.add("-DoutputFile="
-                + Path.of("target", spec.outputName()));
-        arguments.add("-DoutputType=text");
-        arguments.add("-DappendOutput=false");
-        arguments.add("-Dverbose=true");
-        arguments.add("-Dtokens=standard");
         arguments.add("-Dcia.classpathEvidenceDirectory="
                 + spec.evidenceRun().directory());
         arguments.add("-Dcia.classpathEvidenceOwner="
@@ -383,40 +329,11 @@ public final class TreeDependencyCollector {
                 TAIL_LINES);
     }
 
-    private List<String> projectSelectors(
-            final ReactorDescriptor reactor) {
-        final Path rootDirectory = reactor.getRootPom().getParent() == null
-                ? Path.of("") : reactor.getRootPom().getParent();
-        return reactor.getRequestedPoms().stream()
-                .sorted(Comparator.comparing(Path::toString))
-                .map(pom -> pom.getParent() == null
-                        ? Path.of("") : pom.getParent())
-                .map(rootDirectory::relativize)
-                .map(Path::toString)
-                .toList();
-    }
-
     private Set<DependencyKey> reactorKeys(
             final RepositoryInventory inventory,
             final ReactorDescriptor reactor) {
-        final Set<DependencyKey> result =
-                new HashSet<>();
-        for (Path pom : reactor.getActivePoms()) {
-            final String[] coordinate = inventory
-                    .coordinateOf(pom).split(":", -1);
-            if (coordinate.length >= 2) {
-                result.add(new DependencyKey(
-                        coordinate[0], coordinate[1],
-                        inventory.packagingOf(pom), ""));
-                result.add(new DependencyKey(
-                        coordinate[0], coordinate[1],
-                        "jar", ""));
-                result.add(new DependencyKey(
-                        coordinate[0], coordinate[1],
-                        "pom", ""));
-            }
-        }
-        return result;
+        return DependencyTreeCollectionSupport.reactorKeys(
+                inventory, reactor);
     }
 
     static String diagnosticTail(final String output) {
@@ -541,17 +458,6 @@ public final class TreeDependencyCollector {
             for (Path path : stream.sorted(Comparator.reverseOrder())
                     .toList()) {
                 Files.deleteIfExists(path);
-            }
-        }
-    }
-
-    private void cleanup(
-            final java.util.Collection<Path> outputs) {
-        for (Path output : outputs) {
-            try {
-                Files.deleteIfExists(output);
-            } catch (Exception ignored) {
-                // Best-effort tool-owned output cleanup.
             }
         }
     }

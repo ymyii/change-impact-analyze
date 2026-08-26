@@ -321,8 +321,32 @@ public final class WorkspaceManager
                 .side(WorkspaceSide.TARGET)
                 .path(projectDir)
                 .commit(headCommit)
+                .dirty(currentDirty())
                 .whetherTemporary(false)
                 .build();
+    }
+
+    private boolean currentDirty()
+            throws WorkspacePrepareException {
+        try {
+            final GitCommandResult result = runner.run(
+                    "status", "--porcelain", "--untracked-files=all");
+            if (result.getExitCode() != 0) {
+                throw new WorkspacePrepareException(
+                        WorkspaceSide.CURRENT, "HEAD", projectDir,
+                        result.getExitCode(), summarize(result.getStderr()));
+            }
+            return !result.getStdout().isBlank();
+        } catch (IOException exception) {
+            throw new WorkspacePrepareException(
+                    WorkspaceSide.CURRENT, "HEAD", projectDir, -1,
+                    exception.getMessage());
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new WorkspacePrepareException(
+                    WorkspaceSide.CURRENT, "HEAD", projectDir, -1,
+                    exception.getMessage());
+        }
     }
 
     private String resolveCommit(
@@ -333,7 +357,7 @@ public final class WorkspaceManager
         try {
             final GitCommandResult res =
                     runner.run("rev-parse",
-                            "--verify", ref);
+                            "--verify", ref + "^{commit}");
             if (res.getExitCode() != 0) {
                 throw new WorkspacePrepareException(
                         s, ref, wtPath,

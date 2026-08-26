@@ -18,6 +18,8 @@ relations:
     desc: "Analyzer依赖的两个独立model artifact与packaging contract"
   - path: "wiki/features/report-generator.md"
     desc: "Impact离线HTML、Schema 5和真实浏览器行为合同"
+  - path: "wiki/features/repository-dependency-tree-diff.md"
+    desc: "tree diff打包命令、真实双侧执行与浏览器验收合同"
 code_refs:
   - path: "pom.xml"
     desc: "Analyzer parent/aggregator、Enforcer 与 shared build management"
@@ -37,6 +39,8 @@ code_refs:
     desc: "Impact单文件与Tree多页面HTML可用性gate"
   - path: "analyzer/src/integration-test/java/io/github/dependencyanalysis/report/ReportBrowserFixtureIT.java"
     desc: "Playwright使用的确定性离线Report夹具发布入口"
+  - path: "analyzer/src/integration-test/java/io/github/dependencyanalysis/tree/TreeReportBrowserFixtureIT.java"
+    desc: "Tree Analyze与Tree Diff大型浏览器夹具发布入口"
   - path: "package.json"
     desc: "Playwright类型检查、无头与headed测试命令"
   - path: "playwright.config.ts"
@@ -125,7 +129,7 @@ Analyzer reactor不构建`plugins/`、`models/jdk`或`models/jdk8`。若local re
 
 ### Report浏览器门禁
 
-`mvn clean verify`中的`ReportBrowserFixtureIT`先发布`target/playwright-report-fixture/impact.html`及Module、Affected Paths和Schema 5 shards；`TreeReportBrowserFixtureIT`发布`target/playwright-report-fixture/tree/`、Module全量依赖与冲突类表、Schema v2本地shards。Playwright只消费这些Maven产物；任一夹具不存在时命令会提示先运行`mvn clean verify`。
+`mvn clean verify`中的`ReportBrowserFixtureIT`发布`target/playwright-report-fixture/impact.html`及Module、Affected Paths和Schema 5 shards；`TreeReportBrowserFixtureIT`同时发布`target/playwright-report-fixture/tree/`的Tree Analyze Schema v2夹具与`target/playwright-report-fixture/tree-diff/`的Tree Diff Schema v1夹具。Playwright只消费这些Maven产物；任一夹具不存在时命令会提示先运行`mvn clean verify`。
 
 首次安装或锁文件变化后安装Node.js依赖与Chromium：
 
@@ -159,16 +163,18 @@ java -jar target/dependency-analyzer.jar --version
 java -jar target/dependency-analyzer.jar --help
 java -jar target/dependency-analyzer.jar impact --help
 java -jar target/dependency-analyzer.jar tree --help
+java -jar target/dependency-analyzer.jar tree analyze --help
+java -jar target/dependency-analyzer.jar tree diff --help
 ```
 
-最终HTML可用性不是手工`ls`检查。`mvn clean verify`中的`PackagedJarCliIT`使用shaded JAR生成真实Impact与Tree输出，并由`HtmlReportUsabilityVerifier`递归检查HTML结构、本地资源、Report root边界和Tree Reactor page可达性。失败详情位于`target/failsafe-reports/`。
+最终HTML可用性不是手工`ls`检查。`mvn clean verify`中的`PackagedJarCliIT`使用shaded JAR生成真实Impact、Tree Analyze与Tree Diff输出，并由`HtmlReportUsabilityVerifier`递归检查HTML结构、本地资源、Report root边界和Tree Reactor page可达性。Tree Diff必须覆盖baseline ref到当前工作区和嵌套analysis path映射。失败详情位于`target/failsafe-reports/`。
 
 ## Success Criteria
 
 - Plugin reactor 输出 `0 Checkstyle violations`，tests 全部通过，Plugin class major 不超过 `52`。Graph tests 覆盖scope-conflict pruning、multi-path winner normalization、missing winner fail-fast；output tests 覆盖owner/path/symlink 与 atomic publication。
 - Plugin repository ZIP 只有 Maven layout 下当前 version 的 JAR 与 consumer POM，不包含项目生成的 checksum sidecar。
 - Analyzer `mvn clean verify` 的 Surefire 与 Failsafe tests 全部通过且 `Skipped: 0`。
-- `mvn clean verify`生成`target/playwright-report-fixture/`；`npm run test:report`的两个Chromium project全部通过，无HTTP/HTTPS请求、page error或异常console error。
+- `mvn clean verify`生成包含Impact、Tree Analyze和Tree Diff的`target/playwright-report-fixture/`；`npm run test:report`的两个Chromium project全部通过，无HTTP/HTTPS请求、page error或异常console error。
 - `PackageArchitectureTest`在`mvn verify`中强制Call Graph与Impact/Report解耦、CHA与`k-obj`隔离、protocol依赖方向、根包无production class以及Report不访问live strategy。
 - `StagePhaseTerminologyTest`在unit test中扫描主代码、测试、Wiki和用户文档；除WALA/Java强制外部API名称外，不允许项目自有控制流程重新引入旧术语。
 - Diagnostic与Impact Query tests验证五段prefix、可选Phase、Phase不进入Stage计时key、统一`started/completed/failed`正文，以及QueryNode消息正文不再重复`phase=`。
@@ -182,11 +188,11 @@ java -jar target/dependency-analyzer.jar tree --help
 - Empty Maven local repository + blocked wildcard mirror 下，packaged Maven 3.6.3 runtime 可执行 `collect-dependency-evidence`。
 - Analyzer integration tests 覆盖空格/中文 cache path、scope-conflict missing `test` binary，以及 Maven 成功/失败后 source repository 无 evidence 中间文件。
 - 最新class conflict precedence、LOW/HIGH、Multi-Release JAR、lazy source shard、report tests与`PackagedJarCliIT`全部通过。
-- Root/两个 subcommand help 列出当前 option；CLI `--version` 与 Maven build metadata 一致。
+- Root、`impact`、`tree`父命令和`tree analyze`/`tree diff` help列出当前option；CLI `--version`与Maven build metadata一致。直接执行`tree`输出帮助并返回`1`。
 - Packaged help只接受`cha`与`k-obj`，后者标记`experimental`；`rta`、`zero-cfa`和`optimized-0-1-cfa`在解析阶段失败。
 - Packaged JAR保留公共JDK model engine、JDK 8 façade与catalog；不包含已删除algorithm class、旧Call Graph根包class或兼容wrapper。
 - `PackagedJarCliIT`使用真实changed-dependency fixture执行默认JDK 8的`k-obj`，要求fixed point完成、报告生成并显示`experimental`。
-- `PackagedJarCliIT`使用最终shaded JAR生成真实Impact与Tree Report。`HtmlReportUsabilityVerifier`要求entry file可读、HTML/head/title/body结构完整、无未展开模板标记；所有本地`href/src`必须留在Report root内且目标可读，Tree Index必须能到达至少一个Reactor page。
+- `PackagedJarCliIT`使用最终shaded JAR生成真实Impact、Tree Analyze与Tree Diff Report。`HtmlReportUsabilityVerifier`要求entry file可读、HTML/head/title/body结构完整、无未展开模板标记；所有本地`href/src`必须留在Report root内且目标可读，两个Tree Index都必须能到达至少一个Reactor page。
 - Analyzer能力新增或行为扩展时，必须同步新增/更新benchmark fixture、verification与expected baseline。只有用户明确要求执行benchmark时才运行matrix；获得授权后，12个JVM、2组semantic baseline和两份HTML Report必须全部成功。当前2个`PENDING`baseline必须先经授权calibration和人工review锁定；calibration不得发布tracked snapshot。
 
 ## Failure Entrypoints
@@ -196,7 +202,7 @@ java -jar target/dependency-analyzer.jar tree --help
 - JDK model artifact resolution failure：先执行`models/jdk`再执行`models/jdk8`的`clean install`，确认root`jdk8-models.version`匹配。
 - Plugin test failure：`plugins/artifact-path-resolver/target/surefire-reports/`。
 - Analyzer unit/integration failure：`target/surefire-reports/`、`target/failsafe-reports/`。
-- `Playwright report fixture is unavailable`：先执行`mvn clean verify`，确认`target/playwright-report-fixture/impact.html`、相邻Module目录及`target/playwright-report-fixture/tree/index.html`存在。
+- `Playwright report fixture is unavailable`：先执行`mvn clean verify`，确认`target/playwright-report-fixture/impact.html`、相邻Module目录、`target/playwright-report-fixture/tree/index.html`及`target/playwright-report-fixture/tree-diff/index.html`存在。
 - Playwright browser executable缺失：执行`npx playwright install chromium`；Linux CI使用`--with-deps chromium`。
 - Playwright失败：检查`target/playwright/html-report/`，以及`target/playwright/test-results/`中的失败截图、`trace.zip`和error context。
 - Checkstyle failure：Maven Console 中的 file/line/check 名称。
