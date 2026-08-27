@@ -83,6 +83,12 @@ code_refs:
 
 ## Behavior Contract
 
+### 分析范围与依赖身份
+
+- `--path`必须直接包含readable `pom.xml`。入口aggregator只分析其active subtree；owned leaf从最外层匹配祖先执行`-pl/-am`；没有owner时按`STANDALONE`执行。
+- 默认scope为`compile,runtime,provided,system`；`test`只在显式`--scopes`中纳入。Scope同时约束dependency tree、version mediation与class conflict扫描。
+- Maven conflict identity固定为`DependencyKey(groupId, artifactId, type, classifier)`。每个occurrence独立保存requested/effective/selected version、effective/managed scope、selection、omitted reason、完整path和reactor Module标记。
+
 ### Repository Index与metadata
 
 - Index展示Metadata、Preflight、Summary与已发布Reactor链接。
@@ -129,6 +135,13 @@ Maven verbose annotation中的`version managed from X`使`requestedVersion=X`，
 Resolution source将这些字段投影为稳定步骤：无management的selected occurrence为`Direct selection`；managed occurrence增加`Dependency management`；conflict、duplicate、cycle和其他omission分别增加对应Maven mediation步骤。同一occurrence的步骤按顺序组合并展示requested、effective与selected转换，但不构造缺失的定义位置或winner chain。
 
 单个Module内，每个occurrence产生`DEPENDENCY_PATH`版本来源；存在managed version时再产生`DEPENDENCY_MANAGEMENT`来源。全部来源至少有两个distinct version才形成Internal conflict。Management evidence没有来源chain，Evidence中保持空cell，不伪造POM/BOM位置。
+
+## Class Conflict语义
+
+- 冲突边界是单个Module的effective classpath；同一binary class至少存在两个候选定义时才形成class conflict。
+- 全部候选反编译成功时，规范化换行后以完整decompiled text判断风险；任一候选反编译不可用时回退各候选class bytes的SHA-256 digest。文本或digest不同为`HIGH`，完全相同为`LOW`。
+- Effective winner遵循JVM/classpath可见顺序：JDK parent/bootstrap优先；application classpath内固定为`PROJECT > REACTOR_DEPENDENCY > DEPENDENCY`，同层按Maven classpath order选择。
+- 反编译只影响风险证据与源码可见性，不改变winner；源码不可用显示`Unavailable`并保留digest-based finding。
 
 ## Core Flow
 
@@ -179,6 +192,7 @@ Resolution source将这些字段投影为稳定步骤：无management的selected
 
 ## Implementation Boundaries
 
+- `tree`只负责父命令帮助与`analyze`/`diff`分派；直接执行`tree`返回`1`。旧`tree [options]`不保留兼容分析路径，单侧分析必须显式使用`tree analyze`。
 - `tree`CLI、DependencyOccurrence domain、scope、exit code与incremental publication contract不因浏览器Schema改变。
 - Tree Reactor Report Data Schema v2只用于新生成Report；旧Schema v1 artifact无需迁移，重新执行`tree analyze`生成完整v2目录。Tree Diff使用独立Schema v1，不改变本Schema含义。
 - Renderer不执行Git、Maven或dependency analysis；browser不回调Analyzer。

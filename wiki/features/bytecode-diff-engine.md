@@ -70,7 +70,10 @@ code_refs:
 
 - 相同输入JAR与include集合产生稳定排序、相同identity的ChangePoint。
 - Access narrowing只比较相同binary identity，且只描述target access相对baseline的strict narrowing。
+- `JvmAccess`只规范化为`PUBLIC`、`PROTECTED`、`PACKAGE_PRIVATE`和`PRIVATE`；static、final、abstract等其他modifier不进入visibility domain。
+- `AccessTransition`只允许strict narrowing。`CLASS_ACCESS_NARROWED`、`METHOD_ACCESS_NARROWED`和`FIELD_ACCESS_NARROWED`必须携带该Value Object，其他ChangePoint kind禁止携带。
 - 同一coordinate pair被多个Module引用时共享同一ChangePoint实例，descriptor、hash与`AccessTransition`保持不变。
+- Module binding只增加`DependencyUpgradeKey` provenance，不重建或改写ChangePoint identity；ChangePoint artifact与upgrade target artifact不一致时fail fast。
 - 同一coordinate pair反编译一次全部候选；仅当存在Java miss候选时构建一次old/new SSA session。实际执行的`SsaComparisonEvidence`与全部候选的不含源码`DecompileComparisonSummary`随pair结果共享给关联Module。
 - service配置删除但provider class仍存在时生成`SERVICE_PROVIDER_REGISTRATION_REMOVED`；provider class和配置同时删除时只保留`CLASS_REMOVED`。
 - 聚合INFO completion中的`changes`是所有成功logical pair各自去重后的ChangePoint数量之和；同一pair绑定多个Module不重复计数。失败pair计入`failedPairs`但不计入`changes`。
@@ -98,6 +101,7 @@ code_refs:
 
 ## ServiceLoader Resource Diff
 
+- Resource Diff只比较已选中`VERSION_CHANGED`的外部artifact old/new JAR；不扩展为PROJECT source resource扫描。
 - `ServiceProviderRegistration`包含resource path、service internal name、provider internal name和target `ArtifactCoord`。
 - provider class与配置行同时删除：只保留`CLASS_REMOVED`；baseline service relation稍后由统一collector生成`TYPE_REFERENCE + SERVICE_LOADER_PROVIDER`Evidence。
 - 仅配置行删除：生成`SERVICE_PROVIDER_REGISTRATION_REMOVED`，统一collector绑定`RESOURCE_REFERENCE + SERVICE_LOADER_PROVIDER`Evidence。

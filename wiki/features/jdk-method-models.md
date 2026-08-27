@@ -101,10 +101,13 @@ JdkModelSession session = JdkModels.install(
 - JDK 8 catalog 包含 384 个 JDK 8 public targets，不包含 Java 16 引入的 `Stream.toList()`。
 - `impact`、pipeline与`ModuleCallGraphEngine`constructor统一使用`CallGraphPolicy`：CHA默认`none`且拒绝`jdk8`；`k-obj`默认`jdk8`。
 - CHA的`none`不是“分析真实JDK body”：CHA interpreter只保留caller到JDK leaf edge，call/new site为空。
+- CHA仍加载完整target JDK classpath以构造Class Hierarchy和解析JDK leaf method，但不遍历JDK method body；JDK Method Model不参与CHA topology。
 - Synthetic loader不支持、model安装异常或完整JDK 8存在unavailable catalog target时，当前Module构图失败；zero hit不是错误。
 - duplicate target、resolved static contract mismatch、callback target/dispatch mismatch、WALA `natives.xml` conflict、无法生成 Synthetic IR 和必要 serialization constructor 缺失均抛出 `JdkModelException`。
 - unavailable target 不被替换并委托原 selector；只有 available exact target 返回 `SummarizedMethod` 并计入 session hit。
+- Model按exact method target替换，并使用conservative global family state保留application callback。允许points-to over-approximation，不用package ignore、whole-JDK exclusion或通用no-op fallback丢弃application method。
 - session 为 per-hierarchy、per-builder mutable recorder；snapshot 为稳定排序的 immutable metadata，不跨 Call Graph 或线程复用。
+- 用户输出只展示command-wide effective model selection。catalog、available、unavailable和hit metadata只用于per-graph session完整性验收，不进入Console、HTML Report或Schema 13 diagnostics JSON。
 - synthetic state type 包含 model ID；同一 hierarchy 中不同版本模型不会共享同名 state class。
 
 ## Core Flow
@@ -155,6 +158,7 @@ Class/Reflection、Proxy、ClassLoader、ServiceLoader、MethodHandle 与 `invok
 
 ## Implementation Boundaries
 
+- JDK 8只描述被分析的public API版本；两个model JAR均按Analyzer的Java 17 runtime编译和执行，不承诺在Java 8 JVM中运行。
 - `models/jdk`只拥有公共definition、parser、validator、summary engine、synthetic state/type、selector与metadata；production JAR不包含版本catalog。
 - `models/jdk8`只拥有JDK 8 façade、catalog和版本专属acceptance；通过精确version dependency引用公共engine。
 - 两个module继续继承root parent，但不属于root`<modules>`；Analyzer构建前按公共engine、JDK 8 model的顺序安装独立artifact。

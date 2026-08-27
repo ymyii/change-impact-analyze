@@ -67,9 +67,10 @@ Maven Runtime为`impact`和`tree`提供`3.6.3 <= Maven version < 4.0.0` executab
 - 用户 executable 优先，descriptor source 为 `USER_CONFIGURED`；内嵌 runtime source 为 `EMBEDDED`。
 - Stable Maven distribution 位于 `runtime/apache-maven/3.6.3/content`；必要 launcher、`conf/settings.xml`、boot JAR 与 marker 都存在时复用。
 - Stable Plugin repository 位于 `runtime/plugin-repositories/<component>/<version>/content`；Snapshot 位于 `.../<version>/runs/<uuid>`。
+- Maven distribution与两个Plugin repository的cache identity都是component/version；不使用项目自有content checksum或runtime fingerprint作为复用条件。
 - Plugin runtime 按顺序暴露 Dependency Plugin repository 与 Dependency Evidence Plugin repository；fully-qualified goals 使用 build metadata 中的 Plugin version。
 - Dependency Evidence Plugin 为 Snapshot 时，settings 启用 Snapshot、`updatePolicy=always` 并追加 `-U`；Stable 时只启用 release。
-- 用户`-gs`内容或Maven runtime默认global settings被合并；独立`-s`、mirror、proxy、server、local repository和普通Maven arguments保留。Settings内容不输出到Console。
+- 用户`-gs`内容或Maven runtime默认global settings被合并；command-scoped active profile注册两个file `pluginRepository`，并把两个repository ID显式排除在现有wildcard mirror之外。独立`-s`、mirror、proxy、server、local repository和普通Maven arguments保留；Settings内容不输出到Console。
 - Reactor scope activation读取同一组`-P`、`-D`、user/global settings active profile，并使用实际`mvn --version`报告的Java version、OS name/version/arch。`activeByDefault`、JDK、OS、property和POM-relative file activation均在调用Maven前确定active module graph。
 - Preflight evidence 只报告 Dependency Plugin version、Dependency Evidence Plugin version 与 repository 数量；Mojo evidence 报告 `implementation=dependency-evidence-v3`、version 和 command cache output path。
 - `--java-home` 设置 Maven subprocess `JAVA_HOME`；`impact` 只接受完整 JDK 8，`tree` 只要求该 JDK 与 Maven/project 兼容。
@@ -102,6 +103,7 @@ Maven Runtime为`impact`和`tree`提供`3.6.3 <= Maven version < 4.0.0` executab
 - [ ] Analyzer JAR 的 `maven/plugin-repositories/` 下恰有两个 `*-repository.zip`。
 - [ ] Dependency Evidence Plugin repository ZIP 只有当前 version 的 JAR 与 POM，不包含项目生成的 checksum sidecar。
 - [ ] Dependency Evidence Plugin class major `<=52`，不 shade Maven/Resolver implementation class，Jackson package 已 relocate。
+- [ ] Consumer POM引入`maven-dependency-tree:3.2.1`；Maven Core、Plugin API和Resolver API保持provided，不作为Plugin私有实现重复打包。
 - [ ] 所有解压 path 先 normalize 并检查 destination boundary。
 - [ ] 并发 publish 使用 JVM guard、cross-process file lock、staging 与 atomic move。
 

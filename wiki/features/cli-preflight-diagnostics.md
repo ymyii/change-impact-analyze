@@ -132,6 +132,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 ## Diagnostics
 
 - `DiagnosticContext`是immutable prefix context，包含`stage`、`substage`、独立可选`phase`和ordered attributes；不使用thread name。当前生产日志只使用`check`、`reactor`、`module`、`artifact`、`pool` identity。
+- Phase只用于Stage内部确有独立算法活动的区间；没有内部算法步骤的Stage不创建Phase。`event`和`status`继续作为普通message字段，不形成新的控制流程层级。
 - 每个物理行固定为 `[时间][日志级别][阶段][子阶段][额外信息] message`。时间使用带 offset、毫秒精度的 ISO 8601；level 始终显式为 `TRACE/DEBUG/INFO/WARN/ERROR`；缺失段使用 `[-]`。
 - 第五段格式为可选`phase`加identity，使用`key=value`与`;`分隔；canonical顺序固定为`phase, check, reactor, module, artifact, pool`。无Phase且无identity时为`[-]`；只有Phase时例如`[phase=REVERSE_BFS]`；二者并存时例如`[phase=REVERSE_BFS;module=g:a:1]`。`command`、`side`、path、scope、progress、status、decision、elapsed、计数、result与metrics value禁止进入第五段；这些实际日志信息追加到message。
 - `\\`、`;`、`=`、`[`、`]` 在 prefix 中统一转义。多行 message 和 stack trace 拆成独立物理行，每行重新添加完整 prefix。

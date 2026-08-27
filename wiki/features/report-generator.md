@@ -127,7 +127,7 @@ Affected Paths只展示Impact与Structural记录。一行是唯一`(impactPath, 
 
 ## 规范化分片数据
 
-Impact与Tree共用分片传输机制但不共用业务Schema。共享层不理解path、dependency、Module或class source，只负责callback文件、record边界、descriptor与安全序列化。
+Impact与Tree共用分片传输机制但不共用业务Schema。共享层不理解path、dependency、Module或class source，只负责callback文件、record边界、descriptor与安全序列化。Impact与Tree Analyze使用的`report-common.js` loader按callback name隔离payload，并验证Schema、kind、shard ID、record数量和从descriptor `firstId`开始的连续record ID；Tree Diff独立loader验证Schema、kind、shard ID、record数量与ID range。校验或加载失败保留最近一次成功DOM并提供Retry。
 
 Affected Paths使用以下关系型Schema，所有entity按stable key排序后分配整数ID：
 
@@ -182,7 +182,8 @@ Affected Paths分片禁止保存exact WALA Context、graph node ID、terminal me
 - 页面不使用CDN、网络请求、外部asset或浏览器持久化存储。
 - `HtmlReportUsabilityVerifier`递归验证页面导航、本地资源、table ID、JSON Schema、`noscript`、sticky header、wrapper、badge与focus CSS。
 - `ReportBrowserFixtureIT`与`TreeReportBrowserFixtureIT`在`mvn clean verify`中把确定性Impact、Tree Analyze和Tree Diff Report发布到`target/playwright-report-fixture/`；该build artifact不进入Analyzer JAR或Git。
-- Playwright通过`file://`运行Chromium `1280×800`与`390×844`两个project，并用`1920×1080`场景验证Tree Diff宽屏利用率；门禁覆盖DOM事件、懒加载、Retry、键盘/ARIA和响应式几何，失败截图、Trace与HTML report只写入`target/playwright/`。
+- Maven静态/Schema门禁与Playwright浏览器门禁独立执行。Playwright只消费Maven发布的确定性fixture，不在Node.js流程重复运行Analyzer或构造另一套业务结果。
+- Playwright不启动HTTP server，直接通过`file://`运行Chromium `1280×800`与`390×844`两个project，并用`1920×1080`场景验证Tree Diff宽屏利用率；门禁使用语义、可访问性、计算样式和几何断言，不维护pixel screenshot baseline。失败截图、Trace与HTML report只写入`target/playwright/`。
 - Dense fixture应验证HTML按unique entities和ID relations增长，2,500+ members首次只渲染20行。
 
 ## Acceptance Criteria

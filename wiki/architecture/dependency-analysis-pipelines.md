@@ -102,6 +102,8 @@ flowchart LR
 
 禁止反向边：`callgraph.. -> impact..`、`callgraph.. -> report..`、`report.. -> strategy.cha..|strategy.kobj..`。CHA 与 `k-obj` implementation 不互相引用；公共 protocol 不依赖 strategy 或 engine。
 
+Impact与Tree Execution Engine直接组合typed domain contract。阶段间使用`ModuleAnalysisUnit`、`ModuleCallGraphSession`、`ChangePointEvidenceIndex`和各Tree result传递状态；不提供弱类型artifact map、通用Stage总线或可改变核心顺序的任意callback。
+
 ## Impact Flow
 
 ```mermaid
@@ -159,6 +161,7 @@ Tree Analyze的classpath evidence、version mediation和class conflict enrichmen
 - `CallGraphBuildContext` 保存公共 WALA 构建数据；`ChaCallGraphRequest` 与 `KObjCallGraphRequest` 保存各自配置。
 - Engine 只输出 graph/session、stats、capability、typed protocol limitation、scope warning、boundary finding 与 optional topology。
 - `PerModuleImpactPipeline`实现`ImpactExecutionEngine`。Call Graph完成后，`evidence-analysis`先全量扫描effective class metadata，再在同一线程遍历最终Call Graph一次；不建立node/IR snapshot，不创建Evidence线程池。
+- WALA没有可由CHA与`k-obj`共同依赖的稳定`CGNode + IR`新增通知接口；Evidence因此只消费fixed point完成后的最终Call Graph，不接入strategy内部callback，也不通过sealed replay、node去重或interpreter补偿重建增量事件。
 - `ChangePointEvidenceIndex`以每个`BoundChangePoint`唯一resolution为事实主索引，以exact `QueryNode -> ChangePointTerminal`为Reverse BFS辅助索引。Structural与普通Evidence共用该binding；Query不再按Structural Reference重复扫描Call Graph。
 - `CallGraphCoverageMapper`是Call Graph finding到业务coverage reason的唯一转换点。
 - Report 只消费 detached immutable snapshot，不读取 live graph、hierarchy、cache 或 concrete strategy。

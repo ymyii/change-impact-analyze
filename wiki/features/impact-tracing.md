@@ -150,6 +150,7 @@ Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`Mo
 
 ## Dynamic Terminal Evidence
 
+- Call Graph strategy不得保留私有terminal evidence或直接绑定ChangePoint；dynamic observation必须在session冻结前转换为算法无关的公共Evidence。
 - `INVOKEDYNAMIC_BOOTSTRAP` 表示 reachable bootstrap method handle。
 - `INVOKEDYNAMIC_HANDLE_REFERENCE` 表示 direct bootstrap argument method handle，例如 lambda implementation 或 method reference target。
 - Unknown bootstrap 的 handle 只作为 terminal evidence；不会自动变成 Call Graph edge。
@@ -179,8 +180,12 @@ Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`Mo
 
 ## JVM Access Decision
 
+- Access query假设pre-existing consumer bytecode在old dependency下合法，只使用target Class Hierarchy与Intermediate Representation判断new access；不构建baseline Class Hierarchy或Call Graph。
+- `ACCESSIBLE` reference不建立seed；`INACCESSIBLE`和`POTENTIALLY_INACCESSIBLE`保守建立seed。Potential path本身不改变Module status，只有明确的typed limitation才进入`INCONCLUSIVE` reduction。
+- Runtime package必须同时匹配class loader identity与package name；只匹配package文本不足以获得package-private或protected same-package访问权。
 - Class `PACKAGE_PRIVATE`只允许same runtime package；member `PRIVATE`在Java 8下只允许declaring class自身。
 - `PROTECTED`跨package先要求caller是declaring class的subclass，并校验symbolic owner关系。Static member随后可访问；instance member继续判断`THIS`、合法`SUPER`、exact `POINT`或`CONE` verifier receiver。
+- Protected receiver只使用caller-local verifier type与target hierarchy关系，不读取points-to dataflow。
 - Exact receiver明确不是caller subtype时为`INACCESSIBLE`；无法证明整个cone或unknown receiver合法时为`POTENTIALLY_INACCESSIBLE`。
 - 找到reference且全部仍合法时为`ACCESS_REMAINS_VALID`；完全未找到reference才是`DECLARED_REFERENCE_NOT_FOUND`。
 - Target type/declaration无法解析时生成`ACCESS_TARGET_TYPE_UNRESOLVED`或`ACCESS_DECLARATION_UNRESOLVED`，reason为`INCONCLUSIVE_SCOPE_VALIDATION`。
@@ -238,5 +243,6 @@ Call Graph fixed point完成后，Impact query只读graph、`ChangePointEvidence
 
 ## Implementation Boundaries
 
+- `ModuleImpactTracer`只负责Evidence anchor materialization、access decision、reverse BFS、representative path与disposition reduction；Evidence扫描/绑定、Call Graph构建和code comparison由各自边界拥有。
 - 不分析source compatibility、Reflection/JNI/custom ClassLoader access或Java 9 module exports。
 - Structural scanner只采集raw事实；统一collector负责绑定；access decision只在target CHA完成后执行。

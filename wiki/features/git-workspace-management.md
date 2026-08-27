@@ -45,10 +45,14 @@ Git Workspace Management为`impact`与`tree diff`准备baseline/target project w
 
 ## Behavior Contract
 
+- `impact`的baseline和显式target使用detached worktree；省略target时使用current project directory。
+- `tree analyze --ref`使用detached repository worktree；省略ref时使用current checkout。
+- `tree diff`的baseline始终使用detached worktree；显式target同样使用detached worktree，省略target时使用current checkout。
 - Project可位于Git root子目录；impact baseline/target worktree和tree local-ref snapshot都保持同一relative analysis path，且该路径必须存在directory与POM。
 - Current tree snapshot或Tree Diff current target metadata包含repository root、branch、commit和dirty flag。
 - Tree snapshot metadata 同时包含 user input path、resolved Git root 与 relative analysis path。
 - Local-ref snapshot 只包含对应 commit，不包含 current dirty/untracked 文件。
+- Current checkout入口和active Module POM可为tracked或non-ignored untracked文件；ignored POM、Git stage mode `160000` submodule内POM及解析后逃逸Git root的symbolic link均被拒绝。
 - 成功、失败和 command close 路径都 best-effort 执行 `git worktree remove --force`。
 - Config layout 固定为：
 
@@ -58,6 +62,9 @@ Git Workspace Management为`impact`与`tree diff`准备baseline/target project w
   locks/
   impact/workspaces/<run-id>/
   impact/tmp/<run-id>/
+    dependency-evidence/
+      baseline/<nonce>/
+      target/<nonce>/
     report-cache/
   tree/workspaces/<run-id>/
   tree/tmp/<run-id>/
@@ -70,9 +77,11 @@ Git Workspace Management为`impact`与`tree diff`准备baseline/target project w
 - 创建 command run、owner marker 和 active lock；对 local ref 在 `workspaces/<run-id>` 内创建 detached worktree，current checkout 不 checkout/stash。
 - 将 relative analysis path 映射到 detached worktree；路径不存在时在 command Preflight 阻断。
 - Pipeline 复用 prepared path。
-- Dependency Analyzer 将 command tmp 作为 evidence cache parent，单次 Maven 调用完成后删除 nonce。
+- Current target的commit与dirty flag在Maven执行前采集；Analyzer不删除、恢复或stash用户workspace，Maven compile产生的`target/`可保留且不属于dependency evidence cache。
+- Impact Dependency Evidence只写当前run的`dependency-evidence/{baseline|target}/<nonce>`；单次Maven调用完成后删除nonce，不写baseline、target或current source directory。
 - Report fragment使用stable-hash filename，先写temporary file，再atomic rename并写schema complete marker；未经验证的Module/reactor名称不进入filename。Tree Diff baseline/target projection使用独立cache namespace。
 - Report发布成功或任一failure后显式删除`report-cache`。删除只允许当前owned UUID temporary directory下已验证的cache child；symbolic link与越界path拒绝。错误schema、run ID、command或complete marker使fragment读取/发布fail-fast。
+- 启动新run时只回收owner marker有效且可取得对应file lock的stale run；active lock、无有效marker目录和其他run保持不动。Workspace创建前执行`git worktree prune`清理已回收目录对应的Git metadata。
 - Owner close 先清理 worktree，再删除当前 workspace/tmp run 和 lock。
 
 ## Acceptance Criteria

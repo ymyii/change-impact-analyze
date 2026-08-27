@@ -153,6 +153,7 @@ code_refs:
 ## Implementation Boundaries
 
 - Workspace只拥有Git隔离和metadata；collector只拥有Maven采集；diff domain不执行Git、Maven或Report渲染。
+- Tree Diff collector只执行Maven `compile`与verbose dependency tree采集，不执行Classpath Evidence、class conflict扫描或反编译。共享采集机制通过独立dependency-only collector表达，不使用boolean mode合并Tree Analyze enrichment职责。
 - Tree Diff不复用`dependency.DependencyDiffEngine`。后者为Impact按artifact去重的JAR变更输入；Tree Diff保留occurrence、scope、directness和PathKey语义。
 - Renderer不执行采集或分类；browser不回调Analyzer。Java tests拥有domain、Schema、range和publication合同，Playwright拥有真实浏览器交互与响应式合同。
 - Tree Diff Schema v1只面向新生成的静态Report，不迁移旧artifact；重新执行命令生成完整目录。
