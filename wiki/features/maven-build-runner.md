@@ -27,6 +27,10 @@ code_refs:
 
 Build Runner只编译target/current workspace。`impact`与`tree`使用同一个reactor scope resolver，因此同一`--path`具有一致的aggregator、leaf和standalone边界。Baseline不执行Maven compile；old bytecode始终来自resolved dependency artifact。
 
+## Design Decisions
+
+- None.
+
 ## Mode
 
 - `REACTOR`：在 target reactor root 执行一次 `mvn compile -B`，随后发现各 active Module `target/classes`。

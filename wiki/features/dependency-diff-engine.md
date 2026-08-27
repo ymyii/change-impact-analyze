@@ -29,10 +29,7 @@ Impact Dependency Diff Engine对比baseline和target的resolved dependency tree�
 
 ## Design Decisions
 
-- 依赖 diff 以模块为边界，对 baseline 和 target 的模块集合做 union diff，避免只比较共同模块时遗漏整模块新增或移除。
-- 依赖树 flatten 使用 DFS 和 `putIfAbsent` 先入为主去重，使同一 artifact 的传递重复路径只产生一个比较对象。
-- 输出列表保持不可变并执行稳定排序，保证 CLI 报告和 snapshot 测试具有确定性。
-- `provided` scope 的版本变更通过 `isCompileTimeApiRisk()` 标记 compile-time API risk，供报告层展示。
+- None.
 
 ## Actors / Entrypoints
 

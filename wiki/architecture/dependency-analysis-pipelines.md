@@ -72,27 +72,9 @@ Root CLI 分发 `impact` 与`tree`父命令，后者再分派`tree analyze`和`t
 - Reactor scope：入口POM、active module closure、execution root、requested Module和scope mode组成的不可变边界。Git root只提供映射与eligibility，不代表分析范围。
 - Tree side：Tree Diff中的baseline或target workspace及其独立inventory、collection和ReportCache namespace；side不是跨运行缓存身份。
 
-## Architecture Decisions
+## Architecture Decision Records
 
-### 构图后收集，不接入fixed point callback
-
-WALA没有稳定的`CGNode + IR`新增通知接口；CHA与`k-obj`内部接入点不同。Evidence analysis因此只消费最终Call Graph，避免sealed replay、node去重和interpreter补偿逻辑。
-
-### Evidence顺序扫描，QueryNode并发
-
-Evidence阶段不复制node集合、不并发调用`CGNode.getIR()`。并发只发生在只读、按exact QueryNode隔离的Reverse BFS和后续code comparison，确保资源上界清晰。
-
-### 不建立通用Stage或Artifact总线
-
-命令引擎直接连接现有typed领域实现；阶段输入输出使用`ModuleAnalysisUnit`、`ModuleCallGraphSession`、`ChangePointEvidenceIndex`和`ModuleImpactQueryResult`。不允许弱类型artifact map或可改变核心顺序的任意回调。
-
-### tree与impact共享reactor scope resolver
-
-入口aggregator优先限定自身active subtree；leaf只沿祖先链查找owner并选择最外层匹配aggregator；无owner时standalone。该结构决策保证同一`--path`不会因命令不同而产生不同Maven session边界，也禁止通过Git root全仓枚举补偿非祖先aggregator布局。
-
-### Tree Diff按Reactor流式持有双侧结果
-
-Tree Diff不先收集全仓库两侧结果。每个Reactor依次采集baseline和target、校验Module结构、生成差异、完整发布page/data directory并释放重数据，再处理下一个Reactor。该结构限制峰值内存，允许局部问题保留已完成页面，也要求Reactor之间不使用领域ID寻址。
+- None.
 
 ## Package Dependency Direction
 

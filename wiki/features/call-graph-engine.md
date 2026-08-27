@@ -47,6 +47,10 @@ Analyzer 正式支持 Class Hierarchy Analysis（CHA，类层次分析），默�
 
 Call Graph层只接收自身immutable input，输出graph、metadata、typed limitation与boundary finding。它不接收`ModuleAnalysisUnit`、`BoundChangePoint`等impact domain，也不绑定业务evidence。Diagnostics JSON使用Schema 13；algorithm值域为`cha | k-obj`，ChangePoint collection SSA/decompiled Java与Impact Path pruning证据由impact orchestration追加，不改变Call Graph topology contract。
 
+## Design Decisions
+
+- None.
+
 ## Package Architecture
 
 | Package | Responsibility |

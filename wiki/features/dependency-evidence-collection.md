@@ -43,6 +43,10 @@ code_refs:
 
 Maven Dependency Plugin 的 text、DOT、GraphML、TGF 是展示序列化。它们仅服务 `tree` 等面向人的报告能力；当前 `tree` 使用 verbose text。任何展示字符串都不是 `impact` 的程序接口。
 
+## Design Decisions
+
+- None.
+
 ## Entrypoints
 
 - Impact goal：`io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:3.1.0-SNAPSHOT:collect-dependency-evidence`。

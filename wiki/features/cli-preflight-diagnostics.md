@@ -65,11 +65,7 @@ CLI 在昂贵分析前执行结构化 Preflight。`DiagnosticLog` 是 Analyzer �
 
 ## Design Decisions
 
-- handled uncertainty 与 hard failure 分离：能够继续完成 Call Graph 的 coverage limitation 使用 `INCONCLUSIVE` 和 exit code `0`；无法建立可信 Module 结果的错误使用 `FAILED`/`PARTIAL_SUCCESS` 和 exit code `2`。
-- 外部 dependency 的 excluded JDK reference 使用 artifact-level `WARN`，而不是因为 JAR 内可能不可达的 class 阻断整个 Module；当前项目和 Reactor code 仍保持严格边界。
-- 五段 prefix 的第五段承载可选Phase与当前`stage/substage`无法唯一表达的阶段实例或日志分类identity；Phase固定在identity之前。结果、观测值和其他实际日志信息使用message中的`key=value`。
-- 不为没有明确内部算法步骤的Stage生成Phase；`event`和`status`仍是普通日志字段，不形成新的控制流程层级。
-- 并行JAR pair failure以单个原子日志操作输出WARN与可选DEBUG stack，避免不同pair的message和stack交叉。
+- None.
 
 ## Actors / Entrypoints
 

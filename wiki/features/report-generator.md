@@ -69,12 +69,7 @@ Affected Paths只展示Impact与Structural记录。一行是唯一`(impactPath, 
 
 ## Design Decisions
 
-- Report交付边界是可直接通过`file://`打开的完整离线目录；真实浏览器验收不得用HTTP server改变origin、加载或路径语义。
-- `OfflineShardWriter`统一script-safe JSON callback、descriptor、UTF-8字节上限、单record超限和确定性文件名。调用方配置Schema、callback、record cap与逻辑边界；Impact Schema 5的文件名和callback行为保持不变。
-- `report-common.js`的loader以callback name参数隔离Impact与Tree；每个payload验证Schema、kind、shard ID、record数量与连续ID，失败后允许Retry。
-- Maven静态/Schema门禁与Playwright浏览器门禁独立必跑。`mvn clean verify`发布确定性Report夹具，Playwright只消费该夹具，不在Node.js流程中重复执行分析。
-- 浏览器门禁固定使用Chromium桌面与小屏幕viewports，以语义、可访问性、计算样式和几何断言作为稳定合同；不维护像素截图baseline。
-- Tree Diff Reactor页面以`moduleId`、`dependencyId`、`rowId`和`chainRowId`连续整数寻址。Module、Dependency、基础change type与`scopeChanged`预计算range只用于当前Reactor，browser不构建全量row DOM。
+- None.
 
 ## Actors / Entrypoints
 

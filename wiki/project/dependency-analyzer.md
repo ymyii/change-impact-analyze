@@ -65,17 +65,7 @@ Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer
 
 ## Design Decisions
 
-- Analyzer开发版本`3.0.0-SNAPSHOT`与Dependency Evidence Plugin`3.1.0-SNAPSHOT`独立使用SemVer。
-- 日常开发在下一次 release 前复用同一个 `X.Y.Z-SNAPSHOT`；只有 release 决策才切换 stable version、commit 并创建 Git tag。
-- Dependency Evidence Plugin 以 Java 8 bytecode 发布；执行 Plugin reactor 的 Maven JVM 可以使用 Java 8 以上版本。Analyzer 使用 Java 17 构建和运行；root POM 的 `test.jdk8.home` 提供完整 JDK 8 默认值，Surefire/Failsafe 将其作为 `TEST_JDK8_HOME` 注入 test JVM，其他环境可通过 `-Dtest.jdk8.home=...` 覆盖。
-- Analyzer JAR 将 Maven Dependency Plugin 和 Dependency Evidence Plugin 内嵌为两个独立 Maven repository ZIP；runtime 不安装 loose JAR/POM，也不维护项目自有 checksum/fingerprint。
-- `impact` 通过 Maven API 结构化采集 resolved/raw graph，Schema v3 JSON 在 command cache 内交付 selected tree、occurrence topology、reactor keys 和 physical bindings；`impact` 不读 GraphML。`tree` 使用 verbose text 采集面向人的 dependency occurrence。
-- `impact`只构建target per-Module selected Call Graph；`cha`为正式默认algorithm，`k-obj`为显式opt-in的experimental algorithm。Call Graph层冻结自身metadata后，由Impact层统一采集Evidence并执行Impact query。
-- CHA固定`jdk-model none`、不应用WALA ReflectionOptions且不遍历JDK body；JDK声明的virtual/interface dispatch不扩展到非JDK实现。`k-obj`默认`jdk8`并可显式`none`。Analyzer仍将JDK model class/catalog打入uber JAR。
-- SSA equivalence固定在JAR Diff阶段启用；CHA固定执行caller-local `cha-local-receiver-inference` Impact Path pruning extension。不存在result refinement CLI selection或关闭分支。
-- 两个subcommand共享Maven runtime、preflight Schema和中立reactor scope resolver，但分别组装检查DAG；pipeline只消费typed scope与preflight decision。
-- `tree`是只负责帮助与分派的父命令。两个子命令共享tree维度参数；`tree analyze`使用`--ref`，`tree diff`使用必填`--baseline`与可选`--target`，不保留直接执行旧`tree`分析的兼容分支。
-- `tree diff`要求两侧Reactor与Module结构一致；结构单侧缺失形成`STRUCTURE_MISMATCH`，不推导整Module依赖新增或删除。diff只复用compile加dependency tree采集，不执行classpath evidence或class conflict分析。
+- None.
 
 ## Module Map
 

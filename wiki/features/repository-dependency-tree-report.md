@@ -73,22 +73,7 @@ code_refs:
 
 ## Design Decisions
 
-- `--path`必须直接包含readable `pom.xml`；入口aggregator只分析active subtree，owned leaf从最外层匹配祖先执行`-pl/-am`，无owner时按standalone执行。
-- 默认scope为`compile,runtime,provided,system`；`test`仅在显式`--scopes`中纳入。Scope同时约束dependency tree、version mediation与class conflict扫描。
-- Maven conflict key固定为`groupId + artifactId + type + classifier`。每个occurrence保留requested/effective/selected version、effective/managed scope、selection、omitted reason、完整path和reactor module标记。
-- Module内部多版本问题仍由实际dependency path与Maven明确给出的dependency management evidence形成；相同版本的`omitted for duplicate`不独立形成问题。
-- Reactor级multi-version判定只看selected occurrence：同一DependencyKey的distinct非空`selectedVersion`数量大于1。Reactor计数为满足条件的DependencyKey数量；Module计数为该Module中出现并selected的对应DependencyKey数量。
-- `uniqueVersionCount`只合并非空`requestedVersion`与`selectedVersion`；相同字符串去重，intermediate `effectiveVersion`不会因仅出现在Resolution detail而计入，也不改变multi-version判定。
-- 全量依赖表不以“问题”为边界。selected与omitted occurrence均保留一行，因此可直接核对requested/resolved version与完整chain。
-- Resolution source由occurrence已保存的management与omission evidence确定，展示Direct selection、Dependency management和Maven mediation步骤及版本转换；不推断具体POM/BOM或冲突winner path。
-- 冲突类边界是单个Module的effective classpath。全部候选反编译成功时比较规范化换行后的完整文本；任一候选证据不完整时回退SHA-256。Winner固定为`PROJECT > REACTOR_DEPENDENCY > DEPENDENCY`，同层按Maven classpath顺序。
-- 主HTML不创建隐藏的全量row、Module panel或源码DOM。每张表只创建当前页；Module切换直接替换唯一活动panel并释放上一Module重payload。
-- 全量依赖筛选区使用独立响应式布局：宽屏为有最大列宽的双行表单，中屏将检索独占一行，小屏按单列排列。筛选控件不随宽表或viewport无限拉伸。
-- 普通shard UTF-8目标上限为4 MiB，单条超限record独占shard。Dependency row按最小页大小和Module边界切分；dependency index按较大批次渐进扫描；Module Dependency catalog按Module边界切分；每个Module dependency tree独占shard。
-- 所有动态内容通过`textContent`、`DocumentFragment`和DOM API构造，不把Report数据解释为HTML。
-- Impact与Tree共享`OfflineShardWriter`及可配置callback loader；Impact继续使用Schema 5、原文件名和`window.__CIA_AFFECTED_PATH_SHARD__`，Tree使用Schema v2和`window.__CIA_TREE_REPORT_SHARD__`。
-- 命令cache仍位于UUID command-owned目录，不进入最终artifact；Reactor page和Index checkpoint成功后释放完整Reactor结果。
-- `tree`自身不执行分析；直接调用只输出父命令帮助并返回`1`。旧`tree [options]`不保留兼容执行路径，单侧分析必须显式使用`tree analyze`。
+- None.
 
 ## Actors / Entrypoints
 

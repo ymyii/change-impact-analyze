@@ -83,13 +83,7 @@ Impact Tracing消费fixed point已完成、拓扑只读但仍处于live期的`Mo
 
 ## Design Decisions
 
-- Access query假设pre-existing consumer bytecode在old dependency下合法，只用target CHA/IR判断new access；不构建baseline CHA/Call Graph。
-- `ACCESSIBLE`不建seed；`INACCESSIBLE`与`POTENTIALLY_INACCESSIBLE`保守建seed。Potential path不改变Module status，只有可能漏报的typed limitation才使Module `INCONCLUSIVE`。
-- Runtime package必须同时匹配class loader identity与package name；protected receiver只读取caller-local verifier type，不读取points-to dataflow。
-- 构图strategy不得定义私有terminal evidence或绑定ChangePoint；dynamic observation必须在session冻结前转换为公共Evidence。
-- `ModuleImpactTracer`只负责Evidence anchor materialization、access decision、reverse BFS与disposition reduction。
-- CHA只在reverse BFS访问原图predecessor时运行固定caller-local Receiver extension；只删除已证明不可能的调用边，不修改Call Graph、Class Hierarchy或session。
-- Impact Path不物化中间callsite edge。中间节点关系由Call Graph predecessor topology保证；命中具体ChangePoint的可审计原因由末端`ReferenceEvidence`表达。
+- None.
 
 ## Actors / Entrypoints
 

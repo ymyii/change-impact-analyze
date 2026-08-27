@@ -35,19 +35,7 @@ Git Workspace Management为`impact`与`tree diff`准备baseline/target project w
 
 ## Design Decisions
 
-- `impact` baseline 和显式 target 使用 detached worktree；未传 target 时使用 current project directory。
-- `tree analyze --ref`使用detached repository worktree；未传ref时直接分析current checkout。
-- `tree diff` baseline总是detached worktree；显式target同样使用detached worktree，省略target时直接使用当前工作区。
-- tree common `--path`先解析真实directory和所属Git root，保存Git-root-relative analysis path；每个detached snapshot必须存在同一路径。
-- Tree与impact都把relative analysis path作为唯一入口scope；入口必须直接包含POM。Scope resolver只读取入口active graph和祖先aggregator，不枚举repository POM。
-- Local ref 只通过 `rev-parse --verify <ref>^{commit}` 解析，不 fetch。
-- Current checkout入口与active module POM可为tracked或non-ignored untracked；ignored POM、stage mode `160000` Git submodule内POM和symlink逃逸被拒绝。
-- 每次 command 使用 UUID run directory、有效 owner marker 和 `<config>/locks` file lock；cleanup 只能删除当前 owned run。
-- `impact` dependency evidence 只写 `impact/tmp/<run-id>/dependency-evidence/{baseline|target}/<nonce>`，不写 baseline、target 或 current source directory。
-- `impact`与两个tree模式的Report中间数据只写当前`<command>/tmp/<run-id>/report-cache`。Tree Diff在同一cache内使用baseline/target稳定namespace，不跨run复用。Cache复用同一run ID、owner marker、active lock与stale recovery，不创建第二套root或锁。
-- 当前工作区作为Tree Diff target时，commit与dirty flag必须在Maven执行前采集；Analyzer不删除、恢复或stash用户workspace，Maven正常build output可保留。
-- Current target 的 Maven compile 仍可在对应 workspace 生成 `target/`；该 build output 不属于 dependency evidence cache。
-- 启动时只回收 owner marker 有效且无法取得 active lock 的 stale run，随后执行 `git worktree prune` 清理对应 metadata；无 marker 目录和其他 run 不删除。
+- None.
 
 ## Actors / Entrypoints
 

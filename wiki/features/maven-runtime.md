@@ -53,12 +53,7 @@ Maven Runtime为`impact`和`tree`提供`3.6.3 <= Maven version < 4.0.0` executab
 
 ## Design Decisions
 
-- Maven distribution、Maven Dependency Plugin repository、Dependency Evidence Plugin repository 以 component/version 作为 cache identity，不使用内容 checksum 或 runtime fingerprint。
-- 两个 Plugin repository 保持独立，Dependency Evidence Plugin Snapshot 刷新不会重复解压约 16 MB 的 Maven Dependency Plugin repository。
-- Stable repository 由 completion marker 和必要 JAR/POM 判定可复用；Snapshot repository 每次 command 解压到独立 leaf，避免并发 command 相互覆盖，并在 runtime close 时清理。
-- 解压使用 file lock、staging、Zip Slip 防护和 atomic publish；cleanup 只作用于工具拥有的 leaf。
-- Global settings overlay仅在command存续期间存在；它以显式`-gs`或configured Maven runtime默认`conf/settings.xml`为基底，一个active profile注册两个file `pluginRepository`，并将两个repository ID从wildcard mirror排除。
-- Dependency Evidence Plugin repository ZIP 只包含 Maven layout 下的 JAR 与 consumer POM；JAR class major `<=52`，Jackson Core relocate 到 Plugin private package。Consumer POM 引入 `maven-dependency-tree:3.2.1`，并排除 Maven 已导出的 Resolver API。
+- None.
 
 ## Actors / Entrypoints
 

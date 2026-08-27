@@ -57,16 +57,7 @@ code_refs:
 
 ## Design Decisions
 
-- `tree`只作为父命令；`tree analyze`承接单侧报告，`tree diff`承接双侧比较。`--path`、`--output`、`--scopes`和`--dependency-plugin-version`由同一mixin定义。
-- baseline与显式target统一用`<ref>^{commit}`解析，只接受本地可peel为commit的commit-ish，不fetch。省略target表示当前工作区，并在Maven执行前冻结commit与dirty metadata。
-- `--path`先在当前checkout校验，再按Git-root-relative路径映射到两侧；任一侧缺少该路径或入口POM时preflight失败。
-- diff只执行Maven `compile`和verbose dependency tree采集，不执行Classpath Evidence、class conflict scan或反编译。共享能力通过独立dependency-only collector表达，不使用boolean mode。
-- Tree dependency identity固定为`groupId + artifactId + type + classifier`。单个Module内每个identity只有一个resolved version与scope，领域模型直接使用标量。
-- 基础分类四选一：`VERSION_CHANGED`、`ADDED`、`REMOVED`、`RESOLVED_UNCHANGED`；`scopeChanged`是唯一可叠加事实。directness变化不生成标签或指标。
-- 依赖级指标按唯一`DependencyKey`计数；chain structure只描述PathKey在两侧的存在性，不进入Module、Reactor、Index或运行指标。
-- Report按Reactor采集、比较、发布并释放重数据。完成一个Reactor page与data directory后刷新Index checkpoint；不跨command缓存结果。
-- Tree Diff使用独立Schema v1与callback；Tree Analyze Schema v2和Impact Schema 5保持不变。
-- Tree Diff提供的固定界面文案统一使用英文；dependency coordinate、Git ref、路径、Maven输出和issue原文保持原始数据，不执行翻译或改写。
+- None.
 
 ## Actors / Entrypoints
 

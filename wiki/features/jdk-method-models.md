@@ -75,13 +75,7 @@ JDK Method Models由两个独立普通JAR组成。`models/jdk`提供可复用的
 
 ## Design Decisions
 
-- 公共 engine 与版本专属 catalog 分离。未来 JDK 版本通过新的 model module 引用 `models/jdk`，不在公共 JAR 中混合多个版本的 target。
-- JDK 8 只约束被分析的 public API。两个 model JAR 按项目 Java 17 runtime 编译和执行，不承诺在 Java 8 JVM 运行。
-- 两个 artifact 独立使用 Semantic Versioning（SemVer）；公共 API 与 JDK 8 coverage 可独立演进和发布。
-- 使用 exact method target 和 conservative global family state。允许 points-to over-approximation，不使用 package ignore、whole-JDK exclusion 或通用 no-op fallback 丢失 application method。
-- 公共engine仍记录unavailable并对未替换target委托原selector；Analyzer的`jdk8`边界要求完整384-target catalog，任一unavailable均使当前Module失败，不允许降级到`none`。
-- 用户输出只保留command-wide selection。catalog/available/unavailable/hit metadata只在per-graph session内部用于验收，不进入Report、Console Diagnostic或diagnostics JSON。
-- CHA仍加载完整JDK classpath以构造hierarchy和JDK leaf method resolution，但不遍历JDK method body；因此model loading不参与CHA topology。
+- None.
 
 ## Actors / Entrypoints
 

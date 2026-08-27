@@ -59,16 +59,7 @@ code_refs:
 
 ## Design Decisions
 
-- Access narrowing是 JVM binary compatibility analysis，不是 source compatibility；PROJECT source因收敛后无法 compile 时沿用 target build failure。
-- `JvmAccess`只包含 `PUBLIC`、`PROTECTED`、`PACKAGE_PRIVATE`、`PRIVATE`；其他 modifier不混入 visibility。
-- `AccessTransition`必须是 strict narrowing。三个 access kind必须携带该 Value Object，其他 kind禁止携带，避免成对 nullable old/new access。
-- Descriptor变化只保留既有 `*_DESCRIPTOR_CHANGED`，不猜测不同 descriptor 是同一 member；body与access同时变化时保留两个独立 ChangePoint。
-- Module binding只增加`DependencyUpgradeKey` provenance；`BoundChangePoint`要求ChangePoint artifact等于upgrade target artifact，不通过对象重建改变diff identity。
-- ServiceLoader resource只比较发生dependency upgrade的外部artifact，不扩展PROJECT source resource。
-- baseline provider必须存在、可解析并assignable给service，才参与registration removal判断。
-- 所有descriptor相同、old/new body hash均存在且不同的`METHOD_BODY_CHANGED`都是分阶段比较候选；class major version是否相同不再是门禁。method removal、descriptor change、access、field、class与resource ChangePoint不参与。
-- 每个候选先执行old/new Vineflower反编译。Java text为`IDENTICAL`时立即抑制并跳过normalized SSA；仅对Java `DIFFERENT`或`UNKNOWN`的候选执行normalized SSA，`MATCHED`时抑制。固定求值语义为`Java text identical || SSA MATCHED`，遵循短路原则，不存在两个条件同时命中。
-- Java text identical指现有换行规范化后使用`String.equals`完全相等，不额外忽略空白、comment或import差异。任一侧反编译不可用时为`UNKNOWN`并fail-open。
+- None.
 
 ## Actors / Entrypoints
 
