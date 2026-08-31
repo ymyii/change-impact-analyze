@@ -3,7 +3,6 @@ package io.github.dependencyanalysis.dependency;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
-// Wiki: wiki/features/cli-preflight-diagnostics.md
 // - Algorithm and Refinement Contract
 /** Immutable Glob pattern for one Maven groupId:artifactId source. */
 public final class MavenArtifactPattern {

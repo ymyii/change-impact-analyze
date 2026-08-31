@@ -19,7 +19,7 @@ import com.ibm.wala.ipa.callgraph.propagation.cfa.ZeroXInstanceKeys;
 
 import java.util.ArrayList;
 
-// Wiki: wiki/features/call-graph-engine.md - Fixed-point Installation Order.
+// Wiki: wiki/implementation/call-graph-engine.md - Graph build
 /** Configurable receiver allocation-string-sensitive strategy. */
 public final class KObjCallGraphStrategy
         implements CallGraphAlgorithmStrategy {

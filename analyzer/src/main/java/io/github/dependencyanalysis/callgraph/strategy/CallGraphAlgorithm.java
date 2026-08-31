@@ -4,7 +4,6 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
-// Wiki: wiki/features/call-graph-engine.md - Command-wide algorithm policy
 /** Supported command-wide WALA Call Graph algorithms. */
 public enum CallGraphAlgorithm {
 

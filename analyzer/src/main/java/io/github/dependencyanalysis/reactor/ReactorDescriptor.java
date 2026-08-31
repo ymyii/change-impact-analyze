@@ -3,7 +3,6 @@ package io.github.dependencyanalysis.reactor;
 import java.nio.file.Path;
 import java.util.List;
 
-// Wiki: wiki/features/repository-dependency-tree-report.md - reactor scope
 /** Deterministic Maven reactor inventory entry. */
 public final class ReactorDescriptor {
 

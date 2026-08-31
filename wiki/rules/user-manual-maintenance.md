@@ -1,26 +1,6 @@
 ---
 title: "User Manual Maintenance"
 type: rule
-relations:
-  - path: "wiki/project/dependency-analyzer.md"
-    desc: "用户手册是Dependency Analyzer面向分析执行者的独立交付文档"
-  - path: "wiki/features/cli-preflight-diagnostics.md"
-    desc: "CLI option、Preflight、Diagnostic和exit code是手册命令参考的行为来源"
-  - path: "wiki/features/maven-runtime.md"
-    desc: "Java、Maven、config dir和project dependency resolution是手册环境要求的行为来源"
-  - path: "wiki/features/report-generator.md"
-    desc: "impact页面、状态、筛选与离线使用是手册报告参考的行为来源"
-  - path: "wiki/features/repository-dependency-tree-report.md"
-    desc: "tree范围、冲突口径、增量发布与报告状态是手册tree章节的行为来源"
-code_refs:
-  - path: "docs/user-manual.md"
-    desc: "面向用户的自包含操作、参考、解释与排障文档"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/cli/DependencyAnalyzerCli.java"
-    desc: "Root CLI option与subcommand入口"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/ImpactCommand.java"
-    desc: "impact public option、validation与exit code入口"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
-    desc: "tree public option入口"
 ---
 
 # Rule: User Manual Maintenance
@@ -99,3 +79,8 @@ java -jar target/dependency-analyzer.jar tree --help
 - Required/default/alias/repeatable/enum、report status和exit code与最终artifact一致。
 - 每个Coverage limitation和handled failure都能从手册判断结果可信度与后续动作。
 - Benchmark只在用户明确授权时执行；手册验证本身不构成Benchmark授权。
+
+## Non-Goals
+
+- 用户手册不承担 source build、release、benchmark 或内部 architecture 说明。
+- 内部 Schema、class、cache、shard 与 DOM 细节不因出现在 Wiki 而自动进入用户手册。

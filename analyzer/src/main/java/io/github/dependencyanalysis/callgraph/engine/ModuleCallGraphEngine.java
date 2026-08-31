@@ -72,10 +72,10 @@ import java.util.List;
 import java.util.Objects;
 import java.util.jar.JarFile;
 
+// Wiki: wiki/implementation/call-graph-engine.md - Graph build
+// Wiki: wiki/rules/package-boundaries.md - Package boundary
 /**
  * Builds one selected WALA Call Graph per analysis module.
- *
- * <p>Wiki: wiki/rules/package-boundaries.md - engine orchestration boundary.
  */
 public final class ModuleCallGraphEngine {
 
@@ -715,7 +715,6 @@ public final class ModuleCallGraphEngine {
         }
     }
 
-    // Wiki: wiki/features/call-graph-engine.md - entrypoint roots and types.
     private List<Entrypoint> entrypoints(
             final IClassHierarchy hierarchy,
             final EntrypointClassIndex index) {

@@ -18,7 +18,6 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
-// Wiki: wiki/features/repository-dependency-tree-diff.md - Schema v1数据投影
 /** Projects one Reactor diff into bounded offline Schema v1 shards. */
 final class TreeDiffReportDataWriter {
 

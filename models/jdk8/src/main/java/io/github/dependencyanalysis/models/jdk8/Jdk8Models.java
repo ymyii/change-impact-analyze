@@ -23,7 +23,7 @@ public final class Jdk8Models {
     private Jdk8Models() {
     }
 
-    // Wiki: wiki/features/jdk-method-models.md - JDK 8 installation entrypoint.
+    // Wiki: wiki/implementation/jdk-method-models.md - Model install
     /**
      * Installs exact JDK 8 summaries around the current target selector.
      *

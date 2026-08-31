@@ -4,7 +4,6 @@ import io.github.dependencyanalysis.bytecode.ChangePoint;
 
 import java.util.Objects;
 
-// Wiki: wiki/features/bytecode-diff-engine.md - Immutable Module binding
 /** Binds one immutable ChangePoint to Module-specific upgrade provenance. */
 public final class BoundChangePoint {
 

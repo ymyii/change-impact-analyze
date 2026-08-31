@@ -46,7 +46,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntConsumer;
 import java.util.stream.Collectors;
 
-// Wiki: wiki/features/impact-tracing.md - Reverse BFS and Representative Path
+// Wiki: wiki/implementation/impact-tracing.md - Query flow
 /** QueryNode-grouped Impact Path query over a frozen per-module session. */
 public final class ModuleImpactTracer {
 

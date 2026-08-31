@@ -21,7 +21,7 @@ public final class JdkModelInstallation {
         session = installedSession;
     }
 
-    // Wiki: wiki/features/jdk-method-models.md - impact installation boundary.
+    // Wiki: wiki/implementation/jdk-method-models.md - Model install
     /**
      * Installs the selected model after WALA default bypass configuration.
      *

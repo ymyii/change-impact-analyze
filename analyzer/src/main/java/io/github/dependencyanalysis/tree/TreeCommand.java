@@ -9,8 +9,7 @@ import picocli.CommandLine.Model.CommandSpec;
 
 import java.util.concurrent.Callable;
 
-// Wiki: wiki/features/repository-dependency-tree-report.md - tree command 入口
-// Wiki: wiki/features/repository-dependency-tree-diff.md - tree diff分派入口
+// Wiki: wiki/features/repository-dependency-tree-report.md - Tree entry
 /** Repository dependency tree report command. */
 @Command(
         name = "tree",

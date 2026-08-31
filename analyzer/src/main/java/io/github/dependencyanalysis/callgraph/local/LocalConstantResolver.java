@@ -14,7 +14,6 @@ import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
 
-// Wiki: wiki/features/call-graph-engine.md - Bounded Local Constant Resolution
 /** Bounded definition-only constant recovery within one caller IR. */
 public final class LocalConstantResolver {
 

@@ -1,50 +1,6 @@
 ---
 title: "Build, Test, Package"
 type: runbook
-relations:
-  - path: "wiki/project/dependency-analyzer.md"
-    desc: "项目stack、四reactor module map和artifact名称"
-  - path: "wiki/features/maven-runtime.md"
-    desc: "打入 uber JAR 的 Maven distribution 与两个 repository ZIP"
-  - path: "wiki/runbooks/impact-benchmark.md"
-    desc: "使用打包后 JAR 执行持续 impact benchmark"
-  - path: "wiki/runbooks/version-and-distribution.md"
-    desc: "Stable version、release profile、commit 与 tag 操作"
-  - path: "wiki/rules/release-versioning.md"
-    desc: "独立 SemVer、Snapshot 复用与 release gate"
-  - path: "wiki/rules/benchmark-scenario-coverage.md"
-    desc: "Analyzer 能力新增的 semantic benchmark 完成条件"
-  - path: "wiki/features/jdk-method-models.md"
-    desc: "Analyzer依赖的两个独立model artifact与packaging contract"
-  - path: "wiki/features/report-generator.md"
-    desc: "Impact离线HTML、Schema 5和真实浏览器行为合同"
-  - path: "wiki/features/repository-dependency-tree-diff.md"
-    desc: "tree diff打包命令、真实双侧执行与浏览器验收合同"
-code_refs:
-  - path: "pom.xml"
-    desc: "Analyzer parent/aggregator、Enforcer 与 shared build management"
-  - path: "analyzer/pom.xml"
-    desc: "Analyzer JDK 8 model dependency、Surefire、Failsafe、repository ZIP copy与Shade配置"
-  - path: "models/jdk/pom.xml"
-    desc: "公共JDK model engine bootstrap"
-  - path: "models/jdk8/pom.xml"
-    desc: "JDK 8 model bootstrap"
-  - path: "plugins/pom.xml"
-    desc: "独立 Plugin parent/aggregator、Java 8 与 Enforcer"
-  - path: "plugins/artifact-path-resolver/pom.xml"
-    desc: "Maven Plugin、shading、flatten 与 repository ZIP packaging"
-  - path: "analyzer/src/integration-test/java/io/github/dependencyanalysis/cli/PackagedJarCliIT.java"
-    desc: "最终 shaded JAR 与真实 command black-box gate"
-  - path: "analyzer/src/integration-test/java/io/github/dependencyanalysis/cli/HtmlReportUsabilityVerifier.java"
-    desc: "Impact单文件与Tree多页面HTML可用性gate"
-  - path: "analyzer/src/integration-test/java/io/github/dependencyanalysis/report/ReportBrowserFixtureIT.java"
-    desc: "Playwright使用的确定性离线Report夹具发布入口"
-  - path: "analyzer/src/integration-test/java/io/github/dependencyanalysis/tree/TreeReportBrowserFixtureIT.java"
-    desc: "Tree Analyze与Tree Diff大型浏览器夹具发布入口"
-  - path: "package.json"
-    desc: "Playwright类型检查、无头与headed测试命令"
-  - path: "playwright.config.ts"
-    desc: "双viewport Chromium、单worker与失败artifact配置"
 ---
 
 # Runbook: Build, Test, Package
@@ -61,6 +17,8 @@ code_refs:
 - Integration tests 需要本地 `git` 和可运行 Maven executable。
 - Impact Report浏览器门禁需要Node.js 20或更高版本、npm和Playwright管理的Chromium。
 - 所有 command 从 repository root 执行。
+- Analyzer development version 由 root `revision` 提供；Plugin 与 JDK 8 model version 分别由 root `artifact-path-plugin.version`、`jdk8-models.version`选择。
+- Report browser gate 使用 Node.js 20 或更高版本，以及 lockfile 对应的 Playwright Chromium。
 
 ## Commands
 
@@ -208,14 +166,3 @@ java -jar target/dependency-analyzer.jar tree diff --help
 - Checkstyle failure：Maven Console 中的 file/line/check 名称。
 - Shade/manifest failure：检查 `analyzer/pom.xml` 的 `maven-shade-plugin` `finalName` 与 `mainClass`。
 - Embedded repository failure：检查 Analyzer JAR 中 `maven/plugin-repositories/` 的两个 ZIP 和 runtime manager 的必要文件路径。
-
-## Configuration
-
-- Analyzer development version：root `revision`。
-- Dependency Evidence Plugin development version：`plugins/pom.xml`的`revision`，当前`3.1.0-SNAPSHOT`。
-- Analyzer test JDK 8：root `test.jdk8.home`；command-line `-Dtest.jdk8.home=...` 优先。
-- Analyzer 使用的 Plugin version：root `artifact-path-plugin.version`。
-- Analyzer使用的JDK 8 model version：root`jdk8-models.version`。
-- Report浏览器测试Node.js最低版本：20；browser固定由锁定的Playwright package管理。
-- Playwright Maven夹具：`target/playwright-report-fixture/`；失败artifact：`target/playwright/`。
-- 详细 release 切换见 [Version and Distribution](version-and-distribution.md)。

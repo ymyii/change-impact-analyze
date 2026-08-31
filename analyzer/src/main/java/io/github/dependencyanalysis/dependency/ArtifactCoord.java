@@ -2,7 +2,6 @@ package io.github.dependencyanalysis.dependency;
 
 import java.util.Objects;
 
-// Wiki: wiki/features/dependency-evidence-collection.md - Maven artifact 坐标
 /**
  * Immutable Maven artifact coordinate
  * with groupId, artifactId, type,

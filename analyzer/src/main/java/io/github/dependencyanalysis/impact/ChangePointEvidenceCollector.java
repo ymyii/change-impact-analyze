@@ -45,7 +45,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
 
-// Wiki: wiki/features/impact-tracing.md - Unified Evidence Collection
+// Wiki: wiki/implementation/impact-tracing.md - Query flow
 /** Collects and binds all reachable terminal references after graph build. */
 public final class ChangePointEvidenceCollector {
 

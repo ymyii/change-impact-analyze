@@ -1,14 +1,6 @@
 ---
 title: "Code and Concept Reuse"
 type: rule
-relations:
-  - path: "wiki/project/dependency-analyzer.md"
-    desc: "Repository-wide编码规范与规则检索入口"
-  - path: "wiki/rules/package-boundaries.md"
-    desc: "共享抽象的职责归属与依赖方向约束"
-code_refs:
-  - path: "AGENTS.md"
-    desc: "编码工作遵循Wiki规范的全局入口"
 ---
 
 # Rule: Code and Concept Reuse
@@ -93,10 +85,6 @@ Design review和Code review必须确认：
 - 合并后的旧alias、wrapper、重复模型、无效分支和过期文档已经删除。
 - 复用没有破坏package职责与依赖方向；相关自动化边界检查按适用runbook执行，但不能替代语义复用评审。
 - 用户输入、外部系统、持久化数据、Schema和安全边界的真实失败校验没有被错误删除。
-
-## Reference Files
-
-- `AGENTS.md` - 编码工作检索并遵循Wiki规范的全局入口。
 
 ## Non-Goals
 

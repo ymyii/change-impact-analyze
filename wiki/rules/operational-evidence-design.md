@@ -1,20 +1,6 @@
 ---
 title: "Operational Evidence Design"
 type: rule
-relations:
-  - path: "wiki/features/cli-preflight-diagnostics.md"
-    desc: "日志级别、关联上下文与Runtime Metrics的现有行为契约"
-  - path: "wiki/architecture/dependency-analysis-pipelines.md"
-    desc: "功能Stage、并发执行单元与性能瓶颈的主要分析边界"
-code_refs:
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/diagnostic/DiagnosticLog.java"
-    desc: "日志级别、retained/transient event与阶段计时基础设施"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/diagnostic/LogVerbosity.java"
-    desc: "INFO、DEBUG与TRACE的可见性判断入口"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/diagnostic/DiagnosticContext.java"
-    desc: "stage、substage、可选phase与stable identity上下文"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/metrics/RuntimeMetricsSession.java"
-    desc: "资源采样、周期snapshot与final peak summary基础设施"
 ---
 
 # Rule: Operational Evidence Design
@@ -63,9 +49,7 @@ code_refs:
 - 检查 verbosity 判断发生在高成本采集、计算和 message 构造之前，禁用对应级别时不产生这些额外开销。
 - 检查异常、降级和性能指标能够共同指向瓶颈阶段，且所有输出均通过敏感信息审查。
 
-## Reference Files
+## Non-Goals
 
-- `DiagnosticLog` 提供统一的 verbosity、retention、输出和 monotonic timing façade。
-- `LogVerbosity` 提供 `INFO`、`DEBUG` 与 `TRACE` 的前置可见性判断。
-- `DiagnosticContext`提供Stage、可选Phase与稳定identity上下文。
-- `RuntimeMetricsSession` 提供 `TRACE` 下的资源观测、周期snapshot和最终峰值摘要。
+- 本规则不要求为同一事实建立重复的日志、指标和进度输出系统。
+- 本规则不允许用 observability 需求绕过 verbosity 成本门禁或敏感信息过滤。

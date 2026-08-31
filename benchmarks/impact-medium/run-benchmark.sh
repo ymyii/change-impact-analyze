@@ -125,7 +125,7 @@ export BENCHMARK_CALL_GRAPH_ALGORITHM BENCHMARK_WALA_REFLECTION_OPTIONS
 export BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE BENCHMARK_JDK_MODEL
 export BENCHMARK_CALIBRATION BENCHMARK_CAPTURE_TOPOLOGY BENCHMARK_DIAGNOSTICS
 
-# Wiki: wiki/runbooks/impact-benchmark.md - Stable benchmark preparation, measurement, and verification entrypoint.
+# Wiki: wiki/runbooks/impact-benchmark.md - Benchmark runner
 "$script_dir/scripts/prepare-fixture.sh" "$fixture_root"
 
 if command -v shasum >/dev/null 2>&1; then

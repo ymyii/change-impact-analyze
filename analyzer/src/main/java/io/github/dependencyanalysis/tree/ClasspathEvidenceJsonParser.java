@@ -14,7 +14,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
-// Wiki: wiki/features/dependency-evidence-collection.md
 // - Classpath Evidence Schema v1
 /** Strict streaming parser for Classpath Evidence Schema v1. */
 public final class ClasspathEvidenceJsonParser {

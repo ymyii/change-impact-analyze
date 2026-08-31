@@ -1,22 +1,6 @@
 ---
 title: "Benchmark Scenario Coverage"
 type: rule
-relations:
-  - path: "wiki/runbooks/impact-benchmark.md"
-    desc: "CHA canonical 双 scope benchmark gate"
-  - path: "wiki/runbooks/build-test-package.md"
-    desc: "编码、artifact、测试与 benchmark 的验证顺序"
-  - path: "wiki/architecture/dependency-analysis-pipelines.md"
-    desc: "Analyzer capability 与 semantic coverage 边界"
-code_refs:
-  - path: "AGENTS.md"
-    desc: "benchmark 必须由用户明确授权"
-  - path: "benchmarks/impact-medium/run-scope-matrix.sh"
-    desc: "canonical matrix 与原子发布入口"
-  - path: "benchmarks/impact-medium/scripts/verify-report.sh"
-    desc: "scope-aware CHA semantic gate"
-  - path: "benchmarks/impact-medium/expected-results.tsv"
-    desc: "scope semantic baseline"
 ---
 
 # Rule: Benchmark Scenario Coverage
@@ -36,7 +20,12 @@ Analyzer 可观察能力变化必须同步维护 fixture、semantic verification
 - `PENDING` 只允许在显式 calibration 中通过；人工确认前不得发布 tracked snapshot。
 - 任一 scope 的语义、topology、HTML 或 publication gate 失败时，不发布任何新 snapshot。
 
-## Stable Verification
+## Applies To
+
+- 修改 impact CLI、dependency planning、Call Graph、ChangePoint、Impact Path、boundary evidence 或 Report 的可观察语义。
+- 修改 canonical benchmark fixture、verification、baseline 或 publication contract。
+
+## Verification
 
 普通开发可执行 generator unit tests 与所有 shell 的 `sh -n`。只有显式授权后，才执行：
 
@@ -46,3 +35,8 @@ JAVA8_HOME=/absolute/path/to/jdk8 \
 ```
 
 完整完成条件：12个进程成功、scope内topology稳定、两个baseline非`PENDING`、两份HTML成功、双scope snapshot原子发布。
+
+## Non-Goals
+
+- 本规则不授权执行 benchmark；授权只能来自用户当前明确指令。
+- `k-obj` capability 由聚焦测试验收，不纳入 CHA canonical baseline。

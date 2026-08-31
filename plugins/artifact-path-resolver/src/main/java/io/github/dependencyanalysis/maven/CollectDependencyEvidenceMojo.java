@@ -46,7 +46,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-// Wiki: wiki/features/dependency-evidence-collection.md - 结构化依赖证据入口
+// Wiki: wiki/implementation/dependency-evidence-collection.md - Evidence entry
 /** Collects selected and raw Maven dependency graphs into Schema v3 JSON. */
 @Mojo(name = "collect-dependency-evidence", threadSafe = true)
 public final class CollectDependencyEvidenceMojo extends AbstractMojo {

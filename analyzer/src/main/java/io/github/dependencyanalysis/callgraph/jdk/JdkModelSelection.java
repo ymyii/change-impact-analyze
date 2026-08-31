@@ -4,7 +4,6 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
-// Wiki: wiki/features/jdk-method-models.md - Command-wide JDK model policy.
 /** Supported command-wide JDK Method Model selections. */
 public enum JdkModelSelection {
 

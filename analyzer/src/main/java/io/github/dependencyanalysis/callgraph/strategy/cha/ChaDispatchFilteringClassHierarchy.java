@@ -21,7 +21,6 @@ import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
 
-// Wiki: wiki/features/call-graph-engine.md - CHA
 /**
  * IClassHierarchy decorator filtering selected CHA targets before expansion.
  */

@@ -6,7 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-// Wiki: wiki/features/cli-preflight-diagnostics.md - DAG preflight 执行入口
+// Wiki: wiki/implementation/cli-preflight-diagnostics.md - CLI boundary
 /** Executes a preflight DAG in stable topological order. */
 public final class PreflightRunner {
 

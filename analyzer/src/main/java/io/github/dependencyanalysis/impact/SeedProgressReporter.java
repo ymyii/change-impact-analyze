@@ -18,7 +18,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 
-// Wiki: wiki/features/impact-tracing.md - Per-QueryNode TRACE progress contract
 /** Query-scoped factory for isolated per-QueryNode TRACE progress trackers. */
 final class SeedProgressReporter implements AutoCloseable {
 

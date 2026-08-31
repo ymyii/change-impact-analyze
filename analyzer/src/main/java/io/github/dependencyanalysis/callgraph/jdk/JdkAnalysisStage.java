@@ -12,7 +12,6 @@ import java.nio.file.Path;
 import java.util.Objects;
 import java.util.jar.JarFile;
 
-// Wiki: wiki/features/call-graph-engine.md - JDK 8 Primordial scope
 /** Prepares the target JDK scope used by WALA analysis. */
 public final class JdkAnalysisStage {
 

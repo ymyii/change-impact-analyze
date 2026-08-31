@@ -23,7 +23,6 @@ import java.util.jar.Manifest;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-// Wiki: wiki/features/bytecode-diff-engine.md - Method body decompilation
 /**
  * Produces best-effort Java-like old/new
  * evidence for changed method bodies.

@@ -6,10 +6,9 @@ import java.util.EnumMap;
 import java.util.Map;
 import java.util.Objects;
 
+// Wiki: wiki/rules/package-boundaries.md - Package boundary
 /**
  * Unique exhaustive algorithm-to-strategy mapping.
- *
- * <p>Wiki: wiki/rules/package-boundaries.md - isolated strategy registration.
  */
 public final class CallGraphStrategyFactory {
 

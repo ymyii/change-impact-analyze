@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-// Wiki: wiki/features/dependency-evidence-collection.md
 // Winner-normalized Module dependency evidence.
 /**
  * Module-local selected dependency projection, normalized occurrence

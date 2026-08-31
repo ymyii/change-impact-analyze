@@ -2,7 +2,6 @@ package io.github.dependencyanalysis.dependency;
 
 import java.util.Objects;
 
-// Wiki: wiki/features/dependency-diff-engine.md - 单条依赖变动不可变数据类
 /**
  * Immutable record of a single
  * dependency change between baseline

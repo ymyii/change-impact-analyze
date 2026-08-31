@@ -26,7 +26,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 
-// Wiki: wiki/features/dependency-evidence-collection.md - 结构化依赖证据
+// Wiki: wiki/implementation/dependency-evidence-collection.md - Evidence entry
 // Wiki: wiki/rules/process-command-resolution.md - 跨平台命令规则
 /** Executes Maven dependency evidence collection for one reactor closure. */
 public final class DependencyAnalyzer {

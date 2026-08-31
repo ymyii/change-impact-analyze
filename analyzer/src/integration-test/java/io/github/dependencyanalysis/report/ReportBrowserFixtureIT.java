@@ -65,7 +65,6 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// Wiki: wiki/features/report-generator.md - Browser gate report fixture
 // Wiki: wiki/runbooks/build-test-package.md - Playwright fixture entrypoint
 /** Publishes the deterministic offline report consumed by Playwright. */
 class ReportBrowserFixtureIT {

@@ -17,7 +17,6 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.stream.Stream;
 
-// Wiki: wiki/features/call-graph-engine.md - JDK exclusion validation boundary
 /** Validates explicit references against Spring backend JDK exclusions. */
 public final class ModuleScopeValidator {
 

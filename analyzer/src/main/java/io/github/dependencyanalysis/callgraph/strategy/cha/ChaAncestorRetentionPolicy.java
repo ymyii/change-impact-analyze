@@ -18,7 +18,6 @@ import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
 
-// Wiki: wiki/features/call-graph-engine.md - CHA external ancestor exception
 /** Immutable set of unselected external ancestors whose bodies remain real. */
 public final class ChaAncestorRetentionPolicy {
 

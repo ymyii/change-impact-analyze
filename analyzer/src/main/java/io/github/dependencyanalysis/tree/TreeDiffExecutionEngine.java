@@ -31,7 +31,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 
-// Wiki: wiki/architecture/dependency-analysis-pipelines.md - Tree Diff双侧执行边界
+// Wiki: wiki/architecture/dependency-analysis-pipelines.md - Tree Diff boundary
 // Wiki: wiki/features/repository-dependency-tree-diff.md - Tree Diff主流程
 /** Executes two-sided dependency tree collection, diff, and publication. */
 final class TreeDiffExecutionEngine {

@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
-// Wiki: wiki/features/maven-runtime.md - 内嵌 Maven runtime 准备入口
+// Wiki: wiki/implementation/maven-runtime.md - Runtime boundary
 /** Selects and safely prepares Apache Maven 3.6.3. */
 public final class MavenRuntimeManager {
 

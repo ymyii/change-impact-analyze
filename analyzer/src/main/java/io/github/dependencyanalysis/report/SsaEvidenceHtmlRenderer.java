@@ -4,7 +4,6 @@ import io.github.dependencyanalysis.bytecode.SsaComparisonEvidence;
 
 import java.util.List;
 
-// Wiki: wiki/features/report-generator.md - Overall Index
 /** Renders the report-safe ChangePoint collection SSA evidence table. */
 final class SsaEvidenceHtmlRenderer {
 

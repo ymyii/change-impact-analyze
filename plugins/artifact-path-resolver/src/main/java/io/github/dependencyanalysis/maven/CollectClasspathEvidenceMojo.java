@@ -28,7 +28,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-// Wiki: wiki/features/dependency-evidence-collection.md
+// Wiki: wiki/implementation/dependency-evidence-collection.md
 // - Classpath Evidence Schema v1
 /** Collects ordered physical classpath entries into Schema v1 JSON. */
 @Mojo(name = "collect-classpath-evidence", threadSafe = true,

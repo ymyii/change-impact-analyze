@@ -33,7 +33,6 @@ import java.util.TreeSet;
 import java.util.function.IntFunction;
 import java.util.stream.Collectors;
 
-// Wiki: wiki/features/report-generator.md - Offline Affected Paths shards
 /** Projects and writes one Module's normalized Affected Paths shards. */
 final class AffectedPathReportDataWriter {
 

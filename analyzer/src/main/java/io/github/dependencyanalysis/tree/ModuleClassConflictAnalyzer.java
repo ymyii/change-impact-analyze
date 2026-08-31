@@ -21,7 +21,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-// Wiki: wiki/features/repository-dependency-tree-report.md - 冲突类扫描
 /** Scans and decompiles class conflicts for one effective Module classpath. */
 final class ModuleClassConflictAnalyzer {
 

@@ -1,32 +1,6 @@
 ---
 title: "Process Command Resolution"
 type: rule
-relations:
-  - path: "wiki/features/git-workspace-management.md"
-    desc: "Git 命令执行适用跨平台命令解析规则"
-  - path: "wiki/features/maven-build-runner.md"
-    desc: "Maven 编译命令执行适用跨平台命令解析规则"
-  - path: "wiki/features/dependency-evidence-collection.md"
-    desc: "Maven dependency plugin 命令执行适用跨平台命令解析规则"
-  - path: "wiki/features/maven-runtime.md"
-    desc: "Maven runtime process 适用跨平台命令解析规则"
-  - path: "wiki/features/repository-dependency-tree-report.md"
-    desc: "tree Git/Maven process 适用跨平台命令解析规则"
-code_refs:
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/util/CommandResolver.java"
-    desc: "跨平台命令解析 canonical implementation"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/workspace/GitCommandRunner.java"
-    desc: "Git 命令执行入口"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/build/BuildRunner.java"
-    desc: "Maven compile 命令执行入口"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/dependency/DependencyAnalyzer.java"
-    desc: "Maven dependency plugin 命令执行入口"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/runtime/MavenExecutor.java"
-    desc: "共享 Maven process 执行入口"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/GitSnapshotProvider.java"
-    desc: "tree Git process 执行入口"
-  - path: "analyzer/src/test/java/io/github/dependencyanalysis/util/CommandResolverTest.java"
-    desc: "跨平台命令解析规则测试"
 ---
 
 # Rule: Process Command Resolution
@@ -55,16 +29,8 @@ code_refs:
 mvn test -Dtest=CommandResolverTest
 ```
 
-## Reference Files
-
-- `analyzer/src/main/java/io/github/dependencyanalysis/util/CommandResolver.java` - 规则来源和 canonical implementation。
-- `analyzer/src/main/java/io/github/dependencyanalysis/workspace/GitCommandRunner.java` - Git 命令调用方。
-- `analyzer/src/main/java/io/github/dependencyanalysis/build/BuildRunner.java` - Maven compile 调用方。
-- `analyzer/src/main/java/io/github/dependencyanalysis/dependency/DependencyAnalyzer.java` - Maven dependency plugin 调用方。
-- `analyzer/src/test/java/io/github/dependencyanalysis/util/CommandResolverTest.java` - 平台解析行为测试入口。
-
 ## Non-Goals
 
 - 不在本规则中枚举所有遵守规则的测试 fixture 或临时命令。
-- 不规定外部命令的业务参数；各 Feature 页拥有自己的命令语义。
+- 不规定外部命令的业务参数；对应 Feature 或 Implementation 页面拥有自己的命令语义。
 - 不替代错误处理、日志收集或诊断事件规范。

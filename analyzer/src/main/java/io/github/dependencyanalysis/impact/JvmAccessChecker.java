@@ -7,7 +7,6 @@ import io.github.dependencyanalysis.bytecode.JvmAccess;
 
 import java.util.Objects;
 
-// Wiki: wiki/features/impact-tracing.md - Canonical JVM access policy
 /** Stateless Java 8 JVM access policy over the target hierarchy. */
 public final class JvmAccessChecker {
 

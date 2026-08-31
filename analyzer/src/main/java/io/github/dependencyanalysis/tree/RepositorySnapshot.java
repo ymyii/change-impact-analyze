@@ -3,7 +3,6 @@ package io.github.dependencyanalysis.tree;
 import java.nio.file.Path;
 import java.util.Objects;
 
-// Wiki: wiki/features/git-workspace-management.md - snapshot path scope
 /** Immutable Git repository snapshot with owned cleanup. */
 public final class RepositorySnapshot
         implements AutoCloseable {

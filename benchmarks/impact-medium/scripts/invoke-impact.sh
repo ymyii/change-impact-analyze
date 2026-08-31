@@ -66,5 +66,5 @@ if [ "$BENCHMARK_CAPTURE_TOPOLOGY" = 1 ]; then
   set -- "$@" --call-graph-diagnostics-output "$BENCHMARK_DIAGNOSTICS"
 fi
 
-# Wiki: wiki/runbooks/impact-benchmark.md - Canonical impact benchmark CLI invocation.
+# Wiki: wiki/runbooks/impact-benchmark.md - CLI invocation
 exec "$ANALYZER_JAVA" -jar "$ANALYZER_JAR" "$@"

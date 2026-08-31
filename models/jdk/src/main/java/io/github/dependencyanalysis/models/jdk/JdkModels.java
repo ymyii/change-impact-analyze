@@ -22,7 +22,7 @@ public final class JdkModels {
     private JdkModels() {
     }
 
-    // Wiki: wiki/features/jdk-method-models.md - Model installation boundary.
+    // Wiki: wiki/implementation/jdk-method-models.md - Model install
     /**
      * Installs exact JDK method summaries around the current target selector.
      *

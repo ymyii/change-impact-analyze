@@ -283,7 +283,7 @@ if [ "$dependency_count" -ne 40 ]; then
   exit 1
 fi
 
-# Wiki: wiki/runbooks/impact-benchmark.md - Fixture preparation contract and generated runtime layout.
+# Wiki: wiki/runbooks/impact-benchmark.md - Fixture builder
 cat >"$runtime_fixture_root/fixture-metadata.txt" <<EOF
 project=$project_root
 baseline=impact-baseline

@@ -19,7 +19,6 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
 
-// Wiki: wiki/features/repository-dependency-tree-report.md - Core Flow
 /** Projects one Reactor into bounded offline Tree Report shards. */
 final class TreeReportDataWriter {
 

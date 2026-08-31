@@ -11,7 +11,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
-// Wiki: wiki/rules/package-boundaries.md - Executable package boundaries
+// Wiki: wiki/rules/package-boundaries.md - Package boundary
 /** Enforces Call Graph responsibility and dependency direction. */
 class PackageArchitectureTest {
 

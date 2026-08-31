@@ -6,7 +6,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-// Wiki: wiki/features/call-graph-engine.md - invokedynamic model registry
 /** Immutable exact-key invokedynamic bootstrap model registry. */
 public final class InvokeDynamicBootstrapModelRegistry {
 

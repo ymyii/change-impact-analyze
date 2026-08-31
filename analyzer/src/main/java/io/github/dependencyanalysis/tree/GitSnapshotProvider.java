@@ -11,7 +11,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-// Wiki: wiki/features/git-workspace-management.md - repository snapshot 入口
 /** Opens current checkout or detached local-ref snapshots. */
 public final class GitSnapshotProvider {
 

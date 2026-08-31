@@ -24,7 +24,7 @@ import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
-// Wiki: wiki/features/bytecode-diff-engine.md - ServiceLoader Resource Diff
+// Wiki: wiki/implementation/bytecode-diff-engine.md - Resource diff
 /** Compares valid ServiceLoader registrations for one upgraded artifact. */
 public final class ServiceLoaderResourceDiffEngine {
 

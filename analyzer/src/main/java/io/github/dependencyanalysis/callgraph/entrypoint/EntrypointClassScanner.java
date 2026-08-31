@@ -14,7 +14,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-// Wiki: wiki/features/call-graph-engine.md - Actors / Entrypoints.
 /** Lightweight target/classes index used before expensive module analysis. */
 public final class EntrypointClassScanner {
 

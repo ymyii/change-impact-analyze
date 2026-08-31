@@ -1,113 +1,36 @@
 ---
 title: "Dependency Analyzer"
 type: project
-relations:
-  - path: "wiki/architecture/dependency-analysis-pipelines.md"
-    desc: "Root CLI、共享基础设施和两条分析 pipeline 的架构边界"
-  - path: "wiki/features/maven-runtime.md"
-    desc: "内嵌 Maven 与两个 Plugin repository 的 runtime 行为"
-  - path: "wiki/features/repository-dependency-tree-report.md"
-    desc: "tree analyze单侧Maven scope与离线Report行为"
-  - path: "wiki/features/repository-dependency-tree-diff.md"
-    desc: "tree diff双侧workspace、依赖差异语义与离线Report行为"
-  - path: "wiki/rules/process-command-resolution.md"
-    desc: "外部命令执行的跨平台约束"
-  - path: "wiki/rules/release-versioning.md"
-    desc: "四个独立artifact的SemVer与Git tag约束"
-  - path: "wiki/rules/code-concept-reuse.md"
-    desc: "Repository-wide代码与概念复用约束"
-  - path: "wiki/rules/user-manual-maintenance.md"
-    desc: "用户手册的独立交付边界、内容职责与同步验证规则"
-  - path: "wiki/runbooks/build-test-package.md"
-    desc: "构建、测试、打包和本地验证操作"
-  - path: "wiki/runbooks/version-and-distribution.md"
-    desc: "Maven-native version iteration 与 release 操作"
-  - path: "wiki/runbooks/impact-benchmark.md"
-    desc: "打包后 impact 的持续性能与场景完整性验证"
-  - path: "wiki/features/jdk-method-models.md"
-    desc: "Analyzer内嵌的公共engine与JDK 8 model artifact"
-code_refs:
-  - path: "pom.xml"
-    desc: "Analyzer parent/aggregator、SemVer 和 release profile"
-  - path: "analyzer/pom.xml"
-    desc: "Java 17 Analyzer、JDK 8 model dependency、repository ZIP copy与uber JAR配置"
-  - path: "models/jdk/pom.xml"
-    desc: "独立公共JDK model engine reactor"
-  - path: "models/jdk8/pom.xml"
-    desc: "独立JDK 8 catalog/façade reactor"
-  - path: "plugins/pom.xml"
-    desc: "独立 Plugin parent/aggregator、Java 8 与 release profile"
-  - path: "plugins/artifact-path-resolver/pom.xml"
-    desc: "Dependency Evidence Maven Plugin 与 repository ZIP packaging"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/cli/DependencyAnalyzerCli.java"
-    desc: "Root CLI 和 global options 入口"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java"
-    desc: "Spring backend per-Module impact pipeline 编排"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/reactor/ReactorInventoryBuilder.java"
-    desc: "impact/tree共享的Maven reactor scope resolver"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeCommand.java"
-    desc: "tree父命令与analyze/diff分派"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeAnalyzeCommand.java"
-    desc: "单侧repository dependency tree分析入口"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/tree/TreeDiffCommand.java"
-    desc: "baseline/target dependency tree比较入口"
-  - path: "benchmarks/impact-medium/run-suite.sh"
-    desc: "单scope CHA-only benchmark suite"
 ---
 
 # Project: Dependency Analyzer
 
-## Summary
+## Background
 
-Dependency Analyzer是Java 17 + Maven + picocli CLI。`impact`使用显式完整JDK 8比较dependency升级前后的bytecode与业务调用影响；`tree analyze`从一个直接包含POM的Maven project目录解析reactor scope并生成单侧offline HTML dependency tree report；`tree diff`比较本地Git baseline与ref或当前工作区target的dependency tree。
+Dependency Analyzer 面向需要评估 Maven repository 依赖升级风险的开发者。它在不运行目标业务系统的前提下，对 Git baseline 与 target 的依赖、bytecode、Call Graph 和引用证据进行静态分析，并生成可离线查看的 HTML Report。
 
-Source repository包含四个独立Maven reactor：root reactor只聚合Analyzer，`plugins/pom.xml`只聚合内置Maven Plugin，`models/jdk/pom.xml`与`models/jdk8/pom.xml`分别构建公共engine和JDK 8 catalog/façade。独立artifact通过Maven local repository按dependency顺序交付，不加入root`<modules>`。
+## Overview
+
+项目提供 `impact`、`tree analyze` 和 `tree diff` 三个 CLI 用户目标，以及为 Analyzer 内嵌运行的 Maven Plugin 与 JDK method model artifact。整体结构和依赖方向见 [Dependency Analysis Pipelines](../architecture/dependency-analysis-pipelines.md)。构建、测试和交付操作见 [Build, Test, Package](../runbooks/build-test-package.md)。
 
 ## Design Decisions
 
 - None.
 
-## Module Map
+## Project Structure
 
-- `pom.xml` - Analyzer reactor parent/aggregator，只包含 `analyzer/`。
-- `analyzer/` - GAV `io.github.dependencyanalysis:dependency-analyzer:3.0.0-SNAPSHOT`；Java 17 CLI/application，输出为`target/dependency-analyzer.jar`。
-- `analyzer/src/main/java/io/github/dependencyanalysis/runtime/` - 内嵌或用户指定 Maven runtime、两个 Plugin repository cache 与 settings overlay。
-- `analyzer/src/main/java/io/github/dependencyanalysis/preflight/` - DAG preflight framework 和结果 Schema。
-- `analyzer/src/main/java/io/github/dependencyanalysis/reactor/` - 安全POM解析、profile activation、active module graph、祖先aggregator与不可变scope模型。
-- `analyzer/src/main/java/io/github/dependencyanalysis/impact/` - `impact` command、Call Graph input/reason adapter、evidence绑定、pipeline和影响追踪domain。
-- `analyzer/src/main/java/io/github/dependencyanalysis/impact/pruning/` - 固定CHA caller-local Impact Path edge extension contract、receiver resolver与统一summary；Static Single Assignment（SSA，静态单赋值）equivalence位于`bytecode/`。
-- `analyzer/src/main/java/io/github/dependencyanalysis/tree/` - `tree`父命令、单侧/双侧Git workspace、dependency collection、occurrence-aware diff、version analysis和HTML report。
-- `analyzer/src/main/java/io/github/dependencyanalysis/callgraph/` - 仅保留package边界；production class按engine、strategy、protocol、jdk、entrypoint、scope、boundary、topology、model与local职责进入子包。
-- `analyzer/src/main/java/io/github/dependencyanalysis/callgraph/strategy/{cha,kobj}/` - 互相隔离的CHA与`k-obj`实现；动态协议adapter只位于`kobj`子包。
-- `analyzer/src/main/java/io/github/dependencyanalysis/{build,dependency,bytecode,jar,report,workspace}/` - `impact` pipeline的其他稳定阶段实现。
-- `analyzer/src/test/java/` - unit tests；`analyzer/src/integration-test/java/` - Failsafe integration tests。
-- `plugins/pom.xml` - 独立 Plugin reactor parent/aggregator。
-- `plugins/artifact-path-resolver/` - GAV `io.github.dependencyanalysis:dependency-analyzer-artifact-path-maven-plugin:3.1.0-SNAPSHOT`；Java 8 `collect-dependency-evidence`、`collect-classpath-evidence` goal与attached `repository` ZIP。
-- `models/jdk/` - GAV`io.github.dependencyanalysis:dependency-analyzer-jdk-models:0.1.0-SNAPSHOT`；公共Synthetic IR engine/API。
-- `models/jdk8/` - GAV`io.github.dependencyanalysis:dependency-analyzer-jdk8-models:0.1.0-SNAPSHOT`；384-target catalog与安装façade。
-- `benchmarks/impact-medium/` - 可复现的CHA-only中型impact fixture；每scope 6个进程，双scope共12个进程；baseline确认前不发布tracked TSV snapshot。
+- Analyzer reactor 使用 Java 17，交付可执行 uber JAR，并拥有 CLI、workspace、分析 orchestration 和离线 Report publication。
+- Dependency Evidence Plugin reactor 使用 Java 8，交付 Maven Plugin JAR 和可被 Analyzer 内嵌的 repository ZIP。
+- 公共 JDK model engine reactor与 JDK 8 model reactor 独立构建、独立版本化；Analyzer 只消费已安装的 model artifact。
+- 四个 reactor 不组成单一 Maven reactor。依赖 artifact 必须按公共 JDK model、JDK 8 model、Dependency Evidence Plugin、Analyzer 的方向准备。
+- `impact` 提供 [Dependency Impact Analysis](../features/dependency-impact-analysis.md)；`tree analyze` 和 `tree diff` 分别提供单侧依赖树报告与双侧依赖树差异报告。
 
 ## Technical Stack
 
-- Analyzer runtime/build 为 Java 17；`impact` target runtime 与 Analyzer tests 使用完整 JDK 8。
-- Maven 3.x；应用默认内嵌 Apache Maven 3.6.3 runtime。
-- picocli 4.7.6、ASM/ASM Tree 9.7、WALA 1.8.0、Vineflower 1.12.0 slim、JUnit 5、AssertJ、ArchUnit 1.5.0。
-- maven-shade-plugin 生成 uber JAR；maven-assembly-plugin 生成 Dependency Evidence Plugin repository ZIP。
-
-## Main Entrypoints
-
-- `DependencyAnalyzerCli.main()` - JVM 和 Root CLI 入口。
-- `ImpactCommand.call()` - dependency upgrade impact 分析入口。
-- `TreeCommand.call()` - `tree`父命令帮助与子命令分派入口。
-- `TreeAnalyzeCommand.call()` - repository dependency tree analyze入口。
-- `TreeDiffCommand.call()` - baseline/target dependency tree diff入口。
-- `plugins/pom.xml` - Plugin bootstrap/install 入口。
-- `pom.xml` - Analyzer build/test/package 入口。
-
-## Repository Conventions
-
-- Analyzer build前按公共model、JDK 8 model、Plugin顺序执行独立reactor`clean install`；任一source变化后不得依赖旧local Snapshot。
-- 所有外部 process token 都先经过 `CommandResolver.resolve()`，并使用 `ProcessBuilder`，不经过 shell 拼接。
-- 用户 Maven argument 必须逐 token 传入，禁止覆盖工具控制的 POM、module selection、output、verbose 和 token 参数。
-- `tmp-files/` 仅用于临时产物，不提交 Git。
-- wiki 描述当前稳定工程事实；`docs/user-manual.md`是可与Analyzer JAR独立交付的用户任务闭包，按User Manual Maintenance rule同步维护。
+- Java 17：Analyzer runtime、测试和打包。
+- Java 8：Dependency Evidence Plugin bytecode target，以及被分析项目和 JDK 8 model 的兼容边界。
+- Maven 3.x：四个 reactor 的构建、依赖解析、Plugin 执行和 release gate。
+- Git：baseline、target、worktree 与当前工作区快照来源。
+- WALA、ASM 与 Vineflower：Call Graph、bytecode、Static Single Assignment（SSA，静态单赋值）和反编译证据。
+- Picocli：CLI 参数解析和 command dispatch。
+- HTML、JavaScript 与 callback shard：无需服务器的离线 Report。

@@ -14,6 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+// Wiki: wiki/implementation/impact-tracing.md - Query flow
 /** Fixed ordered, fail-open CHA Impact Path edge-pruning engine. */
 public final class ChaImpactPathPruningEngine {
 
@@ -51,7 +52,6 @@ public final class ChaImpactPathPruningEngine {
      * @param callee current reverse-search node
      * @return false as soon as any extension proves the edge infeasible
      */
-    // Wiki: wiki/features/impact-tracing.md - Fixed SSA and Impact Path Pruning
     public boolean shouldTraverse(
             final CGNode caller,
             final CGNode callee) {

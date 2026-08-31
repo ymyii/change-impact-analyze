@@ -15,7 +15,7 @@ import java.util.Locale;
 import java.util.function.IntFunction;
 import java.util.function.IntPredicate;
 
-// Wiki: wiki/features/report-generator.md - 规范化分片数据
+// Wiki: wiki/implementation/report-generator.md - Publication
 /** Writes bounded callback-based JSON shards for offline HTML reports. */
 public final class OfflineShardWriter {
 

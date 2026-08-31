@@ -22,8 +22,6 @@ import java.util.jar.JarFile;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
-// Wiki: wiki/features/call-graph-engine.md - Canonical classpath winner policy
-// Wiki: wiki/features/repository-dependency-tree-report.md - 冲突类定义
 /** Binary-name ownership index with deterministic conflict resolution. */
 public final class ClassOwnershipIndex {
 

@@ -25,7 +25,7 @@ tracked_results="$script_dir/results"
 changed_result=0
 full_result=0
 
-# Wiki: wiki/rules/benchmark-scenario-coverage.md - Capability benchmark coverage gate
+# Wiki: wiki/rules/benchmark-scenario-coverage.md - Coverage gate
 BENCHMARK_RUNTIME_ROOT="$runtime_root" \
 BENCHMARK_DEPENDENCY_ANALYSIS_SCOPE=changed-paths \
 BENCHMARK_DEFER_PUBLISH=1 \

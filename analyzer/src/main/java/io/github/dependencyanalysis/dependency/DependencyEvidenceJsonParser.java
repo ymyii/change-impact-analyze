@@ -12,7 +12,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-// Wiki: wiki/features/dependency-evidence-collection.md - Schema v3 ingestion
 /** Strict streaming parser for Dependency Evidence Schema v3. */
 public final class DependencyEvidenceJsonParser {
 

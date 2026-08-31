@@ -5,7 +5,6 @@ import io.github.dependencyanalysis.bytecode.DecompileComparisonSummary;
 import java.util.List;
 import java.util.stream.Collectors;
 
-// Wiki: wiki/features/report-generator.md - Overall Index
 /** Renders source-free ChangePoint collection decompile evidence. */
 final class DecompileEvidenceHtmlRenderer {
 

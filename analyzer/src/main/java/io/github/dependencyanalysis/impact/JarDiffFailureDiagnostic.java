@@ -5,7 +5,6 @@ import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 
 import java.util.Objects;
 
-// Wiki: wiki/features/bytecode-diff-engine.md - Per-pair failure diagnostics
 /** Emits one isolated JAR diff failure with reusable report text. */
 final class JarDiffFailureDiagnostic {
 

@@ -5,7 +5,6 @@ import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import java.util.Objects;
 import java.util.Optional;
 
-// Wiki: wiki/features/bytecode-diff-engine.md - Single bytecode change point
 /**
  * Immutable change point describing one bytecode or supported resource
  * difference between baseline and target artifacts.

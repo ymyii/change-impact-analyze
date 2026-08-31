@@ -5,7 +5,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
-// Wiki: wiki/features/repository-dependency-tree-report.md - 增量 Report 生命周期
+// Wiki: wiki/features/repository-dependency-tree-report.md - Tree entry
 /** Incrementally publishes reactor pages and repository checkpoints. */
 public final class TreeReportSession {
 

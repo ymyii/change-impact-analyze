@@ -51,6 +51,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
 
+// Wiki: wiki/features/dependency-impact-analysis.md - CLI entry
 /** Existing change impact analysis subcommand. */
 @Command(
         name = "impact",

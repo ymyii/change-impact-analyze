@@ -16,7 +16,7 @@ import java.util.Map;
 import java.util.Set;
 
 // Wiki: wiki/architecture/dependency-analysis-pipelines.md - Shared scope
-// Wiki: wiki/features/repository-dependency-tree-report.md - Tree resolver
+// Wiki: wiki/features/repository-dependency-tree-report.md - Tree entry
 /** Resolves one requested POM to an active Maven reactor scope. */
 public final class ReactorInventoryBuilder {
 

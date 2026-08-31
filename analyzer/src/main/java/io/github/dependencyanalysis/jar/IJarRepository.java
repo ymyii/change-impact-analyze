@@ -5,7 +5,7 @@ import io.github.dependencyanalysis.dependency.ArtifactCoord;
 import java.io.IOException;
 import java.util.Set;
 
-// Wiki: wiki/features/dependency-evidence-collection.md
+// Wiki: wiki/implementation/jar-locator.md - Repository contract
 // - Command-scoped JAR binding boundary
 /** Immutable command-scoped Maven coordinate to JAR repository. */
 public interface IJarRepository extends AutoCloseable {

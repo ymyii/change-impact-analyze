@@ -1,26 +1,6 @@
 ---
 title: "Package Boundaries"
 type: rule
-relations:
-  - path: "wiki/architecture/dependency-analysis-pipelines.md"
-    desc: "impact 与 Call Graph 的单向 pipeline 依赖"
-  - path: "wiki/features/call-graph-engine.md"
-    desc: "Call Graph package 与 strategy capability 边界"
-  - path: "wiki/rules/code-concept-reuse.md"
-    desc: "共享抽象必须保持职责归属与单向依赖边界"
-  - path: "wiki/runbooks/build-test-package.md"
-    desc: "ArchUnit package gate 与交付验证"
-code_refs:
-  - path: "analyzer/src/test/java/io/github/dependencyanalysis/architecture/PackageArchitectureTest.java"
-    desc: "可执行 package dependency gate"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/engine/package-info.java"
-    desc: "Call Graph engine 责任与禁止依赖"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/strategy/package-info.java"
-    desc: "公共 strategy contract 责任与依赖方向"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/callgraph/protocol/package-info.java"
-    desc: "算法无关 protocol contract 边界"
-  - path: "analyzer/src/main/java/io/github/dependencyanalysis/classpath/package-info.java"
-    desc: "impact/tree共享的classpath ownership与冲突模型"
 ---
 
 # Rule: Package Boundaries
@@ -43,7 +23,14 @@ code_refs:
 - test package 镜像 production package。跨层集成测试放在实际 orchestration consumer package，不以测试便利为由破坏 production 依赖。
 - 删除能力时同步删除 implementation、registration、CLI identifier、专用测试和文档；保留能力应完成真实 package 迁移，不留兼容壳。
 
-## Stable Verification
+## Applies To
+
+- 新增、迁移或删除 Call Graph、impact refinement、dynamic protocol、scope、boundary、topology、evidence 或 Report 代码。
+- 修改共享 classpath model、strategy registration、package dependency 或 test package layout。
+
+普通 Data Transfer Object（DTO，数据传输对象）只需遵守所属 package contract，不要求重复添加 Wiki 注释；稳定架构入口可以引用本规则。
+
+## Verification
 
 `PackageArchitectureTest` 在 `mvn verify` 中强制：
 
@@ -56,6 +43,7 @@ code_refs:
 
 源码评审同时检查 `package-info.java` 与 test package 镜像。ArchUnit 是 durable gate，不替代职责命名与 API review。
 
-## Applicability
+## Non-Goals
 
-新增、迁移或删除 Call Graph、impact refinement、dynamic protocol、scope、boundary、topology、evidence 或 Report 代码时适用。普通 DTO 只需遵守所属 package contract，不要求重复添加 Wiki 注释；稳定架构入口应引用本规则。
+- ArchUnit 不替代职责命名、API ownership 与单向依赖 review。
+- 本规则不要求不同领域语义仅因代码形状相似而共享 package。

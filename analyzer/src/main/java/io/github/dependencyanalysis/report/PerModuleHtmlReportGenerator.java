@@ -51,6 +51,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+// Wiki: wiki/implementation/report-generator.md - Publication
 /** Atomically publishes the English multi-page Impact HTML report. */
 public final class PerModuleHtmlReportGenerator {
 
@@ -845,7 +846,6 @@ public final class PerModuleHtmlReportGenerator {
         body.append("</table></details></section>");
     }
 
-    // Wiki: wiki/features/report-generator.md - Changed member metrics
     private void appendChangedMemberMetrics(
             final HtmlSink body,
             final ModuleAnalysisResult module,
@@ -1007,7 +1007,6 @@ public final class PerModuleHtmlReportGenerator {
                 .getChangePoint().equals(member)).count();
     }
 
-    // Wiki: wiki/features/report-generator.md - Affected Paths projection
     private void writeImpactPage(
             final Path target,
             final ModuleAnalysisResult module,

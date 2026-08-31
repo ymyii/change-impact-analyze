@@ -20,7 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
-// Wiki: wiki/features/maven-build-runner.md - Maven 编译执行和 main classes 收集
+// Wiki: wiki/implementation/maven-build-runner.md - Build entry
 // Wiki: wiki/rules/process-command-resolution.md - 跨平台命令规则
 /**
  * Executes Maven compile on a workspace

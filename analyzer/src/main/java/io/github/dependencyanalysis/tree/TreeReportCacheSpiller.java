@@ -8,7 +8,6 @@ import java.io.IOException;
 import java.util.Comparator;
 import java.util.List;
 
-// Wiki: wiki/architecture/dependency-analysis-pipelines.md - Tree cache spill
 /** Writes one Reactor's ordered report evidence to cached JSON Lines. */
 final class TreeReportCacheSpiller {
 

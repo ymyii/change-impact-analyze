@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-// Wiki: wiki/features/repository-dependency-tree-report.md - conflict analyzer
 /** Computes module-local version mediation issues. */
 public final class ModuleVersionAnalyzer {
 

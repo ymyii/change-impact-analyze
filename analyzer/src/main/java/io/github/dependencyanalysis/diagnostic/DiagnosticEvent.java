@@ -5,7 +5,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
-// Wiki: wiki/architecture/dependency-analysis-pipelines.md - diagnostics model
 /** Immutable diagnostic event. */
 public final class DiagnosticEvent {
 

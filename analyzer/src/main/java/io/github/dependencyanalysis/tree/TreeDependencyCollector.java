@@ -29,7 +29,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 
-// Wiki: wiki/features/repository-dependency-tree-report.md - collection scope
 /** Sequential Maven dependency tree collector. */
 public final class TreeDependencyCollector {
 

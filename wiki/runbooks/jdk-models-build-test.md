@@ -1,36 +1,6 @@
 ---
 title: "JDK Models Build and Test"
 type: runbook
-relations:
-  - path: "wiki/features/jdk-method-models.md"
-    desc: "公共 engine、JDK 8 catalog、保守语义与 acceptance contract"
-  - path: "wiki/rules/release-versioning.md"
-    desc: "两个 model artifact 的独立 SemVer 与 Stable release gate"
-  - path: "wiki/runbooks/build-test-package.md"
-    desc: "model bootstrap后的Analyzer packaging与impact integration gate"
-code_refs:
-  - path: "pom.xml"
-    desc: "Analyzer消费的jdk8-models.version与SemVer gate"
-  - path: "analyzer/pom.xml"
-    desc: "JDK 8 façade dependency与uber JAR packaging"
-  - path: "models/jdk/pom.xml"
-    desc: "公共 engine build、SemVer、flatten与Packaging gate"
-  - path: "models/jdk8/pom.xml"
-    desc: "JDK 8 model dependency、JDK 8 test environment与Packaging gate"
-  - path: "models/jdk/src/test/java/io/github/dependencyanalysis/models/jdk/JdkModelsTest.java"
-    desc: "definition、metadata、selector、unavailable与native conflict gate"
-  - path: "models/jdk/src/test/java/io/github/dependencyanalysis/models/jdk/JdkSummaryTemplateTest.java"
-    desc: "全部template的host jrt Synthetic IR gate"
-  - path: "models/jdk/src/test/java/io/github/dependencyanalysis/models/jdk/JdkPackagingIT.java"
-    desc: "公共普通JAR与无版本catalog验收"
-  - path: "models/jdk8/src/test/java/io/github/dependencyanalysis/models/jdk8/TestHierarchies.java"
-    desc: "JDK 8 rt.jar hierarchy与Java 8 fixture compiler setup"
-  - path: "models/jdk8/src/test/java/io/github/dependencyanalysis/models/jdk8/Jdk8ModelsTest.java"
-    desc: "384-target exact JDK 8 contract gate"
-  - path: "models/jdk8/src/test/java/io/github/dependencyanalysis/models/jdk8/Jdk8ModelFixedPointAcceptanceTest.java"
-    desc: "多个direct WALA builder client的on/off、reachability、serialization与metrics gate"
-  - path: "models/jdk8/src/test/java/io/github/dependencyanalysis/models/jdk8/Jdk8PackagingIT.java"
-    desc: "JDK 8 façade/catalog普通JAR验收"
 ---
 
 # Runbook: JDK Models Build and Test
@@ -103,7 +73,7 @@ jar tf models/jdk/target/dependency-analyzer-jdk-models-0.1.0-SNAPSHOT.jar
 jar tf models/jdk8/target/dependency-analyzer-jdk8-models-0.1.0-SNAPSHOT.jar
 ```
 
-## Test Matrix
+### Test Matrix
 
 | Gate | Module/runtime | 核心断言 |
 |---|---|---|
@@ -116,7 +86,7 @@ jar tf models/jdk8/target/dependency-analyzer-jdk8-models-0.1.0-SNAPSHOT.jar
 
 fixed-point test使用同一source中的lightweight entrypoint比较models-on/off application method set；coverage entrypoint验证完整conservative callback、I/O与serialization行为，避免models-off展开整个JDK使unit gate失控。
 
-## Metrics
+### Metrics
 
 JDK 8 fixed-point test记录非门禁metrics：
 
@@ -152,12 +122,12 @@ models/jdk8/target/jdk8-model-acceptance.tsv
 - `Serializable type has no resolvable first non-serializable constructor`：确认fixture/application hierarchy符合Java serialization constructor contract。
 - unit/fixed-point failure：分别检查`models/jdk/target/surefire-reports/`和`models/jdk8/target/surefire-reports/`；Packaging failure检查对应`failsafe-reports/`。
 
-## Configuration
+### Configuration checks
 
 - 公共artifact version由`models/jdk/pom.xml`的`project.version`维护。
 - JDK 8 artifact version由`models/jdk8/pom.xml`的`project.version`维护；公共dependency version由同一POM的`jdk-models.version`维护。
 - 默认profile接受Stable或Snapshot SemVer；`release` profile只接受Stable SemVer并拒绝Snapshot dependency。
 
-## Integration Boundary
+### Stop conditions
 
 公共engine与JDK 8 model继续独立version、reactor和acceptance。Analyzer只在local artifact已安装后构建；`impact`的selection、严格安装、Diagnostic、Report与benchmark regression由root gate负责，不反向放入model module。

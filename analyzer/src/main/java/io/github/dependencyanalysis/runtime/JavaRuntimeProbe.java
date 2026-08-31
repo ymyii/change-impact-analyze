@@ -16,7 +16,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 
-// Wiki: wiki/features/cli-preflight-diagnostics.md - impact JDK 8 probe
 /** Resolves and validates the JDK used by the analyzed project. */
 public final class JavaRuntimeProbe {
 

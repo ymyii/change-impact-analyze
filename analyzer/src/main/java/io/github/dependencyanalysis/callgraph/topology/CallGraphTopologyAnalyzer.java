@@ -25,7 +25,6 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.Function;
 
-// Wiki: wiki/features/call-graph-engine.md - Benchmark topology capture
 /** Produces deterministic CGNode diagnostics without changing a graph. */
 public final class CallGraphTopologyAnalyzer {
 

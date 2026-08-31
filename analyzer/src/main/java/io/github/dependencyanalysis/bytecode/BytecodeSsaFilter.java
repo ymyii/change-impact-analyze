@@ -30,7 +30,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
-// Wiki: wiki/features/bytecode-diff-engine.md - ChangePoint 收集期 SSA
+// Wiki: wiki/implementation/bytecode-diff-engine.md - ChangePoint 收集期 SSA
 /** Pair-local normalized SSA filter used while collecting ChangePoints. */
 final class BytecodeSsaFilter {
 
@@ -145,7 +145,6 @@ final class BytecodeSsaFilter {
                 outcome.reason(), elapsed);
     }
 
-    // Wiki: wiki/features/bytecode-diff-engine.md - TRACE SSA audit contract
     private void emitAudit(
             final AuditInput input,
             final AuditResult result) {

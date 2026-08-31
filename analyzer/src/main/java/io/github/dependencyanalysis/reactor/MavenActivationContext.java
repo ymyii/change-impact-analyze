@@ -16,7 +16,6 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-// Wiki: wiki/features/maven-runtime.md - Maven profile activation inputs
 /** Inputs used to align bounded POM activation with Maven execution. */
 public final class MavenActivationContext {
 

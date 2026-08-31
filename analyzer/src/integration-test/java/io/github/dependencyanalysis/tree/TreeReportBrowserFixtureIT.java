@@ -20,7 +20,6 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// Wiki: wiki/features/repository-dependency-tree-report.md - Browser gate
 // Wiki: wiki/runbooks/build-test-package.md - Playwright fixture entrypoint
 /** Publishes the deterministic Tree Report consumed by Playwright. */
 class TreeReportBrowserFixtureIT {

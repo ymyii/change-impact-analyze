@@ -1,30 +1,6 @@
 ---
 title: "Version and Distribution"
 type: runbook
-relations:
-  - path: "wiki/rules/release-versioning.md"
-    desc: "独立 SemVer、Snapshot 复用、Stable release 与 Git tag 规则"
-  - path: "wiki/runbooks/build-test-package.md"
-    desc: "日常四reactor build/test/package命令"
-  - path: "wiki/features/maven-runtime.md"
-    desc: "Analyzer 内嵌的两个 repository ZIP 与 runtime cache"
-  - path: "wiki/project/dependency-analyzer.md"
-    desc: "四个独立reactor boundary、artifact名称与runtime boundary"
-  - path: "wiki/features/jdk-method-models.md"
-    desc: "公共engine与JDK 8 model的独立artifact/version contract"
-code_refs:
-  - path: "pom.xml"
-    desc: "Analyzer revision、Plugin/JDK 8 model dependency version与release profile"
-  - path: "plugins/pom.xml"
-    desc: "Plugin revision、Java 8 与 release profile"
-  - path: "analyzer/pom.xml"
-    desc: "Stable Plugin repository ZIP、JDK 8 model dependency与final Analyzer JAR"
-  - path: "models/jdk/pom.xml"
-    desc: "公共engine version、flatten与release profile"
-  - path: "models/jdk8/pom.xml"
-    desc: "JDK 8 model version、公共engine dependency与release profile"
-  - path: "plugins/artifact-path-resolver/pom.xml"
-    desc: "Plugin JAR、flattened POM 与 attached repository ZIP"
 ---
 
 # Runbook: Version and Distribution
@@ -42,7 +18,9 @@ code_refs:
 - Plugin 与 Analyzer release version 已依据 compatibility 选择。
 - 所有 command 从 repository root 执行。
 
-## Snapshot Iteration
+## Commands
+
+### Snapshot Iteration
 
 一个 release 周期只设置一次下一版本 Snapshot，之后重复使用：
 
@@ -74,7 +52,7 @@ mvn clean verify
 
 无需为每次本地自测 bump 或 commit。Analyzer build 会重新 copy local repository 中的 Snapshot repository ZIP；runtime 为 Dependency Evidence Plugin Snapshot 添加 `-U`，并只刷新该小型 repository cache。
 
-## Stable Release
+### Stable Release
 
 以下示例发布公共engine/JDK 8 model`0.1.0`、Dependency Evidence Plugin`3.1.0`与Analyzer`3.0.0`。
 
@@ -173,7 +151,7 @@ Tag 是 release record。是否 push commit/tag 或创建远端 release 由后�
 - `--version` 不一致：检查 root `revision` 和 filtered build metadata。
 - Tag 已存在：先检查它是否为既有 release record；禁止移动或覆盖已发布 tag。
 
-## Configuration
+### Configuration checks
 
 - 默认 profile：接受 `X.Y.Z` 或 `X.Y.Z-SNAPSHOT`。
 - `release` profile：只接受 `X.Y.Z`，并执行 `requireReleaseDeps`。

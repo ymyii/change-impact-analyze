@@ -46,7 +46,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-// Wiki: wiki/features/call-graph-engine.md - Benchmark diagnostics exporter
 /** Atomically writes optional read-only Call Graph benchmark diagnostics. */
 final class CallGraphDiagnosticsExporter {
 

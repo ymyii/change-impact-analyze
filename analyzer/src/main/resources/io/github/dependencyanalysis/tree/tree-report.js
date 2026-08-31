@@ -1,4 +1,4 @@
-// Wiki: wiki/features/repository-dependency-tree-report.md - Behavior Contract
+// Wiki: wiki/features/repository-dependency-tree-report.md - Tree entry
 (() => {
     "use strict";
 

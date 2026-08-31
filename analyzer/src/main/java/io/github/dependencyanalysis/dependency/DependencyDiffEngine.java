@@ -10,7 +10,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.LinkedHashSet;
 
-// Wiki: wiki/features/dependency-diff-engine.md - 依赖变动对比引擎主实现
+// Wiki: wiki/implementation/dependency-diff-engine.md - Diff entry
 /**
  * Engine that compares baseline and
  * target resolved dependency trees and

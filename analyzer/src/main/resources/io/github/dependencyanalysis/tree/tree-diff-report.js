@@ -1,4 +1,4 @@
-// Wiki: wiki/features/repository-dependency-tree-diff.md - 离线浏览器行为合同
+// Wiki: wiki/features/repository-dependency-tree-diff.md - UI contract
 (() => {
   "use strict";
 

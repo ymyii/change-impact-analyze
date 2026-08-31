@@ -4,7 +4,6 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Set;
 
-// Wiki: wiki/features/bytecode-diff-engine.md - Bytecode change point kind
 /**
  * Enumeration of bytecode change
  * point kinds detected by the
