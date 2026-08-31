@@ -33,6 +33,6 @@ Report Generator 将三条 pipeline 的冻结结果投影为各自 versioned sch
 
 - None.
 
-## Acceptance
+## Acceptance Criteria
 
-完整验收条件见 [Report Generator Acceptance](../acceptance/implementation/report-generator.md)。
+完整验收条件见 [Report Generator Acceptance Criteria](../ac/implementation/report-generator.md)。

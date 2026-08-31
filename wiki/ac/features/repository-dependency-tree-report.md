@@ -1,9 +1,9 @@
 ---
-title: "Repository Dependency Tree Report Acceptance"
-type: acceptance
+title: "Repository Dependency Tree Report Acceptance Criteria"
+type: ac
 ---
 
-# Acceptance: Repository Dependency Tree Report
+# Acceptance Criteria: Repository Dependency Tree Report
 
 本页验收 [Repository Dependency Tree Report](../../features/repository-dependency-tree-report.md)。
 

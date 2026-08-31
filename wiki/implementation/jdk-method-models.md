@@ -32,6 +32,6 @@ type: implementation
 
 - None.
 
-## Acceptance
+## Acceptance Criteria
 
-完整验收条件见 [JDK Method Models Acceptance](../acceptance/implementation/jdk-method-models.md)。
+完整验收条件见 [JDK Method Models Acceptance Criteria](../ac/implementation/jdk-method-models.md)。

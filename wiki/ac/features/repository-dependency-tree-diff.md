@@ -1,9 +1,9 @@
 ---
-title: "Repository Dependency Tree Diff Acceptance"
-type: acceptance
+title: "Repository Dependency Tree Diff Acceptance Criteria"
+type: ac
 ---
 
-# Acceptance: Repository Dependency Tree Diff
+# Acceptance Criteria: Repository Dependency Tree Diff
 
 本页验收 [Repository Dependency Tree Diff](../../features/repository-dependency-tree-diff.md)。
 

@@ -33,6 +33,6 @@ type: implementation
 
 - None.
 
-## Acceptance
+## Acceptance Criteria
 
-完整验收条件见 [Bytecode Diff Engine Acceptance](../acceptance/implementation/bytecode-diff-engine.md)。
+完整验收条件见 [Bytecode Diff Engine Acceptance Criteria](../ac/implementation/bytecode-diff-engine.md)。

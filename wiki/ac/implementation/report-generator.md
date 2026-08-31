@@ -1,9 +1,9 @@
 ---
-title: "Report Generator Acceptance"
-type: acceptance
+title: "Report Generator Acceptance Criteria"
+type: ac
 ---
 
-# Acceptance: Report Generator
+# Acceptance Criteria: Report Generator
 
 本页验收 [Report Generator](../../implementation/report-generator.md)。
 

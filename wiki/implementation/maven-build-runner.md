@@ -32,6 +32,6 @@ Maven Build Runner 以入口 POM 和 active module closure 规划 `AGGREGATOR`�
 
 - None.
 
-## Acceptance
+## Acceptance Criteria
 
-完整验收条件见 [Maven Build Runner Acceptance](../acceptance/implementation/maven-build-runner.md)。
+完整验收条件见 [Maven Build Runner Acceptance Criteria](../ac/implementation/maven-build-runner.md)。

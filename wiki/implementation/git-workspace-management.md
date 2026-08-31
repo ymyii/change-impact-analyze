@@ -32,6 +32,6 @@ type: implementation
 
 - None.
 
-## Acceptance
+## Acceptance Criteria
 
-完整验收条件见 [Git Workspace Management Acceptance](../acceptance/implementation/git-workspace-management.md)。
+完整验收条件见 [Git Workspace Management Acceptance Criteria](../ac/implementation/git-workspace-management.md)。

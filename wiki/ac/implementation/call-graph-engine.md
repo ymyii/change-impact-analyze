@@ -1,9 +1,9 @@
 ---
-title: "Call Graph Engine Acceptance"
-type: acceptance
+title: "Call Graph Engine Acceptance Criteria"
+type: ac
 ---
 
-# Acceptance: Call Graph Engine
+# Acceptance Criteria: Call Graph Engine
 
 本页验收 [Call Graph Engine](../../implementation/call-graph-engine.md)。
 

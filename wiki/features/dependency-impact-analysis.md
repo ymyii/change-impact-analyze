@@ -40,6 +40,6 @@ java -jar /path/to/dependency-analyzer.jar impact \
 4. 每个相关 Module 通过 [Call Graph Engine](../implementation/call-graph-engine.md) 构图，并由 [Impact Tracing](../implementation/impact-tracing.md) 绑定 evidence、反向查询和选择代表路径。
 5. [Report Generator](../implementation/report-generator.md) 消费冻结结果并发布离线 Report；partial 或 inconclusive 结果保留明确限制。
 
-## Acceptance
+## Acceptance Criteria
 
-完整验收条件见 [Dependency Impact Analysis Acceptance](../acceptance/features/dependency-impact-analysis.md)。
+完整验收条件见 [Dependency Impact Analysis Acceptance Criteria](../ac/features/dependency-impact-analysis.md)。

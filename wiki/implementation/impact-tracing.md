@@ -33,6 +33,6 @@ Impact Tracing 在冻结的 [Call Graph Engine](call-graph-engine.md) 结果上�
 
 - None.
 
-## Acceptance
+## Acceptance Criteria
 
-完整验收条件见 [Impact Tracing Acceptance](../acceptance/implementation/impact-tracing.md)。
+完整验收条件见 [Impact Tracing Acceptance Criteria](../ac/implementation/impact-tracing.md)。

@@ -32,6 +32,6 @@ Impact pipeline 只需要识别每个 Module 的 resolved artifact 新增、移�
 
 - None.
 
-## Acceptance
+## Acceptance Criteria
 
-完整验收条件见 [Impact Dependency Diff Engine Acceptance](../acceptance/implementation/dependency-diff-engine.md)。
+完整验收条件见 [Impact Dependency Diff Engine Acceptance Criteria](../ac/implementation/dependency-diff-engine.md)。

@@ -33,6 +33,6 @@ type: implementation
 
 - None.
 
-## Acceptance
+## Acceptance Criteria
 
-完整验收条件见 [CLI Preflight and Diagnostics Acceptance](../acceptance/implementation/cli-preflight-diagnostics.md)。
+完整验收条件见 [CLI Preflight and Diagnostics Acceptance Criteria](../ac/implementation/cli-preflight-diagnostics.md)。

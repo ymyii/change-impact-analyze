@@ -1,9 +1,9 @@
 ---
-title: "Maven Build Runner Acceptance"
-type: acceptance
+title: "Maven Build Runner Acceptance Criteria"
+type: ac
 ---
 
-# Acceptance: Maven Build Runner
+# Acceptance Criteria: Maven Build Runner
 
 本页验收 [Maven Build Runner](../../implementation/maven-build-runner.md)。
 

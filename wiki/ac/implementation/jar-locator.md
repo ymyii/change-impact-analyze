@@ -1,9 +1,9 @@
 ---
-title: "Coordinate JAR Repository Acceptance"
-type: acceptance
+title: "Coordinate JAR Repository Acceptance Criteria"
+type: ac
 ---
 
-# Acceptance: Coordinate JAR Repository
+# Acceptance Criteria: Coordinate JAR Repository
 
 本页验收 [Coordinate JAR Repository](../../implementation/jar-locator.md)。
 

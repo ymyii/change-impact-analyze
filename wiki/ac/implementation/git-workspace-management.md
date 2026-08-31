@@ -1,9 +1,9 @@
 ---
-title: "Git Workspace Management Acceptance"
-type: acceptance
+title: "Git Workspace Management Acceptance Criteria"
+type: ac
 ---
 
-# Acceptance: Git Workspace Management
+# Acceptance Criteria: Git Workspace Management
 
 本页验收 [Git Workspace Management](../../implementation/git-workspace-management.md)。
 

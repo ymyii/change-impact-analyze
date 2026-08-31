@@ -1,9 +1,9 @@
 ---
-title: "Impact Tracing Acceptance"
-type: acceptance
+title: "Impact Tracing Acceptance Criteria"
+type: ac
 ---
 
-# Acceptance: Impact Tracing
+# Acceptance Criteria: Impact Tracing
 
 本页验收 [Impact Tracing](../../implementation/impact-tracing.md)。
 

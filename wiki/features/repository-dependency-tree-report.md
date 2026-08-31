@@ -35,6 +35,6 @@ java -jar /path/to/dependency-analyzer.jar tree analyze \
 4. Analyzer 在选定 scope 内计算 dependency management、内部版本冲突和 class conflict，不枚举 Git root 下无关 POM。
 5. [Report Generator](../implementation/report-generator.md) 按 Reactor 增量发布离线 Report；失败 Module 保留可行动状态，未完成 shard 不冒充成功结果。
 
-## Acceptance
+## Acceptance Criteria
 
-完整验收条件见 [Repository Dependency Tree Report Acceptance](../acceptance/features/repository-dependency-tree-report.md)。
+完整验收条件见 [Repository Dependency Tree Report Acceptance Criteria](../ac/features/repository-dependency-tree-report.md)。

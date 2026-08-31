@@ -32,6 +32,6 @@ Maven Runtime 为每个 command 解析可执行文件、版本、Java home、set
 
 - None.
 
-## Acceptance
+## Acceptance Criteria
 
-完整验收条件见 [Maven Runtime Acceptance](../acceptance/implementation/maven-runtime.md)。
+完整验收条件见 [Maven Runtime Acceptance Criteria](../ac/implementation/maven-runtime.md)。

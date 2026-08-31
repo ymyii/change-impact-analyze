@@ -1,9 +1,9 @@
 ---
-title: "Maven Runtime Acceptance"
-type: acceptance
+title: "Maven Runtime Acceptance Criteria"
+type: ac
 ---
 
-# Acceptance: Maven Runtime
+# Acceptance Criteria: Maven Runtime
 
 本页验收 [Maven Runtime](../../implementation/maven-runtime.md)。
 

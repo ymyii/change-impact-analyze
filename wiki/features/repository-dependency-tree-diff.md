@@ -36,6 +36,6 @@ java -jar /path/to/dependency-analyzer.jar tree diff \
 4. Diff domain 按 dependency identity 分类、按路径 identity 配对 chain，并保留 side、scope、directness 与 resolution source。
 5. [Report Generator](../implementation/report-generator.md) 以独立 Tree Diff schema 增量发布；已完成 Reactor 不依赖其他 Reactor 才能浏览。
 
-## Acceptance
+## Acceptance Criteria
 
-完整验收条件见 [Repository Dependency Tree Diff Acceptance](../acceptance/features/repository-dependency-tree-diff.md)。
+完整验收条件见 [Repository Dependency Tree Diff Acceptance Criteria](../ac/features/repository-dependency-tree-diff.md)。

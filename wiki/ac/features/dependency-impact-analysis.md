@@ -1,9 +1,9 @@
 ---
-title: "Dependency Impact Analysis Acceptance"
-type: acceptance
+title: "Dependency Impact Analysis Acceptance Criteria"
+type: ac
 ---
 
-# Acceptance: Dependency Impact Analysis
+# Acceptance Criteria: Dependency Impact Analysis
 
 本页验收 [Dependency Impact Analysis](../../features/dependency-impact-analysis.md)。
 

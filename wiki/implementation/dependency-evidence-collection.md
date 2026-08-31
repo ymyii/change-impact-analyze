@@ -32,6 +32,6 @@ Dependency Evidence Plugin 在 Maven reactor 内采集 impact 所需的 resolved
 
 - None.
 
-## Acceptance
+## Acceptance Criteria
 
-完整验收条件见 [Structured Dependency Evidence Collection Acceptance](../acceptance/implementation/dependency-evidence-collection.md)。
+完整验收条件见 [Structured Dependency Evidence Collection Acceptance Criteria](../ac/implementation/dependency-evidence-collection.md)。

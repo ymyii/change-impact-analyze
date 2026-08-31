@@ -1,9 +1,9 @@
 ---
-title: "JDK Method Models Acceptance"
-type: acceptance
+title: "JDK Method Models Acceptance Criteria"
+type: ac
 ---
 
-# Acceptance: JDK Method Models
+# Acceptance Criteria: JDK Method Models
 
 本页验收 [JDK Method Models](../../implementation/jdk-method-models.md)。
 

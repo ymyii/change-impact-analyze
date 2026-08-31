@@ -33,6 +33,6 @@ Call Graph Engine 接收 immutable Module input，按 command-wide algorithm 产
 
 - None.
 
-## Acceptance
+## Acceptance Criteria
 
-完整验收条件见 [Call Graph Engine Acceptance](../acceptance/implementation/call-graph-engine.md)。
+完整验收条件见 [Call Graph Engine Acceptance Criteria](../ac/implementation/call-graph-engine.md)。

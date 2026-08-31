@@ -1,9 +1,9 @@
 ---
-title: "CLI Preflight and Diagnostics Acceptance"
-type: acceptance
+title: "CLI Preflight and Diagnostics Acceptance Criteria"
+type: ac
 ---
 
-# Acceptance: CLI Preflight and Diagnostics
+# Acceptance Criteria: CLI Preflight and Diagnostics
 
 本页验收 [CLI Preflight and Diagnostics](../../implementation/cli-preflight-diagnostics.md)。
 

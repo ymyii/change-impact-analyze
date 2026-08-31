@@ -32,6 +32,6 @@ Coordinate JAR Repository 从 [Structured Dependency Evidence Collection](depend
 
 - None.
 
-## Acceptance
+## Acceptance Criteria
 
-完整验收条件见 [Coordinate JAR Repository Acceptance](../acceptance/implementation/jar-locator.md)。
+完整验收条件见 [Coordinate JAR Repository Acceptance Criteria](../ac/implementation/jar-locator.md)。

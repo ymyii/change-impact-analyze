@@ -1,9 +1,9 @@
 ---
-title: "Bytecode Diff Engine Acceptance"
-type: acceptance
+title: "Bytecode Diff Engine Acceptance Criteria"
+type: ac
 ---
 
-# Acceptance: Bytecode Diff Engine
+# Acceptance Criteria: Bytecode Diff Engine
 
 本页验收 [Bytecode Diff Engine](../../implementation/bytecode-diff-engine.md)。
 

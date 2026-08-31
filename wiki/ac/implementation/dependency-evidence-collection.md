@@ -1,9 +1,9 @@
 ---
-title: "Structured Dependency Evidence Collection Acceptance"
-type: acceptance
+title: "Structured Dependency Evidence Collection Acceptance Criteria"
+type: ac
 ---
 
-# Acceptance: Structured Dependency Evidence Collection
+# Acceptance Criteria: Structured Dependency Evidence Collection
 
 本页验收 [Structured Dependency Evidence Collection](../../implementation/dependency-evidence-collection.md)。
 

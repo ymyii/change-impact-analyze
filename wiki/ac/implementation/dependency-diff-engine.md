@@ -1,9 +1,9 @@
 ---
-title: "Impact Dependency Diff Engine Acceptance"
-type: acceptance
+title: "Impact Dependency Diff Engine Acceptance Criteria"
+type: ac
 ---
 
-# Acceptance: Impact Dependency Diff Engine
+# Acceptance Criteria: Impact Dependency Diff Engine
 
 本页验收 [Impact Dependency Diff Engine](../../implementation/dependency-diff-engine.md)。
 
