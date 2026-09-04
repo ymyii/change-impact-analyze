@@ -33,7 +33,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-// Wiki: wiki/features/repository-dependency-tree-report.md - Tree entry
 /** Renders safe, offline repository dependency reports. */
 public final class TreeReportRenderer {
 

@@ -48,7 +48,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-// Wiki: wiki/implementation/call-graph-engine.md - Graph build
 /** Context-insensitive CHA strategy with bounded local protocol constants. */
 public final class ChaCallGraphStrategy implements CallGraphAlgorithmStrategy {
 

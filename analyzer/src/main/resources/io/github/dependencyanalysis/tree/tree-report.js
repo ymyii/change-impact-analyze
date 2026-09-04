@@ -1,4 +1,4 @@
-// Wiki: wiki/features/repository-dependency-tree-report.md - Tree entry
+// Wiki: wiki/c4/containers/dependency-analyzer-offline-report.md - UI boundary
 (() => {
     "use strict";
 

@@ -1,65 +1,32 @@
 ---
-title: "Release Versioning"
+name: "Release Versioning"
 type: rule
 ---
 
-# Rule: Release Versioning
+## Overview
 
-## Summary
+本规则约束 [Dependency Analyzer](../c4/software-systems/dependency-analyzer.md) 的 Analyzer、Dependency Evidence Plugin、公共 JDK model engine 与 JDK 8 model 使用独立 Semantic Versioning（SemVer）版本线，并以 Maven POM 和 Git annotated tag 保存 release identity。
 
-Analyzer、Dependency Evidence Plugin、公共JDK model engine与JDK 8 model使用四条独立SemVer版本线。Git annotated tag记录Stable release version；各自Maven POM是当前开发或release version的build source。Repository不维护额外version ledger、source fingerprint或发布脚本。
+## Scope
+
+- 修改任一 artifact version、跨 artifact dependency version、consumer packaging 或 stable release 操作。
 
 ## Rules
 
-- Version只允许`MAJOR.MINOR.PATCH`或`MAJOR.MINOR.PATCH-SNAPSHOT`。
-- 日常开发使用下一次计划release的固定Snapshot version；同一release周期内重复`clean install`不因每次自测bump。
-- Analyzer version位于root`revision`；Dependency Evidence Plugin version位于`plugins/pom.xml`的`revision`。
-- 公共JDK engine version位于`models/jdk/pom.xml`的`project.version`。
-- JDK 8 model version位于`models/jdk8/pom.xml`的`project.version`；其公共engine dependency version位于`jdk-models.version`。
-- Analyzer消费的JDK 8 model dependency version位于root`jdk8-models.version`；默认与release profile均以SemVer gate验证。
-- JDK 8 model构建前必须先安装coordinate匹配的公共engine；公共Snapshot source变化后必须重新`clean install`。
-- 每个独立artifact的`release` profile只接受Stable SemVer并拒绝Snapshot dependency；默认profile接受Stable与Snapshot。
-- 可被其他reactor消费的model POM必须flatten，不得要求consumer解析repository root parent或`${revision}`。
-- Release commit包含已验证的Stable POM与文档。Tag分别为`analyzer-vX.Y.Z`、`dependency-evidence-plugin-vX.Y.Z`、`jdk-models-vX.Y.Z`与`jdk8-models-vX.Y.Z`。
-- Dev build不要求Git commit或tag。Stable release才要求commit/tag；本规则不增加clean worktree fingerprint gate。
-
-版本变化语义：
-
-- `MAJOR`：CLI、Schema、Plugin goal、model公共API或catalog contract的breaking change。
-- `MINOR`：向后兼容能力、新summary template/state slot或新增modeled method。
-- `PATCH`：既有语义修复、可靠性、内部重构与build修复。
-
-## Applies To
-
-- 修改任一artifact version、跨artifact dependency version、consumer packaging或release操作时适用。
-- 公共engine与JDK 8 model虽都从`0.1.0-SNAPSHOT`开始，但后续独立bump，不要求保持相同version。
-- Maven Dependency Plugin`3.6.1`与Apache Maven`3.6.3`是runtime dependency version，不使用本项目tag namespace。
+- **必须**只使用 `MAJOR.MINOR.PATCH` 或 `MAJOR.MINOR.PATCH-SNAPSHOT`；release profile 只接受 Stable SemVer 并拒绝 Snapshot dependency。
+- **必须**分别以 root `revision`、`plugins/pom.xml` 的 `revision`、两个 model POM 的 project version 作为四条版本线的唯一 build source。
+- **必须**先安装公共 model engine，再安装 coordinate 匹配的 JDK 8 model；Analyzer 通过 root `jdk8-models.version` 选择 façade。
+- **必须**让可独立消费的 model POM flatten，避免 consumer 解析 repository root parent 或 unresolved property。
+- **必须**让 release commit 保存已验证 Stable POM，并创建 `analyzer-vX.Y.Z`、`dependency-evidence-plugin-vX.Y.Z`、`jdk-models-vX.Y.Z` 与 `jdk8-models-vX.Y.Z` annotated tags。
+- **禁止**为日常 Snapshot build 每次 bump、commit 或 tag；同一 release cycle 复用固定 Snapshot version。
+- **禁止**引入与 Maven POM/Git tag 并行的 project-owned version ledger、fingerprint 或 release script。
 
 ## Verification
 
-默认SemVer、Java和JDK 8文件约束由Maven Enforcer在`validate`阶段执行。Stable release按dependency顺序执行：
-
-```sh
-mvn -f models/jdk/pom.xml -Prelease clean install
-mvn -f models/jdk8/pom.xml -Prelease clean install
-mvn -f plugins/pom.xml -Prelease clean install
-mvn -Prelease clean verify
-```
-
-JDK 8路径通过`-Dtest.jdk8.home=/absolute/path/to/jdk8`覆盖。发布model前检查`target/flattened-pom.xml`已解析parent、`${revision}`和dependency version。
-
-Version修改使用Versions Maven Plugin或直接修改对应module的唯一version source；禁止引入新的project-owned version ledger。公共engine release后，JDK 8 model必须显式更新`jdk-models.version`才能引用新coordinate。
-
-Git record verification：
-
-```sh
-git show analyzer-vX.Y.Z
-git show dependency-evidence-plugin-vX.Y.Z
-git show jdk-models-vX.Y.Z
-git show jdk8-models-vX.Y.Z
-```
+- Maven Enforcer 在 `validate` 校验 SemVer、release dependency 与 JDK contract。
+- 按 [Version and Distribution](../runbooks/version-and-distribution.md) 执行 stable build，并检查 flattened POM、JAR resources 与四个 tags。
 
 ## Non-Goals
 
-- 不为日常 Snapshot 自测要求每次 bump、commit 或创建 tag。
-- 不维护 Maven POM 与 Git annotated tag 之外的 version ledger 或 fingerprint record。
+- Apache Maven 与 Maven Dependency Plugin 的 external runtime versions 不使用本项目 tag namespace。
+- 本规则不授权 push commit/tag 或创建远端 release。

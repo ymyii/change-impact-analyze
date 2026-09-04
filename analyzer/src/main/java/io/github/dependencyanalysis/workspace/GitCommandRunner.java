@@ -14,7 +14,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
-// Wiki: wiki/rules/process-command-resolution.md - 跨平台命令规则
 /**
  * Executes git commands via ProcessBuilder
  * and captures output.

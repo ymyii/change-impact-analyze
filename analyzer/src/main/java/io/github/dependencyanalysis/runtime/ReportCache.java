@@ -25,8 +25,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
-// Wiki: wiki/architecture/dependency-analysis-pipelines.md
-// - Report cache lifecycle
+// Wiki: wiki/c4/components/dependency-analyzer-cli-report-publication.md - 缓存
 /** Owned, versioned cache for one command's report pipeline fragments. */
 public final class ReportCache implements AutoCloseable {
 

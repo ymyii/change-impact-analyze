@@ -77,7 +77,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-// Wiki: wiki/architecture/dependency-analysis-pipelines.md - Concurrency
+// Wiki: wiki/c4/components/dependency-analyzer-cli-impact-tracing.md - 追踪边界
 /** Executes the Spring backend per-module Call Graph pipeline. */
 final class PerModuleImpactPipeline implements ImpactExecutionEngine {
 
@@ -679,7 +679,6 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
                 .toList();
     }
 
-    // Wiki: wiki/architecture/dependency-analysis-pipelines.md - Impact Flow
     private Map<String, List<DependencyUpgradeKey>> selectDependencyPairs(
             final List<DependencyChange> changes,
             final ReactorAnalysisScope targetScope,

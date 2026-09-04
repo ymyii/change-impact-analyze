@@ -10,7 +10,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.function.LongSupplier;
 
-// Wiki: wiki/implementation/cli-preflight-diagnostics.md - CLI boundary
 /** Unified Diagnostic Console façade. */
 public final class DiagnosticLog {
 

@@ -33,8 +33,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
-// Wiki: wiki/architecture/dependency-analysis-pipelines.md
-// - Command-owned method body comparison cache boundary
+// Wiki: wiki/c4/components/dependency-analyzer-cli-bytecode-diff.md - 比较缓存
 /** Stores pair-local decompiled method text for later Code comparison. */
 final class MethodBodyComparisonCache {
 

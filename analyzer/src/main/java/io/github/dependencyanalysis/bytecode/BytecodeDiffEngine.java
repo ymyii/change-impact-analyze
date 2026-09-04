@@ -22,7 +22,7 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 
-// Wiki: wiki/implementation/bytecode-diff-engine.md - Bytecode diff engine
+// Wiki: wiki/c4/components/dependency-analyzer-cli-bytecode-diff.md - 变化边界
 /**
  * Core bytecode diff engine that
  * compares old and new jar files

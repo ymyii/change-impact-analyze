@@ -2,8 +2,7 @@ package io.github.dependencyanalysis.impact;
 
 import io.github.dependencyanalysis.workspace.WorkspaceResult;
 
-// Wiki: wiki/architecture/dependency-analysis-pipelines.md
-// - Impact execution boundary
+// Wiki: wiki/c4/components/dependency-analyzer-cli-impact-tracing.md - 接口
 /** Command-level Impact analysis engine. */
 public interface ImpactExecutionEngine {
 

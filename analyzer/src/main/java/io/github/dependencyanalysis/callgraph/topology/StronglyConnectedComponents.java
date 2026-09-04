@@ -12,7 +12,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 
-// Wiki: wiki/implementation/call-graph-engine.md - Graph build
 /** Deterministic iterative strongly connected component decomposition. */
 public final class StronglyConnectedComponents {
 

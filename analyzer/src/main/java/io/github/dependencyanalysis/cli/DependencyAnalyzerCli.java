@@ -16,9 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
 
-// Wiki: wiki/project/dependency-analyzer.md - 产品 CLI 主入口
-// Wiki: wiki/architecture/dependency-analysis-pipelines.md - CLI dispatch
-// Wiki: wiki/implementation/cli-preflight-diagnostics.md - CLI boundary
+// Wiki: wiki/c4/containers/dependency-analyzer-cli.md - Public runtime boundary
 /** Dependency Analyzer root command. */
 @Command(
         name = "dependency-analyzer",

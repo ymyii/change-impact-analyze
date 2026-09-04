@@ -15,8 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-// Wiki: wiki/architecture/dependency-analysis-pipelines.md - Shared scope
-// Wiki: wiki/features/repository-dependency-tree-report.md - Tree entry
+// Wiki: wiki/c4/components/dependency-analyzer-cli-workspace-scope.md - 范围边界
 /** Resolves one requested POM to an active Maven reactor scope. */
 public final class ReactorInventoryBuilder {
 

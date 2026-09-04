@@ -15,7 +15,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 
-// Wiki: wiki/implementation/git-workspace-management.md - Workspace lifecycle
 /** Owns one isolated command workspace and temporary directory. */
 public final class CommandRunDirectory implements AutoCloseable {
 

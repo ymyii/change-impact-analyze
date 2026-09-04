@@ -10,6 +10,7 @@ import picocli.CommandLine.ParentCommand;
 
 import java.util.concurrent.Callable;
 
+// Wiki: wiki/use-cases/dependency-analyzer-inspect-dependency-tree.md - Entry
 /** Generates one repository dependency tree report. */
 @Command(
         name = "analyze",

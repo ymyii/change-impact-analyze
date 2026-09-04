@@ -17,7 +17,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-// Wiki: wiki/architecture/dependency-analysis-pipelines.md - Impact scope
 /** Resolves reactor-root and leaf-module execution modes. */
 final class ModuleScopePlanner {
 

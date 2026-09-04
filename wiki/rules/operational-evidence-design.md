@@ -1,55 +1,34 @@
 ---
-title: "Operational Evidence Design"
+name: "Operational Evidence Design"
 type: rule
 ---
 
-# Rule: Operational Evidence Design
+## Overview
 
-## Summary
+本规则要求 [Command Control](../c4/components/dependency-analyzer-cli-command-control.md) 及高成本分析 Component 同时提供可关联的 metrics、progress 与 audit evidence，并在数据生成前应用 verbosity 成本门禁。
 
-所有新建或实质修改的功能设计必须同时包含指标监控、进度跟踪和审计日志设计，并区分不同信息级别的输出内容。指标、进度事件和日志统一构成功能的运行证据；监控、审计和性能诊断是证据用途。三类能力可以复用相同事件、字段与输出基础设施，但任何一类都不得省略或标记为不适用。
+## Scope
+
+- 新建或实质修改 CLI command、analysis pipeline、并发、external process、cache 或 report publication。
+- 修改 Stage lifecycle、Diagnostic level、sampling、identity、elapsed time 或 failure evidence。
 
 ## Rules
 
-### Mandatory Design Coverage
-
-- 指标监控必须定义能够解释主要执行成本的工作量、完成量、阶段耗时、并发或队列状态、资源使用量及异常计数；指标必须绑定明确的Stage与稳定业务identity，不能只提供缺少上下文的全局数值。
-- 进度跟踪必须覆盖开始、处理中、完成和失败状态，并提供稳定业务identity、Stage、完成量、总量、耗时与结果。无法预知总量时必须输出已完成量和当前Phase，不能伪造百分比。
-- 审计日志必须记录关键状态转换、影响执行路径或成本的决策、执行结果和异常，使同一次执行的Stage顺序、状态变化及耗时能够被还原。
-- 证据载体与用途不需要一一对应：日志可以承载审计和进度证据，指标可以用于监控和性能诊断，同一事件也可以支持多个用途。不得为了形式完整而建立内容重复且无法关联的独立输出系统。
-- 三类能力必须在功能设计中说明数据来源、输出时机、关联字段、用途和验收方式；实现时复用统一的诊断上下文与计时语义，不能形成无法关联的日志或指标孤岛。
-
-### Information Levels and Output Cost
-
-- `INFO`、`WARN`、`ERROR` 是默认可见级别，只能输出已经存在或能够以有界低成本生成的阶段、进度、结果、能力限制及异常摘要。
-- `DEBUG` 只增加低频、有界成本的运行决策、中间计数、阶段耗时和异常详情；不能借助 `DEBUG` 无条件执行高频或可能显著影响性能的证据生成。
-- `TRACE` 承载高频指标、资源采样、细粒度证据，以及可能显著影响性能的查询、遍历、聚合、序列化或格式化结果。这些工作只能在 `TRACE` 已启用后执行，并应避免改变被观测功能的性能特征。
-- `WARN`和`ERROR`保留足以识别业务identity、Stage、状态与原因的低成本摘要；高成本诊断详情必须拆分到已启用的`DEBUG`或`TRACE`。
-- verbosity 门禁必须位于数据采集和 message 构造之前。使用现有 `DiagnosticLog` 时，调用方必须先通过 `getVerbosity().includes(...)` 判断相应的 `LogVerbosity.DEBUG` 或 `LogVerbosity.TRACE`，不能先完成昂贵计算再依赖日志方法丢弃输出。
-- 更高 verbosity 可以包含低级别事件，但每条新增信息必须按上述用途和生成成本选择级别；不得仅为提高可见性而在多个级别重复输出同一事件。
-
-### Correlation and Safety
-
-- 不同级别的事件必须共享可关联的业务identity、`stage`、`substage`、时间与状态语义；内部算法事件可额外携带可选`phase`。耗时使用monotonic timing，时间戳用于事件排序与跨输出关联。
-- 并发执行单元必须使用稳定业务identity，不能依赖thread name区分；进度、指标、审计事件和异常必须能够精确归属到同一执行单元。
-- message承载工作量、耗时、状态、结果和指标值；日志prefix只承载可选Phase与稳定身份字段，遵守既有`DiagnosticContext`与`DiagnosticLog`格式契约。Phase不得进入Stage计时stable key。
-- 任何信息级别都不得输出 credential、访问令牌、settings 内容或未过滤的完整用户参数；性能分析需要的路径、参数或异常内容必须先进行安全过滤。
-
-## Applies To
-
-- 所有新功能设计，以及改变既有功能执行阶段、并发模型、数据规模、外部调用、缓存、资源使用或失败处理的实质修改。
-- CLI command、分析pipeline、并发或后台执行、外部process、缓存处理和Report生成等存在阶段性执行成本的路径。
-- 对指标、进度或日志的新增与调整，包括仅改变 verbosity、采样频率、关联字段、证据用途或审计事件的修改。
+- **必须**让设计覆盖主要工作量、完成量、Stage elapsed time、并发/队列状态、资源量和异常计数。
+- **必须**让 progress 覆盖 `started`、处理中、`completed` 与 `failed`，并以稳定业务 identity 关联 Stage。
+- **必须**记录影响执行路径或成本的决策、关键状态转换、结果与异常，使一次 command 可重建。
+- **必须**让 `INFO`、`WARN`、`ERROR` 只生成有界低成本摘要，`DEBUG` 只增加低频有界详情，高频或高成本 evidence 只在 `TRACE` 启用后生成。
+- **必须**在采集、计算与 message construction 前执行 verbosity 判断；elapsed time 使用 monotonic timing。
+- **必须**让并发单元按稳定业务 identity 归属，不以 thread name 作为事实 identity。
+- **禁止**在任何 level 输出 credential、token、settings 内容或未过滤的完整 user arguments。
 
 ## Verification
 
-- 功能设计评审必须逐项确认指标监控、进度跟踪和审计日志均有明确设计；缺少任一项时不得通过，复用同一证据载体时必须能够说明每项能力如何满足。
-- 检查每项输出都具有业务identity和Stage关联信息，能够从开始、处理中、完成或失败事件还原一次执行，并计算主要Stage耗时。
-- 检查 `INFO`、`WARN`、`ERROR` 只生成低成本摘要，`DEBUG` 只增加低频有界详情，高频或可能显著影响性能的工作只在 `TRACE` 已启用后执行。
-- 检查 verbosity 判断发生在高成本采集、计算和 message 构造之前，禁用对应级别时不产生这些额外开销。
-- 检查异常、降级和性能指标能够共同指向瓶颈阶段，且所有输出均通过敏感信息审查。
+- Review metrics、progress、audit 三类用途是否都有 data source、emission point、correlation fields 与验收方式。
+- 执行 Diagnostic、Runtime Metrics 与受影响 pipeline tests，确认禁用 level 时不产生高成本工作。
+- 检查 failure 与 limitation 能通过 Stage、substage 和 identity 定位，且输出通过敏感信息审查。
 
 ## Non-Goals
 
-- 本规则不要求为同一事实建立重复的日志、指标和进度输出系统。
-- 本规则不允许用 observability 需求绕过 verbosity 成本门禁或敏感信息过滤。
+- 不要求为同一事实建立三套重复输出系统。
+- 不允许以 observability 为由改变分析结果或绕过成本门禁。

@@ -6,6 +6,7 @@ import io.github.dependencyanalysis.models.jdk.JdkModelDefinition;
 import io.github.dependencyanalysis.models.jdk.JdkModelSession;
 import io.github.dependencyanalysis.models.jdk.JdkModels;
 
+// Wiki: wiki/c4/components/dependency-analyzer-cli-jdk-method-models.md - 目录边界
 /** Installs conservative Synthetic IR for exact public JDK 8 contracts. */
 public final class Jdk8Models {
 
@@ -23,7 +24,6 @@ public final class Jdk8Models {
     private Jdk8Models() {
     }
 
-    // Wiki: wiki/implementation/jdk-method-models.md - Model install
     /**
      * Installs exact JDK 8 summaries around the current target selector.
      *

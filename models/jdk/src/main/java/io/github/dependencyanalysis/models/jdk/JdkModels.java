@@ -16,13 +16,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+// Wiki: wiki/c4/components/dependency-analyzer-cli-jdk-method-models.md - 引擎边界
 /** Installs conservative Synthetic IR for stable public JDK contracts. */
 public final class JdkModels {
 
     private JdkModels() {
     }
 
-    // Wiki: wiki/implementation/jdk-method-models.md - Model install
     /**
      * Installs exact JDK method summaries around the current target selector.
      *

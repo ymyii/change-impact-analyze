@@ -6,7 +6,7 @@ import java.util.EnumMap;
 import java.util.Map;
 import java.util.Objects;
 
-// Wiki: wiki/rules/package-boundaries.md - Package boundary
+// Wiki: wiki/rules/package-boundaries.md - Strategy ownership boundary
 /**
  * Unique exhaustive algorithm-to-strategy mapping.
  */

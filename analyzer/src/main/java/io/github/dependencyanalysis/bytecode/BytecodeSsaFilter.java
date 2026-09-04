@@ -30,7 +30,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
-// Wiki: wiki/implementation/bytecode-diff-engine.md - ChangePoint 收集期 SSA
 /** Pair-local normalized SSA filter used while collecting ChangePoints. */
 final class BytecodeSsaFilter {
 

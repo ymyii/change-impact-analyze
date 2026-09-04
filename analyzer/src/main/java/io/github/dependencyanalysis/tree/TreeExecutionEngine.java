@@ -21,8 +21,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 
-// Wiki: wiki/architecture/dependency-analysis-pipelines.md
-// - Tree execution boundary
+// Wiki: wiki/c4/components/dependency-analyzer-cli-dependency-trees.md - 单侧边界
 /** Executes Tree preflight, reactor analysis, and Report publication. */
 final class TreeExecutionEngine {
 

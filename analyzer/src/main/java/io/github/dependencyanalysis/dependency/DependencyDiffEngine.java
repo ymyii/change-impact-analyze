@@ -10,7 +10,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.LinkedHashSet;
 
-// Wiki: wiki/implementation/dependency-diff-engine.md - Diff entry
 /**
  * Engine that compares baseline and
  * target resolved dependency trees and

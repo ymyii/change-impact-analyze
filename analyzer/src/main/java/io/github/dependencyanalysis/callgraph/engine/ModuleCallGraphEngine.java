@@ -72,8 +72,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.jar.JarFile;
 
-// Wiki: wiki/implementation/call-graph-engine.md - Graph build
-// Wiki: wiki/rules/package-boundaries.md - Package boundary
+// Wiki: wiki/c4/components/dependency-analyzer-cli-call-graph-engine.md - 构图边界
+// Wiki: wiki/rules/package-boundaries.md - Call Graph dependency direction
 /**
  * Builds one selected WALA Call Graph per analysis module.
  */

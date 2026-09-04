@@ -16,7 +16,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
-// Wiki: wiki/implementation/cli-preflight-diagnostics.md - CLI boundary
 /** Command-scoped asynchronous heap and business-pool metric sampler. */
 public final class RuntimeMetricsSession implements AutoCloseable {
 

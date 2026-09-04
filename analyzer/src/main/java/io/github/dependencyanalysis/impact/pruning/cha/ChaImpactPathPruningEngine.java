@@ -14,7 +14,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-// Wiki: wiki/implementation/impact-tracing.md - Query flow
 /** Fixed ordered, fail-open CHA Impact Path edge-pruning engine. */
 public final class ChaImpactPathPruningEngine {
 

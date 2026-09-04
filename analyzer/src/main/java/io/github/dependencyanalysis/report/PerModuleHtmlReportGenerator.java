@@ -51,7 +51,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-// Wiki: wiki/implementation/report-generator.md - Publication
+// Wiki: wiki/c4/components/dependency-analyzer-cli-report-publication.md - 发布边界
 /** Atomically publishes the English multi-page Impact HTML report. */
 public final class PerModuleHtmlReportGenerator {
 

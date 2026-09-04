@@ -41,7 +41,6 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
-// Wiki: wiki/implementation/maven-runtime.md - Runtime boundary
 /** Prepares two offline Maven Plugin repositories and a settings overlay. */
 public final class MavenDependencyPluginRuntimeManager {
 

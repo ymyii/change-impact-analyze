@@ -9,7 +9,6 @@ import picocli.CommandLine.Model.CommandSpec;
 
 import java.util.concurrent.Callable;
 
-// Wiki: wiki/features/repository-dependency-tree-report.md - Tree entry
 /** Repository dependency tree report command. */
 @Command(
         name = "tree",

@@ -20,8 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
-// Wiki: wiki/implementation/maven-build-runner.md - Build entry
-// Wiki: wiki/rules/process-command-resolution.md - 跨平台命令规则
+// Wiki: wiki/c4/components/dependency-analyzer-cli-maven-runtime.md - 构建边界
 /**
  * Executes Maven compile on a workspace
  * and collects main classes directories.
