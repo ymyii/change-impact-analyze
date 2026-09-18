@@ -11,4 +11,26 @@
     <!-- Offline JavaScript is kept compact inside the generated report. -->
     <suppress checks="LineLength"
               files="[/\\]TreeReportRenderer\.java$"/>
+    <!-- Wiki paths are canonical repository-relative navigation targets. -->
+    <suppress checks="LineLength"
+              files="[/\\]BytecodeDiffEngine\.java$"
+              lines="25"/>
+    <suppress checks="LineLength"
+              files="[/\\]ModuleCallGraphEngine\.java$"
+              lines="75"/>
+    <suppress checks="LineLength"
+              files="[/\\]ImpactCommand\.java$"
+              lines="54"/>
+    <suppress checks="LineLength"
+              files="[/\\]PerModuleImpactPipeline\.java$"
+              lines="80"/>
+    <suppress checks="LineLength"
+              files="[/\\]TreeAnalyzeCommand\.java$"
+              lines="13"/>
+    <suppress checks="LineLength"
+              files="[/\\]TreeDiffCommand\.java$"
+              lines="13"/>
+    <suppress checks="LineLength"
+              files="[/\\]WorkspaceManager\.java$"
+              lines="15"/>
 </suppressions>

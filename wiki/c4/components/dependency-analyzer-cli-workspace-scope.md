@@ -12,7 +12,7 @@ relations:
 
 ## Overview
 
-Workspace Scope 将 current workspace 与 local commit-ish 转换为受 owner identity 约束的 snapshot，并以入口 POM 计算有界的 active Maven reactor。
+Workspace Scope 将当前工作区或本地 ref 转换为带版本身份的快照，并以入口 POM 计算[受限 Maven 范围（Bounded Maven Scope）](../../glossary/bounded-maven-scope.md)。它为 CLI 提供每侧的快照位置和模块执行计划。
 
 ## Responsibilities
 
@@ -24,6 +24,25 @@ Workspace Scope 将 current workspace 与 local commit-ish 转换为受 owner id
 
 - Workspace preparation：输入 repository path、side 和可选 local ref；输出带 owner identity、commit 与 dirty metadata 的 snapshot。
 - Reactor inventory：输入 entry POM 与 Maven activation context；输出 immutable Module ownership 与 execution mode。
+
+## Code Mapping
+
+Git 快照生命周期由 `workspace/WorkspaceManager` 管理；Maven 模块归属由 `reactor/ReactorInventoryBuilder` 解析。范围规划与快照清理拥有不同输入和失败边界。
+
+```mermaid
+classDiagram
+    class WorkspaceManager {
+        +prepare(baselineRef, targetRef)
+        +close()
+    }
+    class WorkspaceResult
+    class ReactorInventoryBuilder
+    class RepositoryInventory
+    WorkspaceManager ..> WorkspaceResult : 返回快照
+    ReactorInventoryBuilder ..> RepositoryInventory : 返回模块范围
+```
+
+内部组织见 [Workspace Scope Code](../code/dependency-analyzer-cli-workspace-scope.md)。
 
 ## State and Data
 

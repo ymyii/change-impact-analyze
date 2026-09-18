@@ -10,7 +10,7 @@ import picocli.CommandLine.ParentCommand;
 
 import java.util.concurrent.Callable;
 
-// Wiki: wiki/use-cases/dependency-analyzer-compare-dependency-trees.md - Entry
+// Wiki: wiki/use-case-realizations/dependency-analyzer-compare-dependency-trees.md - Public realization entrypoint
 /** Compares two repository dependency tree snapshots. */
 @Command(
         name = "diff",

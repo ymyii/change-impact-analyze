@@ -16,8 +16,8 @@ Dependency Analyzer 帮助 [Software Developer](../actors/software-developer.md)
 
 ## Responsibilities
 
-- 将用户选择的 repository path 与 local ref 限制为可验证的 Maven analysis scope。
-- 采集 dependency、classpath、bytecode 和 Call Graph evidence，并保留覆盖限制与失败状态。
+- 将用户选择的 repository path 与 local ref 限制为可验证的 [Bounded Maven Scope](../../glossary/bounded-maven-scope.md)。
+- 采集 dependency、classpath、bytecode 和 Call Graph evidence，并保留 [Coverage Limitation](../../glossary/coverage-limitation.md) 与失败状态。
 - 发布无需 HTTP server 的 Impact、Tree Analyze 和 Tree Diff 报告。
 
 ## Boundaries

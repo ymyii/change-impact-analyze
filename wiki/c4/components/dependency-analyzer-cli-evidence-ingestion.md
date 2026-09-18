@@ -12,7 +12,7 @@ relations:
 
 ## Overview
 
-Evidence Ingestion 验证 Plugin 的原子 JSON publication，并将 Maven session 中的依赖事实转换为 Impact 或 Tree 的领域输入。
+Evidence Ingestion 校验 Plugin 发布的完整 JSON 证据，将依赖解析和 classpath 事实转换为 CLI 的 Impact 或 Tree 领域输入。
 
 ## Responsibilities
 
@@ -24,6 +24,24 @@ Evidence Ingestion 验证 Plugin 的原子 JSON publication，并将 Maven sessi
 
 - Impact evidence：输出 logical dependency tree 与 resolved artifact binding。
 - Classpath evidence：输出 occurrence-aware graph、classpath order 与 Module ownership；缺少 winner 或 owner mismatch 时失败。
+
+## Code Mapping
+
+Impact 的 `dependency/DependencyEvidenceJsonParser` 与 Tree 的 `tree/ClasspathEvidenceJsonParser` 分别验证并转换证据格式；两者保留各自领域需要的事实。
+
+```mermaid
+classDiagram
+    class DependencyEvidenceJsonParser {
+        +parse(file)
+    }
+    class ModuleDependencyEvidence
+    class ClasspathEvidenceJsonParser {
+        +parse(file)
+    }
+    class ModuleClasspathEvidence
+    DependencyEvidenceJsonParser ..> ModuleDependencyEvidence : 返回
+    ClasspathEvidenceJsonParser ..> ModuleClasspathEvidence : 返回
+```
 
 ## Boundaries
 

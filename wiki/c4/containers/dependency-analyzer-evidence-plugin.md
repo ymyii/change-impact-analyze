@@ -34,4 +34,4 @@ Plugin 不保留跨 command 状态。Evidence 只存在于当前 command-owned c
 
 ## Boundaries
 
-该 Container 只观察并序列化 Maven session facts；不执行 bytecode diff、Call Graph、impact classification 或最终 Report publication，也不扫描 bounded reactor 之外的 project。
+该 Container 只观察并序列化 Maven session facts；不执行 bytecode diff、Call Graph、impact classification 或最终 Report publication，也不扫描受入口 POM 限定的 Reactor 之外的 project。

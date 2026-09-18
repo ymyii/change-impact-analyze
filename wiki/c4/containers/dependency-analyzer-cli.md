@@ -25,7 +25,7 @@ Dependency Analyzer CLI 是本地命令行应用，协调输入校验、workspac
 
 - 提供 `impact`、`tree analyze` 与 `tree diff` 公共命令边界。
 - 隔离 baseline、target 和 current workspace 的分析生命周期。
-- 将外部证据转换为不可变的领域结果，并保留 coverage limitation 与已处理失败。
+- 将外部证据转换为不可变的领域结果，并保留 [Coverage Limitation](../../glossary/coverage-limitation.md) 与已处理失败。
 
 ## Technology
 

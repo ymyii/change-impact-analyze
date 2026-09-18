@@ -12,7 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-// Wiki: wiki/c4/components/dependency-analyzer-cli-workspace-scope.md - 快照边界
+// Wiki: wiki/c4/code/dependency-analyzer-cli-workspace-scope.md - Git snapshot lifecycle contract
 /**
  * Manages git workspaces for baseline,
  * target and current analysis inputs.

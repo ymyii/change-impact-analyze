@@ -15,7 +15,7 @@ relations:
 
 ## Overview
 
-Command Control 定义公共 CLI、按命令执行的 Preflight、Diagnostic context、Stage lifecycle 和 Runtime Metrics 边界。
+Command Control 管理公共命令、分析前检查与诊断生命周期，将用户参数转换为已校验的执行请求，并向 CLI 返回明确的命令状态。
 
 ## Responsibilities
 
@@ -32,6 +32,19 @@ Command Control 定义公共 CLI、按命令执行的 Preflight、Diagnostic con
 
 - Root 与 subcommand contract：参数解析失败或 Preflight 阻断返回 `1`，不启动 pipeline。
 - Diagnostic contract：每个物理行使用稳定五段 prefix；敏感 settings、credential 与未过滤参数不得进入输出。
+
+## Code Mapping
+
+根入口 `cli/DependencyAnalyzerCli` 注册 Impact 与 Tree 命令。命令解析、分析前检查和诊断各有独立职责，修改公共参数时须同步[用户手册维护规则](../../rules/user-manual-maintenance.md)；诊断遵循[运行证据规则](../../rules/operational-evidence-design.md)。
+
+```mermaid
+classDiagram
+    class DependencyAnalyzerCli
+    class ImpactCommand
+    class TreeCommand
+    DependencyAnalyzerCli ..> ImpactCommand : 注册子命令
+    DependencyAnalyzerCli ..> TreeCommand : 注册子命令
+```
 
 ## State and Data
 

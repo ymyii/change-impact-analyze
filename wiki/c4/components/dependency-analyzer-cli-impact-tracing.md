@@ -6,7 +6,7 @@ relations:
   - target: "[[c4/components/dependency-analyzer-cli-evidence-ingestion]]"
     description: "消费两侧依赖树与已解析 artifact 绑定。"
   - target: "[[c4/components/dependency-analyzer-cli-bytecode-diff]]"
-    description: "请求版本变化依赖对的有效 ChangePoint。"
+    description: "请求版本变化依赖对的有效变化点。"
   - target: "[[c4/components/dependency-analyzer-cli-call-graph-engine]]"
     description: "构建并查询按模块冻结的 Call Graph snapshot。"
   - target: "[[c4/components/dependency-analyzer-cli-report-publication]]"
@@ -15,7 +15,7 @@ relations:
 
 ## Overview
 
-Impact Tracing 规划依赖升级分析，把已确认保留的 ChangePoint 与结构证据绑定为查询起点，再反向追踪到稳定业务入口。
+Impact Tracing 将已确认保留的[变化点（Change Point）](../../glossary/change-point.md)与结构证据绑定为查询起点，再反向追踪到业务入口。它为 CLI 提供模块状态、影响路径及覆盖限制。
 
 ## Responsibilities
 
@@ -27,6 +27,24 @@ Impact Tracing 规划依赖升级分析，把已确认保留的 ChangePoint 与�
 
 - Impact execution：输入 baseline/target scope、selector 与 command-wide graph policy；输出 Module status、dependency change、affected path 和 limitation。
 - Query contract：以 logical artifact、member identity 与 Module ownership 绑定 seed；source line 和 physical path 不参与主键。
+
+## Code Mapping
+
+执行接口 `impact/ImpactExecutionEngine` 隔离命令层与具体编排；`PerModuleImpactPipeline` 汇总模块结果，返回报告可消费的分析结果。
+
+```mermaid
+classDiagram
+    class ImpactExecutionEngine {
+        <<interface>>
+        +run(workspace)
+    }
+    class PerModuleImpactPipeline
+    class AnalysisRunResult
+    ImpactExecutionEngine <|.. PerModuleImpactPipeline
+    PerModuleImpactPipeline ..> AnalysisRunResult : 返回
+```
+
+内部组织见 [Impact Tracing Code](../code/dependency-analyzer-cli-impact-tracing.md)。
 
 ## State and Data
 

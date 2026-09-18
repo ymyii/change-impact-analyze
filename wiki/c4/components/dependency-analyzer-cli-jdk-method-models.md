@@ -7,7 +7,7 @@ relations: []
 
 ## Overview
 
-JDK Method Models 为 context-sensitive Call Graph 提供版本精确的 callback、serialization 与 native-boundary Synthetic IR，不以 host JDK 实现替代 target JDK contract。
+JDK Method Models 为上下文敏感构图补充目标 JDK 方法的回调、序列化与 native 边界语义，通过合成中间表示提供可分析的方法摘要。它让 CLI 按目标 JDK 契约分析调用行为。
 
 ## Responsibilities
 
@@ -25,6 +25,21 @@ JDK Method Models 为 context-sensitive Call Graph 提供版本精确的 callbac
 
 - Model façade：`none` 不安装模型；`jdk8` 返回 catalog metadata 与 install session。
 - Installation contract：invalid definition、unavailable target 或 summary conflict 使 Module Call Graph 失败。
+
+## Code Mapping
+
+`models/jdk8` 中的 `Jdk8Models` 绑定版本目录，委托 `models/jdk` 中的公共引擎 `JdkModels` 安装方法摘要；目录与引擎分别构建、独立版本化。构建和能力验证见[JDK 模型操作流程](../../runbooks/jdk-models-build-and-test.md)。
+
+```mermaid
+classDiagram
+    class Jdk8Models {
+        +install(options, hierarchy)
+    }
+    class JdkModels
+    class JdkModelSession
+    Jdk8Models ..> JdkModels : 委托安装
+    JdkModels ..> JdkModelSession : 创建
+```
 
 ## State and Data
 

@@ -9,11 +9,11 @@ relations:
 
 ## Overview
 
-Bytecode Diff 将版本发生变化的逻辑 artifact 对转换为 ChangePoint，即可追踪的 class、member、method body、JVM access 或 ServiceLoader 变化点。
+Bytecode Diff 将版本发生变化的逻辑 artifact 对转换为 [Change Point](../../glossary/change-point.md)，即经过语义过滤后仍需追踪的 class、member、method body、JVM access 或 ServiceLoader 变化身份。
 
 ## Responsibilities
 
-- 对同一逻辑 old/new pair 只执行一次稳定 diff，并隔离单个 pair 的失败。
+- 对一个逻辑 old/new pair 生成稳定差异；跨模块复用和单个 pair 的失败隔离由 [Impact Tracing](dependency-analyzer-cli-impact-tracing.md) 编排。
 - 先比较 Vineflower 生成的 Java text，再以 normalized Static Single Assignment（SSA，静态单赋值）处理剩余 method body candidate。
 - 合并 class removal 与 ServiceLoader registration 变化，并生成稳定的 ChangePoint identity。
 
@@ -27,6 +27,22 @@ Bytecode Diff 将版本发生变化的逻辑 artifact 对转换为 ChangePoint�
 
 - Artifact-pair diff：输入 logical coordinate pair 与 leases；输出稳定排序的 effective ChangePoint、comparison evidence 与 pair failure。
 - Method-body filtering：Java text 或 SSA 等价时抑制 candidate；`DIFFERENT` 或 `UNKNOWN` fail-open 保留。
+
+## Code Mapping
+
+单个依赖版本对的结构与方法体比较由 `bytecode/BytecodeDiffEngine` 提供；ServiceLoader 注册资源由独立入口比较，调用方合并结果。
+
+```mermaid
+classDiagram
+    class BytecodeDiffEngine {
+        +diff(change, repository)
+    }
+    class BytecodeDiffResult
+    class ServiceLoaderResourceDiffEngine
+    BytecodeDiffEngine ..> BytecodeDiffResult : 返回过滤结果
+```
+
+内部组织见 [Bytecode Diff Code](../code/dependency-analyzer-cli-bytecode-diff.md)。
 
 ## State and Data
 

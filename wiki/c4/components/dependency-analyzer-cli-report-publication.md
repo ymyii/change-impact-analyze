@@ -10,7 +10,7 @@ relations:
 
 ## Overview
 
-Report Publication 将冻结的 Impact、Tree Analyze 与 Tree Diff result 投影为各自 versioned schema，并在完整性边界内发布离线应用。
+Report Publication 将冻结的 Impact、Tree Analyze 与 Tree Diff 结果分别转换为报告数据，并为 CLI 发布可离线浏览的页面和资源。
 
 ## Responsibilities
 
@@ -20,8 +20,23 @@ Report Publication 将冻结的 Impact、Tree Analyze 与 Tree Diff result 投�
 
 ## Interfaces
 
-- Frozen report input：只接受已结束 Maven、Git、JAR 与 Call Graph session 的 immutable domain result。
+- Frozen report input：接收已脱离 live Call Graph 引用的领域结果；报告所需路径、指标与证据必须先冻结，工作区和命令缓存可以持续到发布结束。
 - Publication boundary：staging 内容通过 marker、signature 与 path 检查后提交；失败时不暴露半成品入口。
+
+## Code Mapping
+
+Impact 使用 `report/PerModuleHtmlReportGenerator`；Tree 的两个 renderer 位于 `tree/`，分别创建增量发布会话。修改发布边界时须同时检查入口可见性与报告完整性，不能只检查 HTML 内容。
+
+```mermaid
+classDiagram
+    class PerModuleHtmlReportGenerator
+    class TreeReportRenderer
+    class TreeReportSession
+    class TreeDiffReportRenderer
+    class TreeDiffReportSession
+    TreeReportRenderer ..> TreeReportSession : 创建
+    TreeDiffReportRenderer ..> TreeDiffReportSession : 创建
+```
 
 ## State and Data
 

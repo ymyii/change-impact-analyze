@@ -51,7 +51,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
 
-// Wiki: wiki/use-cases/dependency-analyzer-assess-upgrade-impact.md - Entry
+// Wiki: wiki/use-case-realizations/dependency-analyzer-assess-upgrade-impact.md - Public realization entrypoint
 /** Existing change impact analysis subcommand. */
 @Command(
         name = "impact",

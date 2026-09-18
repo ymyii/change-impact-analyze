@@ -7,7 +7,7 @@ relations: []
 
 ## Overview
 
-Artifact Repository 将 Maven 逻辑坐标绑定到唯一选定的物理 JAR，并通过受跟踪的短期租约管理并发读取生命周期。
+Artifact Repository 管理 Maven 逻辑坐标到物理 JAR 的绑定，为 CLI 分析提供可并发打开、可追踪关闭的短期文件租约。
 
 ## Responsibilities
 
@@ -17,12 +17,33 @@ Artifact Repository 将 Maven 逻辑坐标绑定到唯一选定的物理 JAR，�
 
 ## Interfaces
 
-- `IJarRepository`：按逻辑坐标获取租约；JAR 缺失、候选不唯一或 owner 不一致时明确失败。
+- `IJarRepository`：按逻辑坐标获取租约；坐标未绑定、文件不可用或 repository 已关闭时明确失败。
 - `JarLease`：在 close 时释放并注销实际 `JarFile` handle。
+
+## Code Mapping
+
+逻辑坐标到物理文件的绑定由 `jar/CoordinateJarRepository` 负责；调用者通过接口取得短期租约，避免持有未受管理的文件句柄。
+
+```mermaid
+classDiagram
+    class IJarRepository {
+        <<interface>>
+        +open(coordinate)
+    }
+    class CoordinateJarRepository
+    class JarLease {
+        <<interface>>
+        +close()
+    }
+    IJarRepository <|.. CoordinateJarRepository
+    IJarRepository ..> JarLease : 返回租约
+```
 
 ## State and Data
 
-Repository 只追踪当前分析会话中仍打开的 handle；唯一候选的选择不依赖 filesystem 遍历顺序。
+同一坐标的路径先规范化、去重，再按字典序选择第一个；多个候选产生警告。构造时校验选定文件可作为 JAR 打开，行为由 `CoordinateJarRepositoryTest` 约束。
+
+Repository 关闭时释放所有未关闭的租约，并拒绝后续打开操作；已复制的分析结果不依赖这些文件句柄。
 
 ## Boundaries
 

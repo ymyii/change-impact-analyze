@@ -9,7 +9,7 @@ type: rule
 
 ## Scope
 
-- Impact CLI、dependency planning、Call Graph、ChangePoint、affected path、boundary evidence 或 Report 的可观察语义。
+- Impact CLI、dependency planning、Call Graph、[Change Point](../glossary/change-point.md)、affected path、boundary evidence 或 Report 的可观察语义。
 - `benchmarks/impact-medium/` fixture、verification、expected baseline 与 snapshot publication。
 
 ## Rules

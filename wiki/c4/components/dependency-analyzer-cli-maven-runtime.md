@@ -16,13 +16,13 @@ relations:
 
 ## Overview
 
-Maven Runtime 统一选择 executable、Java home、settings overlay 和内嵌 Plugin repository，并在限定的 Reactor 范围内执行 compile 与证据采集。
+Maven Runtime 选择 Maven executable、Java home、settings 与内嵌 Plugin repository，在限定模块范围内执行构建和证据采集，为 CLI 返回运行结果与证据位置。
 
 ## Responsibilities
 
 - 验证 Maven `3.6.3 <= version < 4.0.0` 与实际 Maven JVM。
 - 保留 user/global settings、mirror、proxy、server、profile 和 local repository 语义，并仅追加 command repository。
-- 根据 bounded scope 执行 compile 与 dependency evidence goals，保留 bounded failure tail。
+- 根据 [Bounded Maven Scope](../../glossary/bounded-maven-scope.md) 执行 compile 与 dependency evidence goals，保留有界的失败输出尾部。
 
 ## Technology
 
@@ -34,6 +34,19 @@ Maven Runtime 统一选择 executable、Java home、settings overlay 和内嵌 P
 
 - Runtime descriptor：一次解析后供 scope resolver 与全部 Maven stage 共用；缺失 executable、非法版本或损坏 embedded artifact 时停止 command。
 - Build execution：接受 immutable scope plan 与安全 Maven token；返回 exit code、bounded Console evidence 和 output locations。
+
+## Code Mapping
+
+`runtime/MavenRuntimeManager` 负责选择和校验运行环境，`MavenExecutor` 使用冻结的描述执行命令。进程启动遵循[命令解析规则](../../rules/process-command-resolution.md)。
+
+```mermaid
+classDiagram
+    class MavenRuntimeManager
+    class MavenRuntimeDescriptor
+    class MavenExecutor
+    MavenRuntimeManager ..> MavenRuntimeDescriptor : 解析结果
+    MavenExecutor ..> MavenRuntimeDescriptor : 读取执行环境
+```
 
 ## State and Data
 

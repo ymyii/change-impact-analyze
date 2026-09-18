@@ -14,7 +14,7 @@ Software Developer 是在本地 Git repository 中维护 Maven 项目，并需�
 ## Goals
 
 - 在升级依赖前定位可能受影响的业务入口和调用路径。
-- 查看由入口 POM 限定的 Maven 分析范围内，实际解析的依赖、版本来源和类冲突。
+- 查看由入口 POM 计算的 [Bounded Maven Scope](../../glossary/bounded-maven-scope.md)，以及其中实际解析的依赖、版本来源和类冲突。
 - 比较两个 repository snapshot 的依赖出现位置与 Reactor 结构变化。
 
 ## Boundaries
