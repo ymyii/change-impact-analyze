@@ -1,7 +1,6 @@
 ---
 name: "Offline Report"
 type: container
-parent: "[[c4/software-systems/dependency-analyzer]]"
 relations: []
 ---
 
@@ -28,6 +27,16 @@ Dependency Analyzer Offline Report 是随分析结果生成的静态浏览器应
 ## State and Data
 
 报告只读取同一 output boundary 内的冻结 shard；不会回写 Analyzer cache 或用户 project。
+
+## Component Diagram
+
+```mermaid
+C4Component
+    title Component diagram for Offline Report
+    Container_Boundary(container, "Offline Report") {
+        Component(core, "Offline Report Boundary", "Container boundary", "Static report rendering")
+    }
+```
 
 ## Boundaries
 

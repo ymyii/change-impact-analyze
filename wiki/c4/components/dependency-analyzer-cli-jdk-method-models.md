@@ -1,7 +1,6 @@
 ---
 name: "JDK Method Models"
 type: component
-parent: "[[c4/containers/dependency-analyzer-cli]]"
 relations: []
 ---
 
@@ -26,7 +25,7 @@ JDK Method Models 为上下文敏感构图补充目标 JDK 方法的回调、序
 - Model façade：`none` 不安装模型；`jdk8` 返回 catalog metadata 与 install session。
 - Installation contract：invalid definition、unavailable target 或 summary conflict 使 Module Call Graph 失败。
 
-## Code Mapping
+## Code Diagram
 
 `models/jdk8` 中的 `Jdk8Models` 绑定版本目录，委托 `models/jdk` 中的公共引擎 `JdkModels` 安装方法摘要；目录与引擎分别构建、独立版本化。构建和能力验证见[JDK 模型操作流程](../../runbooks/jdk-models-build-and-test.md)。
 

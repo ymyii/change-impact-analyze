@@ -1,7 +1,6 @@
 ---
 name: "Impact Tracing Code"
 type: code
-parent: "[[c4/components/dependency-analyzer-cli-impact-tracing]]"
 relations: []
 ---
 
@@ -12,24 +11,13 @@ Impact Tracing 把命令编排、模块路径查询和结果冻结分成不同�
 ## Code Structure
 
 ```mermaid
-classDiagram
-    class ImpactExecutionEngine {
-        <<interface>>
-    }
-    class PerModuleImpactPipeline
-    class ModuleImpactTracer
-    class ChangePointEvidenceCollector
-    class ModuleAnalysisSnapshotter
-    class CodeComparisonBuilder
-    class ModuleAnalysisResult
-    class AnalysisRunResult
-    ImpactExecutionEngine <|.. PerModuleImpactPipeline
-    PerModuleImpactPipeline ..> ChangePointEvidenceCollector : 收集绑定证据
-    PerModuleImpactPipeline ..> ModuleImpactTracer : 查询影响路径
-    PerModuleImpactPipeline ..> ModuleAnalysisSnapshotter : 脱离构图对象
-    PerModuleImpactPipeline ..> CodeComparisonBuilder : 补充代码比较
-    ModuleAnalysisSnapshotter ..> ModuleAnalysisResult : 复制并冻结
-    PerModuleImpactPipeline ..> AnalysisRunResult : 汇总
+flowchart LR
+    pipeline["PerModuleImpactPipeline"] --> evidence["ChangePointEvidenceCollector"]
+    pipeline --> tracer["ModuleImpactTracer"]
+    pipeline --> snapshotter["ModuleAnalysisSnapshotter"]
+    pipeline --> comparison["CodeComparisonBuilder"]
+    snapshotter --> moduleResult["ModuleAnalysisResult"]
+    pipeline --> runResult["AnalysisRunResult"]
 ```
 
 命令编排位于 `analyzer/src/main/java/io/github/dependencyanalysis/impact/PerModuleImpactPipeline.java`。它为 baseline 解析依赖，为 target 构建业务输出，并按逻辑 artifact pair 共享字节码差异。单个 pair 失败保留关联模块的诊断，全局准备失败向上传播。

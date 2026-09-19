@@ -1,7 +1,6 @@
 ---
 name: "Workspace Scope Code"
 type: code
-parent: "[[c4/components/dependency-analyzer-cli-workspace-scope]]"
 relations: []
 ---
 
@@ -12,21 +11,13 @@ Workspace Scope 内部分别管理 Git 快照资源与 Maven 模块范围。前�
 ## Code Structure
 
 ```mermaid
-classDiagram
-    class WorkspaceManager
-    class GitCommandRunner
-    class WorkspaceResult
-    class WorkspaceSideInfo
-    class ReactorInventoryBuilder
-    class SafePomParser
-    class RepositoryInventory
-    class ModuleScopePlanner
-    WorkspaceManager --> GitCommandRunner : 执行本地 Git 命令
-    WorkspaceManager ..> WorkspaceResult : 创建双侧结果
-    WorkspaceResult --> WorkspaceSideInfo : 保存每侧身份
-    ReactorInventoryBuilder ..> SafePomParser : 读取模块声明
-    ReactorInventoryBuilder ..> RepositoryInventory : 生成范围
-    ModuleScopePlanner ..> ReactorInventoryBuilder : 转换为分析计划
+flowchart LR
+    workspace["WorkspaceManager"] --> git["GitCommandRunner"]
+    workspace --> result["WorkspaceResult"]
+    result --> side["WorkspaceSideInfo"]
+    inventory["ReactorInventoryBuilder"] --> parser["SafePomParser"]
+    inventory --> repository["RepositoryInventory"]
+    planner["ModuleScopePlanner"] --> inventory
 ```
 
 快照所有者位于 `analyzer/src/main/java/io/github/dependencyanalysis/workspace/WorkspaceManager.java`。它登记自身创建的临时目录，通过 `GitCommandRunner` 创建 detached worktree；`WorkspaceSideInfo` 保存路径、commit 和 dirty 信息。target 缺省时引用当前工作区，显式 ref 则创建隔离快照。

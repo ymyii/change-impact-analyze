@@ -1,7 +1,6 @@
 ---
 name: "Evidence Plugin"
 type: container
-parent: "[[c4/software-systems/dependency-analyzer]]"
 relations:
   - target: "[[c4/containers/dependency-analyzer-cli]]"
     description: "发布模块依赖与 classpath 证据供摄取。"
@@ -31,6 +30,16 @@ Dependency Evidence Plugin 是由 Apache Maven 加载的 Maven Plugin，在目�
 ## State and Data
 
 Plugin 不保留跨 command 状态。Evidence 只存在于当前 command-owned cache，生命周期由 CLI 管理。
+
+## Component Diagram
+
+```mermaid
+C4Component
+    title Component diagram for Evidence Plugin
+    Container_Boundary(container, "Evidence Plugin") {
+        Component(core, "Evidence Plugin Boundary", "Container boundary", "Maven session evidence collection")
+    }
+```
 
 ## Boundaries
 

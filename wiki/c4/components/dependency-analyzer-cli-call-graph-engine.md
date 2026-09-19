@@ -1,7 +1,8 @@
 ---
 name: "Call Graph Engine"
 type: component
-parent: "[[c4/containers/dependency-analyzer-cli]]"
+children:
+  - target: "[[c4/code/dependency-analyzer-cli-call-graph-engine]]"
 relations:
   - target: "[[c4/components/dependency-analyzer-cli-artifact-repository]]"
     description: "读取构图范围内各模块的规范依赖实现。"
@@ -29,7 +30,7 @@ Call Graph Engine 根据模块输出和依赖 classpath 构建调用图，为 CL
 - 模块输入 `ModuleCallGraphInput`：提供业务 class 目录、reactor 依赖目录、目标 artifact、依赖方法体范围及相关变化；入口选择与算法配置由 engine 持有，入口索引和 timeout 通过 `build(...)` 传入。
 - 构图结果 `ModuleCallGraphSession`：提供 live graph 与冻结的指标、类型化限制、边界和算法 metadata；拓扑统计按需采集。查询方按只读契约使用会话。
 
-## Code Mapping
+## Code Diagram
 
 构图入口 `callgraph/engine/ModuleCallGraphEngine` 接受模块输入，返回供当前模块查询的会话；调用方不直接创建具体算法策略。
 

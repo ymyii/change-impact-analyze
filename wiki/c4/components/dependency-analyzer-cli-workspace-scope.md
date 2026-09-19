@@ -1,7 +1,8 @@
 ---
 name: "Workspace Scope"
 type: component
-parent: "[[c4/containers/dependency-analyzer-cli]]"
+children:
+  - target: "[[c4/code/dependency-analyzer-cli-workspace-scope]]"
 relations:
   - target: "[[c4/software-systems/git]]"
     description: "解析代码库状态并创建隔离的快照 worktree。"
@@ -25,7 +26,7 @@ Workspace Scope 将当前工作区或本地 ref 转换为带版本身份的快�
 - Workspace preparation：输入 repository path、side 和可选 local ref；输出带 owner identity、commit 与 dirty metadata 的 snapshot。
 - Reactor inventory：输入 entry POM 与 Maven activation context；输出 immutable Module ownership 与 execution mode。
 
-## Code Mapping
+## Code Diagram
 
 Git 快照生命周期由 `workspace/WorkspaceManager` 管理；Maven 模块归属由 `reactor/ReactorInventoryBuilder` 解析。范围规划与快照清理拥有不同输入和失败边界。
 

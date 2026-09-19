@@ -1,7 +1,6 @@
 ---
 name: "Command Control"
 type: component
-parent: "[[c4/containers/dependency-analyzer-cli]]"
 relations:
   - target: "[[c4/components/dependency-analyzer-cli-workspace-scope]]"
     description: "下发已校验的代码库与快照选择。"
@@ -33,7 +32,7 @@ Command Control 管理公共命令、分析前检查与诊断生命周期，将�
 - Root 与 subcommand contract：参数解析失败或 Preflight 阻断返回 `1`，不启动 pipeline。
 - Diagnostic contract：每个物理行使用稳定五段 prefix；敏感 settings、credential 与未过滤参数不得进入输出。
 
-## Code Mapping
+## Code Diagram
 
 根入口 `cli/DependencyAnalyzerCli` 注册 Impact 与 Tree 命令。命令解析、分析前检查和诊断各有独立职责，修改公共参数时须同步[用户手册维护规则](../../rules/user-manual-maintenance.md)；诊断遵循[运行证据规则](../../rules/operational-evidence-design.md)。
 

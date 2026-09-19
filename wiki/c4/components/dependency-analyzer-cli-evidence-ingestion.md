@@ -1,7 +1,6 @@
 ---
 name: "Evidence Ingestion"
 type: component
-parent: "[[c4/containers/dependency-analyzer-cli]]"
 relations:
   - target: "[[c4/containers/dependency-analyzer-evidence-plugin]]"
     description: "消费按模块发布的结构化证据。"
@@ -25,7 +24,7 @@ Evidence Ingestion 校验 Plugin 发布的完整 JSON 证据，将依赖解析�
 - Impact evidence：输出 logical dependency tree 与 resolved artifact binding。
 - Classpath evidence：输出 occurrence-aware graph、classpath order 与 Module ownership；缺少 winner 或 owner mismatch 时失败。
 
-## Code Mapping
+## Code Diagram
 
 Impact 的 `dependency/DependencyEvidenceJsonParser` 与 Tree 的 `tree/ClasspathEvidenceJsonParser` 分别验证并转换证据格式；两者保留各自领域需要的事实。
 

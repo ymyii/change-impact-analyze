@@ -1,7 +1,6 @@
 ---
 name: "Dependency Trees"
 type: component
-parent: "[[c4/containers/dependency-analyzer-cli]]"
 relations:
   - target: "[[c4/components/dependency-analyzer-cli-evidence-ingestion]]"
     description: "消费保留出现位置的依赖与 classpath 事实。"
@@ -24,7 +23,7 @@ Dependency Trees 将单侧依赖证据整理为解析视图，或比较两侧结
 - Tree Analyze：输入一个 bounded snapshot；输出 Repository、Reactor、Module 与 conflict results。
 - Tree Diff：输入 baseline 与 target snapshot；结构不一致时输出 `STRUCTURE_MISMATCH`，不推导整 Module 全量 dependency 变化。
 
-## Code Mapping
+## Code Diagram
 
 单侧分析入口是 `tree/TreeExecutionEngine`；双侧编排由 `TreeDiffExecutionEngine` 承担，依赖变化分类集中在 `TreeDiffEngine`。两种入口共享采集事实，双侧比较保留独立领域模型。
 

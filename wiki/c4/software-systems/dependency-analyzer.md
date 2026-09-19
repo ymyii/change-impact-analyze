@@ -1,6 +1,10 @@
 ---
 name: "Dependency Analyzer"
 type: software-system
+children:
+  - target: "[[c4/containers/dependency-analyzer-cli]]"
+  - target: "[[c4/containers/dependency-analyzer-evidence-plugin]]"
+  - target: "[[c4/containers/dependency-analyzer-offline-report]]"
 relations:
   - target: "[[c4/software-systems/git]]"
     description: "读取本地代码库状态并准备隔离的 commit worktree。"
@@ -19,6 +23,20 @@ Dependency Analyzer 帮助 [Software Developer](../actors/software-developer.md)
 - 将用户选择的 repository path 与 local ref 限制为可验证的 [Bounded Maven Scope](../../glossary/bounded-maven-scope.md)。
 - 采集 dependency、classpath、bytecode 和 Call Graph evidence，并保留 [Coverage Limitation](../../glossary/coverage-limitation.md) 与失败状态。
 - 发布无需 HTTP server 的 Impact、Tree Analyze 和 Tree Diff 报告。
+
+## Container Diagram
+
+```mermaid
+C4Container
+    title Container diagram for Dependency Analyzer
+    System_Boundary(analyzer, "Dependency Analyzer") {
+        Container(cli, "CLI", "Java 17 / Picocli", "协调命令、分析和发布")
+        Container(plugin, "Evidence Plugin", "Maven Plugin", "在 Maven session 内采集结构化证据")
+        Container(report, "Offline Report", "HTML / CSS / JavaScript", "展示冻结的分析结果")
+    }
+    Rel(cli, plugin, "请求依赖与 classpath 证据")
+    Rel(cli, report, "写入离线报告数据与资源")
+```
 
 ## Boundaries
 

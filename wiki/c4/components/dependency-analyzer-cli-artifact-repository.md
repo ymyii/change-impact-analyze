@@ -1,7 +1,6 @@
 ---
 name: "Artifact Repository"
 type: component
-parent: "[[c4/containers/dependency-analyzer-cli]]"
 relations: []
 ---
 
@@ -20,7 +19,7 @@ Artifact Repository 管理 Maven 逻辑坐标到物理 JAR 的绑定，为 CLI �
 - `IJarRepository`：按逻辑坐标获取租约；坐标未绑定、文件不可用或 repository 已关闭时明确失败。
 - `JarLease`：在 close 时释放并注销实际 `JarFile` handle。
 
-## Code Mapping
+## Code Diagram
 
 逻辑坐标到物理文件的绑定由 `jar/CoordinateJarRepository` 负责；调用者通过接口取得短期租约，避免持有未受管理的文件句柄。
 

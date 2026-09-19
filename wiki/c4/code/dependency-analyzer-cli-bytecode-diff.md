@@ -1,7 +1,6 @@
 ---
 name: "Bytecode Diff Code"
 type: code
-parent: "[[c4/components/dependency-analyzer-cli-bytecode-diff]]"
 relations: []
 ---
 
@@ -12,17 +11,12 @@ Bytecode Diff 的内部实现把 class 结构比较、方法体等价判断和�
 ## Code Structure
 
 ```mermaid
-classDiagram
-    class BytecodeDiffEngine
-    class JarClassIndexer
-    class MethodBodyDecompiler
-    class BytecodeSsaFilter
-    class BytecodeDiffResult
-    class ServiceLoaderResourceDiffEngine
-    BytecodeDiffEngine ..> JarClassIndexer : 建立两侧结构索引
-    BytecodeDiffEngine --> MethodBodyDecompiler : 比较反编译文本
-    BytecodeDiffEngine --> BytecodeSsaFilter : 比较剩余候选
-    BytecodeDiffEngine ..> BytecodeDiffResult : 汇总事实与证据
+flowchart LR
+    engine["BytecodeDiffEngine"] --> indexer["JarClassIndexer"]
+    engine --> decompiler["MethodBodyDecompiler"]
+    engine --> ssa["BytecodeSsaFilter"]
+    engine --> result["BytecodeDiffResult"]
+    resource["ServiceLoaderResourceDiffEngine"] --> result
 ```
 
 结构入口位于 `analyzer/src/main/java/io/github/dependencyanalysis/bytecode/BytecodeDiffEngine.java`。`JarClassIndexer` 将 class 内容转换为结构索引，使 class、成员、描述符和访问权限比较不依赖 JAR 条目顺序。

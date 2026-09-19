@@ -1,7 +1,8 @@
 ---
 name: "Impact Tracing"
 type: component
-parent: "[[c4/containers/dependency-analyzer-cli]]"
+children:
+  - target: "[[c4/code/dependency-analyzer-cli-impact-tracing]]"
 relations:
   - target: "[[c4/components/dependency-analyzer-cli-evidence-ingestion]]"
     description: "消费两侧依赖树与已解析 artifact 绑定。"
@@ -28,7 +29,7 @@ Impact Tracing 将已确认保留的[变化点（Change Point）](../../glossary
 - Impact execution：输入 baseline/target scope、selector 与 command-wide graph policy；输出 Module status、dependency change、affected path 和 limitation。
 - Query contract：以 logical artifact、member identity 与 Module ownership 绑定 seed；source line 和 physical path 不参与主键。
 
-## Code Mapping
+## Code Diagram
 
 执行接口 `impact/ImpactExecutionEngine` 隔离命令层与具体编排；`PerModuleImpactPipeline` 汇总模块结果，返回报告可消费的分析结果。
 

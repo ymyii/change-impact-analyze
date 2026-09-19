@@ -1,7 +1,18 @@
 ---
 name: "CLI"
 type: container
-parent: "[[c4/software-systems/dependency-analyzer]]"
+children:
+  - target: "[[c4/components/dependency-analyzer-cli-artifact-repository]]"
+  - target: "[[c4/components/dependency-analyzer-cli-bytecode-diff]]"
+  - target: "[[c4/components/dependency-analyzer-cli-call-graph-engine]]"
+  - target: "[[c4/components/dependency-analyzer-cli-command-control]]"
+  - target: "[[c4/components/dependency-analyzer-cli-dependency-trees]]"
+  - target: "[[c4/components/dependency-analyzer-cli-evidence-ingestion]]"
+  - target: "[[c4/components/dependency-analyzer-cli-impact-tracing]]"
+  - target: "[[c4/components/dependency-analyzer-cli-jdk-method-models]]"
+  - target: "[[c4/components/dependency-analyzer-cli-maven-runtime]]"
+  - target: "[[c4/components/dependency-analyzer-cli-report-publication]]"
+  - target: "[[c4/components/dependency-analyzer-cli-workspace-scope]]"
 relations:
   - target: "[[c4/containers/dependency-analyzer-evidence-plugin]]"
     description: "请求结构化依赖与 classpath 证据。"
@@ -43,6 +54,32 @@ Dependency Analyzer CLI 是本地命令行应用，协调输入校验、workspac
 ## State and Data
 
 每次 command 拥有独立 run directory、worktree、evidence cache 与 report staging；owner identity 和完成标记限制清理与发布范围。
+
+## Component Diagram
+
+```mermaid
+C4Component
+    title Component diagram for CLI
+    Container_Boundary(cli, "CLI") {
+        Component(command, "Command Control", "Picocli", "解析命令并管理生命周期")
+        Component(scope, "Workspace Scope", "Git / Maven", "准备快照与范围")
+        Component(runtime, "Maven Runtime", "Maven", "解析并执行构建")
+        Component(evidence, "Evidence Ingestion", "JSON", "摄取结构化证据")
+        Component(trees, "Dependency Trees", "Java", "分析依赖树")
+        Component(diff, "Bytecode Diff", "ASM / WALA", "提取变化点")
+        Component(graph, "Call Graph Engine", "WALA", "构建调用图")
+        Component(impact, "Impact Tracing", "Java", "追踪影响路径")
+        Component(jars, "Artifact Repository", "JAR", "管理 artifact 租约")
+        Component(jdk, "JDK Method Models", "WALA models", "提供 JDK 方法模型")
+        Component(publication, "Report Publication", "HTML", "发布结果")
+    }
+    Rel(command, scope, "下发范围")
+    Rel(command, impact, "启动影响分析")
+    Rel(trees, evidence, "消费依赖事实")
+    Rel(impact, diff, "请求变化点")
+    Rel(impact, graph, "查询调用图")
+    Rel(impact, publication, "提交冻结结果")
+```
 
 ## Boundaries
 

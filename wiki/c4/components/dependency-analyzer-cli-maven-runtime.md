@@ -1,7 +1,6 @@
 ---
 name: "Maven Runtime"
 type: component
-parent: "[[c4/containers/dependency-analyzer-cli]]"
 relations:
   - target: "[[c4/software-systems/apache-maven]]"
     description: "探测并执行所选 Maven 安装。"
@@ -35,7 +34,7 @@ Maven Runtime 选择 Maven executable、Java home、settings 与内嵌 Plugin re
 - Runtime descriptor：一次解析后供 scope resolver 与全部 Maven stage 共用；缺失 executable、非法版本或损坏 embedded artifact 时停止 command。
 - Build execution：接受 immutable scope plan 与安全 Maven token；返回 exit code、bounded Console evidence 和 output locations。
 
-## Code Mapping
+## Code Diagram
 
 `runtime/MavenRuntimeManager` 负责选择和校验运行环境，`MavenExecutor` 使用冻结的描述执行命令。进程启动遵循[命令解析规则](../../rules/process-command-resolution.md)。
 

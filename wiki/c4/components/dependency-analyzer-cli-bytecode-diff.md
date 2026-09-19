@@ -1,7 +1,8 @@
 ---
 name: "Bytecode Diff"
 type: component
-parent: "[[c4/containers/dependency-analyzer-cli]]"
+children:
+  - target: "[[c4/code/dependency-analyzer-cli-bytecode-diff]]"
 relations:
   - target: "[[c4/components/dependency-analyzer-cli-artifact-repository]]"
     description: "通过受控租约读取新旧依赖 JAR。"
@@ -28,7 +29,7 @@ Bytecode Diff 将版本发生变化的逻辑 artifact 对转换为 [Change Point
 - Artifact-pair diff：输入 logical coordinate pair 与 leases；输出稳定排序的 effective ChangePoint、comparison evidence 与 pair failure。
 - Method-body filtering：Java text 或 SSA 等价时抑制 candidate；`DIFFERENT` 或 `UNKNOWN` fail-open 保留。
 
-## Code Mapping
+## Code Diagram
 
 单个依赖版本对的结构与方法体比较由 `bytecode/BytecodeDiffEngine` 提供；ServiceLoader 注册资源由独立入口比较，调用方合并结果。
 

@@ -1,7 +1,6 @@
 ---
 name: "Call Graph Engine Code"
 type: code
-parent: "[[c4/components/dependency-analyzer-cli-call-graph-engine]]"
 relations: []
 ---
 
@@ -12,24 +11,13 @@ Call Graph Engine 将构图装配、算法选择与查询会话分开。不可�
 ## Code Structure
 
 ```mermaid
-classDiagram
-    class ModuleCallGraphEngine
-    class ModuleCallGraphInput
-    class CallGraphBuildContext
-    class CallGraphStrategyFactory
-    class CallGraphAlgorithmStrategy {
-        <<interface>>
-    }
-    class ChaCallGraphStrategy
-    class KObjCallGraphStrategy
-    class ModuleCallGraphSession
-    ModuleCallGraphEngine ..> ModuleCallGraphInput : 读取
-    ModuleCallGraphEngine ..> CallGraphBuildContext : 装配
-    ModuleCallGraphEngine ..> CallGraphStrategyFactory : 选择算法
-    CallGraphStrategyFactory ..> CallGraphAlgorithmStrategy : 返回策略
-    CallGraphAlgorithmStrategy <|.. ChaCallGraphStrategy
-    CallGraphAlgorithmStrategy <|.. KObjCallGraphStrategy
-    ModuleCallGraphEngine ..> ModuleCallGraphSession : 封装构图结果
+flowchart LR
+    engine["ModuleCallGraphEngine"] --> input["ModuleCallGraphInput"]
+    engine --> context["CallGraphBuildContext"]
+    engine --> factory["CallGraphStrategyFactory"]
+    factory --> cha["ChaCallGraphStrategy"]
+    factory --> kobj["KObjCallGraphStrategy"]
+    engine --> session["ModuleCallGraphSession"]
 ```
 
 统一入口位于 `analyzer/src/main/java/io/github/dependencyanalysis/callgraph/engine/ModuleCallGraphEngine.java`。它准备分析范围、类层次与业务入口，再通过 `CallGraphBuildContext` 向策略传递构图资源。构图超时预算包含前置准备的耗时；准备阶段耗尽预算也应判为超时。

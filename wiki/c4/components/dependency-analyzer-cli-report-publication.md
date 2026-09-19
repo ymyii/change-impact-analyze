@@ -1,7 +1,6 @@
 ---
 name: "Report Publication"
 type: component
-parent: "[[c4/containers/dependency-analyzer-cli]]"
 relations:
   - target: "[[c4/containers/dependency-analyzer-offline-report]]"
     description: "写入版本化 schema、callback shard 与静态用户界面资源。"
@@ -23,7 +22,7 @@ Report Publication 将冻结的 Impact、Tree Analyze 与 Tree Diff 结果分别
 - Frozen report input：接收已脱离 live Call Graph 引用的领域结果；报告所需路径、指标与证据必须先冻结，工作区和命令缓存可以持续到发布结束。
 - Publication boundary：staging 内容通过 marker、signature 与 path 检查后提交；失败时不暴露半成品入口。
 
-## Code Mapping
+## Code Diagram
 
 Impact 使用 `report/PerModuleHtmlReportGenerator`；Tree 的两个 renderer 位于 `tree/`，分别创建增量发布会话。修改发布边界时须同时检查入口可见性与报告完整性，不能只检查 HTML 内容。
 
