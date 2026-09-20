@@ -28,3 +28,6 @@ dependency-reduced-pom.xml
 # OS
 .DS_Store
 Thumbs.db
+
+# Local build environment
+/.env

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Wiki: wiki/runbooks/build-test-and-package.md - Local build configuration
+build_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd -- "$build_root"
+
+if [[ -f .env ]]; then
+    set -a
+    source ./.env
+    set +a
+fi
+
+exec mvn "$@"

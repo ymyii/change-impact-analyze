@@ -20,7 +20,7 @@
         <revision>3.0.0-SNAPSHOT</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.build.outputTimestamp>2026-08-04T14:50:44Z</project.build.outputTimestamp>
-        <test.jdk8.home>/absolute/path/to/jdk8</test.jdk8.home>
+        <test.jdk8.home>${env.TEST_JDK8_HOME}</test.jdk8.home>
 
         <artifact-path-plugin.version>3.1.0-SNAPSHOT</artifact-path-plugin.version>
         <jdk8-models.version>0.1.0-SNAPSHOT</jdk8-models.version>
@@ -173,7 +173,7 @@
                                         <file>${test.jdk8.home}/bin/javac</file>
                                         <file>${test.jdk8.home}/jre/lib/rt.jar</file>
                                     </files>
-                                    <message>test.jdk8.home must point to a complete JDK 8</message>
+                                    <message>test.jdk8.home must point to a complete JDK 8; configure TEST_JDK8_HOME in .env and use ./mvn-local, or pass -Dtest.jdk8.home</message>
                                 </requireFilesExist>
                             </rules>
                         </configuration>

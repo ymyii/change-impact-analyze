@@ -10,7 +10,7 @@ type: runbook
 ## Prerequisites
 
 - Java 17 JDK、Maven 3.x 与 Git 可用。
-- `test.jdk8.home` 指向 absolute、完整 JDK 8；其他环境传入 `-Dtest.jdk8.home=/absolute/path/to/jdk8`。
+- 按 [Build Test and Package](build-test-and-package.md) 配置本机 `.env` 或传入 `-Dtest.jdk8.home=/absolute/path/to/jdk8`。
 - 已确定公共 engine、JDK 8 model、Plugin 与 Analyzer 的兼容 Stable versions。
 - 所有 command 从 repository root 执行。
 
@@ -19,13 +19,13 @@ type: runbook
 1. 开发周期内设置并复用计划 release 的 Snapshot versions。
 
    ```sh
-   mvn -f plugins/pom.xml versions:set-property \
+   ./mvn-local -f plugins/pom.xml versions:set-property \
      -Dproperty=revision -DnewVersion=3.1.0-SNAPSHOT \
      -DgenerateBackupPoms=false
-   mvn versions:set-property \
+   ./mvn-local versions:set-property \
      -Dproperty=revision -DnewVersion=3.0.0-SNAPSHOT \
      -DgenerateBackupPoms=false
-   mvn versions:set-property \
+   ./mvn-local versions:set-property \
      -Dproperty=artifact-path-plugin.version \
      -DnewVersion=3.1.0-SNAPSHOT \
      -DgenerateBackupPoms=false
@@ -34,39 +34,39 @@ type: runbook
 2. Source 变化后按 dependency 顺序刷新 Snapshot artifacts。
 
    ```sh
-   mvn -f models/jdk/pom.xml clean install
-   mvn -f models/jdk8/pom.xml clean install
-   mvn -f plugins/pom.xml clean install
-   mvn clean verify
+   ./mvn-local -f models/jdk/pom.xml clean install
+   ./mvn-local -f models/jdk8/pom.xml clean install
+   ./mvn-local -f plugins/pom.xml clean install
+   ./mvn-local clean verify
    ```
 
 3. Release 时将两个 model POM project version 与 `models/jdk8/pom.xml` 的公共 engine dependency 切换为选定 Stable versions，再安装。
 
    ```sh
-   mvn -f models/jdk/pom.xml -Prelease clean install
-   mvn -f models/jdk8/pom.xml -Prelease clean install
+   ./mvn-local -f models/jdk/pom.xml -Prelease clean install
+   ./mvn-local -f models/jdk8/pom.xml -Prelease clean install
    ```
 
 4. 将 Plugin `revision` 切换为 Stable version，并安装 Plugin 与 repository ZIP。
 
    ```sh
-   mvn -f plugins/pom.xml versions:set-property \
+   ./mvn-local -f plugins/pom.xml versions:set-property \
      -Dproperty=revision -DnewVersion=3.1.0 \
      -DgenerateBackupPoms=false
-   mvn -f plugins/pom.xml -Prelease clean install
+   ./mvn-local -f plugins/pom.xml -Prelease clean install
    ```
 
 5. 将 Analyzer `revision`、`artifact-path-plugin.version` 与 `jdk8-models.version` 切换为对应 Stable versions。
 
    ```sh
-   mvn versions:set-property \
+   ./mvn-local versions:set-property \
      -Dproperty=revision -DnewVersion=3.0.0 \
      -DgenerateBackupPoms=false
-   mvn versions:set-property \
+   ./mvn-local versions:set-property \
      -Dproperty=artifact-path-plugin.version \
      -DnewVersion=3.1.0 \
      -DgenerateBackupPoms=false
-   mvn versions:set-property \
+   ./mvn-local versions:set-property \
      -Dproperty=jdk8-models.version -DnewVersion=0.1.0 \
      -DgenerateBackupPoms=false
    ```
@@ -74,7 +74,7 @@ type: runbook
 6. 执行 release quality gate，并检查 packaged version。
 
    ```sh
-   mvn -Prelease clean verify
+   ./mvn-local -Prelease clean verify
    java -jar target/dependency-analyzer.jar --version
    ```
 

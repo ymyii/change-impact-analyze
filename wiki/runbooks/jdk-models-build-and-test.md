@@ -10,7 +10,7 @@ type: runbook
 ## Prerequisites
 
 - Maven command 使用 Java 17 JDK 与 Maven 3.x。
-- `test.jdk8.home` 指向包含 `bin/java`、`bin/javac` 与 `jre/lib/rt.jar` 的完整 JDK 8。
+- 按 [Build Test and Package](build-test-and-package.md) 配置本机 `.env` 或传入 `-Dtest.jdk8.home=/absolute/path/to/jdk8`。
 - 所有 command 从 repository root 执行。
 
 ## Procedure
@@ -18,25 +18,25 @@ type: runbook
 1. 构建并安装公共 model engine。
 
    ```sh
-   mvn -f models/jdk/pom.xml clean install
+   ./mvn-local -f models/jdk/pom.xml clean install
    ```
 
 2. 构建并安装 JDK 8 model artifact。
 
    ```sh
-   mvn -f models/jdk8/pom.xml clean install
+   ./mvn-local -f models/jdk8/pom.xml clean install
    ```
 
 3. 验证 Analyzer 对两个 artifacts 的集成与 packaging。
 
    ```sh
-   mvn clean verify
+   ./mvn-local clean verify
    ```
 
 4. 需要聚焦公共 catalog/API 时执行对应 tests。
 
    ```sh
-   mvn -f models/jdk/pom.xml \
+   ./mvn-local -f models/jdk/pom.xml \
      -Dtest=JdkModelDefinitionTest,JdkModelCatalogTest,JdkModelsTest,JdkRuntimeCompatibilityTest \
      test
    ```
@@ -44,13 +44,13 @@ type: runbook
 5. 需要聚焦 Synthetic IR template 时执行 template gate。
 
    ```sh
-   mvn -f models/jdk/pom.xml -Dtest=JdkSummaryTemplateTest test
+   ./mvn-local -f models/jdk/pom.xml -Dtest=JdkSummaryTemplateTest test
    ```
 
 6. 公共 engine 已安装后，执行 JDK 8 fixed-point acceptance。
 
    ```sh
-   mvn -f models/jdk8/pom.xml \
+   ./mvn-local -f models/jdk8/pom.xml \
      -Dtest=Jdk8ModelFixedPointAcceptanceTest \
      test
    ```
