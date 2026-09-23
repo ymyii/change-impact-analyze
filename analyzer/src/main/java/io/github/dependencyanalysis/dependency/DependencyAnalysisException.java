@@ -23,34 +23,27 @@ public class DependencyAnalysisException
     /** Process exit code. */
     private final int exitCode;
 
-    /** Combined process output tail. */
-    private final String stderr;
-
     /**
      * Creates a new dependency analysis
-     * exception with full process
-     * diagnostics.
+     * exception with structured process
+     * failure fields.
      *
      * @param s    side that failed
      * @param mod  module path string
      * @param cmd  command executed
      * @param code exit code
-     * @param err  combined process output tail
      */
     public DependencyAnalysisException(
             final String s,
             final String mod,
             final String cmd,
-            final int code,
-            final String err) {
+            final int code) {
         super(buildMessage(
-                s, mod, cmd, code,
-                err));
+                s, mod, cmd, code));
         this.side = s;
         this.module = mod;
         this.command = cmd;
         this.exitCode = code;
-        this.stderr = err;
     }
 
     /**
@@ -66,7 +59,6 @@ public class DependencyAnalysisException
         this.module = null;
         this.command = null;
         this.exitCode = -1;
-        this.stderr = null;
     }
 
     /**
@@ -84,7 +76,6 @@ public class DependencyAnalysisException
         this.module = null;
         this.command = null;
         this.exitCode = -1;
-        this.stderr = null;
     }
 
     /**
@@ -123,21 +114,11 @@ public class DependencyAnalysisException
         return exitCode;
     }
 
-    /**
-     * Returns the stderr summary.
-     *
-     * @return stderr text or null
-     */
-    public String getStderr() {
-        return stderr;
-    }
-
     private static String buildMessage(
             final String s,
             final String mod,
             final String cmd,
-            final int code,
-            final String err) {
+            final int code) {
         final StringBuilder sb =
                 new StringBuilder();
         sb.append(
@@ -149,9 +130,7 @@ public class DependencyAnalysisException
                 .append(", command=")
                 .append(cmd)
                 .append(", exitCode=")
-                .append(code)
-                .append(", stderr=")
-                .append(err);
+                .append(code);
         return sb.toString();
     }
 }

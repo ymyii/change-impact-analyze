@@ -1283,14 +1283,23 @@ public final class PerModuleHtmlReportGenerator {
         body.append("<section id=\"preflight\"><h2>Preflight checks</h2>")
                 .append("<details><summary>Technical details</summary>")
                 .append("<table><tr><th>Check</th><th>Status</th>")
-                .append("<th>Evidence</th></tr>");
+                .append("<th>Result</th></tr>");
         for (PreflightResult result : preflight.getResults()) {
             body.append("<tr><td>").append(escape(result.getCheckId()))
                     .append("</td><td>")
                     .append(escape(result.getStatus().name()))
                     .append("</td><td>")
-                    .append(escape(result.getEvidence()))
-                    .append("</td></tr>");
+                    .append(escape(result.getSummary()));
+            if (!result.getEvidence().isBlank()) {
+                body.append("<br><span class=\"muted\">")
+                        .append(escape(result.getEvidence()))
+                        .append("</span>");
+            }
+            if (!result.getFallback().isBlank()) {
+                body.append("<br>")
+                        .append(escape(result.getFallback()));
+            }
+            body.append("</td></tr>");
         }
         body.append("</table></details></section>");
     }

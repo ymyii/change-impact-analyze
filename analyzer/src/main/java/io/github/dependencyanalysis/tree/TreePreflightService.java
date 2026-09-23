@@ -56,9 +56,6 @@ import java.util.Set;
 /** Builds the tree command-level check graph. */
 final class TreePreflightService {
 
-    /** Maximum retained Maven output lines. */
-    private static final int MAVEN_TAIL_LINES = 100;
-
     /** Snapshot key. */
     static final String SNAPSHOT = "tree.snapshot";
 
@@ -176,7 +173,7 @@ final class TreePreflightService {
                                 run.getWorkspaceDirectory();
                         final RepositorySnapshot snapshot =
                                 context.own(
-                                        new GitSnapshotProvider()
+                                        new GitSnapshotProvider(diagnostics)
                                                 .open(path
                                                         .toPath(),
                                                         ref,
@@ -190,7 +187,14 @@ final class TreePreflightService {
                     } catch (Exception exception) {
                         return PreflightOutcome.fail(
                                 "Repository snapshot failed",
-                                exception.getMessage(), "");
+                                "exception="
+                                        + exception.getClass().getName()
+                                        + "; path="
+                                        + path.toPath().toAbsolutePath()
+                                        .normalize()
+                                        + (ref == null || ref.isBlank()
+                                        ? ""
+                                        : "; ref=" + ref), "");
                     }
                 }));
         checks.add(command("tree.root-pom",
@@ -341,16 +345,15 @@ final class TreePreflightService {
                                 .getRoot(),
                         List.of("--version"), diagnostics,
                         DiagnosticContext.of(
-                                "preflight", "maven-version"),
-                        MAVEN_TAIL_LINES);
+                                "preflight", "maven-version"));
         if (result.getExitCode() != 0) {
             return PreflightOutcome.fail(
                     "Maven executable cannot run",
-                    result.getCombinedOutput(), "");
+                    "exitCode=" + result.getExitCode(), "");
         }
         final MavenVersion version =
                 MavenVersion.parse(
-                        result.getCombinedOutput());
+                        result.getStandardOutput());
         if (!version.isSupported()) {
             return PreflightOutcome.fail(
                     "Unsupported Maven version",
@@ -359,9 +362,9 @@ final class TreePreflightService {
                     "");
         }
         context.put(MAVEN_RUNTIME,
-                runtime.withProbe(version, result.getCombinedOutput()));
+                runtime.withProbe(version, result.getStandardOutput()));
         context.put(MAVEN_VERSION_OUTPUT,
-                result.getCombinedOutput());
+                result.getStandardOutput());
         return PreflightOutcome.pass(
                 "Maven version is supported",
                 MavenRuntimeEvidence.version(version));
@@ -392,7 +395,7 @@ final class TreePreflightService {
             final PreflightContext context)
             throws Exception {
         final RepositoryInventory inventory =
-                new ReactorInventoryBuilder().build(
+                new ReactorInventoryBuilder(diagnostics).build(
                         context.get(SNAPSHOT,
                                 RepositorySnapshot.class).getRoot(),
                         context.get(SNAPSHOT,

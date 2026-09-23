@@ -1,5 +1,7 @@
 package io.github.dependencyanalysis.cli;
 
+import io.github.dependencyanalysis.diagnostic.LogVerbosity;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -82,5 +84,20 @@ class MavenArgumentsTest {
                         List.of("package"), repository))
                 .isInstanceOf(
                         IllegalArgumentException.class);
+    }
+    @Test
+    void mapsNativeLoggingWithoutForcingErrors() {
+        final var info = LogVerbosity.INFO;
+        final var debug = LogVerbosity.DEBUG;
+        final var trace = LogVerbosity.TRACE;
+        assertThat(MavenArguments.withVerbosity(List.of("compile"), info))
+                .containsExactly("compile");
+        assertThat(MavenArguments.withVerbosity(List.of("compile"), debug))
+                .containsExactly("compile", "-X");
+        assertThat(MavenArguments.withVerbosity(List.of("compile"), trace))
+                .containsExactly("compile", "-X");
+        assertThat(MavenArguments.withVerbosity(List.of(
+                "--debug", "-X", "--errors", "-e", "compile"), info))
+                .containsExactly("--debug", "--errors", "compile");
     }
 }

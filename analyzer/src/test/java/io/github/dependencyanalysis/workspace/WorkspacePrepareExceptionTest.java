@@ -46,7 +46,7 @@ class WorkspacePrepareExceptionTest {
                 .isEqualTo(Paths.get("/p"));
         assertThat(ex.getGitExitCode())
                 .isEqualTo(1);
-        assertThat(ex.getGitStderr())
+        assertThat(ex.getReason())
                 .isEqualTo("error text");
     }
 

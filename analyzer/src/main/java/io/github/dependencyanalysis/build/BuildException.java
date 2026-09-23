@@ -23,9 +23,6 @@ public class BuildException
     /** Process exit code. */
     private final int exitCode;
 
-    /** Combined process output tail. */
-    private final String stderr;
-
     /**
      * Creates a new build exception.
      *
@@ -33,22 +30,18 @@ public class BuildException
      * @param mod  module path string
      * @param cmd  command executed
      * @param code exit code
-     * @param err  combined process output tail
      */
     public BuildException(
             final String s,
             final String mod,
             final String cmd,
-            final int code,
-            final String err) {
+            final int code) {
         super(buildMessage(
-                s, mod, cmd, code,
-                err));
+                s, mod, cmd, code));
         this.side = s;
         this.module = mod;
         this.command = cmd;
         this.exitCode = code;
-        this.stderr = err;
     }
 
     /**
@@ -87,21 +80,11 @@ public class BuildException
         return exitCode;
     }
 
-    /**
-     * Returns the stderr summary.
-     *
-     * @return stderr text
-     */
-    public String getStderr() {
-        return stderr;
-    }
-
     private static String buildMessage(
             final String s,
             final String mod,
             final String cmd,
-            final int code,
-            final String err) {
+            final int code) {
         final StringBuilder sb =
                 new StringBuilder();
         sb.append("Build failed")
@@ -112,9 +95,7 @@ public class BuildException
                 .append(", command=")
                 .append(cmd)
                 .append(", exitCode=")
-                .append(code)
-                .append(", stderr=")
-                .append(err);
+                .append(code);
         return sb.toString();
     }
 }

@@ -1,10 +1,17 @@
 package io.github.dependencyanalysis.tree;
 
+import io.github.dependencyanalysis.util.ProcessConsoleResult;
+
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
+
+import io.github.dependencyanalysis.util.ProcessConsoleExecutor;
+
+import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
+
 import io.github.dependencyanalysis.util
         .CommandResolver;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -13,6 +20,24 @@ import java.util.List;
 
 /** Opens current checkout or detached local-ref snapshots. */
 public final class GitSnapshotProvider {
+
+    /** Console destination. */
+    private final DiagnosticLog diagnostics;
+
+    /** Creates a provider using the default Console destination. */
+    public GitSnapshotProvider() {
+        this(new DiagnosticLog());
+    }
+
+    /**
+     * Creates a provider for a command.
+     * @param log command Console destination
+     */
+    public GitSnapshotProvider(
+            final DiagnosticLog log) {
+        diagnostics = log;
+    }
+
 
     /**
      * Opens a repository snapshot.
@@ -125,23 +150,25 @@ public final class GitSnapshotProvider {
                 new ArrayList<>();
         command.add("git");
         command.addAll(List.of(arguments));
-        final Process process =
-                new ProcessBuilder(
-                        CommandResolver.resolve(command))
-                        .directory(directory.toFile())
-                        .redirectErrorStream(true)
-                        .start();
-        final String output = new String(
-                process.getInputStream().readAllBytes(),
-                StandardCharsets.UTF_8);
-        final int exitCode = process.waitFor();
+        final ProcessBuilder builder = new ProcessBuilder(
+                CommandResolver.resolve(command)).directory(directory.toFile());
+        final DiagnosticContext context =
+                DiagnosticContext.of(
+                        "workspace", "git." + arguments[0]);
+        final ProcessConsoleResult result =
+                arguments[0].equals("worktree")
+                ? ProcessConsoleExecutor.execute(
+                        builder, diagnostics, context)
+                : ProcessConsoleExecutor.executeData(
+                        builder, diagnostics, context);
+        final int exitCode = result.exitCode();
         if (exitCode != 0) {
             throw new IOException(
                     "Git command failed ("
                             + exitCode + "): "
-                            + output.trim());
+                            + arguments[0] + "; path=" + directory);
         }
-        return output;
+        return result.standardOutput();
     }
 
     private String optionalRun(

@@ -101,9 +101,8 @@ public final class PreflightRunner {
                             : blockingDecision(check);
             return new PreflightResult(
                     check, status, decision,
-                    "Check failed: "
-                            + exception.getMessage(),
-                    exception.getClass().getName(),
+                    "Check failed",
+                    "exception=" + exception.getClass().getName(),
                     status == PreflightStatus.WARN
                             ? "Use reduced capability"
                             : "",

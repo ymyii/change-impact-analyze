@@ -1251,7 +1251,7 @@ public final class TreeReportRenderer {
         value.append(sortableHeader("Dependency", "dependency"))
                 .append(sortableHeader("Scope", "scope"))
                 .append(sortableHeader("Resolved version", "version"))
-                .append("<th>Evidence</th></tr></thead><tbody>");
+                .append("<th>Result</th></tr></thead><tbody>");
         for (ConflictRow conflict : conflicts) {
             value.append("<tr data-module=\"")
                     .append(escape(conflict.module().toLowerCase(
@@ -1529,10 +1529,11 @@ public final class TreeReportRenderer {
                     .append(item.getDecision())
                     .append("</td><td>")
                     .append(escape(item.getSummary()))
-                    .append("<br><span class=\"muted\">")
-                    .append(escape(item.getEvidence()))
-                    .append("</span><br>")
-                    .append(escape(item.getFallback()))
+                    .append(item.getEvidence().isBlank()
+                            ? "" : "<br><span class=\"muted\">"
+                            + escape(item.getEvidence()) + "</span>")
+                    .append(item.getFallback().isBlank()
+                            ? "" : "<br>" + escape(item.getFallback()))
                     .append("</td></tr>");
         }
         return value.append("</table>").toString();

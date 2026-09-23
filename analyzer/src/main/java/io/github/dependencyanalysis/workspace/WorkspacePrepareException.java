@@ -25,8 +25,8 @@ public class WorkspacePrepareException
     /** Git process exit code. */
     private final int gitExitCode;
 
-    /** Git stderr summary. */
-    private final String gitStderr;
+    /** Failure reason. */
+    private final String reason;
 
     /**
      * Creates a new exception.
@@ -35,21 +35,21 @@ public class WorkspacePrepareException
      * @param cmt       commit ref
      * @param path      worktree path or null
      * @param exitCode  git exit code
-     * @param stderr    git stderr output
+     * @param failureReason    failure reason
      */
     public WorkspacePrepareException(
             final WorkspaceSide s,
             final String cmt,
             final Path path,
             final int exitCode,
-            final String stderr) {
+            final String failureReason) {
         super(buildMessage(
-                s, cmt, path, exitCode, stderr));
+                s, cmt, path, exitCode, failureReason));
         this.side = s;
         this.commit = cmt;
         this.worktreePath = path;
         this.gitExitCode = exitCode;
-        this.gitStderr = stderr;
+        this.reason = failureReason;
     }
 
     /**
@@ -89,12 +89,12 @@ public class WorkspacePrepareException
     }
 
     /**
-     * Returns the git stderr summary.
+     * Returns the failure reason.
      *
-     * @return stderr text
+     * @return reason text
      */
-    public String getGitStderr() {
-        return gitStderr;
+    public String getReason() {
+        return reason;
     }
 
     private static String buildMessage(
@@ -102,7 +102,7 @@ public class WorkspacePrepareException
             final String cmt,
             final Path path,
             final int exitCode,
-            final String stderr) {
+            final String failureReason) {
         final StringBuilder sb =
                 new StringBuilder();
         sb.append("Workspace prepare failed")
@@ -114,8 +114,8 @@ public class WorkspacePrepareException
                 .append(path)
                 .append(", exitCode=")
                 .append(exitCode)
-                .append(", stderr=")
-                .append(stderr);
+                .append(", reason=")
+                .append(failureReason);
         return sb.toString();
     }
 }

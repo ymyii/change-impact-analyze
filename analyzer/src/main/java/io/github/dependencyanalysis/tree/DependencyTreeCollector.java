@@ -19,9 +19,6 @@ import java.util.Set;
 /** Collects compile and Maven dependency tree evidence only. */
 final class DependencyTreeCollector {
 
-    /** Maximum retained Maven lines. */
-    private static final int TAIL_LINES = 100;
-
     /** Diagnostics. */
     private final DiagnosticLog diagnostics;
 
@@ -70,7 +67,7 @@ final class DependencyTreeCollector {
                     snapshot.getRoot(),
                     DependencyTreeCollectionSupport.arguments(
                             snapshot, reactor, pluginRuntime, outputName),
-                    diagnostics, context, TAIL_LINES);
+                    diagnostics, context);
             if (execution.getExitCode() == 0) {
                 diagnostics.endStage(context);
             } else {
@@ -95,8 +92,7 @@ final class DependencyTreeCollector {
                     .message(executionFailure));
         } else if (execution != null && execution.getExitCode() != 0) {
             reasons.add("Reactor Maven execution failed: "
-                    + TreeDependencyCollector.diagnosticTail(
-                    execution.getCombinedOutput()));
+                    + "exitCode=" + execution.getExitCode());
         }
 
         final boolean complete = MavenDependencyPluginRuntimeManager

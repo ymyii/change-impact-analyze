@@ -68,6 +68,25 @@ class PreflightRunnerTest {
     }
 
     @Test
+    void exceptionDetailsDoNotCopyRawMessageIntoResult() {
+        final PreflightCheck check = new SimplePreflightCheck(
+                "throws", "test", PreflightScope.COMMAND, "scope",
+                PreflightRequirement.REQUIRED, List.of(), context -> {
+                    throw new IllegalStateException(
+                            "simulated process log\nwith continuation");
+                });
+
+        final PreflightResult result = run(List.of(check))
+                .getResults().get(0);
+
+        assertThat(result.getSummary()).isEqualTo("Check failed");
+        assertThat(result.getEvidence())
+                .contains("java.lang.IllegalStateException")
+                .doesNotContain("simulated process log")
+                .doesNotContain("with continuation");
+    }
+
+    @Test
     void rejectsCycles() {
         assertThatThrownBy(() -> run(List.of(
                 check("a", List.of("b"),

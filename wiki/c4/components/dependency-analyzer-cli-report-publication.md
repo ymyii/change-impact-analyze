@@ -37,6 +37,8 @@ classDiagram
     TreeDiffReportRenderer ..> TreeDiffReportSession : 创建
 ```
 
+报告保留分析结果、检查状态和简短失败原因；运行日志、子进程输出和异常堆栈只属于控制台。预检查展示检查摘要及经过确认的结构化事实（例如版本、路径和退出码），依赖路径与代码差异等分析证据继续进入报告。
+
 ## State and Data
 
 Command report cache 可以暂存源码和 comparison evidence；成功或失败后清理，不跨 command 复用。已发布报告只包含允许的冻结 projection。

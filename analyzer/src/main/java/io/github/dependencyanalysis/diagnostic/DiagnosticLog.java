@@ -344,6 +344,17 @@ public final class DiagnosticLog {
         transientException(context, failure);
     }
 
+    /**
+     * Forwards one external line without interpreting its severity.
+     * @param context operation source
+     * @param line original line, including empty lines
+     */
+    public synchronized void processOutput(
+            final DiagnosticContext context, final String line) {
+        output.println(formatter.formatProcessSource(context) + " " + line);
+        output.flush();
+    }
+
     private long elapsedMillis(final DiagnosticContext context) {
         final Long started = stageStarts.remove(context.stableKey());
         return started == null ? 0L

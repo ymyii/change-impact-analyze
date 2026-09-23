@@ -35,9 +35,6 @@ import java.util.TreeSet;
 /** Executes two-sided dependency tree collection, diff, and publication. */
 final class TreeDiffExecutionEngine {
 
-    /** Maven output lines retained by version probing. */
-    private static final int MAVEN_TAIL_LINES = 100;
-
     /** Allowed dependency scopes. */
     private static final Set<String> ALLOWED_SCOPES = Set.of(
             "compile", "runtime", "provided", "test", "system");
@@ -225,7 +222,8 @@ final class TreeDiffExecutionEngine {
     private RepositorySnapshot openCurrent(final Path requestedPath)
             throws TreeDiffPreflightException {
         try {
-            return new GitSnapshotProvider().open(requestedPath, null);
+            return new GitSnapshotProvider(diagnostics)
+                    .open(requestedPath, null);
         } catch (Exception exception) {
             throw new TreeDiffPreflightException(
                     "Git repository preflight failed: "
@@ -307,28 +305,27 @@ final class TreeDiffExecutionEngine {
             final MavenExecutionResult probe = new MavenExecutor().execute(
                     runtime, current.getRoot(), List.of("--version"),
                     diagnostics, DiagnosticContext.of(
-                            "tree-diff", "maven-version"),
-                    MAVEN_TAIL_LINES);
+                            "tree-diff", "maven-version"));
             if (probe.getExitCode() != 0) {
                 throw new TreeDiffPreflightException(
                         "Maven executable cannot run: "
-                                + probe.getCombinedOutput());
+                                + "exitCode=" + probe.getExitCode());
             }
             final MavenVersion version = MavenVersion.parse(
-                    probe.getCombinedOutput());
+                    probe.getStandardOutput());
             if (!version.isSupported()) {
                 throw new TreeDiffPreflightException(
                         "Unsupported Maven version: " + version);
             }
             runtime = runtime.withProbe(version,
-                    probe.getCombinedOutput());
+                    probe.getStandardOutput());
             final MavenActivationContext activation =
                     MavenActivationContext.resolveFromMavenOutput(
-                            arguments, probe.getCombinedOutput(),
+                            arguments, probe.getStandardOutput(),
                             runtime.getExecutable(),
                             runtime.getDefaultGlobalSettings());
             return new PreparedRuntime(runtime, arguments,
-                    probe.getCombinedOutput(), activation);
+                    probe.getStandardOutput(), activation);
         } catch (TreeDiffPreflightException exception) {
             throw exception;
         } catch (Exception exception) {
@@ -370,7 +367,7 @@ final class TreeDiffExecutionEngine {
                 .withAnalysisPath(current.getAnalysisPath());
         try {
             final RepositoryInventory inventory =
-                    new ReactorInventoryBuilder().build(
+                    new ReactorInventoryBuilder(diagnostics).build(
                             snapshot.getRoot(), snapshot.getAnalysisPath(),
                             prepared.activation());
             final Map<String, ReactorDescriptor> descriptors =

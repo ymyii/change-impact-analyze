@@ -7,8 +7,11 @@ import io.github.dependencyanalysis.reactor.ReactorScopeMode;
 import io.github.dependencyanalysis.reactor.RepositoryInventory;
 import io.github.dependencyanalysis.reactor.MavenActivationContext;
 import io.github.dependencyanalysis.util.CommandResolver;
+import io.github.dependencyanalysis.util.ProcessConsoleExecutor;
+import io.github.dependencyanalysis.util.ProcessConsoleResult;
+import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -20,8 +23,26 @@ import java.util.Set;
 /** Resolves reactor-root and leaf-module execution modes. */
 final class ModuleScopePlanner {
 
+    /** Console destination. */
+    private final DiagnosticLog diagnostics;
+
     /** Minimum coordinate segments produced by the safe POM parser. */
     private static final int COORDINATE_SEGMENTS = 3;
+
+    /** Creates a planner using the default Console destination. */
+    ModuleScopePlanner() {
+        this(new DiagnosticLog());
+    }
+
+    /**
+     * Creates a planner using the supplied Console destination.
+     *
+     * @param diagnosticLog command diagnostics
+     */
+    ModuleScopePlanner(final DiagnosticLog diagnosticLog) {
+        diagnostics = java.util.Objects.requireNonNull(
+                diagnosticLog, "diagnosticLog");
+    }
 
     /**
      * Resolves the requested workspace path to one reactor scope.
@@ -53,7 +74,7 @@ final class ModuleScopePlanner {
         final Path relative = repositoryRoot.relativize(
                 requestedPath.toRealPath());
         final RepositoryInventory inventory =
-                new ReactorInventoryBuilder().build(
+                new ReactorInventoryBuilder(diagnostics).build(
                         repositoryRoot, relative, activation);
         final Path requestedPom = relative.resolve("pom.xml").normalize();
         final ReactorDescriptor reactor = selectReactor(
@@ -160,18 +181,17 @@ final class ModuleScopePlanner {
     }
 
     private Path gitRoot(final Path requestedPath) throws Exception {
-        final Process process = new ProcessBuilder(
-                CommandResolver.resolve(List.of("git", "rev-parse",
-                        "--show-toplevel")))
-                .directory(requestedPath.toFile())
-                .redirectErrorStream(true)
-                .start();
-        final String output = new String(process.getInputStream()
-                .readAllBytes(), StandardCharsets.UTF_8).trim();
-        if (process.waitFor() != 0) {
+        final ProcessConsoleResult result = ProcessConsoleExecutor.executeData(
+                new ProcessBuilder(CommandResolver.resolve(List.of(
+                        "git", "rev-parse", "--show-toplevel")))
+                        .directory(requestedPath.toFile()),
+                diagnostics, DiagnosticContext.of(
+                        "workspace", "git.rev-parse"));
+        if (result.exitCode() != 0) {
             throw new IllegalStateException(
-                    "Unable to resolve checkout root: " + output);
+                    "Unable to resolve checkout root: exitCode="
+                            + result.exitCode());
         }
-        return Path.of(output).toRealPath();
+        return Path.of(result.standardOutput().trim()).toRealPath();
     }
 }

@@ -1,6 +1,6 @@
 package io.github.dependencyanalysis.runtime;
 
-/** Captured Maven process result. */
+/** Maven exit status and optional stdout return data. */
 public final class MavenExecutionResult {
 
     /** Exit code. */
@@ -9,23 +9,17 @@ public final class MavenExecutionResult {
     /** Standard output. */
     private final String standardOutput;
 
-    /** Standard error. */
-    private final String standardError;
-
     /**
      * Creates a process result.
      *
      * @param code process exit code
      * @param stdout standard output
-     * @param stderr standard error
      */
     public MavenExecutionResult(
             final int code,
-            final String stdout,
-            final String stderr) {
+            final String stdout) {
         exitCode = code;
         standardOutput = stdout;
-        standardError = stderr;
     }
 
     /** @return process exit code */
@@ -38,13 +32,4 @@ public final class MavenExecutionResult {
         return standardOutput;
     }
 
-    /** @return standard error */
-    public String getStandardError() {
-        return standardError;
-    }
-
-    /** @return combined output */
-    public String getCombinedOutput() {
-        return standardOutput + "\n" + standardError;
-    }
 }

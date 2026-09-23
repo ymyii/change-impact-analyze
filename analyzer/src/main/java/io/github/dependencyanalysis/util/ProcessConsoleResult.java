@@ -1,12 +1,9 @@
 package io.github.dependencyanalysis.util;
 
 /**
- * Result of a process whose output was streamed to the Console.
- *
+ * Result of a process with streamed diagnostics.
  * @param exitCode process exit code
- * @param outputTail bounded combined output tail
+ * @param standardOutput stdout data, empty for logging commands
  */
-public record ProcessConsoleResult(
-        int exitCode,
-        String outputTail) {
+public record ProcessConsoleResult(int exitCode, String standardOutput) {
 }

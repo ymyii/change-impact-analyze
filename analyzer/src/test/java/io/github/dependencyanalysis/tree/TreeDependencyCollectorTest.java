@@ -11,40 +11,11 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Tree dependency collector diagnostics tests. */
 class TreeDependencyCollectorTest {
-
-    /** Total fixture lines. */
-    private static final int TOTAL_LINES = 105;
-
-    /** First retained line. */
-    private static final int FIRST_RETAINED_LINE = 6;
-
-    /** Expected diagnostic line count. */
-    private static final int EXPECTED_LINES = 100;
-
-    @Test
-    void diagnosticTailKeepsExactlyLastOneHundredLines() {
-        final String output = IntStream.rangeClosed(
-                        1, TOTAL_LINES)
-                .mapToObj(value -> String.format(
-                        "%03d", value))
-                .collect(Collectors.joining("\n")) + "\n\n";
-
-        final String tail = TreeDependencyCollector
-                .diagnosticTail(output);
-
-        assertThat(tail.lines()).hasSize(EXPECTED_LINES);
-        assertThat(tail).startsWith(String.format(
-                        "%03d", FIRST_RETAINED_LINE))
-                .endsWith("105")
-                .doesNotContain("005");
-    }
 
     @Test
     void excludesPurePomAggregatorsFromAnalysisModules() {

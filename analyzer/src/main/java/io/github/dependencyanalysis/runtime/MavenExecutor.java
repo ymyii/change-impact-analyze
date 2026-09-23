@@ -1,5 +1,7 @@
 package io.github.dependencyanalysis.runtime;
 
+import io.github.dependencyanalysis.cli.MavenArguments;
+
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis.util.CommandResolver;
@@ -7,7 +9,6 @@ import io.github.dependencyanalysis.util.ProcessConsoleExecutor;
 import io.github.dependencyanalysis.util.ProcessConsoleResult;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -16,7 +17,7 @@ import java.util.List;
 public final class MavenExecutor {
 
     /**
-     * Runs Maven and captures UTF-8 output.
+     * Runs Maven with the default Console destination.
      *
      * @param runtime selected runtime
      * @param workDir working directory
@@ -31,44 +32,19 @@ public final class MavenExecutor {
             final List<String> arguments)
             throws IOException,
             InterruptedException {
-        final List<String> command =
-                new ArrayList<>();
-        command.add(runtime.getExecutable()
-                .toString());
-        command.addAll(arguments);
-        final ProcessBuilder builder =
-                new ProcessBuilder(
-                        CommandResolver.resolve(
-                                command));
-        builder.directory(workDir.toFile());
-        builder.redirectErrorStream(true);
-        final Path javaHome = runtime.getJavaHome();
-        if (javaHome != null) {
-            builder.environment().put(
-                    "JAVA_HOME",
-                    javaHome.toString());
-        }
-        final Process process = builder.start();
-        final String stdout = new String(
-                process.getInputStream()
-                        .readAllBytes(),
-                StandardCharsets.UTF_8);
-        final int exitCode = process.waitFor();
-        return new MavenExecutionResult(
-                exitCode, stdout, "");
+        return execute(runtime, workDir, arguments, new DiagnosticLog(),
+                DiagnosticContext.of("maven", "execute"));
     }
 
     /**
-     * Runs Maven, streams classified output, and retains a bounded tail.
-     *
+     * Streams Maven logs, retaining stdout only for a version probe.
      * @param runtime selected runtime
      * @param workDir working directory
-     * @param arguments process tokens
-     * @param diagnostics command diagnostics
-     * @param context Maven process context
-     * @param tailLimit maximum retained output lines
-     * @return process result containing the bounded combined output tail
-     * @throws IOException when process cannot start
+     * @param arguments Maven arguments
+     * @param diagnostics Console destination
+     * @param context operation source
+     * @return exit status and optional version data
+     * @throws IOException on process or reader failure
      * @throws InterruptedException when interrupted
      */
     public MavenExecutionResult execute(
@@ -76,14 +52,17 @@ public final class MavenExecutor {
             final Path workDir,
             final List<String> arguments,
             final DiagnosticLog diagnostics,
-            final DiagnosticContext context,
-            final int tailLimit)
+            final DiagnosticContext context)
             throws IOException, InterruptedException {
-        final ProcessConsoleResult result = ProcessConsoleExecutor.execute(
-                processBuilder(runtime, workDir, arguments),
-                diagnostics, context, tailLimit);
+        final ProcessBuilder builder = processBuilder(runtime, workDir,
+                MavenArguments.withVerbosity(
+                        arguments, diagnostics.getVerbosity()));
+        final ProcessConsoleResult result = arguments.contains("--version")
+                ? ProcessConsoleExecutor.executeData(
+                        builder, diagnostics, context)
+                : ProcessConsoleExecutor.execute(builder, diagnostics, context);
         return new MavenExecutionResult(
-                result.exitCode(), result.outputTail(), "");
+                result.exitCode(), result.standardOutput());
     }
 
     private ProcessBuilder processBuilder(

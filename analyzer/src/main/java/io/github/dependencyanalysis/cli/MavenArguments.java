@@ -1,5 +1,7 @@
 package io.github.dependencyanalysis.cli;
 
+import io.github.dependencyanalysis.diagnostic.LogVerbosity;
+
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -128,6 +130,40 @@ public final class MavenArguments {
                     "Maven settings option requires a path");
         }
         return List.copyOf(result);
+    }
+
+    /**
+     * Maps verbosity to Maven and deduplicates equivalent diagnostic flags.
+     * @param arguments validated command arguments
+     * @param verbosity Analyzer verbosity
+     * @return Maven arguments with native logging options
+     */
+    public static List<String> withVerbosity(
+            final List<String> arguments,
+            final LogVerbosity verbosity) {
+        final List<String> result = new ArrayList<>();
+        boolean debug = false;
+        boolean errors = false;
+        for (String argument : arguments) {
+            if (argument.equals("-X") || argument.equals("--debug")) {
+                if (!debug) {
+                    result.add(argument);
+                }
+                debug = true;
+            } else if (argument.equals("-e") || argument.equals("--errors")) {
+                if (!errors) {
+                    result.add(argument);
+                }
+                errors = true;
+            } else {
+                result.add(argument);
+            }
+        }
+        if (!debug && verbosity.includes(
+                LogVerbosity.DEBUG)) {
+            result.add("-X");
+        }
+        return result;
     }
 
     private static boolean isInlinePath(

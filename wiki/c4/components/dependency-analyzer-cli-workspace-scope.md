@@ -45,6 +45,8 @@ classDiagram
 
 内部组织见 [Workspace Scope Code](../code/dependency-analyzer-cli-workspace-scope.md)。
 
+Git 查询的 stdout 用作 commit、路径和状态数据，stderr 实时写入控制台；worktree 操作的两个输出流均实时转发。各流并发读取，避免管道阻塞；失败结果只保留操作、路径和退出码。
+
 ## State and Data
 
 Owned worktree、run directory 和 marker 必须同时匹配 owner identity 才能清理；current workspace 的未提交修改只在其作为 target 时参与分析。

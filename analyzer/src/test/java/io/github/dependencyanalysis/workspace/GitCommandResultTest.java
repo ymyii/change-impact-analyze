@@ -12,13 +12,10 @@ class GitCommandResultTest {
     @Test
     void staticFactorySetsFields() {
         final GitCommandResult r =
-                GitCommandResult.of(
-                        0, "out", "err");
+                GitCommandResult.of(0, "out");
         assertThat(r.getExitCode()).isZero();
         assertThat(r.getStdout())
                 .isEqualTo("out");
-        assertThat(r.getStderr())
-                .isEqualTo("err");
     }
 
     /** Typical git fatal exit code. */
@@ -29,8 +26,7 @@ class GitCommandResultTest {
     void nonZeroExitCode() {
         final GitCommandResult r =
                 GitCommandResult.of(
-                        GIT_FATAL, "",
-                        "fatal");
+                        GIT_FATAL, "");
         assertThat(r.getExitCode())
                 .isEqualTo(GIT_FATAL);
     }
@@ -38,11 +34,9 @@ class GitCommandResultTest {
     @Test
     void toStringContainsFields() {
         final GitCommandResult r =
-                GitCommandResult.of(
-                        1, "hello", "bad");
+                GitCommandResult.of(1, "hello");
         final String s = r.toString();
         assertThat(s).contains("1");
         assertThat(s).contains("hello");
-        assertThat(s).contains("bad");
     }
 }

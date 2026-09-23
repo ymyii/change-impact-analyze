@@ -214,7 +214,8 @@ final class PerModuleImpactPipeline implements ImpactExecutionEngine {
             throws Exception {
         final Map<String, Long> elapsed = new LinkedHashMap<>();
         final long planningStart = System.currentTimeMillis();
-        final ModuleScopePlanner planner = new ModuleScopePlanner();
+        final ModuleScopePlanner planner = new ModuleScopePlanner(
+                diagnostics);
         final ReactorAnalysisScope baselineScope = planner.plan(
                 workspace.getBaseline().getPath(), mavenActivation);
         final ReactorAnalysisScope targetScope = planner.plan(

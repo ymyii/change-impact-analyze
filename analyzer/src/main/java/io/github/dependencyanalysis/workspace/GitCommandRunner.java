@@ -1,85 +1,56 @@
 package io.github.dependencyanalysis.workspace;
 
-import io.github.dependencyanalysis
-        .util.CommandResolver;
+import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
+import io.github.dependencyanalysis.util.CommandResolver;
+import io.github.dependencyanalysis.util.ProcessConsoleExecutor;
+import io.github.dependencyanalysis.util.ProcessConsoleResult;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.stream.Collectors;
 
-/**
- * Executes git commands via ProcessBuilder
- * and captures output.
- */
+/** Executes Git, keeping return data separate from streamed diagnostics. */
 final class GitCommandRunner {
 
-    /** Working directory for git commands. */
+    /** Git working directory. */
     private final Path workDir;
 
+    /** Console destination. */
+    private final DiagnosticLog diagnostics;
+
     /**
-     * Creates a runner bound to a directory.
-     *
-     * @param directory working directory
+     * Creates a runner.
+     * @param directory Git working directory
+     * @param log Console destination
      */
-    GitCommandRunner(final Path directory) {
-        this.workDir = directory;
+    GitCommandRunner(final Path directory, final DiagnosticLog log) {
+        workDir = directory;
+        diagnostics = log;
     }
 
     /**
-     * Runs a git command with the given args.
-     *
-     * @param args git sub-command and args
-     * @return command result
-     * @throws IOException if process fails
-     * @throws InterruptedException if interrupted
+     * Runs Git with concurrent stream readers.
+     * @param args Git arguments
+     * @return exit status and command return data
+     * @throws IOException on process or reader failure
+     * @throws InterruptedException when interrupted
      */
-    GitCommandResult run(
-            final String... args)
-            throws IOException,
-            InterruptedException {
-        final List<String> cmd =
-                new ArrayList<>();
-        cmd.add("git");
-        cmd.addAll(Arrays.asList(args));
-        final List<String> resolved =
-                CommandResolver.resolve(
-                        cmd);
-        final ProcessBuilder pb =
-                new ProcessBuilder(
-                        resolved)
-                        .directory(
-                                workDir.toFile())
-                        .redirectErrorStream(
-                                false);
-        final Process proc = pb.start();
-        final String out = readStream(
-                proc.getInputStream());
-        final String err = readStream(
-                proc.getErrorStream());
-        final int code = proc.waitFor();
-        return GitCommandResult.of(
-                code, out, err);
-    }
-
-    private String readStream(
-            final InputStream is)
-            throws IOException {
-        try (BufferedReader reader =
-                new BufferedReader(
-                        new InputStreamReader(
-                                is,
-                                StandardCharsets
-                                        .UTF_8))) {
-            return reader.lines()
-                    .collect(Collectors.joining(
-                            "\n"));
-        }
+    GitCommandResult run(final String... args)
+            throws IOException, InterruptedException {
+        final List<String> command = new ArrayList<>();
+        command.add("git");
+        command.addAll(Arrays.asList(args));
+        final ProcessBuilder builder = new ProcessBuilder(
+                CommandResolver.resolve(command)).directory(workDir.toFile());
+        final DiagnosticContext context = DiagnosticContext.of(
+                "workspace", "git." + args[0]);
+        final ProcessConsoleResult result = args[0].equals("worktree")
+                ? ProcessConsoleExecutor.execute(builder, diagnostics, context)
+                : ProcessConsoleExecutor.executeData(
+                        builder, diagnostics, context);
+        return GitCommandResult.of(result.exitCode(), result.standardOutput());
     }
 }

@@ -579,10 +579,51 @@ class PackagedJarCliIT {
                         .normalize());
         assertThat(output.resolve("index.html"))
                 .content().contains("COMPLETED_WITH_ISSUES");
+        assertThat(result.output)
+                .containsOnlyOnce("failure-line-001")
+                .containsOnlyOnce("failure-line-105");
         assertThat(readOnlyReactorPage(output))
-                .contains("failure-line-006")
-                .contains("failure-line-105")
-                .doesNotContain("failure-line-005");
+                .contains("exitCode=1")
+                .doesNotContain("failure-line-");
+    }
+
+    @Test
+    void allCommandsForwardNativeLogsAtEveryVerbosity() throws Exception {
+        assumeFalse(System.getProperty("os.name", "")
+                .toLowerCase(Locale.ROOT).contains("win"), "POSIX fixture");
+        final Path repository = createRepository(
+                temporary.resolve("logging-repository"), false);
+        final Path fakeMaven = fakeFailingMaven();
+        for (String verbosity : List.of("", "-v", "-vv")) {
+            for (String command : List.of("impact", "analyze", "diff")) {
+                final Path output = temporary.resolve(
+                        "logging-" + command + verbosity + ".html");
+                final List<String> arguments = new ArrayList<>();
+                if (!verbosity.isEmpty()) {
+                    arguments.add(verbosity);
+                }
+                if (!command.equals("impact")) {
+                    arguments.add("tree");
+                }
+                arguments.add(command);
+                arguments.addAll(List.of("-m", fakeMaven.toString(),
+                        "-p", repository.toString(), "-o", output.toString()));
+                if (!command.equals("analyze")) {
+                    arguments.addAll(List.of("-b", "HEAD"));
+                }
+                if (command.equals("impact")) {
+                    arguments.addAll(List.of("-j",
+                            System.getenv("TEST_JDK8_HOME")));
+                }
+                final ProcessResult result = runJar(
+                        arguments.toArray(String[]::new));
+                assertThat(result.exitCode).as(command + verbosity).isNotZero();
+                assertThat(result.output).as(command + verbosity)
+                        .contains("failure-line-001", "failure-line-105");
+                assertThat(result.output).contains("native-debug="
+                        + !verbosity.isEmpty());
+            }
+        }
     }
 
     @Test
@@ -1000,6 +1041,11 @@ class PackagedJarCliIT {
                   echo "Apache Maven 3.9.9"
                   exit 0
                 fi
+                debug=false
+                for argument in "$@"; do
+                  if [ "$argument" = "-X" ]; then debug=true; fi
+                done
+                echo "native-debug=$debug"
                 line=1
                 while [ "$line" -le 105 ]; do
                   printf 'failure-line-%03d\\n' "$line"

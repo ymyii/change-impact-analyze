@@ -45,6 +45,17 @@ public final class DiagnosticLogFormatter {
                 + context(event.getPhase(), event.getAttributes());
     }
 
+    /**
+     * Formats a subprocess source without assigning an Analyzer severity.
+     * @param context operation source
+     * @return source prefix
+     */
+    public String formatProcessSource(final DiagnosticContext context) {
+        return "[process]" + segment(context.stage())
+                + segment(context.substage())
+                + context(context.phase(), context.attributes());
+    }
+
     private String segment(final String value) {
         if (value == null || value.isBlank()) {
             return "[-]";

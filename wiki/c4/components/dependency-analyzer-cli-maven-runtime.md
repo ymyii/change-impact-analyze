@@ -21,7 +21,7 @@ Maven Runtime 选择 Maven executable、Java home、settings 与内嵌 Plugin re
 
 - 验证 Maven `3.6.3 <= version < 4.0.0` 与实际 Maven JVM。
 - 保留 user/global settings、mirror、proxy、server、profile 和 local repository 语义，并仅追加 command repository。
-- 根据 [Bounded Maven Scope](../../glossary/bounded-maven-scope.md) 执行 compile 与 dependency evidence goals，保留有界的失败输出尾部。
+- 根据 [Bounded Maven Scope](../../glossary/bounded-maven-scope.md) 执行 compile 与 dependency evidence goals，将原生日志实时转发至控制台。
 
 ## Technology
 
@@ -32,7 +32,7 @@ Maven Runtime 选择 Maven executable、Java home、settings 与内嵌 Plugin re
 ## Interfaces
 
 - Runtime descriptor：一次解析后供 scope resolver 与全部 Maven stage 共用；缺失 executable、非法版本或损坏 embedded artifact 时停止 command。
-- Build execution：接受 immutable scope plan 与安全 Maven token；返回 exit code、bounded Console evidence 和 output locations。
+- Build execution：接受 immutable scope plan 与安全 Maven token；返回 exit code 和 output locations。
 
 ## Code Diagram
 
@@ -46,6 +46,10 @@ classDiagram
     MavenRuntimeManager ..> MavenRuntimeDescriptor : 解析结果
     MavenExecutor ..> MavenRuntimeDescriptor : 读取执行环境
 ```
+
+默认使用 Maven 原生日志级别；程序 `DEBUG` 与 `TRACE` 均映射为 Maven `-X`。用户显式传入的 `-X`、`--debug`、`-e`、`--errors` 保持有效并去重，不额外强制开启错误详情。
+
+版本探测 stdout 作为返回数据供版本与运行环境解析；构建日志逐行转发，不缓存尾部或重放。规则见[运行证据规则](../../rules/operational-evidence-design.md)。
 
 ## State and Data
 

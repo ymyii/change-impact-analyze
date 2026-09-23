@@ -1,5 +1,7 @@
 package io.github.dependencyanalysis.build;
 
+import io.github.dependencyanalysis.cli.MavenArguments;
+
 import io.github.dependencyanalysis
         .diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis
@@ -30,10 +32,6 @@ public final class BuildRunner {
     /** Diagnostic stage name. */
     private static final String STAGE =
             "build";
-
-    /** Failure output tail lines retained in memory. */
-    private static final int TAIL_LINES =
-            20;
 
     /** Side identifier. */
     private final String side;
@@ -185,8 +183,7 @@ public final class BuildRunner {
                     workspacePath
                             .toString(),
                     cmdStr,
-                    execution.exitCode(),
-                    execution.outputTail());
+                    execution.exitCode());
         }
         info(
                 "Build succeeded, "
@@ -258,7 +255,8 @@ public final class BuildRunner {
         final List<String> cmd =
                 new ArrayList<>();
         cmd.add(mavenExecutable.toString());
-        cmd.addAll(mavenArguments);
+        cmd.addAll(MavenArguments
+                .withVerbosity(mavenArguments, diag.getVerbosity()));
         cmd.addAll(projectArguments);
         cmd.add("compile");
         cmd.add("-B");
@@ -279,7 +277,7 @@ public final class BuildRunner {
                             .getAbsolutePath());
         }
         return ProcessConsoleExecutor.execute(
-                pb, diag, context(), TAIL_LINES);
+                pb, diag, context());
     }
 
     /**

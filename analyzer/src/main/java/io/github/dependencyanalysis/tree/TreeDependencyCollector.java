@@ -32,9 +32,6 @@ import java.util.stream.Stream;
 /** Sequential Maven dependency tree collector. */
 public final class TreeDependencyCollector {
 
-    /** Maximum Maven diagnostic lines. */
-    private static final int TAIL_LINES = 100;
-
     /** Classpath Evidence JSON prefix. */
     private static final String CLASSPATH_PREFIX = "classpath-module-";
 
@@ -195,8 +192,7 @@ public final class TreeDependencyCollector {
         } else if (execution != null
                 && execution.getExitCode() != 0) {
             reasons.add("Reactor Maven execution failed: "
-                    + diagnosticTail(
-                            execution.getCombinedOutput()));
+                    + "exitCode=" + execution.getExitCode());
         }
         try {
             final Map<Path, ModuleClasspathEvidence> evidenceByPom =
@@ -324,8 +320,7 @@ public final class TreeDependencyCollector {
         return new MavenExecutor().execute(
                 runtime, snapshot.getRoot(), arguments, diagnostics,
                 DiagnosticContext.of("analysis", "reactor")
-                        .with("reactor", reactor.getId()),
-                TAIL_LINES);
+                        .with("reactor", reactor.getId()));
     }
 
     private Set<DependencyKey> reactorKeys(
@@ -335,18 +330,6 @@ public final class TreeDependencyCollector {
                 inventory, reactor);
     }
 
-    static String diagnosticTail(final String output) {
-        final List<String> lines = new ArrayList<>(
-                output.lines().toList());
-        while (!lines.isEmpty()
-                && lines.get(lines.size() - 1).isBlank()) {
-            lines.remove(lines.size() - 1);
-        }
-        final int start = Math.max(0,
-                lines.size() - TAIL_LINES);
-        return String.join(System.lineSeparator(),
-                lines.subList(start, lines.size()));
-    }
 
     private String message(
             final Exception exception) {

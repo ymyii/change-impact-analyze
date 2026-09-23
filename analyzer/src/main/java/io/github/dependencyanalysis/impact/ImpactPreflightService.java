@@ -1,5 +1,9 @@
 package io.github.dependencyanalysis.impact;
 
+import io.github.dependencyanalysis.util.ProcessConsoleResult;
+
+import io.github.dependencyanalysis.util.ProcessConsoleExecutor;
+
 import io.github.dependencyanalysis.cli
         .MavenArguments;
 import io.github.dependencyanalysis.cli
@@ -64,9 +68,6 @@ import java.util.List;
 
 /** Builds and executes the impact-specific check graph. */
 final class ImpactPreflightService {
-
-    /** Maximum retained Maven output lines. */
-    private static final int MAVEN_TAIL_LINES = 100;
 
     /** Prepared analysis path key. */
     static final String ANALYSIS_PATH =
@@ -183,24 +184,19 @@ final class ImpactPreflightService {
                 context -> {
                     final Path analysisPath = context.get(
                             ANALYSIS_PATH, Path.class);
-                    final Process process =
-                            new ProcessBuilder(
-                                    CommandResolver.resolve(
-                                            List.of("git",
-                                                    "rev-parse",
+                    final ProcessConsoleResult probe =
+                            ProcessConsoleExecutor.executeData(
+                                    new ProcessBuilder(CommandResolver.resolve(
+                                            List.of("git", "rev-parse",
                                                     "--show-toplevel")))
-                                    .directory(analysisPath.toFile())
-                                    .redirectErrorStream(true)
-                                    .start();
-                    final String value = new String(
-                            process.getInputStream()
-                                    .readAllBytes(),
-                            java.nio.charset.StandardCharsets
-                                    .UTF_8).trim();
-                    if (process.waitFor() != 0) {
+                                            .directory(analysisPath.toFile()),
+                                    diagnostics, DiagnosticContext.of(
+                                            "preflight", "git-repository"));
+                    final String value = probe.standardOutput().trim();
+                    if (probe.exitCode() != 0) {
                         return PreflightOutcome.fail(
                                 "Analysis path is not in a Git repository",
-                                value, "");
+                                "exitCode=" + probe.exitCode(), "");
                     }
                     final Path gitRoot = Path.of(value)
                             .toAbsolutePath().normalize();
@@ -360,16 +356,15 @@ final class ImpactPreflightService {
                                 Path.class),
                         List.of("--version"), diagnostics,
                         DiagnosticContext.of(
-                                "preflight", "maven-version"),
-                        MAVEN_TAIL_LINES);
+                                "preflight", "maven-version"));
         if (result.getExitCode() != 0) {
             return PreflightOutcome.fail(
                     "Maven executable cannot run",
-                    result.getCombinedOutput(), "");
+                    "exitCode=" + result.getExitCode(), "");
         }
         final MavenVersion version =
                 MavenVersion.parse(
-                        result.getCombinedOutput());
+                        result.getStandardOutput());
         if (!version.isSupported()) {
             return PreflightOutcome.fail(
                     "Unsupported Maven version",
@@ -378,9 +373,9 @@ final class ImpactPreflightService {
                     "");
         }
         context.put(MAVEN_RUNTIME,
-                runtime.withProbe(version, result.getCombinedOutput()));
+                runtime.withProbe(version, result.getStandardOutput()));
         context.put(MAVEN_VERSION_OUTPUT,
-                result.getCombinedOutput());
+                result.getStandardOutput());
         return PreflightOutcome.pass(
                 "Maven version is supported",
                 MavenRuntimeEvidence.version(version));
@@ -450,7 +445,7 @@ final class ImpactPreflightService {
         } catch (Exception exception) {
             return PreflightOutcome.fail(
                     "Workspace preparation failed",
-                    exception.getMessage(), "");
+                    "exception=" + exception.getClass().getName(), "");
         }
     }
 
@@ -464,9 +459,4 @@ final class ImpactPreflightService {
                 "goal=" + runtime.getDependencyEvidenceGoal());
     }
 
-    private String tail(final String value) {
-        final int start = Math.max(0,
-                value.length() - 2000);
-        return value.substring(start);
-    }
 }

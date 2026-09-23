@@ -27,6 +27,8 @@ Command Control 管理公共命令、分析前检查与诊断生命周期，将�
 - Picocli 4.7.6：定义 CLI command、option 与参数校验边界。
 - Java structured diagnostics：输出可关联的运行阶段、进度与失败证据。
 
+当前程序诊断遵循自身日志级别；第三方输出只附加操作来源，实时写入控制台，不重新解释其日志级别。详细处理约束见[运行证据规则](../../rules/operational-evidence-design.md)。
+
 ## Interfaces
 
 - Root 与 subcommand contract：参数解析失败或 Preflight 阻断返回 `1`，不启动 pipeline。

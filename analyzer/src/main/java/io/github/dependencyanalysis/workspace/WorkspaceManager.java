@@ -32,10 +32,6 @@ public final class WorkspaceManager
     private static final String WT_NAME =
             "worktree";
 
-    /** Max stderr summary length. */
-    private static final int MAX_SUMMARY =
-            200;
-
     /** Project root directory. */
     private final Path projectDir;
 
@@ -92,7 +88,7 @@ public final class WorkspaceManager
         this.diag = Objects.requireNonNull(
                 diagnostics, "diagnostics");
         this.runner = new GitCommandRunner(
-                project);
+                project, diagnostics);
         this.workspaceRunRoot = runRoot == null
                 ? null : runRoot.toAbsolutePath().normalize();
         this.gitRoot = resolveGitRoot();
@@ -202,7 +198,7 @@ public final class WorkspaceManager
             if (result.getExitCode() != 0) {
                 diag.warn(STAGE,
                         "Failed to prune stale worktree metadata: "
-                                + summarize(result.getStderr()));
+                                + "git worktree prune failed");
             }
         } catch (IOException exception) {
             diag.warn(STAGE,
@@ -334,7 +330,7 @@ public final class WorkspaceManager
             if (result.getExitCode() != 0) {
                 throw new WorkspacePrepareException(
                         WorkspaceSide.CURRENT, "HEAD", projectDir,
-                        result.getExitCode(), summarize(result.getStderr()));
+                        result.getExitCode(), "git status failed");
             }
             return !result.getStdout().isBlank();
         } catch (IOException exception) {
@@ -362,8 +358,7 @@ public final class WorkspaceManager
                 throw new WorkspacePrepareException(
                         s, ref, wtPath,
                         res.getExitCode(),
-                        summarize(
-                                res.getStderr()));
+                        "git rev-parse failed");
             }
             return res.getStdout().trim();
         } catch (IOException
@@ -398,12 +393,13 @@ public final class WorkspaceManager
                 throw new WorkspacePrepareException(
                         s, commit, wtPath,
                         res.getExitCode(),
-                        summarize(
-                                res.getStderr()));
+                        "git worktree add failed");
             }
         } catch (IOException
                 | InterruptedException e) {
-            Thread.currentThread().interrupt();
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
             throw new WorkspacePrepareException(
                     s, commit, wtPath, -1,
                     e.getMessage());
@@ -475,19 +471,6 @@ public final class WorkspaceManager
                             + ": "
                             + e.getMessage());
         }
-    }
-
-    private static String summarize(
-            final String text) {
-        if (text == null) {
-            return "";
-        }
-        final String trimmed = text.trim();
-        if (trimmed.length() <= MAX_SUMMARY) {
-            return trimmed;
-        }
-        return trimmed.substring(0, MAX_SUMMARY)
-                + "...";
     }
 
     /**

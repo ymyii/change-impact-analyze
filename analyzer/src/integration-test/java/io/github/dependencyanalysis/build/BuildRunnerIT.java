@@ -201,8 +201,8 @@ class BuildRunnerIT {
             assertThat(ex.getModule())
                     .isEqualTo(projectDir
                             .toString());
-            assertThat(ex.getStderr())
-                    .isNotBlank();
+            assertThat(ex.getExitCode()).isNotZero();
+            assertThat(ex.getMessage()).doesNotContain("stderr=");
         }
     }
 

@@ -28,7 +28,7 @@ class MavenRuntimeManagerIT {
                         config, List.of("--version"));
 
         assertThat(result.getExitCode()).isZero();
-        assertThat(result.getCombinedOutput())
+        assertThat(result.getStandardOutput())
                 .contains("Apache Maven 3.6.3");
     }
 }

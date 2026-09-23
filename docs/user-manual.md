@@ -350,7 +350,10 @@ java -jar /path/to/dependency-analyzer.jar -vv impact \
 - `--call-graph-timeout-seconds 0` 表示无限等待。
 - timeout 按 Module 计算；超时 Module 失败，其他 Module 继续。
 - 默认日志为 `INFO`；`-v` 为 `DEBUG`；`-vv` 为 `TRACE`。
-- 日志统一写入 stderr。`-vv` 会增加 Runtime Metrics 和细粒度审计，输出量明显增大。
+- 当前程序日志统一写入 stderr。`-vv` 会增加 Runtime Metrics 和细粒度审计，输出量明显增大。
+- Maven 默认使用原生日志级别；`-v`、`-vv` 均向 Maven 传递 `-X`。显式 Maven `-X`、`--debug`、`-e`、`--errors` 保持有效，重复参数合并；程序不额外添加 `-e`。Git 保持原生输出行为。
+- 外部程序已产生的日志实时输出至控制台，不再按当前程序日志级别过滤；`[process]` 前缀标识来源，`pid` 与 `stream` 区分进程及输出流。因此默认级别也能看到 Maven 普通进度和无前缀续行。
+- HTML 报告保留分析结果、检查状态、简短原因以及预检查中的版本和路径等结构化事实，不提供运行日志或异常堆栈。程序不创建临时日志；需要留存控制台输出时，在原命令末尾追加 `> run.log 2>&1`。日志文件随实际输出量增长，没有固定大小上限。
 
 ### 5.7 向 Maven 传递 profile、property 和 settings
 

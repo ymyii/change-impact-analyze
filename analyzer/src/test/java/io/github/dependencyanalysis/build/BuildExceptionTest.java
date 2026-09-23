@@ -17,8 +17,7 @@ class BuildExceptionTest {
                         "baseline",
                         "/ws/mod-a",
                         "mvn compile -B",
-                        1,
-                        "COMPILATION ERROR");
+                        1);
         final String msg = ex.getMessage();
         assertThat(msg).contains("baseline");
         assertThat(msg)
@@ -26,8 +25,7 @@ class BuildExceptionTest {
         assertThat(msg)
                 .contains("mvn compile -B");
         assertThat(msg).contains("1");
-        assertThat(msg)
-                .contains("COMPILATION");
+        assertThat(msg).doesNotContain("stderr");
         assertThat(msg)
                 .doesNotContain("logFile");
     }
@@ -39,8 +37,7 @@ class BuildExceptionTest {
                         "target",
                         "/ws",
                         "mvn compile -B",
-                        2,
-                        "error text");
+                        2);
         assertThat(ex.getSide())
                 .isEqualTo("target");
         assertThat(ex.getModule())
@@ -50,8 +47,6 @@ class BuildExceptionTest {
                         "mvn compile -B");
         assertThat(ex.getExitCode())
                 .isEqualTo(2);
-        assertThat(ex.getStderr())
-                .isEqualTo("error text");
     }
 
     @Test
@@ -59,7 +54,7 @@ class BuildExceptionTest {
         final BuildException ex =
                 new BuildException(
                         "s", "m", "c",
-                        0, "");
+                        0);
         assertThat(ex)
                 .isInstanceOf(Exception.class);
     }

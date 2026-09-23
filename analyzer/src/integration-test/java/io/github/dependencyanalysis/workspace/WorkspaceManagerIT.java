@@ -230,7 +230,7 @@ class WorkspaceManagerIT {
                                 wpe.getGitExitCode())
                                 .isNotZero();
                         assertThat(
-                                wpe.getGitStderr())
+                                wpe.getReason())
                                 .isNotBlank();
                     });
         }

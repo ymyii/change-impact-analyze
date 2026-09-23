@@ -286,14 +286,7 @@ class MavenDependencyPluginRuntimeManagerTest {
             final MavenExecutionResult result = new MavenExecutor().execute(
                     maven, project, arguments);
 
-            assertThat(result.getExitCode())
-                    .describedAs(result.getCombinedOutput()).isZero();
-            assertThat(result.getCombinedOutput())
-                    .contains("collect-dependency-evidence")
-                    .contains("Dependency Evidence Plugin implementation="
-                            + "dependency-evidence-v3")
-                    .contains("version=" + ARTIFACT_PATH_PLUGIN_VERSION)
-                    .doesNotContain("sha512=");
+            assertThat(result.getExitCode()).isZero();
             final List<Path> evidenceFiles;
             try (var files = Files.list(evidence)) {
                 evidenceFiles = files

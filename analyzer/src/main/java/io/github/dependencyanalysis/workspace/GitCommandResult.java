@@ -11,16 +11,11 @@ public final class GitCommandResult {
     /** Captured standard output. */
     private final String stdout;
 
-    /** Captured standard error. */
-    private final String stderr;
-
     private GitCommandResult(
             final int code,
-            final String out,
-            final String err) {
+            final String out) {
         this.exitCode = code;
         this.stdout = out;
-        this.stderr = err;
     }
 
     /**
@@ -28,15 +23,13 @@ public final class GitCommandResult {
      *
      * @param exitCode process exit code
      * @param stdout   captured stdout
-     * @param stderr   captured stderr
      * @return new instance
      */
     public static GitCommandResult of(
             final int exitCode,
-            final String stdout,
-            final String stderr) {
+            final String stdout) {
         return new GitCommandResult(
-                exitCode, stdout, stderr);
+                exitCode, stdout);
     }
 
     /**
@@ -57,21 +50,11 @@ public final class GitCommandResult {
         return stdout;
     }
 
-    /**
-     * Returns captured stderr.
-     *
-     * @return stderr string
-     */
-    public String getStderr() {
-        return stderr;
-    }
-
     @Override
     public String toString() {
         return "GitCommandResult{"
                 + "exitCode=" + exitCode
                 + ", stdout='" + stdout + '\''
-                + ", stderr='" + stderr + '\''
                 + '}';
     }
 }

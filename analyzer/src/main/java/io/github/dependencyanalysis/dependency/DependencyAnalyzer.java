@@ -1,5 +1,7 @@
 package io.github.dependencyanalysis.dependency;
 
+import io.github.dependencyanalysis.cli.MavenArguments;
+
 import io.github.dependencyanalysis
         .diagnostic.DiagnosticLog;
 import io.github.dependencyanalysis
@@ -42,9 +44,6 @@ public final class DependencyAnalyzer {
     /** Built-in Dependency Evidence Plugin goal. */
     private static final String FALLBACK_EVIDENCE_GOAL =
             MavenDependencyPluginRuntime.DEPENDENCY_EVIDENCE_PLUGIN_GOAL;
-
-    /** Failure output tail retained in memory. */
-    private static final int TAIL_LINES = 20;
 
     /** Side identifier. */
     private final String side;
@@ -260,7 +259,8 @@ public final class DependencyAnalyzer {
             InterruptedException {
         final List<String> command = new ArrayList<>();
         command.add(mavenExecutable.toString());
-        command.addAll(dependencyArguments());
+        command.addAll(MavenArguments
+                .withVerbosity(dependencyArguments(), diag.getVerbosity()));
         command.addAll(projectArguments);
         command.add(evidenceGoal());
         command.add("-Dcia.dependencyEvidenceDirectory="
@@ -278,7 +278,7 @@ public final class DependencyAnalyzer {
                     buildJavaHome.getAbsolutePath());
         }
         return ProcessConsoleExecutor.execute(builder, diag,
-                diagnosticContext, TAIL_LINES);
+                diagnosticContext);
     }
 
     private void requireSuccessful(
@@ -296,7 +296,7 @@ public final class DependencyAnalyzer {
                 + " -Dcia.dependencyEvidenceOwner=<redacted> -B";
         throw new DependencyAnalysisException(side,
                 workspacePath.toString(), command,
-                execution.exitCode(), execution.outputTail());
+                execution.exitCode());
     }
 
     private List<ModuleDependencyEvidence> parseEvidence(

@@ -1,9 +1,12 @@
 package io.github.dependencyanalysis.reactor;
 
 import io.github.dependencyanalysis.util.CommandResolver;
+import io.github.dependencyanalysis.util.ProcessConsoleExecutor;
+import io.github.dependencyanalysis.util.ProcessConsoleResult;
+import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
+import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -19,8 +22,27 @@ import java.util.Set;
 /** Resolves one requested POM to an active Maven reactor scope. */
 public final class ReactorInventoryBuilder {
 
+    /** Console destination for Git diagnostics. */
+    private final DiagnosticLog diagnostics;
+
     /** Maven coordinate segment count. */
     private static final int COORDINATE_SEGMENTS = 3;
+
+    /** Creates a builder using the default Console destination. */
+    public ReactorInventoryBuilder() {
+        this(new DiagnosticLog());
+    }
+
+    /**
+     * Creates a builder using the supplied Console destination.
+     *
+     * @param diagnosticLog command diagnostics
+     */
+    public ReactorInventoryBuilder(
+            final DiagnosticLog diagnosticLog) {
+        diagnostics = java.util.Objects.requireNonNull(
+                diagnosticLog, "diagnosticLog");
+    }
 
     /**
      * Resolves one analysis directory inside an existing Git checkout.
@@ -57,7 +79,7 @@ public final class ReactorInventoryBuilder {
         final Path relative = normalizeAnalysisPath(analysisPath);
         final Path requestedPom = relative.resolve("pom.xml").normalize();
         final Resolver resolver = new Resolver(root,
-                new SafePomParser(activation));
+                new SafePomParser(activation), diagnostics);
         final PomDescriptor requested = resolver.requiredPom(requestedPom);
 
         final ReactorScopeMode mode;
@@ -170,13 +192,19 @@ public final class ReactorInventoryBuilder {
         /** Secure POM parser. */
         private final SafePomParser parser;
 
+        /** Console destination. */
+        private final DiagnosticLog diagnostics;
+
         /** Parsed descriptors by normalized repository-relative path. */
         private final Map<Path, PomDescriptor> descriptors =
                 new LinkedHashMap<>();
 
-        Resolver(final Path repositoryRoot, final SafePomParser pomParser) {
+        Resolver(final Path repositoryRoot,
+                final SafePomParser pomParser,
+                final DiagnosticLog diagnosticLog) {
             root = repositoryRoot;
             parser = pomParser;
+            diagnostics = diagnosticLog;
         }
 
         Map<Path, PomDescriptor> descriptors() {
@@ -319,27 +347,25 @@ public final class ReactorInventoryBuilder {
 
         private String run(final List<String> command)
                 throws IOException, InterruptedException {
-            final Process process = new ProcessBuilder(
-                    CommandResolver.resolve(command))
-                    .directory(root.toFile())
-                    .redirectErrorStream(true).start();
-            final String output = new String(
-                    process.getInputStream().readAllBytes(),
-                    StandardCharsets.UTF_8);
-            if (process.waitFor() != 0) {
-                throw new IOException("Git command failed: " + output.trim());
+            final ProcessConsoleResult result = execute(command);
+            if (result.exitCode() != 0) {
+                throw new IOException("Git command failed: " + command.get(1)
+                        + "; exitCode=" + result.exitCode());
             }
-            return output;
+            return result.standardOutput();
         }
 
         private int runExit(final List<String> command)
                 throws IOException, InterruptedException {
-            final Process process = new ProcessBuilder(
-                    CommandResolver.resolve(command))
-                    .directory(root.toFile())
-                    .redirectErrorStream(true).start();
-            process.getInputStream().readAllBytes();
-            return process.waitFor();
+            return execute(command).exitCode();
+        }
+
+        private ProcessConsoleResult execute(final List<String> command)
+                throws IOException, InterruptedException {
+            return ProcessConsoleExecutor.executeData(new ProcessBuilder(
+                    CommandResolver.resolve(command)).directory(root.toFile()),
+                    diagnostics, DiagnosticContext.of(
+                            "workspace", "git." + command.get(1)));
         }
     }
 }
