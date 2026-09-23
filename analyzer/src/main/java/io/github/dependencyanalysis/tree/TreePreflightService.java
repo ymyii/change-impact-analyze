@@ -2,6 +2,7 @@ package io.github.dependencyanalysis.tree;
 
 import io.github.dependencyanalysis.cli
         .DependencyAnalyzerCli;
+import io.github.dependencyanalysis.cli.OutputDirectory;
 import io.github.dependencyanalysis.cli.MavenArguments;
 import io.github.dependencyanalysis.diagnostic.DiagnosticContext;
 import io.github.dependencyanalysis.diagnostic.DiagnosticLog;
@@ -266,30 +267,7 @@ final class TreePreflightService {
     }
 
     private PreflightOutcome checkOutput() {
-        final Path value = output.toPath()
-                .toAbsolutePath().normalize();
-        if (Files.exists(value)
-                && !Files.isDirectory(value)) {
-            return PreflightOutcome.fail(
-                    "Output exists and is not a directory",
-                    value.toString(), "");
-        }
-        Path parent = Files.exists(value)
-                ? value : value.getParent();
-        while (parent != null
-                && !Files.exists(parent)) {
-            parent = parent.getParent();
-        }
-        if (parent == null
-                || !Files.isDirectory(parent)
-                || !Files.isWritable(parent)) {
-            return PreflightOutcome.fail(
-                    "Output directory cannot be created",
-                    value.toString(), "");
-        }
-        return PreflightOutcome.pass(
-                "Output directory can be replaced safely",
-                value.toString());
+        return OutputDirectory.validate(output.toPath());
     }
 
     private PreflightOutcome checkScopes() {

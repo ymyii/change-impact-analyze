@@ -66,6 +66,8 @@ class CommandResolverTest {
             assertThat(result)
                     .containsExactly(
                             "cmd.exe",
+                            "/d",
+                            "/v:off",
                             "/c",
                             "mvn",
                             "compile",
@@ -75,6 +77,43 @@ class CommandResolverTest {
                 System.setProperty(
                         "os.name",
                         original);
+            }
+        }
+    }
+
+    @Test
+    void windowsRunsGitNativelyAndPreservesRevisionSyntax() {
+        final String original = System.getProperty("os.name");
+        try {
+            System.setProperty("os.name", "Windows 11");
+            final List<String> result = CommandResolver.resolve(List.of(
+                    "git", "rev-parse", "--verify",
+                    "release^{commit}"));
+            assertThat(result).containsExactly(
+                    "git.exe", "rev-parse", "--verify",
+                    "release^{commit}");
+        } finally {
+            if (original != null) {
+                System.setProperty("os.name", original);
+            }
+        }
+    }
+
+    @Test
+    void windowsEscapesCmdShellMetacharacters() {
+        final String original = System.getProperty("os.name");
+        try {
+            System.setProperty("os.name", "Windows 11");
+            final List<String> result = CommandResolver.resolve(List.of(
+                    "mvn.cmd", "-Dpath=C:\\work dir",
+                    "-Drevision=release^2026&candidate"));
+            assertThat(result).containsExactly(
+                    "cmd.exe", "/d", "/v:off", "/c", "mvn.cmd",
+                    "-Dpath=C:\\work dir",
+                    "-Drevision=release^^2026^&candidate");
+        } finally {
+            if (original != null) {
+                System.setProperty("os.name", original);
             }
         }
     }

@@ -30,7 +30,7 @@ export const test = base.extend<Fixtures>({
     report: async ({}, use, testInfo) => {
         const root = testInfo.outputPath("report");
         await cp(SOURCE_ROOT, root, {recursive: true});
-        const moduleDirectory = resolve(root, "impact-modules");
+        const moduleDirectory = resolve(root, "impact", "modules");
         const entries = await readdir(moduleDirectory);
         const moduleName = entries.find(name => name.endsWith(".html")
             && !name.endsWith("-impact.html"));
@@ -69,7 +69,7 @@ export const test = base.extend<Fixtures>({
             modulePath,
             affectedPath,
             shardDirectory,
-            overallUrl: pathToFileURL(resolve(root, "impact.html")).href,
+            overallUrl: pathToFileURL(resolve(root, "impact", "index.html")).href,
             moduleUrl: pathToFileURL(modulePath).href,
             affectedUrl: pathToFileURL(affectedPath).href,
             treePath,

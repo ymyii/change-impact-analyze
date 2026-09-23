@@ -12,8 +12,8 @@ export default async function globalSetup(): Promise<void> {
         );
     }
     try {
-        await access(resolve(FIXTURE_ROOT, "impact.html"));
-        const modules = await readdir(resolve(FIXTURE_ROOT, "impact-modules"));
+        await access(resolve(FIXTURE_ROOT, "impact", "index.html"));
+        const modules = await readdir(resolve(FIXTURE_ROOT, "impact", "modules"));
         if (!modules.some(name => name.endsWith(".html")
                 && !name.endsWith("-impact.html"))
                 || !modules.some(name => name.endsWith("-impact.html"))) {

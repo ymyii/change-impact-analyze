@@ -221,7 +221,7 @@ public final class PerModuleHtmlReportGenerator {
      * @param maven selected Maven runtime
      * @param plugin embedded Dependency Plugin runtime
      * @param javaRuntime target JDK
-     * @param output Overall Index file
+     * @param output report output directory
      */
     public void generate(
             final AnalysisRunResult run,
@@ -237,7 +237,7 @@ public final class PerModuleHtmlReportGenerator {
         final String ownedName = moduleDirectoryName(absolute);
         Path staging = null;
         try {
-            Files.createDirectories(parent);
+            Files.createDirectories(absolute);
             staging = Files.createTempDirectory(parent, ".cia-report-");
             final Path modules = staging.resolve(ownedName);
             Files.createDirectories(modules);
@@ -249,10 +249,10 @@ public final class PerModuleHtmlReportGenerator {
                     run.getCallGraphAlgorithm());
             final Map<ModuleAnalysisResult, ModulePages> pages =
                     writeModulePages(run, modules,
-                            absolute.getFileName().toString(), moduleRuntime);
+                            "index.html", moduleRuntime);
             final OverallContext context = new OverallContext(
                     maven, plugin, javaRuntime, ownedName, pages);
-            writeOverallPage(staging.resolve(absolute.getFileName()),
+            writeOverallPage(staging.resolve("index.html"),
                     run, preflight, context);
             publish(staging, absolute, ownedName);
         } catch (IOException exception) {
@@ -1703,9 +1703,7 @@ public final class PerModuleHtmlReportGenerator {
     }
 
     private String moduleDirectoryName(final Path output) {
-        final String name = output.getFileName().toString();
-        final int dot = name.lastIndexOf('.');
-        return (dot < 0 ? name : name.substring(0, dot)) + "-modules";
+        return "modules";
     }
 
     private String stableHash(final String value) {
@@ -1786,31 +1784,63 @@ public final class PerModuleHtmlReportGenerator {
         }
     }
 
-    private void publish(
+    void publish(
             final Path staging,
             final Path output,
             final String ownedName) throws IOException {
-        final Path parent = output.getParent();
+        final Path parent = output;
         final Path owned = parent.resolve(ownedName);
         final Path stagedModules = staging.resolve(ownedName);
-        final Path stagedIndex = staging.resolve(output.getFileName());
+        final Path stagedIndex = staging.resolve("index.html");
         final Path backup = parent.resolve("." + ownedName
                 + "-backup-" + UUID.randomUUID());
-        final boolean hadOwned = Files.exists(owned);
-        if (hadOwned) {
-            move(owned, backup, false);
+        final Path index = output.resolve("index.html");
+        final Path indexBackup = parent.resolve(
+                ".index-backup-" + UUID.randomUUID());
+        final boolean hadIndex = Files.exists(index);
+        if (hadIndex) {
+            if (!Files.isRegularFile(index)) {
+                throw new IOException("Report index is not a regular file: "
+                        + index);
+            }
+            Files.copy(index, indexBackup);
         }
+        final boolean hadOwned = Files.exists(owned);
+        boolean modulesBackedUp = false;
+        boolean modulesInstalled = false;
+        boolean indexAttempted = false;
         try {
+            if (hadOwned) {
+                move(owned, backup, false);
+                modulesBackedUp = true;
+            }
             move(stagedModules, owned, false);
-            move(stagedIndex, output, true);
-            deleteTree(backup);
+            modulesInstalled = true;
+            indexAttempted = true;
+            move(stagedIndex, index, true);
         } catch (IOException exception) {
-            deleteTree(owned);
-            if (hadOwned && Files.exists(backup)) {
-                move(backup, owned, false);
+            try {
+                if (modulesInstalled) {
+                    deleteTree(owned);
+                }
+                if (modulesBackedUp) {
+                    move(backup, owned, false);
+                }
+                if (indexAttempted) {
+                    if (hadIndex) {
+                        move(indexBackup, index, true);
+                    } else {
+                        Files.deleteIfExists(index);
+                    }
+                }
+                Files.deleteIfExists(indexBackup);
+            } catch (IOException recoveryFailure) {
+                exception.addSuppressed(recoveryFailure);
             }
             throw exception;
         }
+        deleteTree(backup);
+        deleteTree(indexBackup);
     }
 
     private void move(

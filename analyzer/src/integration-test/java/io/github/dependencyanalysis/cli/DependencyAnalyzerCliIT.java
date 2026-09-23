@@ -100,9 +100,9 @@ class DependencyAnalyzerCliIT {
         final Path repository = createRepository(
                 temporary.resolve("impact"));
         final Path longOutput = temporary.resolve(
-                "impact-long.html");
+                "impact-long-report");
         final Path shortOutput = temporary.resolve(
-                "impact-short.html");
+                "impact-short-report");
 
         final int longCode = command().execute(
                 "--maven", maven.toString(),
@@ -133,14 +133,14 @@ class DependencyAnalyzerCliIT {
 
         assertThat(longCode).isZero();
         assertThat(shortCode).isZero();
-        assertThat(longOutput).content()
+        assertThat(longOutput.resolve("index.html")).content()
                 .contains("Impact Analysis Report")
                 .contains("Preflight")
                 .contains("impact.path")
                 .contains("impact.maven-version")
                 .contains("JAR comparisons in parallel</th><td>0 "
                         + "(configured 1)</td>");
-        assertThat(shortOutput).content()
+        assertThat(shortOutput.resolve("index.html")).content()
                 .contains("Impact Analysis Report")
                 .contains("Preflight")
                 .contains("impact.path")

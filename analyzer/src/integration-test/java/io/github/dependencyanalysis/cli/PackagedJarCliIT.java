@@ -389,7 +389,7 @@ class PackagedJarCliIT {
                 temporary.resolve("impact-repository"),
                 true);
         final Path impactReport = temporary.resolve(
-                "impact.html");
+                "impact-report");
 
         final ProcessResult impact = runJar(
                 "-v",
@@ -410,7 +410,7 @@ class PackagedJarCliIT {
                         + ARTIFACT_PATH_PLUGIN_VERSION)
                 .contains("Dependency Evidence Plugin implementation="
                         + "dependency-evidence-v3");
-        assertThat(impactReport).content()
+        assertThat(impactReport.resolve("index.html")).content()
                 .contains("Impact Analysis Report")
                 .contains("<th>Algorithm</th><td>cha</td>")
                 .contains("<th>JDK method model</th><td>none</td>")
@@ -419,7 +419,8 @@ class PackagedJarCliIT {
                 .doesNotContain("Result refinement algorithms")
                 .contains("Preflight")
                 .contains("impact.java-runtime");
-        HtmlReportUsabilityVerifier.verifyImpact(impactReport);
+        HtmlReportUsabilityVerifier.verifyImpact(
+                impactReport.resolve("index.html"));
     }
 
     @Test
@@ -428,7 +429,7 @@ class PackagedJarCliIT {
         final String jdk8Home = System.getenv("TEST_JDK8_HOME");
         assertThat(jdk8Home).as("TEST_JDK8_HOME").isNotBlank();
         final Path repository = createChangedDependencyRepository();
-        final Path report = temporary.resolve("k-obj-smoke.html");
+        final Path report = temporary.resolve("k-obj-smoke-report");
 
         final ProcessResult result = runJar(
                 "-v", "-m", maven.toString(), "-j", jdk8Home,
@@ -441,7 +442,7 @@ class PackagedJarCliIT {
         assertThat(result.exitCode).as(result.output).isZero();
         assertThat(result.output)
                 .contains("algorithm=k-obj (experimental)");
-        assertThat(report).content()
+        assertThat(report.resolve("index.html")).content()
                 .contains("Impact Analysis Report")
                 .contains("<th>Algorithm</th><td>k-obj (experimental)</td>")
                 .contains("<th>JDK method model</th><td>jdk8</td>")
@@ -628,8 +629,8 @@ class PackagedJarCliIT {
 
     @Test
     void runtimeLogsUseStderrAndMetricsRequireTrace() throws Exception {
-        final Path debugOutput = temporary.resolve("debug-impact.html");
-        final Path traceOutput = temporary.resolve("trace-impact.html");
+        final Path debugOutput = temporary.resolve("debug-impact-report");
+        final Path traceOutput = temporary.resolve("trace-impact-report");
 
         final SplitProcessResult debug = runJarSplit(
                 "-v", "impact", "-b", "HEAD",

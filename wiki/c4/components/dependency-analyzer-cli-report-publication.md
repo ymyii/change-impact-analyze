@@ -15,7 +15,8 @@ Report Publication 将冻结的 Impact、Tree Analyze 与 Tree Diff 结果分别
 
 - 保持三套 schema 的领域语义，不让 browser 重新分类分析结果。
 - 生成 script-safe JSON、固定 callback signature、HTML navigation 与 lazy source shard。
-- 对 Impact 执行整体原子替换，对 Tree 以 Reactor 为增量完成单元。
+- 对 Impact 先发布模块资源、最后替换入口，并在发布异常时恢复旧报告；对 Tree 以 Reactor 为增量完成单元。
+- 三类命令共享 output directory 的规范化与 Preflight 校验；已存在普通文件会被拒绝。
 
 ## Interfaces
 
@@ -24,7 +25,7 @@ Report Publication 将冻结的 Impact、Tree Analyze 与 Tree Diff 结果分别
 
 ## Code Diagram
 
-Impact 使用 `report/PerModuleHtmlReportGenerator`；Tree 的两个 renderer 位于 `tree/`，分别创建增量发布会话。修改发布边界时须同时检查入口可见性与报告完整性，不能只检查 HTML 内容。
+Impact 使用 `report/PerModuleHtmlReportGenerator` 在 output directory 发布 `index.html` 与 `modules/`；Tree 的两个 renderer 位于 `tree/`，分别创建增量发布会话。修改发布边界时须同时检查入口可见性与报告完整性，不能只检查 HTML 内容。
 
 ```mermaid
 classDiagram
@@ -40,6 +41,8 @@ classDiagram
 报告保留分析结果、检查状态和简短失败原因；运行日志、子进程输出和异常堆栈只属于控制台。预检查展示检查摘要及经过确认的结构化事实（例如版本、路径和退出码），依赖路径与代码差异等分析证据继续进入报告。
 
 ## State and Data
+
+Impact 仅管理输出目录内的 `index.html` 与 `modules/`，保留其他文件。替换前备份旧入口与模块目录；捕获发布异常后恢复两者。首次发布失败时移除已安装的模块目录。恢复再次遭遇文件系统错误时保留可用备份，并将恢复错误附加到原异常；该机制不保证进程崩溃或并发发布时的一致性。
 
 Command report cache 可以暂存源码和 comparison evidence；成功或失败后清理，不跨 command 复用。已发布报告只包含允许的冻结 projection。
 

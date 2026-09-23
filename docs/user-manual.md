@@ -117,7 +117,7 @@ Windows 应指向 `mvn.cmd`，例如
 1. 当前目录或 `--path` 指定目录位于 Git repository 内。
 2. 分析目录存在 readable root `pom.xml`。
 3. baseline ref 已存在于本地；工具不会 fetch。
-4. output parent directory 已存在且可写。
+4. output directory 可写，或能够在可写的父目录下创建；已存在普通文件会被拒绝。
 5. 已准备完整 JDK 8。
 
 示例输入：
@@ -125,7 +125,7 @@ Windows 应指向 `mvn.cmd`，例如
 - 分析路径：current directory
 - baseline：`release-1.2`
 - target：current checkout
-- output：`build/impact.html`
+- output：`build/impact`
 - JDK 8：`/opt/jdk8`
 
 ### 3.2 执行
@@ -135,7 +135,7 @@ java -jar /path/to/dependency-analyzer.jar impact \
   --java-home /opt/jdk8 \
   --path . \
   --baseline release-1.2 \
-  --output build/impact.html
+  --output build/impact
 ```
 
 `--target` 省略时分析 current checkout。显式提供 `--target` 时，baseline 和 target 都必须是 local ref。
@@ -158,14 +158,15 @@ exit code 为 `0` 时也必须检查 Overall status。`INCONCLUSIVE` 表示报�
 
 ```text
 build/
-├─ impact.html
-└─ impact-modules/
-   ├─ <module-base>.html
-   ├─ <module-base>-impact.html
-   └─ <module-base>-impact-data/
+└─ impact/
+   ├─ index.html
+   └─ modules/
+      ├─ <module-base>.html
+      ├─ <module-base>-impact.html
+      └─ <module-base>-impact-data/
 ```
 
-使用浏览器直接打开 `build/impact.html`。报告完全离线，可通过
+使用浏览器直接打开 `build/impact/index.html`。报告完全离线，可通过
 `file://` 使用。
 
 推荐阅读顺序：
@@ -244,7 +245,7 @@ java -jar /path/to/dependency-analyzer.jar impact \
   --path . \
   --baseline main \
   --target feature/dependency-upgrade \
-  --output build/impact.html
+  --output build/impact
 ```
 
 显式 target 在独立 detached workspace 中分析，不切换当前 checkout。两个 ref 都只在本地解析。
@@ -255,7 +256,7 @@ java -jar /path/to/dependency-analyzer.jar impact \
 java -jar /path/to/dependency-analyzer.jar impact \
   --java-home /opt/jdk8 \
   --baseline main \
-  --output build/impact.html \
+  --output build/impact \
   --dependency-include 'com.acme.payment:*' \
   --dependency-exclude 'com.acme.payment:*-internal'
 ```
@@ -269,7 +270,7 @@ include 取并集，exclude 始终优先。selector 只决定哪些
 java -jar /path/to/dependency-analyzer.jar impact \
   --java-home /opt/jdk8 \
   --baseline main \
-  --output build/impact.html \
+  --output build/impact \
   --entrypoint-include 'com/acme/payment/**' \
   --entrypoint-exclude 'com/acme/payment/generated/**'
 ```
@@ -285,7 +286,7 @@ exclude 优先。Relevant Module 没有匹配 class 时标记
 java -jar /path/to/dependency-analyzer.jar impact \
   --java-home /opt/jdk8 \
   --baseline main \
-  --output build/impact.html \
+  --output build/impact \
   --dependency-analysis-scope changed-paths
 ```
 
@@ -295,7 +296,7 @@ java -jar /path/to/dependency-analyzer.jar impact \
 java -jar /path/to/dependency-analyzer.jar impact \
   --java-home /opt/jdk8 \
   --baseline main \
-  --output build/impact-full.html \
+  --output build/impact-full \
   --dependency-analysis-scope full
 ```
 
@@ -310,7 +311,7 @@ java -jar /path/to/dependency-analyzer.jar impact \
 java -jar /path/to/dependency-analyzer.jar impact \
   --java-home /opt/jdk8 \
   --baseline main \
-  --output build/impact.html \
+  --output build/impact \
   --call-graph-algorithm cha
 ```
 
@@ -320,7 +321,7 @@ java -jar /path/to/dependency-analyzer.jar impact \
 java -jar /path/to/dependency-analyzer.jar impact \
   --java-home /opt/jdk8 \
   --baseline main \
-  --output build/impact-kobj.html \
+  --output build/impact-kobj \
   --call-graph-algorithm k-obj \
   --k-obj-depth 1 \
   --wala-reflection-options ONE_FLOW_TO_CASTS_APPLICATION_GET_METHOD
@@ -340,7 +341,7 @@ java -jar /path/to/dependency-analyzer.jar impact \
 java -jar /path/to/dependency-analyzer.jar -vv impact \
   --java-home /opt/jdk8 \
   --baseline main \
-  --output build/impact.html \
+  --output build/impact \
   --analysis-parallelism 4 \
   --call-graph-timeout-seconds 1800
 ```
@@ -368,7 +369,7 @@ java -jar /path/to/dependency-analyzer.jar \
   impact \
   --java-home /opt/jdk8 \
   --baseline main \
-  --output build/impact.html
+  --output build/impact
 ```
 
 `-s`、`--settings`、`-gs`、`--global-settings` 后的相对 path 以 target Git repository root 解析。
@@ -649,7 +650,7 @@ NONE
 
 ### 8.1 impact 报告
 
-`--output` 指向 Overall Index。每个非 `SKIPPED` Module 生成：
+`--output` 指向报告目录，Overall Index 位于其中的 `index.html`。每个非 `SKIPPED` Module 在 `modules/` 下生成：
 
 ```text
 <module-base>.html               Module Index

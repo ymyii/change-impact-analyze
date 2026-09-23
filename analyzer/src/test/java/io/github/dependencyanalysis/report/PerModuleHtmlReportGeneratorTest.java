@@ -133,13 +133,63 @@ class PerModuleHtmlReportGeneratorTest {
     private Path temporary;
 
     @Test
+    void restoresPreviousReportWhenIndexPublicationFails() throws Exception {
+        final Path output = temporary.resolve("rollback-report");
+        final Path modules = Files.createDirectories(output.resolve("modules"));
+        Files.writeString(modules.resolve("previous.html"), "previous module");
+        Files.writeString(output.resolve("index.html"), "previous index");
+        Files.writeString(output.resolve("notes.txt"), "user notes");
+        final Path staging = Files.createDirectories(
+                temporary.resolve("staging"));
+        Files.createDirectories(staging.resolve("modules"));
+        Files.writeString(staging.resolve("modules/new.html"), "new module");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                new PerModuleHtmlReportGenerator(new DiagnosticLog())
+                        .publish(staging, output, "modules"))
+                .isInstanceOf(java.io.IOException.class);
+
+        assertThat(output.resolve("index.html")).content()
+                .isEqualTo("previous index");
+        assertThat(modules.resolve("previous.html")).content()
+                .isEqualTo("previous module");
+        assertThat(modules.resolve("new.html")).doesNotExist();
+        assertThat(output.resolve("notes.txt")).content()
+                .isEqualTo("user notes");
+        try (Stream<Path> paths = Files.list(output)) {
+            assertThat(paths.map(path -> path.getFileName().toString())
+                    .toList())
+                    .containsExactlyInAnyOrder(
+                            "index.html", "modules", "notes.txt");
+        }
+    }
+
+    @Test
+    void failedFirstPublicationRemovesInstalledModules() throws Exception {
+        final Path output = Files.createDirectory(
+                temporary.resolve("new-report"));
+        final Path staging = Files.createDirectory(
+                temporary.resolve("staging"));
+        Files.createDirectory(staging.resolve("modules"));
+        Files.writeString(staging.resolve("modules/new.html"), "new module");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                new PerModuleHtmlReportGenerator(new DiagnosticLog())
+                        .publish(staging, output, "modules"))
+                .isInstanceOf(java.io.IOException.class);
+
+        assertThat(output.resolve("index.html")).doesNotExist();
+        assertThat(output.resolve("modules")).doesNotExist();
+    }
+
+    @Test
     void writesBoundariesAndReplacesOwnedModuleDirectory()
             throws Exception {
-        final Path output = temporary.resolve("impact.html");
-        final Path owned = temporary.resolve("impact-modules");
+        final Path output = temporary.resolve("impact-report");
+        final Path owned = output.resolve("modules");
         Files.createDirectories(owned);
         Files.writeString(owned.resolve("stale.html"), "stale");
-        Files.writeString(output, "old");
+        Files.writeString(output.resolve("index.html"), "old");
         final ModuleId moduleId = new ModuleId(new ArtifactCoord(
                 "example", "app", "jar", "1"), Path.of("app"));
         final ArtifactCoord oldArtifact = new ArtifactCoord(
@@ -205,7 +255,7 @@ class PerModuleHtmlReportGeneratorTest {
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
-        final String index = Files.readString(output);
+        final String index = Files.readString(output.resolve("index.html"));
         assertThat(index).contains("How to read this report")
                 .contains("Analysis scope and limitations")
                 .contains("Terminology")
@@ -269,7 +319,7 @@ class PerModuleHtmlReportGeneratorTest {
     @Test
     void keepsDenseChangedMemberTableBrowserResidentAndPageRendered()
             throws Exception {
-        final Path output = temporary.resolve("dense.html");
+        final Path output = temporary.resolve("dense-report");
         final ModuleId moduleId = new ModuleId(new ArtifactCoord(
                 "example", "app", "jar", "1"), Path.of("app"));
         final ArtifactCoord oldArtifact = new ArtifactCoord(
@@ -306,7 +356,7 @@ class PerModuleHtmlReportGeneratorTest {
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
-        final Path owned = temporary.resolve("dense-modules");
+        final Path owned = output.resolve("modules");
         final String moduleIndex;
         try (Stream<Path> pages = Files.list(owned)) {
             moduleIndex = Files.readString(pages
@@ -328,7 +378,7 @@ class PerModuleHtmlReportGeneratorTest {
     @Test
     void rendersImpactAndStructuralRowsWithoutPathLevelSsaDetails()
             throws Exception {
-        final Path output = temporary.resolve("filtered.html");
+        final Path output = temporary.resolve("filtered-report");
         final ModuleId moduleId = new ModuleId(new ArtifactCoord(
                 "example", "app", "jar", "1"), Path.of("app"));
         final ArtifactCoord oldArtifact = new ArtifactCoord(
@@ -455,7 +505,7 @@ class PerModuleHtmlReportGeneratorTest {
         assertNormalizedRelationCounts(report.shards());
         assertChangedMemberMetrics(report.moduleIndex());
         assertChaPruningDisclosure(report.moduleIndex());
-        final String overall = Files.readString(output);
+        final String overall = Files.readString(output.resolve("index.html"));
         assertThat(overall)
                 .contains("<th>Method body equivalence order</th><td>"
                         + "Decompiled Java first; normalized SSA on miss</td>")
@@ -529,7 +579,7 @@ class PerModuleHtmlReportGeneratorTest {
                 new PerModuleHtmlReportGenerator(log, TEST_SHARD_BYTES);
         reportGenerator.generate(run, new PreflightReport(List.of()),
                 maven(), plugin, java(), output);
-        final Path directory = temporary.resolve("filtered-modules");
+        final Path directory = output.resolve("modules");
         final List<Path> pages;
         try (Stream<Path> files = Files.list(directory)) {
             pages = files.filter(Files::isRegularFile).toList();
@@ -670,7 +720,7 @@ class PerModuleHtmlReportGeneratorTest {
     @Test
     void rendersScopeValidationWarningAsInconclusiveLimitation()
             throws Exception {
-        final Path output = temporary.resolve("scope-warning.html");
+        final Path output = temporary.resolve("scope-warning-report");
         final ModuleId moduleId = new ModuleId(new ArtifactCoord(
                 "example", "app", "jar", "1"), Path.of("app"));
         final ArtifactCoord artifact = new ArtifactCoord(
@@ -706,10 +756,10 @@ class PerModuleHtmlReportGeneratorTest {
                 new PreflightReport(List.of()),
                 maven(), plugin, java(), output);
 
-        assertThat(output).content()
+        assertThat(output.resolve("index.html")).content()
                 .contains("Completed with coverage limitations")
                 .contains("Analysis completed with coverage limitations");
-        final Path owned = temporary.resolve("scope-warning-modules");
+        final Path owned = output.resolve("modules");
         final String index;
         try (Stream<Path> pages = Files.list(owned)) {
             index = Files.readString(pages
@@ -739,7 +789,7 @@ class PerModuleHtmlReportGeneratorTest {
     @Test
     void reportsDuplicateWinnerAndShadowedChangeWithoutImpactPath()
             throws Exception {
-        final Path output = temporary.resolve("duplicate.html");
+        final Path output = temporary.resolve("duplicate-report");
         final Path winner = temporary.resolve("winner-<unsafe>");
         final Path shadowed = temporary.resolve("secret-shadowed.jar");
         writeClass(winner, "sample/Duplicate.class", new byte[]{1});
@@ -787,12 +837,12 @@ class PerModuleHtmlReportGeneratorTest {
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
-        assertThat(output).content()
+        assertThat(output.resolve("index.html")).content()
                 .contains("Class conflicts</th><td>1")
                 .contains("High-risk class conflicts</th><td>1")
                 .contains("Shadowed dependency changes</th><td>1")
                 .contains("Completed");
-        final Path owned = temporary.resolve("duplicate-modules");
+        final Path owned = output.resolve("modules");
         final String index;
         try (Stream<Path> pages = Files.list(owned)) {
             final List<Path> values = pages.filter(Files::isRegularFile)
@@ -820,7 +870,7 @@ class PerModuleHtmlReportGeneratorTest {
 
     @Test
     void rendersDefaultChaAlgorithmAndTerminology() {
-        final Path output = temporary.resolve("cha.html");
+        final Path output = temporary.resolve("cha-report");
         final AnalysisRunResult run = new AnalysisRunResult(
                 AnalysisMode.REACTOR, AnalysisStatus.SUCCESS, List.of(),
                 List.of(), new AnalysisConcurrency(1, 0, 0, 0),
@@ -834,7 +884,7 @@ class PerModuleHtmlReportGeneratorTest {
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
-        assertThat(output).content()
+        assertThat(output.resolve("index.html")).content()
                 .contains("<th>Algorithm</th><td>cha</td>")
                 .contains("<th>WALA ReflectionOptions</th><td>"
                         + "not applied by cha (configured: "
@@ -848,7 +898,7 @@ class PerModuleHtmlReportGeneratorTest {
 
     @Test
     void rendersKObjAlgorithmDepthAndTerminology() {
-        final Path output = temporary.resolve("k-obj.html");
+        final Path output = temporary.resolve("k-obj-report");
         final AnalysisRunResult run = new AnalysisRunResult(
                 AnalysisMode.REACTOR, AnalysisStatus.SUCCESS, List.of(),
                 List.of(), new AnalysisConcurrency(1, 0, 0, 0),
@@ -867,7 +917,7 @@ class PerModuleHtmlReportGeneratorTest {
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
-        assertThat(output).content()
+        assertThat(output.resolve("index.html")).content()
                 .contains("<th>Algorithm</th><td>k-obj (experimental)</td>")
                 .contains("<th>k-object depth</th><td>2</td>")
                 .contains("k-Object")
@@ -879,7 +929,7 @@ class PerModuleHtmlReportGeneratorTest {
     @Test
     void rendersAccessRemainsValidWithoutAffectedCallChain()
             throws Exception {
-        final Path output = temporary.resolve("access-valid.html");
+        final Path output = temporary.resolve("access-valid-report");
         final ModuleId moduleId = new ModuleId(new ArtifactCoord(
                 "example", "app", "jar", "1"), Path.of("app"));
         final ArtifactCoord oldArtifact = new ArtifactCoord(
@@ -936,7 +986,7 @@ class PerModuleHtmlReportGeneratorTest {
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
-        final Path owned = temporary.resolve("access-valid-modules");
+        final Path owned = output.resolve("modules");
         final String impact;
         try (Stream<Path> pages = Files.list(owned)) {
             final List<Path> values = pages.filter(Files::isRegularFile)
@@ -959,7 +1009,7 @@ class PerModuleHtmlReportGeneratorTest {
     @Test
     void rendersPotentialAccessAsPotentialInAffectedCallChain()
             throws Exception {
-        final Path output = temporary.resolve("access-potential.html");
+        final Path output = temporary.resolve("access-potential-report");
         final ModuleId moduleId = new ModuleId(new ArtifactCoord(
                 "example", "app", "jar", "1"), Path.of("app"));
         final ArtifactCoord oldArtifact = new ArtifactCoord(
@@ -1021,7 +1071,7 @@ class PerModuleHtmlReportGeneratorTest {
                 new PreflightReport(List.of()), maven(), plugin,
                 java(), output);
 
-        final Path owned = temporary.resolve("access-potential-modules");
+        final Path owned = output.resolve("modules");
         final String impact;
         try (Stream<Path> pages = Files.list(owned)) {
             impact = Files.readString(pages

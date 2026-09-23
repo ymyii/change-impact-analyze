@@ -93,10 +93,10 @@ public final class ImpactCommand
                     + " Defaults to current checkout.")
     private String target;
 
-    /** Output report file. */
+    /** Output report directory. */
     @Option(names = {"-o", "--output"},
             required = true,
-            description = "Output report file.")
+            description = "HTML report output directory.")
     private File output;
 
     /** Optional read-only Call Graph benchmark diagnostics JSON. */

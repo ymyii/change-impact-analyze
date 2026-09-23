@@ -54,6 +54,7 @@ import io.github.dependencyanalysis.runtime.MavenVersion;
 
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -87,8 +88,9 @@ class ReportBrowserFixtureIT {
                 .toAbsolutePath().normalize();
         final Path fixtureRoot = projectRoot.resolve(
                 "target/playwright-report-fixture");
-        final Path output = fixtureRoot.resolve("impact.html");
+        final Path output = fixtureRoot.resolve("impact");
         Files.createDirectories(fixtureRoot);
+        deleteTree(output);
 
         final AnalysisRunResult run = browserRun(projectRoot);
         final Path runtimeRoot = projectRoot.resolve(
@@ -103,8 +105,8 @@ class ReportBrowserFixtureIT {
                             javaRuntime(projectRoot), output);
         }
 
-        final Path moduleDirectory = fixtureRoot.resolve("impact-modules");
-        assertThat(output).isRegularFile();
+        final Path moduleDirectory = output.resolve("modules");
+        assertThat(output.resolve("index.html")).isRegularFile();
         assertThat(moduleDirectory).isDirectory();
         try (Stream<Path> pages = Files.list(moduleDirectory)) {
             assertThat(pages.filter(Files::isRegularFile).toList())
@@ -114,6 +116,18 @@ class ReportBrowserFixtureIT {
             assertThat(shards.filter(Files::isRegularFile)
                     .filter(path -> path.getFileName().toString()
                             .endsWith(".js")).count()).isGreaterThan(8L);
+        }
+    }
+
+    private void deleteTree(final Path root) throws IOException {
+        if (!Files.exists(root)) {
+            return;
+        }
+        try (Stream<Path> paths = Files.walk(root)) {
+            for (Path path : paths.sorted(java.util.Comparator.reverseOrder())
+                    .toList()) {
+                Files.deleteIfExists(path);
+            }
         }
     }
 

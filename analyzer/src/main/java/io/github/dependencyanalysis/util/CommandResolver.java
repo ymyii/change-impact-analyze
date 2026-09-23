@@ -2,13 +2,14 @@ package io.github.dependencyanalysis.util;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 // Wiki: wiki/rules/process-command-resolution.md - 跨平台命令规则
 /**
  * Resolves command lists for the
  * current operating system.
- * On Windows wraps with cmd.exe /c
- * to enable PATHEXT resolution.
+ * On Windows uses native executables directly
+ * and wraps command scripts with cmd.exe.
  */
 public final class CommandResolver {
 
@@ -27,12 +28,58 @@ public final class CommandResolver {
         if (!isWindows()) {
             return cmd;
         }
+        if (cmd.isEmpty()) {
+            return cmd;
+        }
+        final String executable = cmd.get(0);
+        if (isNativeExecutable(executable)) {
+            final List<String> nativeCommand = new ArrayList<>(cmd);
+            if (executable.equalsIgnoreCase("git")) {
+                nativeCommand.set(0, "git.exe");
+            }
+            return nativeCommand;
+        }
         final List<String> wrapped =
                 new ArrayList<>();
         wrapped.add("cmd.exe");
+        wrapped.add("/d");
+        wrapped.add("/v:off");
         wrapped.add("/c");
-        wrapped.addAll(cmd);
+        for (String token : cmd) {
+            wrapped.add(escapeCmdToken(token));
+        }
         return wrapped;
+    }
+
+    private static boolean isNativeExecutable(
+            final String executable) {
+        final String normalized = executable
+                .replace('\\', '/')
+                .toLowerCase(Locale.ROOT);
+        final int slash = normalized.lastIndexOf('/');
+        final String name = slash >= 0
+                ? normalized.substring(slash + 1) : normalized;
+        return name.equals("git")
+                || name.equals("git.exe")
+                || name.equals("java")
+                || name.equals("java.exe")
+                || name.endsWith(".exe");
+    }
+
+    private static String escapeCmdToken(
+            final String token) {
+        final StringBuilder escaped = new StringBuilder();
+        for (int i = 0; i < token.length(); i++) {
+            final char value = token.charAt(i);
+            if (value == '^' || value == '&' || value == '|'
+                    || value == '<' || value == '>'
+                    || value == '(' || value == ')'
+                    || value == '%') {
+                escaped.append('^');
+            }
+            escaped.append(value);
+        }
+        return escaped.toString();
     }
 
     /**

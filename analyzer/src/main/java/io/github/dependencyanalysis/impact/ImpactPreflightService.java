@@ -8,6 +8,7 @@ import io.github.dependencyanalysis.cli
         .MavenArguments;
 import io.github.dependencyanalysis.cli
         .DependencyAnalyzerCli;
+import io.github.dependencyanalysis.cli.OutputDirectory;
 import io.github.dependencyanalysis.diagnostic
         .DiagnosticContext;
 import io.github.dependencyanalysis.diagnostic
@@ -279,24 +280,7 @@ final class ImpactPreflightService {
     }
 
     private PreflightOutcome checkOutput() {
-        final Path value = output.toPath()
-                .toAbsolutePath().normalize();
-        if (Files.isDirectory(value)) {
-            return PreflightOutcome.fail(
-                    "Output path is a directory",
-                    value.toString(), "");
-        }
-        final Path parent = value.getParent();
-        if (parent == null
-                || !Files.isDirectory(parent)
-                || !Files.isWritable(parent)) {
-            return PreflightOutcome.fail(
-                    "Output parent is not writable",
-                    value.toString(), "");
-        }
-        return PreflightOutcome.pass(
-                "Output path is writable",
-                value.toString());
+        return OutputDirectory.validate(output.toPath());
     }
 
     private PreflightOutcome prepareRuntime(

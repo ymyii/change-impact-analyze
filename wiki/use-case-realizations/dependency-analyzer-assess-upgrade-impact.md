@@ -26,11 +26,11 @@ type: use-case-realization
 - 分析路径位于本地 Git repository，且直接包含可读的 `pom.xml`。
 - Baseline 可解析为本地 commit；显式 target 同样可解析，未指定 target 时使用 current workspace。
 - Analyzer 使用 Java 17 启动，`--java-home` 指向包含 `java`、`javac` 与 `rt.jar` 的完整 JDK 8。
-- Maven runtime、依赖来源与可写 output parent 可用。
+- Maven runtime、依赖来源与可写 output directory 可用。
 
 ## Trigger
 
-Software Developer 执行 `dependency-analyzer impact`，并指定 baseline 与 output。
+Software Developer 执行 `dependency-analyzer impact`，并指定 baseline 与 output directory。
 
 ## Main Success Scenario
 
@@ -39,7 +39,7 @@ Software Developer 执行 `dependency-analyzer impact`，并指定 baseline 与 
 3. [Maven Runtime](../c4/components/dependency-analyzer-cli-maven-runtime.md) 编译 target，并通过 [Dependency Evidence Plugin](../c4/containers/dependency-analyzer-evidence-plugin.md) 采集两侧依赖证据。
 4. [Impact Tracing](../c4/components/dependency-analyzer-cli-impact-tracing.md) 选择版本变化的 artifact pair，把有效的 [Change Point](../glossary/change-point.md) 与结构证据绑定到 target Call Graph，并生成 Module results。
 5. [Report Publication](../c4/components/dependency-analyzer-cli-report-publication.md) 原子发布 [Offline Report](../c4/containers/dependency-analyzer-offline-report.md)，保留状态、限制和 affected paths。
-6. Software Developer 在本地浏览器打开报告并解释结果边界。
+6. Software Developer 在 output directory 的 `index.html` 打开报告并解释结果边界；Module 页面和 `*-impact-data` 辅助文件位于同一目录的 `modules/` 下。
 
 ## Alternative Flows
 

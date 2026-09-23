@@ -19,6 +19,7 @@ Command Control 管理公共命令、分析前检查与诊断生命周期，将�
 ## Responsibilities
 
 - 在分析副作用前验证 option 组合、filesystem、Git、JDK、Maven 与 output contract。
+- 由公共 output directory 校验统一 Impact 与 Tree 的路径规范化、目录创建前检查和普通文件拒绝语义。
 - 以稳定 Stage、substage 和 identity 输出低成本 Diagnostic，并按 verbosity 控制高成本 evidence。
 - 将 handled Module failure 与 command-level failure 分离。
 
