@@ -1,6 +1,7 @@
 package io.github.dependencyanalysis.runtime;
 
 import java.io.IOException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
@@ -12,11 +13,26 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
+import java.security.SecureRandom;
 import java.util.stream.Stream;
 
 /** Owns one isolated command workspace and temporary directory. */
 public final class CommandRunDirectory implements AutoCloseable {
+
+    /** Number of run identifier allocation attempts. */
+    private static final int MAX_ALLOCATION_ATTEMPTS = 100;
+
+    /** Number of random bytes in a run identifier. */
+    private static final int RUN_ID_BYTES = 6;
+
+    /** Mask for unsigned byte formatting. */
+    private static final int BYTE_MASK = 0xff;
+
+    /** Run identifier character count. */
+    private static final int RUN_ID_LENGTH = 12;
+
+    /** Run identifier source. */
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     /** Owner marker filename. */
     private static final String OWNER_MARKER = ".owner";
@@ -68,39 +84,76 @@ public final class CommandRunDirectory implements AutoCloseable {
         final Path config = Objects.requireNonNull(
                 configDirectory, "configDirectory")
                 .toAbsolutePath().normalize();
-        runId = UUID.randomUUID().toString();
         workspacesRoot = config.resolve(command)
-                .resolve("workspaces");
+                .resolve("ws");
         temporaryRoot = config.resolve(command)
                 .resolve("tmp");
-        workspaceDirectory = workspacesRoot.resolve(runId);
-        temporaryDirectory = temporaryRoot.resolve(runId);
-        lockPath = config.resolve("locks")
-                .resolve(command + "-" + runId + ".lock");
         FileChannel preparedChannel = null;
         FileLock preparedLock = null;
+        Path preparedWorkspace = null;
+        Path preparedTemporary = null;
+        Path preparedLockPath = null;
+        String preparedRunId = null;
+        IOException failure = null;
         try {
             Files.createDirectories(workspacesRoot);
             Files.createDirectories(temporaryRoot);
-            Files.createDirectories(lockPath.getParent());
+            Files.createDirectories(config.resolve("locks"));
             recoverStaleRuns(config);
-            preparedChannel = FileChannel.open(lockPath,
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.WRITE);
-            preparedLock = preparedChannel.lock();
-            Files.createDirectories(workspaceDirectory);
-            Files.createDirectories(temporaryDirectory);
-            writeOwner(workspaceDirectory);
-            writeOwner(temporaryDirectory);
+            for (int attempt = 0; attempt < MAX_ALLOCATION_ATTEMPTS;
+                    attempt++) {
+                final String candidate = newRunId();
+                final Path candidateLock = config.resolve("locks")
+                        .resolve(command + "-" + candidate + ".lock");
+                try {
+                    preparedChannel = FileChannel.open(candidateLock,
+                            StandardOpenOption.CREATE_NEW,
+                            StandardOpenOption.WRITE);
+                    preparedLock = preparedChannel.lock();
+                    preparedWorkspace = workspacesRoot.resolve(candidate);
+                    preparedTemporary = temporaryRoot.resolve(candidate);
+                    Files.createDirectory(preparedWorkspace);
+                    Files.createDirectory(preparedTemporary);
+                    writeOwner(preparedWorkspace, candidate);
+                    writeOwner(preparedTemporary, candidate);
+                    preparedLockPath = candidateLock;
+                    preparedRunId = candidate;
+                    break;
+                } catch (FileAlreadyExistsException collision) {
+                    closeQuietly(preparedLock, preparedChannel);
+                    if (preparedWorkspace != null) {
+                        deleteOwned(preparedWorkspace, candidate);
+                    }
+                    if (preparedTemporary != null) {
+                        deleteOwned(preparedTemporary, candidate);
+                    }
+                    Files.deleteIfExists(candidateLock);
+                    preparedLock = null;
+                    preparedChannel = null;
+                    preparedWorkspace = null;
+                    preparedTemporary = null;
+                }
+            }
+            if (preparedRunId == null) {
+                throw new IOException(
+                        "Unable to allocate a unique run identifier after "
+                                + MAX_ALLOCATION_ATTEMPTS + " attempts");
+            }
         } catch (IOException exception) {
-            cleanupFailedPreparation(
-                    preparedLock, preparedChannel,
-                    exception);
-            throw new MavenRuntimeException(
-                    "Unable to prepare " + command
-                            + " run directory",
-                    exception);
+            failure = exception;
         }
+        if (failure != null) {
+            cleanupFailedPreparation(preparedLock, preparedChannel,
+                    preparedWorkspace, preparedTemporary, preparedLockPath,
+                    failure);
+            throw new MavenRuntimeException(
+                    "Unable to prepare " + command + " run directory",
+                    failure);
+        }
+        runId = preparedRunId;
+        workspaceDirectory = preparedWorkspace;
+        temporaryDirectory = preparedTemporary;
+        lockPath = preparedLockPath;
         lockChannel = preparedChannel;
         lock = preparedLock;
     }
@@ -108,6 +161,9 @@ public final class CommandRunDirectory implements AutoCloseable {
     private void cleanupFailedPreparation(
             final FileLock preparedLock,
             final FileChannel preparedChannel,
+            final Path preparedWorkspace,
+            final Path preparedTemporary,
+            final Path preparedLockPath,
             final IOException failure) {
         if (preparedLock != null) {
             try {
@@ -124,11 +180,54 @@ public final class CommandRunDirectory implements AutoCloseable {
             }
         }
         try {
-            deleteOwned(workspaceDirectory, runId);
-            deleteOwned(temporaryDirectory, runId);
-            Files.deleteIfExists(lockPath);
+            if (preparedWorkspace != null
+                    && preparedRunId(preparedWorkspace) != null) {
+                deleteOwned(preparedWorkspace,
+                        preparedRunId(preparedWorkspace));
+            }
+            if (preparedTemporary != null
+                    && preparedRunId(preparedTemporary) != null) {
+                deleteOwned(preparedTemporary,
+                        preparedRunId(preparedTemporary));
+            }
+            if (preparedLockPath != null) {
+                Files.deleteIfExists(preparedLockPath);
+            }
         } catch (IOException exception) {
             failure.addSuppressed(exception);
+        }
+    }
+
+    private String preparedRunId(final Path path) {
+        return path.getFileName() == null
+                ? null : path.getFileName().toString();
+    }
+
+    private static String newRunId() {
+        final byte[] bytes = new byte[RUN_ID_BYTES];
+        RANDOM.nextBytes(bytes);
+        final StringBuilder value = new StringBuilder(RUN_ID_LENGTH);
+        for (byte item : bytes) {
+            value.append(String.format("%02x", item & BYTE_MASK));
+        }
+        return value.toString();
+    }
+
+    private static void closeQuietly(final FileLock fileLock,
+            final FileChannel channel) {
+        try {
+            if (fileLock != null) {
+                fileLock.release();
+            }
+        } catch (IOException ignored) {
+            // Best effort after an allocation collision.
+        }
+        try {
+            if (channel != null) {
+                channel.close();
+            }
+        } catch (IOException ignored) {
+            // Best effort after an allocation collision.
         }
     }
 
@@ -195,10 +294,10 @@ public final class CommandRunDirectory implements AutoCloseable {
         Files.deleteIfExists(candidateLock);
     }
 
-    private void writeOwner(final Path directory)
+    private void writeOwner(final Path directory, final String identifier)
             throws IOException {
         Files.writeString(directory.resolve(OWNER_MARKER),
-                ownerValue(runId), StandardCharsets.UTF_8,
+                ownerValue(identifier), StandardCharsets.UTF_8,
                 StandardOpenOption.CREATE_NEW);
     }
 
@@ -234,7 +333,7 @@ public final class CommandRunDirectory implements AutoCloseable {
         }
     }
 
-    /** @return UUID run identifier */
+    /** @return 12-character hexadecimal run identifier */
     public String getRunId() {
         return runId;
     }

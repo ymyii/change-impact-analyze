@@ -28,10 +28,6 @@ public final class WorkspaceManager
     private static final String STAGE =
             "workspace";
 
-    /** Worktree directory name. */
-    private static final String WT_NAME =
-            "worktree";
-
     /** Project root directory. */
     private final Path projectDir;
 
@@ -77,7 +73,7 @@ public final class WorkspaceManager
      *
      * @param project project root directory
      * @param diagnostics diagnostic collector
-     * @param runRoot command workspaces/run-id directory
+     * @param runRoot command ws/run-id directory
      */
     public WorkspaceManager(
             final Path project,
@@ -227,8 +223,7 @@ public final class WorkspaceManager
 
         final Path baseParent =
                 createParent("baseline");
-        final Path baseWt =
-                baseParent.resolve(WT_NAME);
+        final Path baseWt = baseParent;
         createWorktree(
                 baseWt,
                 baseCommit,
@@ -281,8 +276,7 @@ public final class WorkspaceManager
 
         final Path targetParent =
                 createParent("target");
-        final Path targetWt =
-                targetParent.resolve(WT_NAME);
+        final Path targetWt = targetParent;
         try {
             createWorktree(
                     targetWt,
@@ -412,7 +406,9 @@ public final class WorkspaceManager
             if (workspaceRunRoot == null) {
                 dir = Files.createTempDirectory("cia-ws-");
             } else {
-                dir = workspaceRunRoot.resolve(side);
+                final String shortSide = "baseline".equals(side)
+                        ? "b" : "t";
+                dir = workspaceRunRoot.resolve(shortSide);
                 Files.createDirectories(dir);
             }
             tempParents.add(dir);
@@ -434,8 +430,7 @@ public final class WorkspaceManager
 
     private void cleanupOne(
             final Path parent) {
-        final Path wt =
-                parent.resolve(WT_NAME);
+        final Path wt = parent;
         if (Files.exists(wt)) {
             try {
                 runner.run("worktree", "remove",

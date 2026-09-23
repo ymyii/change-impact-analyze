@@ -61,7 +61,7 @@ public final class GitSnapshotProvider {
      *
      * @param repository user repository path
      * @param ref local ref, nullable
-     * @param workspaceDirectory workspaces/run-id directory
+     * @param workspaceDirectory command ws/run-id directory
      * @return owned snapshot
      * @throws IOException on Git or IO failure
      * @throws InterruptedException when interrupted
@@ -113,8 +113,7 @@ public final class GitSnapshotProvider {
             worktree = Files.createTempDirectory(
                     "dependency-analyzer-ref-");
         } else {
-            worktree = workspaceDirectory
-                    .resolve("worktree");
+            worktree = workspaceDirectory;
             Files.createDirectories(
                     workspaceDirectory);
         }
@@ -149,6 +148,8 @@ public final class GitSnapshotProvider {
         final List<String> command =
                 new ArrayList<>();
         command.add("git");
+        command.add("-c");
+        command.add("core.longpaths=true");
         command.addAll(List.of(arguments));
         final ProcessBuilder builder = new ProcessBuilder(
                 CommandResolver.resolve(command)).directory(directory.toFile());

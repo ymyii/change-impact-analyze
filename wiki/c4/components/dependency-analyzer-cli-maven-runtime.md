@@ -47,6 +47,8 @@ classDiagram
     MavenExecutor ..> MavenRuntimeDescriptor : 读取执行环境
 ```
 
+默认配置目录为用户目录下的 `.da`；显式 `--config-dir` 仍可指定完整路径。
+
 默认使用 Maven 原生日志级别；程序 `DEBUG` 与 `TRACE` 均映射为 Maven `-X`。用户显式传入的 `-X`、`--debug`、`-e`、`--errors` 保持有效并去重，不额外强制开启错误详情。
 
 版本探测 stdout 作为返回数据供版本与运行环境解析；构建日志逐行转发，不缓存尾部或重放。规则见[运行证据规则](../../rules/operational-evidence-design.md)。

@@ -101,7 +101,7 @@ Windows 应指向 `mvn.cmd`，例如
 默认 config dir 为：
 
 ```text
-<user-home>/.dependency-analyzer/
+<user-home>/.da/
 ```
 
 其中保存内嵌 Maven、Plugin runtime、command workspace、temporary evidence 和 lock。每次 command 使用独立 run，正常或异常关闭只清理当前 run。工具不会自动删除 config dir 中的未知文件或用户文件。
@@ -473,7 +473,7 @@ Global options 可放在 subcommand 前或后。
 | `-V` | `--version` | No | — | No | 显示 Analyzer version 并退出。 |
 | `-m` | `--maven <executable>` | No | 内嵌 Maven 3.6.3 | No | 指定 Maven executable；支持 `3.6.3 <= version < 4.0.0`。 |
 | `-j` | `--java-home <jdk-home>` | `impact` Yes | — | No | Maven subprocess 的 `JAVA_HOME`；`impact` 要求完整 JDK 8。 |
-| `-c` | `--config-dir <dir>` | No | `<user-home>/.dependency-analyzer/` | No | 覆盖完整 Analyzer config dir。 |
+| `-c` | `--config-dir <dir>` | No | `<user-home>/.da/` | No | 覆盖完整 Analyzer config dir。 |
 | `-a` | `--maven-arg=<token>` | No | 空 | Yes | 传入一个 Maven option 或 property token。 |
 | `-v` | `--verbose` | No | `INFO` | Yes | `-v` 为 `DEBUG`，`-vv` 为 `TRACE`。 |
 

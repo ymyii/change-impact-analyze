@@ -46,7 +46,7 @@ public final class MavenRuntimeManager {
     /** @return default complete config directory */
     public static Path defaultConfigDir() {
         return Path.of(System.getProperty("user.home"),
-                ".dependency-analyzer");
+                ".da");
     }
 
     /**

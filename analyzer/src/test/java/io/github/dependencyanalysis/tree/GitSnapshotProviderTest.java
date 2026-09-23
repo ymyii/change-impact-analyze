@@ -79,17 +79,16 @@ class GitSnapshotProviderTest {
         git("add", ".");
         git("commit", "-m", "initial");
         final Path commandWorkspace = repository
-                .getParent().resolve("config/tree/workspaces/run-id");
+                .getParent().resolve("config/tree/ws/run-id");
 
         try (RepositorySnapshot snapshot =
                      new GitSnapshotProvider().open(
                              repository, "HEAD",
                              commandWorkspace)) {
             assertThat(snapshot.getRoot())
-                    .isEqualTo(commandWorkspace
-                            .resolve("worktree"));
+                    .isEqualTo(commandWorkspace);
         }
-        assertThat(commandWorkspace.resolve("worktree"))
+        assertThat(commandWorkspace)
                 .doesNotExist();
     }
 

@@ -20,7 +20,7 @@ flowchart LR
     planner["ModuleScopePlanner"] --> inventory
 ```
 
-快照所有者位于 `analyzer/src/main/java/io/github/dependencyanalysis/workspace/WorkspaceManager.java`。它登记自身创建的临时目录，通过 `GitCommandRunner` 创建 detached worktree；`WorkspaceSideInfo` 保存路径、commit 和 dirty 信息。target 缺省时引用当前工作区，显式 ref 则创建隔离快照。
+快照所有者位于 `analyzer/src/main/java/io/github/dependencyanalysis/workspace/WorkspaceManager.java`。它登记自身创建的临时目录，通过 `GitCommandRunner` 创建 detached worktree，并为每次 Git 调用设置 `core.longpaths=true`；`WorkspaceSideInfo` 保存路径、commit 和 dirty 信息。target 缺省时引用当前工作区，显式 ref 则创建隔离快照。
 
 `reactor/ReactorInventoryBuilder` 根据入口 POM、激活条件与祖先聚合项目计算[受限 Maven 范围（Bounded Maven Scope）](../../glossary/bounded-maven-scope.md)，`SafePomParser` 提供安全的声明读取。模块集合由 Maven 归属决定，不能把整个 Git repository 当作一个 reactor。
 
@@ -29,6 +29,8 @@ flowchart LR
 ## State and Data
 
 `prepare(...)` 失败时尝试清理已创建的临时 worktree。`close()` 可重复调用，按登记集合清理 worktree 及临时 parent；清理失败记录诊断，不能保证磁盘资源必然删除。
+
+命令运行目录使用短路径布局：`<config>/<command>/ws/<12位标识>/b` 和 `/t` 分别保存 baseline 与 target；临时证据使用同一运行标识的 `tmp` 目录。
 
 当前工作区不属于临时清理集合。关闭后已复制的 commit、dirty 信息可用于报告，但临时 worktree 路径不能再作为有效分析输入。
 

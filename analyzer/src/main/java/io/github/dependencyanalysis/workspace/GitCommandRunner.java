@@ -42,6 +42,8 @@ final class GitCommandRunner {
             throws IOException, InterruptedException {
         final List<String> command = new ArrayList<>();
         command.add("git");
+        command.add("-c");
+        command.add("core.longpaths=true");
         command.addAll(Arrays.asList(args));
         final ProcessBuilder builder = new ProcessBuilder(
                 CommandResolver.resolve(command)).directory(workDir.toFile());

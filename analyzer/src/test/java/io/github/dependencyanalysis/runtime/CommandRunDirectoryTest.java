@@ -26,11 +26,13 @@ class CommandRunDirectoryTest {
         final Path temporary;
         try (CommandRunDirectory run =
                      new CommandRunDirectory(config, "impact")) {
+            assertThat(run.getRunId())
+                    .matches("[0-9a-f]{12}");
             workspace = run.getWorkspaceDirectory();
             temporary = run.getTemporaryDirectory();
             assertThat(workspace.getParent())
                     .isEqualTo(config.resolve(
-                            "impact/workspaces"));
+                            "impact/ws"));
             assertThat(temporary.getParent())
                     .isEqualTo(config.resolve("impact/tmp"));
             assertThat(config.resolve("runtime"))
@@ -60,9 +62,9 @@ class CommandRunDirectoryTest {
 
     @Test
     void recoversOwnedUnlockedStaleRun() throws Exception {
-        final String staleId = "00000000-0000-0000-0000-000000000001";
+        final String staleId = "000000000001";
         final Path workspace = config.resolve(
-                "impact/workspaces").resolve(staleId);
+                "impact/ws").resolve(staleId);
         final Path temporary = config.resolve(
                 "impact/tmp").resolve(staleId);
         Files.createDirectories(workspace);
@@ -81,7 +83,7 @@ class CommandRunDirectoryTest {
     @Test
     void preservesDirectoryWithoutValidOwnerMarker() throws Exception {
         final Path foreign = config.resolve(
-                "tree/workspaces/foreign");
+                "tree/ws/foreign");
         Files.createDirectories(foreign);
         Files.writeString(foreign.resolve(".owner"), "someone-else");
 
